@@ -7,9 +7,11 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { NewEvent } from '@software-factory/events';
+import { publicView } from '@software-factory/events/public';
 import { validate } from '@software-factory/events/schemas';
 import type { Sql } from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { REPORT_TEXT } from '../../../policy/triage.ts';
 import { DiskArtifacts } from '../src/artifacts.ts';
 import { EventWriter, readFull, readPublic } from '../src/events.ts';
 import { forgetReports } from '../src/reports.ts';
@@ -76,34 +78,48 @@ async function stored(sql: Sql) {
   return new Map(rows.map((row) => [`${row.work_item} ${row.type}`, row]));
 }
 
-/** The store's own clock, between two appends. */
-const storeNow = async (sql: Sql) =>
-  ((await sql<{ now: Date }[]>`select clock_timestamp() as now`)[0] as { now: Date }).now;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const daysAgo = (days: number) => new Date(Date.now() - days * DAY_MS);
+
+/**
+ * Appends checked events as the store took them `days` ago, as only the owner may: an appender cannot set when the
+ * store took an event, and nothing may change it after.
+ */
+async function appendedAgo(db: Database, events: NewEvent[], days: number) {
+  for (const event of events) expect(validate(event), event.type).toEqual({ ok: true });
+  const at = daysAgo(days);
+  for (const event of events) {
+    await db.owner`
+      insert into events (id, ts, work_item, type, version, actor, summary, payload, artifacts, public, sample,
+                          appended_at)
+      values (${event.id}, ${event.ts}, ${event.work_item}, ${event.type}, ${event.version}, ${event.actor},
+              ${event.summary}, ${db.owner.json(event.payload as never)}, ${db.owner.json(event.artifacts as never)},
+              ${db.owner.json(publicView(event.type, event) as never)}, false, ${at})`;
+  }
+}
 
 describe('forgetting reports', () => {
   let db: Database;
   let triage: Sql;
   let before: Map<string, { payload: unknown; public: unknown }>;
-  let cut: Date;
+  /** As late a cut as a caller could ask for: the store takes it as 29 days ago. */
+  const cut = new Date(Date.now() + 365 * DAY_MS);
   const inbox: Record<string, string> = {};
 
   beforeAll(async () => {
     db = await freshDatabase('reports');
     triage = db.as.triage;
-    const writer = new EventWriter(triage, { kind: 'real', artifacts });
-    await writer.append(judged('1000', 'report', 'The price says £0, my email is [email]'));
-    await writer.append(judged('1001', 'planner', 'The footer links to a page that is not there'));
-    cut = await storeNow(db.owner);
-    await writer.append(judged('1002', 'report', 'The basket forgets what I put in it'));
+    await appendedAgo(db, judged('1000', 'report', 'The price says £0, my email is [email]'), 30);
+    await appendedAgo(db, judged('1001', 'planner', 'The footer links to a page that is not there'), 30);
+    await appendedAgo(db, judged('1002', 'report', 'The basket forgets what I put in it'), 28);
     before = await stored(db.owner);
 
-    const days = (n: number) => new Date(cut.getTime() - n * 24 * 60 * 60 * 1000);
     const rows = [
-      ['old report', 'report', days(1), 'report'],
-      ['old report, never triaged', 'report', days(1), null],
-      ['new report', 'report', new Date(cut.getTime() + 1000), 'report'],
-      ['old finding', 'planner', days(1), 'finding'],
-      ['old repeat', 'crawler', days(1), 'opened'],
+      ['old report', 'report', daysAgo(30), 'report'],
+      ['old report, never triaged', 'report', daysAgo(30), null],
+      ['new report', 'report', daysAgo(28), 'report'],
+      ['old finding', 'planner', daysAgo(30), 'finding'],
+      ['old repeat', 'crawler', daysAgo(30), 'opened'],
     ] as const;
     for (const [name, sense, at, outcome] of rows) {
       const id = crypto.randomUUID();
@@ -118,7 +134,13 @@ describe('forgetting reports', () => {
 
   afterAll(() => db?.end());
 
-  it('takes the text out of each report that reached the store before then, and of Jev’s judgements of it', async () => {
+  it('forgets nothing that reached the store after the cut it is given', async () => {
+    expect(await forgetReports(triage, daysAgo(31))).toEqual({ texts: 0, reports: 0 });
+  });
+
+  it('takes the text out of each report older than 29 days, and of Jev’s judgements of it, however late the cut', async () => {
+    // The migration holds the same 29 days: a caller cannot make it forget sooner.
+    expect(REPORT_TEXT.keepDays).toBe(29);
     expect(await forgetReports(triage, cut)).toEqual({ texts: 2, reports: 2 });
     const after = await stored(db.owner);
     expect(after.get('1000 signal.received')?.payload).toMatchObject({ report: { page: '/about' } });
@@ -127,7 +149,7 @@ describe('forgetting reports', () => {
     expect(after.get('1000 judgement.made')?.payload).not.toHaveProperty('state.report.text');
   });
 
-  it('keeps a planner’s finding, a newer report, and every public view as they were', async () => {
+  it('keeps a planner’s finding, a report not 29 days old, and every public view as they were', async () => {
     const after = await stored(db.owner);
     for (const key of ['1001 signal.received', '1001 judgement.made', '1002 signal.received', '1002 judgement.made']) {
       expect(after.get(key)?.payload, key).toEqual(before.get(key)?.payload);
@@ -135,7 +157,7 @@ describe('forgetting reports', () => {
     for (const [key, row] of after) expect(row.public, key).toEqual(before.get(key)?.public);
   });
 
-  it('deletes the old reports from the inbox, triaged or not, and nothing else there', async () => {
+  it('deletes the reports older than 29 days from the inbox, triaged or not, and nothing else there', async () => {
     const left = await db.owner<{ id: string }[]>`select id from inbox`;
     expect(left.map((row) => row.id).sort()).toEqual(
       [inbox['new report'], inbox['old finding'], inbox['old repeat']].sort(),

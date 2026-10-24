@@ -32,7 +32,9 @@ create index events_report_text on events (appended_at)
 
 -- Triage forgets them, as it prunes the inbox, through this and nothing else: it has no right to update an event or a
 -- signal, and no right to delete a report from the inbox. The function runs as its owner, the one the migrations run
--- as, so it does only what it says.
+-- as, so it does only what it says, and never sooner than it says: a cut later than 29 days ago (REPORT_TEXT.keepDays,
+-- which a test holds this to) is taken as 29 days ago, so a caller cannot erase a report, a quarantined one's evidence
+-- among them, before its time.
 --
 -- Of a real store, and never of samples, whose reports are invented:
 --
@@ -42,10 +44,11 @@ create index events_report_text on events (appended_at)
 --   the inbox holds, or from a day back when it holds none; a report that old is far older than either, and than
 --   what Loki keeps, so nothing reads one again.
 create function forget_reports(before timestamptz, out texts integer, out reports integer)
-language plpgsql security definer set search_path = pg_catalog, public as $$
+language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
 declare
   judgements integer;
 begin
+  before := least(before, now() - interval '29 days');
   with sent as (
     select work_item, ts from public.events
     where type = 'signal.received' and payload ->> 'sense' = 'report' and payload -> 'report' ? 'text'

@@ -12,7 +12,8 @@ export interface Forgotten {
 }
 
 /**
- * Forgets every visitor's report that reached the store before `before`, in a real store:
+ * Forgets every visitor's report that reached the store before `before`, in a real store. The store takes a cut
+ * later than 29 days ago as 29 days ago, so no caller can make it forget a report sooner:
  *
  * - the text goes from its `signal.received`, and from each `judgement.made` Jev made of it, appended with it. The
  *   event stays, valid at its version, with the page it came from (its path, with no query: the factory's own, as its

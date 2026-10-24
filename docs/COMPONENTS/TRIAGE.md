@@ -105,7 +105,7 @@ A visitor's report is kept for 30 days from when it was received, wherever the f
 - **What is not the visitor's stays.** A work item's title, description and story, and a ticket, are the factory's own words, never the visitor's: they quote no report. Jev's answers and the passage of the page it chose are the factory's too. Martin's words on a hold about a report are his own. A planner's finding is the factory's own words, and stays; so do a store's [samples](SAMPLES.md), whose reports are invented.
 - **The gateway's cassettes** of Jev's calls hold the report it judged. The gateway deletes each by the same 29 days, whatever else would keep it ([keeping them](LLM-GATEWAY.md#keeping-them)).
 
-Triage does it through one function the store gives its role (`forget_reports`, `0032_forget-reports.sql`), which runs with the owner's rights and does only that: the role may change no event, and delete no report from the inbox, itself. A store migrated to it forgets every report already older than that as soon as triage next starts; there is nothing to run by hand.
+Triage does it through one function the store gives its role (`forget_reports`, `0032_forget-reports.sql`), which runs with the owner's rights and does only that, and never sooner than 29 days, whatever cut triage gives it: the role may change no event, and delete no report from the inbox, itself, so even a compromised triage cannot erase a report, a quarantined one's evidence among them, before its time. A store migrated to it forgets every report already older than that as soon as triage next starts; there is nothing to run by hand.
 
 Elsewhere the text goes sooner, or is the cluster's to keep:
 
