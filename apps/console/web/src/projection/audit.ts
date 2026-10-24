@@ -20,8 +20,9 @@ import {
 } from '@software-factory/events';
 import { CAP_NAMES, type CapField, changesBetween, inForce } from '../../../../../policy/settings.ts';
 import type { Profile } from '../../../../../policy/spend.ts';
-import { FRESH_MINUTES, GUARDRAIL_HOLDS, SETTINGS_STEP_UP, STEP_UP } from '../access.ts';
+import { CONTROL_STEP_UP, FRESH_MINUTES, GUARDRAIL_HOLDS, SETTINGS_STEP_UP, STEP_UP } from '../access.ts';
 import { changeWords, clock, dayLabel, modelTitle, money, tokens } from '../format.ts';
+import { changeAction } from './controls.ts';
 import { startOfDay } from './line.ts';
 import { SENSE_NAME } from './sheet.ts';
 
@@ -239,6 +240,10 @@ function askedForPasskey(event: PublicEvent, causes: Map<string, HoldCause>, pro
       return event.payload.from === 'console';
     case 'settings.changed':
       return raises(profile, event.payload);
+    case 'controls.changed': {
+      const action = changeAction(event.payload.change);
+      return action !== undefined && CONTROL_STEP_UP[action];
+    }
     case 'hold.answered': {
       const cause = event.payload.hold ? causes.get(event.payload.hold) : undefined;
       return event.payload.decision === 'approved' && cause !== undefined && GUARDRAIL_HOLDS.includes(cause);

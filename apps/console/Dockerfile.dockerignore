@@ -21,3 +21,4 @@
 !policy/models.ts
 !policy/spend.ts
 !policy/settings.ts
+!policy/line.ts

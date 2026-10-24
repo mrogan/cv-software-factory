@@ -142,18 +142,35 @@ describe('a station’s state', () => {
     expect(view.header).toMatchObject({ running: false, stopped: 'Martin stopped the line' });
   });
 
-  it('keeps the autonomy level the line last started at when a start from the console names none', () => {
-    const line = (type: 'line.started' | 'line.stopped', payload: object): PublicEvent =>
-      ({ ...(work('1').open().events[0] as PublicEvent), work_item: null, type, payload }) as PublicEvent;
+  it('reads the autonomy level from Martin’s controls, Supervised until he sets one, whatever a start names', () => {
+    const line = (type: 'line.started' | 'line.stopped' | 'controls.changed', payload: object, actor = 'martin') =>
+      ({ ...(work('1').open().events[0] as PublicEvent), work_item: null, type, actor, payload }) as PublicEvent;
+    const controls = (autonomy: string) => ({
+      autonomy,
+      newWork: true,
+      autoMerge: false,
+      take: null,
+      change: { control: 'autonomy', before: 'supervised', after: autonomy },
+    });
+    const started = line('line.started', { autonomy: 'guarded' });
+    expect(project([started], Date.now()).header).toMatchObject({ running: true, autonomy: 'supervised' });
     const view = project(
       [
-        line('line.started', { autonomy: 'guarded' }),
+        started,
+        line('controls.changed', controls('lights-out')),
         line('line.stopped', { reason: 'Lunch' }),
         line('line.started', { reason: 'Back' }),
       ],
       Date.now(),
     );
-    expect(view.header).toMatchObject({ running: true, autonomy: 'guarded', stopped: undefined });
+    expect(view.header).toMatchObject({ running: true, autonomy: 'lights-out', stopped: undefined });
+    // Outside policy, or not Martin's, it is not in force.
+    expect(project([started, line('controls.changed', controls('yolo'))], Date.now()).header.autonomy).toBe(
+      'supervised',
+    );
+    expect(
+      project([started, line('controls.changed', controls('guarded'), 'factory')], Date.now()).header.autonomy,
+    ).toBe('supervised');
   });
 
   it('says “sending back” while its return is drawn, unless it has failed or waits on a human', () => {

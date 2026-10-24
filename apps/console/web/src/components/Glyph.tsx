@@ -27,6 +27,8 @@ const PATHS = {
   back: 'M13 11V8a4 4 0 0 0-4-4H3 M6 1 3 4l3 3',
   /** A key: an action that asks for Martin's passkey, and signing in with one. */
   key: 'M4.5 5.25a2.75 2.75 0 1 0 0 5.5 2.75 2.75 0 1 0 0-5.5 M7.25 8H14.25 M11.75 8v2.5 M14 8v2',
+  /** A pull cord: Stop the line, as a cord along a line stops it. */
+  cord: 'M8 1.5v7.5 M8 10a2.5 2.5 0 1 0 0 5 2.5 2.5 0 1 0 0-5',
   /** A person: an admin action, in the audit log. */
   person: 'M8 2.5a2.75 2.75 0 1 0 0 5.5 2.75 2.75 0 1 0 0-5.5 M2.75 14c.7-2.9 2.8-4.5 5.25-4.5s4.55 1.6 5.25 4.5',
   /** A chip: a model call, in the audit log. */

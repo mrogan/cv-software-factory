@@ -6,6 +6,7 @@
  */
 import type { PublicEvent, Stage } from '@software-factory/events';
 import { STAGES } from '@software-factory/events';
+import { type ControlsView, controlsView } from './controls.ts';
 import { foldItems, type ItemState } from './items.ts';
 import {
   drawn,
@@ -25,6 +26,7 @@ import { type Card, card, type Timeline, timeline } from './reel.ts';
 import { type CanaryView, canaryView, releases } from './release.ts';
 import { type Sheet, sheet } from './sheet.ts';
 
+export type { ControlsView } from './controls.ts';
 export type { Attempt, Finding, ThreadReview } from './fixing.ts';
 export type { Capture, ItemState, Outcome } from './items.ts';
 export type {
@@ -81,6 +83,8 @@ export interface View {
   timeline: Timeline;
   /** Needs you: every open hold, and Martin's answers today. */
   needs: NeedsView;
+  /** The line's controls in force: the autonomy level, the switches and what the line takes. */
+  controls: ControlsView;
 }
 
 /** The events that had happened by t, in seq order. */
@@ -108,6 +112,7 @@ export function project(events: readonly PublicEvent[], t: number): View {
     cards,
     timeline: timeline(cards, shipped),
     needs: needsView(items, t),
+    controls: controlsView(seen, t),
   };
 }
 

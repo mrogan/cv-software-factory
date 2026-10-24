@@ -1,7 +1,7 @@
 /*
  * Martin's writes, and their read-only form: the dialog, the passkey again (its key and the header's pill), the label
- * an action becomes for a visitor, the Canary panel's controls, and the bottom row's panels (Controls, for now its
- * Spend group).
+ * an action becomes for a visitor, the header's Stop the line, the Canary panel's controls, and the bottom row's panels
+ * (Controls: the autonomy level, the switches, what the line takes, and Spend).
  */
 
 /* A dialog: the browser's own modal, a raised card on the scrim, centred on a laptop and a bottom sheet on a phone. */
@@ -59,7 +59,8 @@
   font-weight: 500;
 }
 .dialog-refusal,
-.canary-refusal {
+.canary-refusal,
+.controls-refusal {
   padding: 8px 10px;
   border-left: var(--stroke-rule) solid var(--attn);
   font-size: 12.5px;
@@ -72,10 +73,58 @@
   font-weight: 600;
 }
 .dialog .btn:disabled,
+.dialog .btn[aria-disabled="true"],
 .canary-controls .btn:disabled,
-.canary-controls .btn[aria-disabled="true"] {
+.canary-controls .btn[aria-disabled="true"],
+.take-field .btn:disabled,
+.take-field .btn[aria-disabled="true"] {
   opacity: 0.5;
   cursor: default;
+}
+
+/* A reason, asked for by Stop the line and Start the line: for the audit log, counted. */
+.dialog .reason {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dialog textarea {
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-small);
+  padding: 9px 11px;
+  width: 100%;
+  resize: vertical;
+}
+.dialog textarea:focus {
+  outline: var(--stroke-rule) solid var(--signal);
+  outline-offset: 1px;
+}
+.dialog .chars {
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+.dialog code {
+  font: 12.5px var(--font-mono);
+}
+
+/* Stop the line, in the header, always one press away; Start the line in its place while it is stopped. */
+.btn.line-btn {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+/* The reason the line stopped, in the header's status: cut short where there is no room, in full on a hover. */
+.status .why {
+  display: inline-block;
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 
 /* The key after an action that asks for the passkey again, and the pill while it is fresh. */
@@ -199,6 +248,133 @@
   justify-content: space-between;
   gap: 8px;
 }
+/* Controls' segmented controls: the autonomy level and the take, in the console's own type, not the header's. */
+.ctl-group .seg {
+  align-self: flex-start;
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+.ctl-group .seg button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 12px;
+  font: 12.5px / 1 var(--font-sans);
+  letter-spacing: 0;
+}
+.ctl-group .seg button[aria-disabled="true"] {
+  cursor: default;
+}
+/* Read only: the choice filled in `line-strong`, not `text`, and nothing that looks pressable or broken. */
+.seg.ro-seg button {
+  cursor: default;
+}
+.seg.ro-seg button[aria-pressed="true"] {
+  background: var(--line-strong);
+  color: var(--text);
+}
+.recorded {
+  display: block;
+}
+
+/* A switch: what it does, or what off means, beside its track. Read only, its track at 60%. */
+.switches {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+}
+.switch {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.switch .what {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.switch small {
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.switch .track {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--line-strong);
+}
+.switch .track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  background: var(--raised);
+}
+.switch[aria-checked="true"] .track {
+  background: var(--signal);
+}
+.switch[aria-checked="true"] .track::after {
+  transform: translateX(14px);
+  background: var(--on-signal);
+}
+.switch:disabled,
+.switch[aria-disabled="true"] {
+  cursor: default;
+}
+.switch:disabled .track {
+  opacity: 0.6;
+}
+
+/* The next few's number, or Just one's work item, with Set. */
+.take-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+.take-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.take-field input.field {
+  width: 88px;
+  min-height: 36px;
+  padding: 6px 10px;
+}
+.take-field .btn {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.legend {
+  display: inline;
+}
+.legend .glyph.key {
+  vertical-align: -2px;
+}
+
 /* A meter of spend against its cap: in ink, since spend is no fault, and `attn` at the cap. */
 .meter {
   display: flex;
@@ -273,6 +449,21 @@
   }
   .canary-controls dd {
     margin-bottom: 8px;
+  }
+  /* Stop and Start keep their one word on a phone; a screen reader still hears "the line". */
+  .line-word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .btn.line-btn {
+    padding: 0 10px;
+  }
+  .status .why {
+    max-width: 22ch;
   }
   /* The pill moves into the account menu, where the header has no room. */
   .top-right .fresh {

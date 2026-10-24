@@ -4,6 +4,7 @@
  */
 import type { Autonomy, PayloadOf, PublicEvent, Sense, Stage } from '@software-factory/events';
 import { isSense, returnWords, SENSES, STAGES } from '@software-factory/events';
+import { controlsAfter } from './controls.ts';
 import { endedSinceMerge } from './fixing.ts';
 import { clearanceWords, type ItemState } from './items.ts';
 import { endedWords, inFlight, type Release, SIGNALLED, stopWait, stopWords } from './release.ts';
@@ -45,7 +46,8 @@ export interface ProviderSpell {
 
 export interface Header {
   running: boolean;
-  autonomy: Autonomy | undefined;
+  /** The autonomy level in force: Martin's control (`controls.changed`), Supervised until he sets one. */
+  autonomy: Autonomy;
   /** Why the line was stopped, when it is. */
   stopped: string | undefined;
   /** A spend cap reached and not yet cleared: the gateway refuses every model call until it resets. */
@@ -133,7 +135,7 @@ export interface StagePanel {
 export function header(events: readonly PublicEvent[]): Header {
   let state: Header = {
     running: false,
-    autonomy: undefined,
+    autonomy: controlsAfter(events).autonomy,
     stopped: undefined,
     capped: undefined,
     caps: [],
@@ -142,8 +144,8 @@ export function header(events: readonly PublicEvent[]): Header {
   };
   for (const event of events) {
     if (event.type === 'line.started') {
-      // A start from the console names no level: the one before stands.
-      state = { ...state, running: true, autonomy: event.payload.autonomy ?? state.autonomy, stopped: undefined };
+      // The level a start from before the controls named sets nothing: the controls hold the only one.
+      state = { ...state, running: true, stopped: undefined };
     }
     if (event.type === 'line.stopped') state = { ...state, running: false, stopped: event.payload.reason };
     if (event.type === 'spend.capped') {

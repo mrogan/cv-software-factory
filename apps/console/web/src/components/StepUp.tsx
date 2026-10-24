@@ -31,9 +31,20 @@ export interface StepUp {
   now: number;
   /** Asks for the passkey, for this action: true once given, false if Martin cancels. */
   ask(asked: Asked): Promise<boolean>;
+  /**
+   * The passkey sheet itself, for a dialog that says already that it asks (Start the line's "Use your passkey and
+   * start"): nothing once given, or why not, in words.
+   */
+  prove(): Promise<string | undefined>;
 }
 
-const NONE: StepUp = { fresh: false, until: undefined, now: 0, ask: async () => false };
+const NONE: StepUp = {
+  fresh: false,
+  until: undefined,
+  now: 0,
+  ask: async () => false,
+  prove: async () => 'Sign in first.',
+};
 const StepUpContext = createContext<StepUp>(NONE);
 
 /** The passkey's freshness, and the way to ask for it, anywhere under Martin's console. */
@@ -76,6 +87,16 @@ export function StepUpProvider({ session, children }: { session: Session | undef
       }),
     [hasSession],
   );
+  const token = session?.token;
+  const prove = useCallback(async () => {
+    if (!token) return 'Sign in first.';
+    const refusal = await ceremony(token, () => true);
+    if (refusal === undefined) {
+      setGiven(Date.now());
+      setNow(Date.now());
+    }
+    return refusal;
+  }, [token]);
   /** An answer to one ask: it settles that ask alone, though a passkey given late still counts as given. */
   const answered = (id: number, yes: boolean) => {
     if (yes) {
@@ -89,7 +110,10 @@ export function StepUpProvider({ session, children }: { session: Session | undef
     });
   };
   const fresh = now < until;
-  const value = useMemo(() => ({ fresh, until: fresh ? until : undefined, now, ask }), [fresh, until, now, ask]);
+  const value = useMemo(
+    () => ({ fresh, until: fresh ? until : undefined, now, ask, prove }),
+    [fresh, until, now, ask, prove],
+  );
   return (
     <StepUpContext.Provider value={value}>
       {children}
@@ -106,9 +130,30 @@ export function StepUpProvider({ session, children }: { session: Session | undef
 }
 
 /**
- * "Your passkey, again": the browser's own passkey sheet, for the session's own passkey, through the admin service's
- * ceremony. The ceremony's code arrives when it is first asked for.
+ * The admin service's step-up ceremony: its options, the browser's own passkey sheet for the session's passkey, and
+ * the answer sent back. Nothing once the service has taken it, or why not, in words. It stops before the sheet if the
+ * page that asked has gone (`live`). The ceremony's code arrives when it is first asked for.
  */
+async function ceremony(token: string, live: () => boolean): Promise<string | undefined> {
+  const options = await post('/admin/step-up/options', {}, token);
+  if (options.status !== 200 || !options.body) return said(options);
+  if (!live()) return 'Closed.';
+  let response: Awaited<ReturnType<typeof import('@simplewebauthn/browser').startAuthentication>>;
+  try {
+    const { startAuthentication } = await import('@simplewebauthn/browser');
+    if (!live()) return 'Closed.';
+    response = await startAuthentication({ optionsJSON: options.body as never });
+  } catch (error) {
+    // The sheet was closed, or this device holds no passkey for the factory: the browser does not say which.
+    return error instanceof Error && error.name === 'NotAllowedError'
+      ? 'No passkey was used: the sheet was closed, or this device has none for the factory.'
+      : 'The browser could not use a passkey here.';
+  }
+  const got = await post('/admin/step-up', { response }, token);
+  return got.status === 200 ? undefined : said(got);
+}
+
+/** "Your passkey, again": the browser's own passkey sheet, for the session's own passkey, through the ceremony. */
 function StepUpDialog({ asked, token, onAnswer }: { asked: Asked; token: string; onAnswer: (given: boolean) => void }) {
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | undefined>(undefined);
@@ -123,31 +168,12 @@ function StepUpDialog({ asked, token, onAnswer }: { asked: Asked; token: string;
   const give = async () => {
     setBusy(true);
     setRefusal(undefined);
-    const fail = (text: string) => {
-      if (!live.current) return;
-      setRefusal(text);
-      setBusy(false);
-    };
-    const options = await post('/admin/step-up/options', {}, token);
-    if (options.status !== 200 || !options.body) return fail(said(options));
-    // Closed while it asked: no passkey sheet for a dialog that is gone.
+    const refusal = await ceremony(token, () => live.current);
+    // Closed while it asked: nothing to say to a dialog that is gone.
     if (!live.current) return;
-    let response: Awaited<ReturnType<typeof import('@simplewebauthn/browser').startAuthentication>>;
-    try {
-      const { startAuthentication } = await import('@simplewebauthn/browser');
-      if (!live.current) return;
-      response = await startAuthentication({ optionsJSON: options.body as never });
-    } catch (error) {
-      // The sheet was closed, or this device holds no passkey for the factory: the browser does not say which.
-      return fail(
-        error instanceof Error && error.name === 'NotAllowedError'
-          ? 'No passkey was used: the sheet was closed, or this device has none for the factory.'
-          : 'The browser could not use a passkey here.',
-      );
-    }
-    const got = await post('/admin/step-up', { response }, token);
-    if (got.status === 200) return onAnswer(true);
-    fail(said(got));
+    if (refusal === undefined) return onAnswer(true);
+    setRefusal(refusal);
+    setBusy(false);
   };
 
   return (
