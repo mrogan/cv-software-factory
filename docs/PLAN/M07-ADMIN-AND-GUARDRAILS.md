@@ -97,15 +97,16 @@ Public profiles get their certificates from Cloudflare (milestone 10).
 ### Alerts to Martin
 
 - **Alertmanager gets a second receiver, Pushover,** beside the intake. Its key comes from the Keychain through `make up`, as the other keys do. Alertmanager has no NetworkPolicy today; it gets its first, which lets it reach the intake and the internet on 443 and nothing else, as Kyverno's rule does until egress by host name (#176), and lets in only Prometheus and Grafana, since anything that reaches it could silence a page. A silence is itself a security event. `make egress` covers it.
-- **Three levels, routed by label:**
+- **Four levels, routed by label:**
 
   | Level | For |
   |---|---|
-  | Page | the console or the app down, the line stuck, a spend cap reached, a security event |
-  | Notify | a release rolled back or errored, a new hold, autonomy changed, a security release or fixable vulnerability in a factory image |
+  | Page | the console or the app down, the line stuck, a spend cap reached, a security event that loosens a guardrail or changes who can sign in |
+  | Notify | a release rolled back or errored, a new hold, a security event that widens what the line does or acts on a release, a security release or fixable vulnerability in a factory image |
+  | Inform | a security event that tightens, or only records Martin's own use, such as signing in |
   | Dashboard only | everything else |
 
-- **Security events come first (Part A):** a sign-in, a passkey enrolled or revoked, every action that needs the passkey again, and every change to a setting. They are counted from the stored events by a worker other than the admin service, so a compromised admin service cannot keep quiet, each count starting at zero so the first of a kind pages too, and an alerting rule pages on any. Factory health, releases and spend follow in Part C, and its images' vulnerabilities in Part D.
+- **Security events come first (Part A):** a sign-in, a passkey enrolled or revoked, every action that needs the passkey again, and every change to a setting. They are counted from the stored events by a worker other than the admin service, so a compromised admin service cannot keep quiet, each count starting at zero so the first of a kind alerts too, and an alerting rule alerts on any, at its kind's level. Factory health, releases and spend follow in Part C, and its images' vulnerabilities in Part D.
 - **Whether the factory is up is answered from outside it.** On public profiles, an always-firing alert goes to a dead man's switch, and an outside check watches the site and the console (milestone 10).
 
 ### Feature flags (Part B)
@@ -248,7 +249,7 @@ Each task is its own pull request, in order, each demonstrable.
 
 - Alertmanager's Pushover receiver, its key from the Keychain, and its first NetworkPolicy, with `make egress` showing it reaches the intake and the internet on 443 and nothing else.
 - The routes by level, and the security events' rule, counted from the stored events outside the admin service, and Alertmanager's ingress limited to Prometheus and Grafana.
-- A test page from Martin's phone: a sign-in pages him.
+- A test alert on Martin's phone: a sign-in reaches it.
 
 ### 12. The runs
 
@@ -272,7 +273,7 @@ On the local cluster, on Claude, at Supervised:
 - [ ] Martin signs in with a passkey on a laptop and a phone, in Safari and Chrome, and no write succeeds without his session: the access tests and the ZAP scan pass.
 - [ ] Every hold a run on the local cluster makes is answered from the console, a guardrail's among them, and the line acts on each.
 - [ ] Stop the line, autonomy, the switches, the take settings, the release controls, the models and the caps are each changed from the console, recorded as events, and shown read-only to a visitor.
-- [ ] A sign-in pages Martin's phone.
+- [ ] A sign-in reaches Martin's phone.
 - [ ] The audit log shows every action, with nothing a visitor wrote in its public form.
 
 ## Part B: improvements and feature flags

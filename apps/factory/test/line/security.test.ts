@@ -104,6 +104,7 @@ describe('the count of Martin’s security events', () => {
     const tally = await readOn(database.as.line, emptyTally());
     expect(tally.kinds).toEqual({
       'sign-in': 2,
+      'signed-out': 1,
       'passkey-enrolled': 1,
       'passkey-revoked': 1,
       'setting-changed': 1,

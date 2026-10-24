@@ -20,6 +20,7 @@ import {
   routeRecords,
   routeRulesFor,
   rulesFor,
+  SECURITY_LEVELS,
   stuckRulesFor,
 } from '../src/alerts/rules.ts';
 import { coder } from '../src/line/agents/coder.ts';
@@ -236,17 +237,39 @@ describe('queries', () => {
 describe('the alerts to Martin', () => {
   const rules = martinRules();
 
-  it('page for each kind of security event, on the first of a kind too', () => {
+  it('alert for each kind of security event, at its kind’s level, on the first of a kind too', () => {
     const security = rules.filter((rule) => rule.alert === 'SecurityEvent');
     expect(security.map((rule) => rule.labels.kind)).toEqual([...SECURITY_KINDS]);
     for (const rule of security) {
-      expect(rule.labels.level).toBe(LEVELS.page);
+      expect(rule.labels.level).toBe(SECURITY_LEVELS[rule.labels.kind as keyof typeof SECURITY_LEVELS]);
       // A count that starts at 0, so the first is an increase; the highest of the replicas', which agree.
       expect(rule.expr).toBe(
         `max(increase(line_security_events_total{kind="${rule.labels.kind}", ${METRICS_FROM_THE_LINE}}[5m])) > 0`,
       );
       expect(rule.annotations.summary).toBeTruthy();
     }
+  });
+
+  it('page for what loosens a guardrail or changes who can sign in, notify of what widens the line’s work or acts on a release, and inform of the rest', () => {
+    const at = (level: string) => SECURITY_KINDS.filter((kind) => SECURITY_LEVELS[kind] === level).sort();
+    expect(at(LEVELS.page)).toEqual(['autonomy-loosened', 'guardrail-approved', 'passkey-enrolled', 'passkey-revoked']);
+    expect(at(LEVELS.notify)).toEqual([
+      'auto-merge-on',
+      'autonomy-tightened',
+      'line-started',
+      'release-control',
+      'setting-changed',
+      'take-widened',
+    ]);
+    expect(at(LEVELS.inform)).toEqual([
+      'auto-merge-off',
+      'new-work-off',
+      'new-work-on',
+      'sign-in',
+      'signed-out',
+      'stepped-up',
+      'take-narrowed',
+    ]);
   });
 
   it('say only what happened: no label’s value but a cause from a closed list', () => {
@@ -284,7 +307,7 @@ describe('the alerts to Martin', () => {
   it('set a level Alertmanager routes, or none: a mistyped one would reach no one', () => {
     const generated = [...rulesFor(objectives), ...rules];
     for (const rule of generated) {
-      expect([undefined, LEVELS.page, LEVELS.notify], rule.alert).toContain(rule.labels.level);
+      expect([undefined, ...Object.values(LEVELS)], rule.alert).toContain(rule.labels.level);
     }
   });
 

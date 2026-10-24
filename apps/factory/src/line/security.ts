@@ -7,7 +7,7 @@
  * append is no event.
  *
  * The security events, each a `kind`:
- * - `sign-in`: `admin.signed-in`;
+ * - `sign-in` and `signed-out`: `admin.signed-in` and `admin.signed-out`;
  * - `passkey-enrolled` and `passkey-revoked`;
  * - `setting-changed`: every `settings.changed`;
  * - the actions the access table marks as needing the passkey again: `stepped-up` (`admin.stepped-up` itself),
@@ -41,6 +41,7 @@ const meter = metrics.getMeter('factory-line');
 /** Every kind of security event counted, as its `kind` label. */
 export const SECURITY_KINDS = [
   'sign-in',
+  'signed-out',
   'passkey-enrolled',
   'passkey-revoked',
   'setting-changed',
@@ -68,6 +69,7 @@ export const STEPPED_UP_CONTROLS: readonly ReleaseControl[] = ['promote', 'promo
 /** The event types read: each security event's, and a hold's start. */
 const TYPES = [
   'admin.signed-in',
+  'admin.signed-out',
   'passkey.enrolled',
   'passkey.revoked',
   'settings.changed',
@@ -125,6 +127,8 @@ export function countAs(event: Stored): { kind: SecurityKind } | { hold: HoldCau
   switch (event.type) {
     case 'admin.signed-in':
       return { kind: 'sign-in' };
+    case 'admin.signed-out':
+      return { kind: 'signed-out' };
     case 'passkey.enrolled':
       return { kind: 'passkey-enrolled' };
     case 'passkey.revoked':

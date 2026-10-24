@@ -13,17 +13,17 @@
 #
 # Alertmanager sends each alert by the level its rule gives it, in a `level` label (docs/COMPONENTS/ALERTING.md):
 #
-# - `page` and `notify` go to Martin's phone through Pushover, at high priority (sounding through quiet hours) and at
-#   normal priority;
-# - an alert with neither is for the dashboards only, and goes to a receiver that sends nothing;
+# - `page`, `notify` and `inform` go to Martin's phone through Pushover, at high priority (sounding through quiet
+#   hours), at normal priority, and at low priority (with no sound or vibration);
+# - an alert with none of them is for the dashboards only, and goes to a receiver that sends nothing;
 # - the app's objective alerts, which carry no level, go to the factory's intake, which turns each into a signal. An
 #   alert with a level never reaches it: an alert to Martin is not a signal for the senses.
 #
 # Pushover's application token and Martin's user key are in the `pushover` Secret, which `make up` makes from the
 # Keychain (`make pushover-key`). It is mounted optional, so a cluster with no Pushover account still comes up and still
-# routes to the intake; each page then fails to send, which Alertmanager's own metrics count. Alertmanager reads the
-# files each time it sends, so a key added later is used without a restart. Until the intake is deployed, deliveries to
-# it fail and Alertmanager retries them. The sub-chart's defaults already meet the restricted Pod Security Standard.
+# routes to the intake; each message to Martin then fails to send, which Alertmanager's own metrics count. Alertmanager
+# reads the files each time it sends, so a key added later is used without a restart. Until the intake is deployed,
+# deliveries to it fail and Alertmanager retries them. The sub-chart's defaults already meet the restricted Pod Security Standard.
 #
 # Its first NetworkPolicy, alertmanager-fence.yaml, lets it reach the intake, DNS and the internet on 443, and lets in
 # only Prometheus and Grafana: anything that reached it could silence a page.
@@ -74,6 +74,9 @@ alertmanager:
         - receiver: notify
           matchers: [level="notify"]
           group_by: ["..."]
+        - receiver: inform
+          matchers: [level="inform"]
+          group_by: ["..."]
     receivers:
       - name: dashboard
       - name: intake
@@ -100,6 +103,11 @@ alertmanager:
         pushover_configs:
           - <<: *pushover
             priority: "0"
+      # Silent: no sound or vibration, at any hour.
+      - name: inform
+        pushover_configs:
+          - <<: *pushover
+            priority: "-1"
 # kube-state-metrics: each pod's restarts and readiness, and each Deployment's, StatefulSet's, DaemonSet's and Job's
 # replicas and outcomes, read from the Kubernetes API. It asks to be scraped as Traefik does, with
 # `prometheus.io/` annotations on its pod, rather than on the Service the chart would annotate. The scrape keeps the
