@@ -5,7 +5,7 @@
  * everywhere. Escape or a click outside closes it.
  */
 import { lazy, type ReactNode, Suspense, useEffect, useRef, useState } from 'react';
-import { doorHref, leave, post, type Session, said, toolHref } from '../admin.ts';
+import { doorHref, leave, post, type Session, said, toolLink } from '../admin.ts';
 import { clock } from '../format.ts';
 import { StepUpLine } from './StepUp.tsx';
 import type { Tool } from './ToolLogos.tsx';
@@ -29,8 +29,8 @@ export function Account({
   switches: ReactNode;
 }) {
   const tools = TOOLS.flatMap((tool) => {
-    const href = toolHref(session.tools?.[tool.key]);
-    return href ? [{ ...tool, href }] : [];
+    const link = toolLink(session.tools?.[tool.key]);
+    return link ? [{ ...tool, ...link }] : [];
   });
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -108,7 +108,7 @@ export function Account({
             </Suspense>
             {tool.name}
             <small className="after">
-              {new URL(tool.href).host}
+              {tool.host}
               <span className="sr"> (opens in a new tab)</span>
             </small>
           </a>

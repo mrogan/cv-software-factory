@@ -281,7 +281,7 @@ A notice is a `t-label` word and a sentence in `text-2`, inside a dashed `line-s
 
 An **MR monogram**: Martin Rogan's initials in Instrument Serif, with the R set so that it shares the M's last stem, and a full stop in `attn`. The shared stem makes two letters read as one mark. The ember full stop is the same colour that means "a person should look" on the console, so it carries the system's idea into the signature.
 
-- **On the page:** inline the SVG with `fill: currentColor` for the letters and `var(--attn)` for the full stop, so it follows the theme. Height 30px in the header and 18px in the footer, with a hairline rule between the mark and "Software Factory". In the header the mark and the name are one link to the console's home page, named in the words it shows and "home" ("Software Factory: Martin Rogan, a live CV, home"), so speech input finds it by what it says; in the footer the mark is decoration.
+- **On the page:** inline the SVG with `fill: currentColor` for the letters and `var(--attn)` for the full stop, so it follows the theme. Height 30px in the header and 18px in the footer, with a hairline rule between the mark and "Software Factory". In the header the mark and the name are one link to the console's home page from a page of its own (its top on the console itself, so nothing there is reloaded), named in the words it shows and "home" ("Software Factory: Martin Rogan, a live CV, home"), so speech input finds it by what it says; in the footer the mark is decoration.
 - **Files:** `mark/mark.svg` (Paper), `mark/mark-ink.svg` (Ink) and `mark/icon.svg`: the monogram in paper on the station-face dark square, for favicons and app icons. It reads down to 16px.
 - **Beyond the console:** the same mark and ember full stop can sign the CV, the README and the social card, with "Martin Rogan." set in Instrument Serif.
 - Letterforms are from Instrument Serif (SIL Open Font Licence), which allows its use in a logo.
@@ -440,7 +440,7 @@ Two pages of their own, each a single card in the middle of the page, under a he
 
 For admin, the header's right side reads: the line's status, the step-up pill when it shows, Stop the line, and the account button (an "M" disc in Instrument Serif on `text`, and "Martin"). Preview as visitor and the theme and motion switches are in the menu, at every width. On a phone, the status moves under the name as it does now, and the button keeps only its disc.
 
-The menu: "Martin Rogan", when he signed in and when the session ends; Settings, Audit log, Preview as visitor; under a hairline, this deployment's Grafana and Argo CD, each with its logo and its host after it in `text-muted`, opening in a new tab, and each only when the admin service names it; under another, Theme (Paper, Ink) and Motion (Motion, Still), each a row with its name; then, under a hairline, Sign out and Sign out everywhere ("every device"). Escape or a click outside closes it.
+The menu: "Martin Rogan", when he signed in and when the session ends; Settings, Audit log, Preview as visitor; under a hairline, this deployment's Grafana and Argo CD, each with its logo and its host after it in `text-muted` (cut short with an ellipsis where it is long), opening in a new tab, and each only when the admin service names it; under another, Theme (Paper, Ink) and Motion (Motion, Still), each a row with its name; then, under a hairline, Sign out and Sign out everywhere ("every device"). Escape or a click outside closes it.
 
 ### Stopping and starting the line
 

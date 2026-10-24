@@ -181,6 +181,7 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
           admin={martin ? signedIn : { kind: 'visitor' }}
           previewing={previewing}
           onPreview={() => preview(true)}
+          away
         />
         <main id="top">
           <div className="wrap">

@@ -105,6 +105,10 @@
 }
 .menu a.tool small.after {
   margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font: 11px / 1 var(--font-mono);
 }
 

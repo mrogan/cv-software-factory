@@ -305,6 +305,8 @@ interface HeaderProps {
   /** Martin, signed in, sees the console as a visitor does (`Preview.tsx`). */
   previewing: boolean;
   onPreview: () => void;
+  /** On a page of its own (the settings, the audit log, privacy), the brand goes to the console; on it, to its top. */
+  away?: boolean;
 }
 
 /**
@@ -371,6 +373,7 @@ export function Header({
   admin,
   previewing,
   onPreview,
+  away = false,
 }: HeaderProps) {
   const switches = { theme, onTheme, motion, onMotion };
   const martin = admin.kind === 'martin' && !previewing;
@@ -378,8 +381,9 @@ export function Header({
     <header className="top">
       <div className="wrap">
         {/* The way home from any page: one link for the mark and the name, named once, in the words it shows, in order,
-            at a width that shows its byline and at one that hides it. */}
-        <a className="brand" href="/" aria-label="Software Factory: Martin Rogan, a live CV, home">
+            at a width that shows its byline and at one that hides it. On the console itself it goes to the top, so
+            nothing there is lost to a reload: a preview, a pinned theme or time, an open sheet. */}
+        <a className="brand" href={away ? '/' : '#top'} aria-label="Software Factory: Martin Rogan, a live CV, home">
           <Mark />
           <span className="rule" aria-hidden="true" />
           <span>

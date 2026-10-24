@@ -28,11 +28,20 @@ export interface Tools {
 }
 
 /**
- * A tool's address from the session, when it is one a link may take (http or https); anything else draws no link.
- * A session is still Martin's without them.
+ * A tool's address from the session, and its host, when it is one a link may take (an http or https URL); anything
+ * else draws no link. A session is still Martin's without them.
  */
-export const toolHref = (value: unknown): string | undefined =>
-  typeof value === 'string' && /^https?:\/\/[^/]/i.test(value) ? value : undefined;
+export function toolLink(value: unknown): { href: string; host: string } | undefined {
+  if (typeof value !== 'string') return undefined;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return undefined;
+  }
+  if ((url.protocol !== 'http:' && url.protocol !== 'https:') || !url.host) return undefined;
+  return { href: url.href, host: url.host };
+}
 
 /**
  * Who is looking:

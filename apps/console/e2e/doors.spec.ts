@@ -82,7 +82,7 @@ test('keeps the switches in a visitor’s header, and in Martin’s menu for him
 
 test('draws no link to a tool the session does not name, or names as anything but http or https', async ({ page }) => {
   await page.route('**/admin/session', (route) =>
-    route.fulfill({ json: { ...SESSION, tools: { argocd: 'javascript:alert(1)' } } }),
+    route.fulfill({ json: { ...SESSION, tools: { grafana: 'http://[::1', argocd: 'javascript:alert(1)' } } }),
   );
   await page.goto(consoleUrl());
   await ready(page);
@@ -114,6 +114,11 @@ test('takes anyone home from the brand, and names the footer’s icons', async (
   await page.getByRole('link', { name: 'Software Factory: Martin Rogan, a live CV, home' }).click();
   await expect(page).toHaveURL(/\/$/);
   await ready(page);
+  // On the console itself it goes to the top, and nothing is reloaded.
+  await expect(page.getByRole('link', { name: 'Software Factory: Martin Rogan, a live CV, home' })).toHaveAttribute(
+    'href',
+    '#top',
+  );
   // The icons are drawn on the doors too, which have a page of their own.
   await page.goto('/?view=sign-in');
   await expect(page.locator('#logo-github')).toHaveCount(1);
