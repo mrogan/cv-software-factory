@@ -21,6 +21,7 @@ import {
 } from '../projection/release.ts';
 import { Dialog } from './Dialog.tsx';
 import { Glyph, type GlyphName } from './Glyph.tsx';
+import { ToolMark } from './Logos.tsx';
 import { type Asked, Key, useStepUp } from './StepUp.tsx';
 
 export type Tone = 'signal' | 'ok' | 'attn' | 'faint';
@@ -614,9 +615,13 @@ export function Canary({ view, t, onOpen, admin, lineStopped }: CanaryProps) {
       </div>
       {/* A release of its own: what was pressed for another, and refused, is not said under this one. */}
       <CanaryControls key={r.id} r={r} admin={admin} lineStopped={lineStopped} />
-      <p className="help">
-        The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody
-        needs to press anything.
+      <p className="help tooled">
+        {/* A dry run's release is the line's own record: Argo Rollouts moved nothing. */}
+        {!r.dryRun && <ToolMark name="argo" />}
+        <span>
+          {r.dryRun ? 'The canary' : 'Argo Rollouts’ canary'} moves on by itself while every measure passes, and rolls
+          back by itself the moment one fails. Nobody needs to press anything.
+        </span>
       </p>
     </section>
   );

@@ -3,7 +3,7 @@
  * is open and gives it back when it closes; previous and next step between work items, and the reel follows.
  */
 
-import type { Sense } from '@software-factory/events';
+import { MODEL_AGENTS, type Sense } from '@software-factory/events';
 import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   AGENT_NAME,
@@ -37,7 +37,7 @@ import { backWords } from '../projection/release.ts';
 import { REPORT_KEPT_DAYS } from '../projection/report.ts';
 import { kindName, ONGOING, OutcomeWord, spendWords } from './Card.tsx';
 import { CATEGORY_NAME, Glyph } from './Glyph.tsx';
-import { LogoMark } from './Logos.tsx';
+import { LogoMark, ToolMark, type ToolName } from './Logos.tsx';
 import { Picture, Shot } from './Pictures.tsx';
 import { ShippedSection } from './Shipped.tsx';
 
@@ -68,6 +68,20 @@ const SOURCE: Record<PictureData['type'], string> = {
   none: '',
 };
 
+/** The tools that made each kind of evidence, whose marks stand before its source line. */
+const TOOLS: Partial<Record<PictureData['type'], ToolName[]>> = {
+  wipe: ['playwright'],
+  screenshot: ['playwright'],
+  console: ['playwright'],
+  metric: ['prometheus'],
+  logs: ['loki', 'tempo'],
+  rollback: ['argo'],
+};
+
+/** Admission control's refusal: Kyverno's own words, on an image Sigstore's signature did not vouch for. */
+const ADMISSION_SOURCE =
+  'Kyverno’s own refusal, stored with the event: it admits only an image whose Sigstore signature says the pipeline built it on main.';
+
 const SENSE_NAME: Record<Sense, string> = {
   probe: 'Probes',
   crawler: 'Crawler',
@@ -78,12 +92,12 @@ const SENSE_NAME: Record<Sense, string> = {
 };
 
 /** What each sense captures, for an evidence block's caption and its source line. */
-const CAPTURED: Record<Sense, [caption: string, source: string]> = {
-  probe: ['Probe', 'Playwright'],
+const CAPTURED: Record<Sense, [caption: string, source: string, tool?: ToolName]> = {
+  probe: ['Probe', 'Playwright', 'playwright'],
   crawler: ['Crawler', 'the crawler’s request'],
-  metrics: ['Metrics · alert', 'the series behind Prometheus’s alert'],
-  logs: ['Log watcher', 'Loki'],
-  canary: ['Canary · analysis', 'Argo Rollouts’ analysis of the release'],
+  metrics: ['Metrics · alert', 'the series behind Prometheus’s alert', 'prometheus'],
+  logs: ['Log watcher', 'Loki', 'loki'],
+  canary: ['Canary · analysis', 'Argo Rollouts’ analysis of the release', 'argo'],
   report: ['Report', 'the widget'],
 };
 
@@ -303,7 +317,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                       </figure>
                     ))}
                   </div>
-                  <Source>
+                  <Source tools={sheet.senseEvidence.flatMap((block) => CAPTURED[block.sense][2] ?? [])}>
                     Each sense’s own capture: {listed(sheet.senseEvidence.map((block) => CAPTURED[block.sense][1]))}.
                   </Source>
                 </Section>
@@ -313,7 +327,11 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                   <div className="evidence-big">
                     <Picture picture={evidence} interactive />
                   </div>
-                  <Source>{SOURCE[evidence.type]}</Source>
+                  {evidence.type === 'refusal' && evidence.admission ? (
+                    <Source tools={['kyverno', 'sigstore']}>{ADMISSION_SOURCE}</Source>
+                  ) : (
+                    <Source tools={TOOLS[evidence.type]}>{SOURCE[evidence.type]}</Source>
+                  )}
                   {sheet.captures.length > 1 && (
                     <div className="captures">
                       {sheet.captures.map((capture) => (
@@ -498,6 +516,15 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                 ) : (
                   <p className="help">
                     <b>No model was called.</b> {sheet.noModel}
+                  </p>
+                )}
+                {sheet.agents.some((a) => (MODEL_AGENTS as readonly string[]).includes(a.agent)) && (
+                  <p className="help tooled ran">
+                    <ToolMark name="kubernetes" />
+                    <span>
+                      Each step ran in a Kubernetes pod of its own in the <code>runners</code> namespace, able to reach
+                      the gateway and the line, and nothing else.
+                    </span>
                   </p>
                 )}
                 <Source>
@@ -928,8 +955,16 @@ function Section({ title, help, children }: { title: string; help: string; child
   );
 }
 
-function Source({ children }: { children: ReactNode }) {
-  return <p className="source">{children}</p>;
+/** An evidence block's last line: where the factory got it, after the marks of the tools that made it. */
+function Source({ tools = [], children }: { tools?: readonly ToolName[] | undefined; children: ReactNode }) {
+  return (
+    <p className="source">
+      {[...new Set(tools)].map((tool) => (
+        <ToolMark key={tool} name={tool} />
+      ))}
+      <span>{children}</span>
+    </p>
+  );
 }
 
 /**

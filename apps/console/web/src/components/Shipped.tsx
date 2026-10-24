@@ -9,6 +9,7 @@ import { marksNote, SENSE_NAME } from '../projection/index.ts';
 import { endedWords } from '../projection/release.ts';
 import { figureOf, phaseOf, standing, VERDICT, Verdict } from './Canary.tsx';
 import { Glyph } from './Glyph.tsx';
+import { ToolMark } from './Logos.tsx';
 import { Picture, Shot } from './Pictures.tsx';
 
 export function ShippedSection({ sheet }: { sheet: SheetData }) {
@@ -67,6 +68,15 @@ function Block({
       <Facts r={r} own={own} />
       <Steps r={r} />
       <Ending r={r} />
+      {/* A dry run's release is the line's own record: nothing was synced, and no canary ran. */}
+      {!r.dryRun && (
+        <p className="source">
+          <ToolMark name="argo" />
+          <span>
+            Argo CD synced the deploy that carried it, and Argo Rollouts ran its canary; the line recorded each step.
+          </span>
+        </p>
+      )}
       {verification && <Verify v={verification} />}
     </>
   );

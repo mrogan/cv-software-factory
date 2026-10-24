@@ -236,7 +236,30 @@ The picture is evidence, so it is always something the factory captured, never a
 
 On a small picture (a phone's card, a block in the sheet's evidence), each picture keeps its headline and drops its secondary rows: timings, the hops after the first two, a rule's full sentence, the unused answers. Type inside the new pictures never drops below 9px.
 
-Package and tool logos, and the footer's GitHub and LinkedIn icons, come from [theSVG](https://github.com/glincker/thesvg) (MIT; the marks belong to their owners) and are bundled with the console, never fetched.
+Package and tool logos, and the footer's GitHub and LinkedIn icons, come from [theSVG](https://github.com/glincker/thesvg) (MIT; the marks belong to their owners) and are bundled with the console, never fetched. A package's logo keeps its colours, since it names the thing that changed; a tool's (OpenTelemetry's, Trivy's, Anthropic's) is drawn in the text colour.
+
+### Tool marks
+
+The factory's work is done by tools a reviewer knows, and the evidence says which. **A tool's mark appears only beside something that tool produced or did**: never as decoration, never as a strip of logos, never as a link for a visitor.
+
+- **One treatment:** the mark in one colour, `text-muted`, at the height of the text beside it, hidden from a screen reader, since the words beside it name the tool. It sits before the line's first word and stays beside the first line when the words wrap. In forced colours it takes the text's system colour.
+- **Images, not code:** each mark is a one-colour SVG in `apps/console/web/src/marks/`, used as a CSS mask over `text-muted`, so it costs no JavaScript, and the browser fetches it only when the page shows something its tool made.
+- **Sources:** [theSVG](https://github.com/glincker/thesvg) (MIT): its one-colour Kubernetes, Argo and Prometheus; Loki, Kyverno (the symbol without its name) and Sigstore drawn in one colour. Playwright's one-colour mark is [Simple Icons'](https://simpleicons.org) (CC0), as theSVG has none and its colour drawing loses the faces in one colour. Tempo's is [selfh.st's](https://selfh.st/icons/) (`selfhst:grafana-tempo` on Iconify, CC BY 4.0), in one colour. The marks belong to their owners. Argo CD and Argo Rollouts share the Argo project's octopus: in one colour theSVG's two are the same drawing.
+
+| Where | Mark | Words beside it |
+|---|---|---|
+| An evidence block's source line: a wipe, a screenshot, the browser's console | Playwright | "Playwright screenshots, taken when …" |
+| … a metric or a metrics alert | Prometheus | "Prometheus, kept in the event at verify …" |
+| … logs | Loki and Tempo | "Loki and Tempo, excerpted into the events …" |
+| … a rollback, a canary's analysis | Argo | "Argo Rollouts' analysis run …" |
+| … admission control's refusal | Kyverno and Sigstore | "Kyverno's own refusal, stored with the event: it admits only an image whose Sigstore signature says the pipeline built it on main." |
+| The sheet's evidence by sense | Each sense's tool, once | "Each sense's own capture: Playwright, the series behind Prometheus's alert …" |
+| The Canary panel's last line, not a dry run | Argo | "Argo Rollouts moves the canary on by itself …" |
+| Each release in the sheet's Release and Verify, not a dry run | Argo | "Argo CD synced the deploy that carried it, and Argo Rollouts ran its canary; the line recorded each step." |
+| Under the sheet's agents table, once, when the line's agents ran | Kubernetes | "Each step ran in a Kubernetes pod of its own in the `runners` namespace, able to reach the gateway and the line, and nothing else." |
+| The audit log's Kind, on admission control's refusal | Kyverno | The row's own words |
+
+Where the tool is already drawn in the picture (Trivy over an image scan, OpenTelemetry over log lines), its source line adds no second mark. A deploy waiting for Martin has none: Argo CD has not synced it yet. Accessibility evidence has none: axe has no mark, and the category has the console's own glyph. Traefik, Postgres and Grafana leave nothing a visitor sees, so they have none; Grafana and Argo CD have their logos in colour in Martin's menu, as links.
 
 ### The sheet
 
@@ -347,7 +370,7 @@ The release in flight against the version it would replace, for everyone, full w
 - **The measures,** at the latest step measured: a table captioned "At the 25% step · measured 16:44:00", one row each for requests, errors, latency and the journeys, with the canary's figure, the baseline's in `text-muted`, and the verdict. Each measure has its rule in one caption line, in `policy/release.ts`'s terms ("share of 5xx answers · fails more than a point above"). Figures are tabular mono: requests counted, the 5xx share to two decimals, p99 in ms, and the journeys as "24 / 24" only when the step recorded counts; otherwise "—", and the verdict alone. The verdicts, from the analysis's own phases: **passed** (`ok`, tick), **failed** (`attn`, cross, and a 2px `attn` rule down the row's left edge), **measuring** (`signal`, ring), **waiting** (`text-muted`), **could not measure** for an error, which the analysis tries again (`text-muted`, with its message as the caption), and **inconclusive · waits for Martin** (`attn`, ring), since Argo Rollouts pauses the release until someone decides. Before the first step is measured the table waits: the same four rows with their rules, "—" for each figure and **measuring** for each verdict, captioned with the step in flight and when it is measured ("At the 25% step · measuring until 16:41:00"), so the panel never looks as if something failed to load. It waits only for a step the analysis judges when its pause runs out: a step that is not judged, or that waits for someone, has no table, and the note says why; nor has a dry run, which measures nothing. A rollback before the first step is measured replaces it with the rollback's own table.
 - **The note,** under the steps, says what happens next in the release's own times: "Measuring the 50% step until 16:47:30. If every measure passes, the canary takes all the traffic then; if one fails, it rolls back on its own."
 - **Controls,** above the last line: promote, pause, abort and retry (see Admin).
-- **Last line, for everyone:** "The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody needs to press anything."
+- **Last line, for everyone:** Argo Rollouts' mark, then "Argo Rollouts moves the canary on by itself while every measure passes, and rolls it back by itself the moment one fails. Nobody needs to press anything." A dry run, which Argo Rollouts never ran, keeps the words without its name or mark: "The canary moves on by itself …".
 
 | State | Kicker | Tone | The note says |
 |---|---|---|---|

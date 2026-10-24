@@ -183,3 +183,32 @@ for (const width of ['laptop', 'phone'] as const) {
     });
   }
 }
+
+test.describe('tool marks', () => {
+  test.use({ viewport: WIDTHS.desktop });
+
+  test('a tool’s mark stands beside what it made, hidden from a screen reader, and its drawing loads', async ({
+    page,
+  }) => {
+    // Admission control's refusal is Kyverno's, on an image without the pipeline's Sigstore signature.
+    await page.goto(consoleUrl({ item: '1293', sheet: true }));
+    const sheet = page.getByRole('dialog');
+    const source = sheet.locator('.source', { hasText: 'Kyverno’s own refusal' });
+    await expect(source.locator('.toolmark')).toHaveCount(2);
+    await expect(source.locator('.toolmark-kyverno')).toHaveAttribute('aria-hidden', 'true');
+    await expect(source.locator('.toolmark-sigstore')).toBeVisible();
+    // The drawing is an image of this origin's, which the policy lets the stylesheet use.
+    const url = await source
+      .locator('.toolmark-kyverno')
+      .evaluate((mark) => getComputedStyle(mark).maskImage.replace(/^url\("?|"?\)$/g, ''));
+    const drawing = await page.request.get(url);
+    expect(drawing.headers()['content-type']).toContain('image/svg+xml');
+
+    // The line's agents ran in Kubernetes, said once under their table.
+    await page.goto(consoleUrl({ item: '1304', sheet: true }));
+    const ran = page.getByRole('dialog').locator('.ran');
+    await expect(ran).toHaveCount(1);
+    await expect(ran.locator('.toolmark-kubernetes')).toBeVisible();
+    await expect(ran).toContainText('Kubernetes pod of its own in the runners namespace');
+  });
+});

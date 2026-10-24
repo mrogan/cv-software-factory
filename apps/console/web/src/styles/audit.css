@@ -122,7 +122,8 @@ table.audit {
   color: var(--text-2);
   white-space: nowrap;
 }
-.audit .kindw .glyph {
+.audit .kindw .glyph,
+.audit .kindw .toolmark {
   width: 13px;
   height: 13px;
 }
@@ -179,8 +180,8 @@ table.audit {
   table.audit thead {
     display: none;
   }
-  /* The kind's name is still the cell's, for a screen reader. */
-  .audit .kindw > span {
+  /* The kind's name is still the cell's, for a screen reader; a tool's mark stays in view. */
+  .audit .kindw > span:not(.toolmark) {
     position: absolute;
     width: 1px;
     height: 1px;

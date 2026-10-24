@@ -528,6 +528,61 @@ footer.foot a.foot-key:hover {
   overflow: hidden;
 }
 
+/*
+ * A tool's mark beside what it made: its drawing as a mask over the muted text colour, at text height. Each image is
+ * fetched only when a mark of its tool is on the page. In forced colours the mark takes the text's system colour.
+ */
+.toolmark {
+  display: inline-block;
+  flex: none;
+  width: 1.2em;
+  height: 1.2em;
+  vertical-align: -0.25em;
+  background: var(--text-muted);
+  mask: center / contain no-repeat;
+}
+.toolmark-kubernetes {
+  mask-image: url("../marks/kubernetes.svg");
+}
+.toolmark-argo {
+  mask-image: url("../marks/argo.svg");
+}
+.toolmark-prometheus {
+  mask-image: url("../marks/prometheus.svg");
+}
+.toolmark-loki {
+  mask-image: url("../marks/loki.svg");
+}
+.toolmark-tempo {
+  mask-image: url("../marks/tempo.svg");
+}
+.toolmark-playwright {
+  mask-image: url("../marks/playwright.svg");
+}
+.toolmark-kyverno {
+  mask-image: url("../marks/kyverno.svg");
+}
+.toolmark-sigstore {
+  mask-image: url("../marks/sigstore.svg");
+}
+/* A line that begins with a tool's mark: the mark beside its first line of text, however many lines follow. */
+.tooled {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+.tooled .toolmark,
+.source .toolmark {
+  align-self: flex-start;
+  margin-top: 0.1em;
+}
+@media (forced-colors: active) {
+  .toolmark {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
+}
+
 /* The smallest phones: the switches move under the name rather than push the page sideways. */
 @media (max-width: 400px) {
   header.top .wrap {
