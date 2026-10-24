@@ -266,7 +266,6 @@ describe('the alerts to Martin', () => {
       'new-work-off',
       'new-work-on',
       'sign-in',
-      'signed-out',
       'stepped-up',
       'take-narrowed',
     ]);

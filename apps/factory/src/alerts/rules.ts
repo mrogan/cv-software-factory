@@ -95,7 +95,6 @@ export const SECURITY_LEVELS: Record<SecurityKind, Level> = {
   'setting-changed': LEVELS.notify,
   'line-started': LEVELS.notify,
   'sign-in': LEVELS.inform,
-  'signed-out': LEVELS.inform,
   'stepped-up': LEVELS.inform,
   'new-work-on': LEVELS.inform,
   'new-work-off': LEVELS.inform,
@@ -106,7 +105,6 @@ export const SECURITY_LEVELS: Record<SecurityKind, Level> = {
 /** What an alert says of each kind of security event: its title, and a line more. Never anything of the session. */
 const SECURITY_WORDS: Record<SecurityKind, { summary: string; description: string }> = {
   'sign-in': { summary: 'Signed in as Martin', description: 'A passkey signed in to the console.' },
-  'signed-out': { summary: 'Signed out as Martin', description: 'A session of the console was signed out.' },
   'passkey-enrolled': { summary: 'A passkey was enrolled', description: 'A new passkey can sign in as Martin.' },
   'passkey-revoked': { summary: 'A passkey was revoked', description: 'A passkey can no longer sign in as Martin.' },
   'setting-changed': {

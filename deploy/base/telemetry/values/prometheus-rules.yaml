@@ -39,15 +39,6 @@ serverFiles:
               summary: "Signed in as Martin"
               description: "A passkey signed in to the console."
           - alert: SecurityEvent
-            expr: "max(increase(line_security_events_total{kind=\"signed-out\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
-            for: 0s
-            labels:
-              level: "inform"
-              kind: "signed-out"
-            annotations:
-              summary: "Signed out as Martin"
-              description: "A session of the console was signed out."
-          - alert: SecurityEvent
             expr: "max(increase(line_security_events_total{kind=\"passkey-enrolled\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
             for: 0s
             labels:

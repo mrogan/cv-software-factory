@@ -63,7 +63,7 @@ Martin is alerted to each of his security events, at its kind's level, counted f
 
 | Kind | The stored event | Level |
 |---|---|---|
-| `sign-in`, `signed-out` | `admin.signed-in`, `admin.signed-out` | Inform |
+| `sign-in` | `admin.signed-in` | Inform |
 | `passkey-enrolled`, `passkey-revoked` | `passkey.enrolled`, `passkey.revoked` | Page |
 | `setting-changed` | every `settings.changed` | Notify |
 | `stepped-up` | `admin.stepped-up`: the passkey given again | Inform |
