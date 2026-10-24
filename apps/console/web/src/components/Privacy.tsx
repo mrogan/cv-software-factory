@@ -71,7 +71,7 @@ export function Privacy() {
           <tbody>
             <tr>
               <th scope="row">Logs</th>
-              <td>The page asked for, the answer’s status and how long it took</td>
+              <td>The page asked for, the answer’s status and how long it took, and any report you send</td>
               <td>{KEPT_DAYS.logs} days</td>
             </tr>
             <tr>
