@@ -159,7 +159,7 @@ The line sends what an alert needs to say it is stuck: how work items move throu
 | `line_holds_total` | `cause`, `stage` | Each hold for Martin the line started, by [cause](ORCHESTRATOR.md#holds-and-martins-answers) and the stage held at |
 | `line_releases_total` | `outcome`, `dry_run` | Each release the line recorded the end of: `promoted`, `rolled-back`, `aborted` or `errored` |
 | `line_verifications_total` | `sense`, `outcome`, `dry_run` | Each verification after a release, by the sense that looked and whether the signal `cleared` or `persists` |
-| `line_security_events_total` | `kind` | Martin's [security events](ALERTING.md#security-events) the store holds: `sign-in`, `passkey-enrolled`, `passkey-revoked`, `setting-changed`, `stepped-up`, `release-control`, `guardrail-approved`, `line-started`, and each change of the line's controls (`autonomy-loosened`, `autonomy-tightened`, `new-work-on`, `new-work-off`, `auto-merge-on`, `auto-merge-off`, `take-widened`, `take-narrowed`) |
+| `line_security_events_total` | `kind` | Martin's [security events](ALERTING.md#security-events) the store holds: `sign-in`, `passkey-enrolled`, `passkey-revoked`, `setting-changed`, `release-control`, `guardrail-approved`, `line-started`, `line-stopped`, and each change of the line's controls (`autonomy-loosened`, `autonomy-tightened`, `new-work-on`, `new-work-off`, `auto-merge-on`, `auto-merge-off`, `take-widened`, `take-narrowed`) |
 | `line_security_events_counting` | | 1 if the line's last read of them from the store succeeded, 0 if not, when the count above is stale |
 | `line_holds_stored_total` | `cause` | Every hold the store holds, by cause, whoever started it: the line or triage |
 
