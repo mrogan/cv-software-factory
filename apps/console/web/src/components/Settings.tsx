@@ -1,7 +1,11 @@
 /**
  * The settings (`?view=settings`): each agent's model and effort and the spend caps, within the bounds policy sets for
- * the profile, and for Martin his passkeys and this session. "Settings" from his account menu, "Models and spend" for a
- * visitor, who sees the models and the caps read only, and who changes them.
+ * the profile, the line's controls, and for Martin his passkeys and this session. "Settings" from his account menu,
+ * "Models and spend" for a visitor, who sees the models, the caps and the line's controls read only, and who changes
+ * them.
+ *
+ * The line's controls are Controls' own (`LineControls`), not a copy: each change acts at once, with no draft, and
+ * shows here and in Controls as its event arrives.
  *
  * What is in force comes from the events, through policy's own check (`projection/settings.ts`). A change is a draft
  * until saved: each changed field takes a `signal` rule, and the bar under the caps says what changes, in words, and
@@ -15,8 +19,8 @@ import { CEILINGS } from '../../../../../policy/spend.ts';
 import { SETTINGS_STEP_UP } from '../access.ts';
 import { type Admin, doorHref, post, type Session, said, write } from '../admin.ts';
 import { changeWords, clock, dayLabel, modelTitle, money } from '../format.ts';
-import type { SettingsView } from '../projection/index.ts';
-import { SpendGroup } from './Controls.tsx';
+import type { ControlsView, SettingsView } from '../projection/index.ts';
+import { KeyLegend, LineControls, SpendGroup } from './Controls.tsx';
 import { Key, useStepUp } from './StepUp.tsx';
 import '../styles/settings.css';
 
@@ -65,7 +69,17 @@ interface Draft {
 
 const EMPTY: Draft = { agents: {}, caps: {} };
 
-export function Settings({ view, allLocal, admin }: { view: SettingsView; allLocal: boolean; admin: Admin }) {
+export function Settings({
+  view,
+  controls,
+  allLocal,
+  admin,
+}: {
+  view: SettingsView;
+  controls: ControlsView;
+  allLocal: boolean;
+  admin: Admin;
+}) {
   const session = admin.kind === 'martin' ? admin.session : undefined;
   const martin = session !== undefined;
   const { profile, settings } = view;
@@ -324,6 +338,25 @@ export function Settings({ view, allLocal, admin }: { view: SettingsView; allLoc
     </article>
   );
 
+  const linePanel = (
+    <article className="panel" aria-labelledby="line-title">
+      <div className="panel-head">
+        <h2 id="line-title">The line</h2>
+        {readOnly && <span className="label">Read only</span>}
+      </div>
+      <LineControls controls={controls} admin={admin} />
+      <p className="help">
+        {readOnly ? (
+          'Only Martin changes these, signed in with his passkey, and every change is an event for all to see.'
+        ) : (
+          <>
+            Each change acts at once, with no Save, and shows in Controls too. <KeyLegend />
+          </>
+        )}
+      </p>
+    </article>
+  );
+
   const pending = changes.length > 0 || badCaps.length > 0;
   const saveBar = martin && pending && (
     <div className="save-bar">
@@ -373,8 +406,8 @@ export function Settings({ view, allLocal, admin }: { view: SettingsView; allLoc
         <h1>{martin ? 'Settings' : 'Models and spend'}</h1>
         <p>
           {martin
-            ? 'Models and spend, within the bounds policy sets.'
-            : 'What each agent runs on, and what the factory may spend. Martin chooses within the bounds policy sets; nobody can choose outside them.'}
+            ? 'Models, spend and the line, within the bounds policy sets.'
+            : 'What each agent runs on, what the factory may spend, and how the line runs. Martin chooses within the bounds policy sets; nobody can choose outside them.'}
         </p>
       </div>
       <div className="settings">
@@ -384,6 +417,7 @@ export function Settings({ view, allLocal, admin }: { view: SettingsView; allLoc
           {saveBar}
         </div>
         <div className="settings-col">
+          {linePanel}
           {session ? (
             <>
               <Passkeys session={session} />
