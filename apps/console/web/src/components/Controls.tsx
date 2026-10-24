@@ -129,7 +129,7 @@ const takeAsked = (take: Take) =>
   take.kind === 'every'
     ? 'The line takes every ticket.'
     : take.kind === 'next-few'
-      ? `The line takes the next ${take.count === 1 ? 'work item' : `${take.count} work items`}.`
+      ? `The line takes the next ${take.count === 1 ? 'work item' : `${take.count} work items`}, counted from now.`
       : `The line takes only #${take.workItem}.`;
 
 /** A group's place in the panel, so a refusal shows under the control that was pressed. */
@@ -365,13 +365,12 @@ const FIRST_FEW = 3;
 type Draft = { kind: 'next-few'; count: string } | { kind: 'just-one'; workItem: string };
 
 /** The take a draft would set, as the admin service would make it, or none while it is not one policy allows. */
-function draftTake(draft: Draft, before: Take | null, now: number): Take | undefined {
+function draftTake(draft: Draft, now: number): Take | undefined {
   if (draft.kind === 'next-few') {
     const count = Number(draft.count);
     if (!Number.isInteger(count) || count < 1 || count > TAKE.most) return undefined;
-    // A new number keeps when they started; the same number again starts them again.
-    const since = before?.kind === 'next-few' && before.count !== count ? before.since : new Date(now).toISOString();
-    return { kind: 'next-few', count, since };
+    // Whatever the number, they count again from now.
+    return { kind: 'next-few', count, since: new Date(now).toISOString() };
   }
   const workItem = draft.workItem.trim().replace(/^#/, '');
   return /^[1-9]\d{0,8}$/.test(workItem) ? { kind: 'just-one', workItem } : undefined;
@@ -399,7 +398,7 @@ function TakeGroup({ controls, viewer, changer }: { controls: ControlsView; view
         ? { kind: 'just-one', workItem: take.workItem }
         : undefined);
   const pressed = shown?.kind ?? take?.kind;
-  const after = shown && draftTake(shown, take, Date.now());
+  const after = shown && draftTake(shown, Date.now());
 
   const set = async (next: Take) => {
     const body: TakeBody =

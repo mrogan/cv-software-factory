@@ -66,7 +66,7 @@ describe('the line’s controls', () => {
       changed(10, { take: { kind: 'next-few', count: 3, since } }),
       ...taken('2', 12),
       ...taken('3', 20),
-      // A new number keeps when they started.
+      // A change that keeps when they started counts on from then: the count follows the event's own start.
       changed(22, { take: { kind: 'next-few', count: 4, since } }),
       // Triage's ticket alone is not taken, nor one the line only recorded something on: no agent has worked on it.
       ...work('4', start)

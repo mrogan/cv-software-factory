@@ -25,8 +25,8 @@
  *   that loosens, asked again after the lock.
  * - A change outside policy is refused (422), having changed nothing: the next few beyond its most, or just one work
  *   item that has no open ticket. The line checks what it reads again, whatever is written here.
- * - The next few count from when Martin chose them, so changing only their number keeps when they started; the same
- *   number chosen again starts them again.
+ * - The next few count from when Martin chose them: any number chosen, larger, smaller or the same, counts again from
+ *   then, so "the next two" are two from now.
  * - A change to what is already so records nothing.
  */
 import { AUTONOMY } from '@software-factory/events';
@@ -177,23 +177,15 @@ export function changeSummary(change: ControlChange): string {
 }
 
 /**
- * The change asked for, against the controls in force: the next few keep when they started while they stay the next
- * few, and start now otherwise. Unchecked: a number outside policy stays as given, and is refused.
+ * The change asked for, against the controls in force: the next few start now, whatever came before. Unchecked: a
+ * number outside policy stays as given, and is refused.
  */
 function changeOf(before: Controls, asked: Change, now: string): ControlChange {
   if ('autonomy' in asked) return { control: 'autonomy', before: before.autonomy, after: asked.autonomy };
   if ('newWork' in asked) return { control: 'new-work', before: before.newWork, after: asked.newWork };
   if ('autoMerge' in asked) return { control: 'auto-merge', before: before.autoMerge, after: asked.autoMerge };
   const { take } = asked;
-  const after: Take =
-    take.kind === 'next-few'
-      ? {
-          kind: 'next-few',
-          count: take.count,
-          // A new number keeps when they started; the same number again starts them again.
-          since: before.take?.kind === 'next-few' && before.take.count !== take.count ? before.take.since : now,
-        }
-      : take;
+  const after: Take = take.kind === 'next-few' ? { kind: 'next-few', count: take.count, since: now } : take;
   return { control: 'take', before: before.take, after };
 }
 

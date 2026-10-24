@@ -1738,7 +1738,7 @@ describe('the line’s controls', () => {
     expect(await other.post('/admin/line/controls', { autoMerge: false })).toMatchObject({ status: 200 });
   });
 
-  it('asks for the passkey again to widen what the line takes, and not to narrow it, counting the next few from when he chose them', async () => {
+  it('asks for the passkey again to widen what the line takes, and not to narrow it, counting the next few from each time he chooses them', async () => {
     await stored({});
     const workItem = await ticketed();
     const { browser, passkey } = await signedIn();
@@ -1760,18 +1760,21 @@ describe('the line’s controls', () => {
     // To the microsecond, as the line stamps each work item it takes.
     expect(since).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/);
     expect((await changes()).at(-1)?.summary).toBe('Martin widened what the line takes to the next 3');
-    // Without the passkey again: fewer is narrower, and keeps when the next few started; more is wider.
+    // Any number chosen counts again from now, fewer and the same too: with some taken already, that may let the line
+    // take more, so each asks for the passkey again.
+    const again = await browser.post('/admin/line/controls', { take: { kind: 'next-few', count: 2 } });
+    expect(again).toMatchObject({ status: 200, body: { controls: { take: { kind: 'next-few', count: 2 } } } });
+    const restarted = (again.body as { controls: { take: { since: string } } }).controls.take.since;
+    expect(restarted > since).toBe(true);
+    expect((await changes()).at(-1)?.summary).toBe('Martin widened what the line takes to the next 2');
+    // Without the passkey again, none of them.
     const other = (await signedIn()).browser;
-    expect(await other.post('/admin/line/controls', { take: { kind: 'next-few', count: 2 } })).toMatchObject({
-      status: 200,
-      body: { controls: { take: { kind: 'next-few', count: 2, since } } },
-    });
-    expect((await changes()).at(-1)?.summary).toBe('Martin narrowed what the line takes to the next 2');
-    // The same number again starts them again, from now: that many more, so it asks.
-    expect((await other.post('/admin/line/controls', { take: { kind: 'next-few', count: 2 } })).body.refused).toBe(
-      'step-up',
-    );
-    for (const take of [{ kind: 'next-few', count: 5 }, { kind: 'every' }]) {
+    for (const take of [
+      { kind: 'next-few', count: 1 },
+      { kind: 'next-few', count: 2 },
+      { kind: 'next-few', count: 5 },
+      { kind: 'every' },
+    ]) {
       expect((await other.post('/admin/line/controls', { take })).body.refused, JSON.stringify(take)).toBe('step-up');
     }
     expect(await other.post('/admin/line/controls', { take: { kind: 'just-one', workItem } })).toMatchObject({
