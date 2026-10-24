@@ -54,7 +54,8 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
   The admin service runs on the host too, against the forwarded Postgres, for working on it. Its password is in `postgres-admin`, which `make up` makes and the migrate Job sets: on a cluster made before it, run `make up` and let Argo CD sync again. It serves `/admin/` on its own port, so a browser reaches it only through the console's origin, which is the one a passkey and `Origin` are checked against. `make enrol`, as above, makes the code for the store it reads:
 
   ```sh
-  (store_role admin && ADMIN_ORIGIN=https://console.localhost:8443 PORT=8093 node apps/factory/src/cli.ts admin)
+  (store_role admin && ADMIN_ORIGIN=https://console.localhost:8443 GRAFANA_URL=http://grafana.localhost:8080 ARGOCD_URL=http://argocd.localhost:8080 \
+    PORT=8093 node apps/factory/src/cli.ts admin)
   ```
 
   For the console's sign-in pages in `pnpm dev`, start it with `ADMIN_ORIGIN=http://localhost:5173` and run `ADMIN_URL=http://localhost:8093 pnpm dev`, which passes `/admin/` to it as Traefik does. That works in Chrome; Safari drops the `Secure` cookie over plain HTTP.

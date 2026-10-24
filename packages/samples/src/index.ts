@@ -108,7 +108,7 @@ const CONTROLS: NewEvent<'controls.changed'>[] = [
     take: null,
     change: { control: 'autonomy', before: 'supervised', after: 'guarded' },
   }),
-  controlsChanged('2026-10-06T12:00:00.000Z', 'Martin widened what the line takes to the next 5', {
+  controlsChanged('2026-10-06T12:00:00.000Z', 'Martin widened what the line takes to the next 5 from now', {
     autonomy: 'guarded',
     newWork: true,
     autoMerge: false,

@@ -10,7 +10,8 @@
  *
  * And which of the access table's actions a change is (`policy/access.ts`), so the admin service asks for the passkey
  * again for one that loosens, and the line counts each as a security event, from the change alone. The next few,
- * chosen again with the same number, start again from then: that lets the line take more, and is wider.
+ * chosen again, count again from then, whatever their number: policy cannot see how many the line has taken, so that
+ * may let it take more, and is wider.
  *
  * Human-owned: see `README.md`.
  */
@@ -123,7 +124,9 @@ const breadth = (take: Take) => ({ 'just-one': 0, 'next-few': 1, every: 2 })[tak
  * Which action a change is. A looser autonomy level, auto-merge turned on, and a wider take loosen, and need the
  * passkey again; their opposites tighten, and turning agents' new work off or on asks for nothing (starting the line
  * again is what asks). A take is wider when it takes more kinds of work (every ticket, then the next few, then just
- * one) or, the next few still, a larger number. Just one moved from one work item to another is no wider. A first take,
+ * one) or, the next few still, a larger number or a count started again. Only the next few counted from the same start,
+ * with a smaller number, are narrower: policy cannot prove a restart admits no more, since it sees neither how many the
+ * line has taken nor when. Just one moved from one work item to another is no wider. A first take,
  * set over the line's own default, which policy cannot see (`LINE_TAKE` may be spent, or `LINE_ONLY` set), counts as
  * wider whatever it is.
  */
@@ -139,12 +142,12 @@ export function controlAction(change: ControlChange): ControlAction {
       const { before, after } = change;
       if (before === null) return 'take.widen';
       if (breadth(after) !== breadth(before)) return breadth(after) > breadth(before) ? 'take.widen' : 'take.narrow';
-      // The next few: more of them, or the same number counted again from another moment, is wider. The admin service
-      // only ever starts them again from later, to the microsecond, so any other start is one: `Date.parse` keeps
-      // milliseconds, and would call two starts in one millisecond the same.
+      // The next few: more of them, or counted again from another moment, whatever their number, is wider. Five with
+      // four taken, chosen again as two, lets the line take one more. The admin service only ever starts them again
+      // from later, to the microsecond, so any other start is one: `Date.parse` keeps milliseconds, and would call two
+      // starts in one millisecond the same.
       if (after.kind === 'next-few' && before.kind === 'next-few') {
-        const again = after.count === before.count && after.since !== before.since;
-        return after.count > before.count || again ? 'take.widen' : 'take.narrow';
+        return after.count > before.count || after.since !== before.since ? 'take.widen' : 'take.narrow';
       }
       return 'take.narrow';
     }
