@@ -1,6 +1,7 @@
 /**
  * Controls, the right of the bottom row, beside Needs you (`NeedsYou.tsx`), for everyone: the line's controls
  * (Autonomy, Switches, What the line takes), then Spend, a key to the key, and links to the settings and the audit log.
+ * The settings page draws the line's controls (`LineControls`) and Spend from here too.
  *
  * The line's controls are Martin's, in force as the latest `controls.changed` and policy's check say
  * (`projection/controls.ts`). Each change is one write to the admin service (`POST /admin/line/controls`), which
@@ -216,9 +217,19 @@ function AutonomyGroup({ controls, viewer, changer }: { controls: ControlsView; 
           );
         })}
       </div>
-      <p className="help">
-        {MEANS[autonomy][viewer]}
-        {autonomy !== 'supervised' && <span className="recorded"> {RECORDED[viewer]}</span>}
+      {/* Every level's words, laid in one place, with only the chosen one shown: the box is as tall as the longest at
+          any width, so nothing under it moves when the level changes. */}
+      <p className="help means">
+        {LEVELS.map((level) => (
+          <span
+            key={level}
+            className={level === autonomy ? 'chosen' : undefined}
+            aria-hidden={level !== autonomy || undefined}
+          >
+            {MEANS[level][viewer]}
+            {level !== 'supervised' && <span className="recorded"> {RECORDED[viewer]}</span>}
+          </span>
+        ))}
       </p>
       <Refusal changer={changer} where="autonomy" />
     </div>
@@ -504,28 +515,50 @@ function TakeGroup({ controls, viewer, changer }: { controls: ControlsView; view
   );
 }
 
+/**
+ * The line's controls: Autonomy, Switches and What the line takes, as Controls and the settings page draw them. Each
+ * place keeps its own refusal and busy state; both read the same controls in force, so a change made in one shows in
+ * the other as its event arrives.
+ */
+export function LineControls({ controls, admin }: { controls: ControlsView; admin: Admin }) {
+  const viewer: Viewer = admin.kind === 'martin' ? 'martin' : 'visitor';
+  const changer = useChange(admin);
+  return (
+    <>
+      <AutonomyGroup controls={controls} viewer={viewer} changer={changer} />
+      <SwitchesGroup controls={controls} viewer={viewer} changer={changer} />
+      <TakeGroup controls={controls} viewer={viewer} changer={changer} />
+    </>
+  );
+}
+
+/** The key to the key, for Martin: what the glyph after a control means. */
+export function KeyLegend() {
+  return (
+    <span className="legend">
+      <Glyph name="key" className="glyph key" /> asks for your passkey again, unless you gave it in the last five
+      minutes.
+    </span>
+  );
+}
+
 export function Controls({ spend, controls, admin }: { spend: SpendView; controls: ControlsView; admin: Admin }) {
   const martin = admin.kind === 'martin';
-  const viewer: Viewer = martin ? 'martin' : 'visitor';
-  const changer = useChange(admin);
   return (
     <article className="panel controls" aria-labelledby="controls-title">
       <div className="panel-head">
         <h2 id="controls-title">Controls</h2>
         {!martin && <span className="label">Read only</span>}
       </div>
-      <AutonomyGroup controls={controls} viewer={viewer} changer={changer} />
-      <SwitchesGroup controls={controls} viewer={viewer} changer={changer} />
-      <TakeGroup controls={controls} viewer={viewer} changer={changer} />
+      <LineControls controls={controls} admin={admin} />
       <SpendGroup spend={spend} />
       <p className="help">
         Gates, image signing and the egress fence are always on: they have no switch.
         {martin && (
-          <span className="legend">
+          <>
             {' '}
-            <Glyph name="key" className="glyph key" /> asks for your passkey again, unless you gave it in the last five
-            minutes.
-          </span>
+            <KeyLegend />
+          </>
         )}
       </p>
       <p className="help">
