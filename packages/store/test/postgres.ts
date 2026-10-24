@@ -170,9 +170,22 @@ const connectTo = (server: string, database: string) => {
     postgres({ ...quiet, host: url.hostname, port: Number(url.port), database, username, password });
 };
 const ownerOf = (server: string, database: string) => {
-  const url = new URL(server);
-  return connectTo(server, database)(decodeURIComponent(url.username), decodeURIComponent(url.password));
+  const { username, password } = new URL(server);
+  return connectTo(server, database)(decodeURIComponent(username), decodeURIComponent(password));
 };
+/** One connection to the server's own database, for making and dropping others. */
+const serverAdmin = (server: string) => postgres(server, { ...quiet, max: 1 });
+
+/** Drops a database, a template too. */
+async function dropDatabase(server: string, database: string) {
+  const sql = serverAdmin(server);
+  try {
+    await sql.unsafe(`alter database ${database} with is_template false`);
+    await sql.unsafe(`drop database ${database}`);
+  } finally {
+    await sql.end();
+  }
+}
 
 /**
  * Makes a database and migrates it, and gives the roles the tests connect as their passwords, which belong to the whole
@@ -180,7 +193,7 @@ const ownerOf = (server: string, database: string) => {
  * share a server, so they take turns, under a lock in the server's own database: advisory locks belong to a database.
  */
 async function migrated(server: string, database: string) {
-  const admin = postgres(new URL(server).href, { ...quiet, max: 1 });
+  const admin = serverAdmin(server);
   try {
     await admin`select pg_advisory_lock(hashtext('test migrations'))`;
     await admin.unsafe(`create database ${database}`);
@@ -206,26 +219,18 @@ async function migrated(server: string, database: string) {
 export async function createTemplate(server: string): Promise<{ name: string; drop(): Promise<void> }> {
   const name = `template_${process.pid}_${Date.now()}`;
   await migrated(server, name);
-  const admin = () => postgres(new URL(server).href, { ...quiet, max: 1 });
-  const sql = admin();
+  const drop = () => dropDatabase(server, name);
+  const sql = serverAdmin(server);
   try {
     // A copy fails while anything is connected to its source, so nothing may connect to the template from here on.
     await sql.unsafe(`alter database ${name} with is_template true allow_connections false`);
+  } catch (error) {
+    await drop().catch(() => {});
+    throw error;
   } finally {
     await sql.end();
   }
-  return {
-    name,
-    drop: async () => {
-      const sql = admin();
-      try {
-        await sql.unsafe(`alter database ${name} with is_template false`);
-        await sql.unsafe(`drop database ${name}`);
-      } finally {
-        await sql.end();
-      }
-    },
-  };
+  return { name, drop };
 }
 
 /**
@@ -243,15 +248,19 @@ export async function createDatabase(
 ): Promise<Database> {
   const database = `${name}_${process.pid}_${Date.now()}`;
   if (template) {
-    const started = performance.now();
-    const admin = postgres(new URL(server).href, { ...quiet, max: 1 });
+    const admin = serverAdmin(server);
+    let took: number;
     try {
+      // Connected first, so the limit is the copy's alone.
+      await admin`select 1`;
+      const started = performance.now();
       await admin.unsafe(`create database ${database} template ${template}`);
+      took = performance.now() - started;
     } finally {
       await admin.end();
     }
-    const took = performance.now() - started;
     if (took > limitMs) {
+      await dropDatabase(server, database).catch(() => {});
       throw new Error(
         `Making the test database ${database} took ${Math.round(took)} ms, over the ${limitMs} ms a copy of ` +
           'the template may take: something is making test databases wait again (packages/store/test/postgres.ts)',
