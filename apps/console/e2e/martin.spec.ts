@@ -2,13 +2,13 @@
  * Martin's view, end to end: the console against the real admin service and the console's own server, both on one
  * throwaway store holding the samples (`admin.ts`), with a virtual passkey in the browser. Signed in, the page reads
  * the full events and shows him a visitor's report text, made plain; a visitor reads the public ones, which carry none.
- * Preview as visitor reads the public events from the console's server, and Back to admin the full ones again. A
- * session ended elsewhere closes the stream, and the page goes to the sign-in door. Needs Postgres: TEST_DATABASE_URL,
+ * Preview as visitor reads the public events from the console's server, and Back to admin the full ones again. The
+ * audit log reads the public events for him too, and shows him what it shows a visitor. A session ended elsewhere closes the stream, and the page goes to the sign-in door. Needs Postgres: TEST_DATABASE_URL,
  * or Docker.
  */
 import type { Page } from '@playwright/test';
 import { enrolThroughTheDoor, type Harness, startHarness, virtualPasskey } from './admin.ts';
-import { REPORT_SHOWN } from './full.ts';
+import { MARTINS_WORDS, REPORT_SHOWN } from './full.ts';
 import { expect, test } from './support.ts';
 
 const PORT = 18_328;
@@ -47,7 +47,7 @@ test('a visitor reads the public events, and no report’s text', async ({ page 
   expect(opened).toEqual(['/api/events/stream']);
 });
 
-test('Martin reads the full events, previews as a visitor, and comes back', async ({ page }) => {
+test('Martin reads the full events, previews as a visitor, and comes back', async ({ page, browser }) => {
   await virtualPasskey(page);
   await enrolThroughTheDoor(page, await harness.code());
   const opened = streams(page);
@@ -92,6 +92,31 @@ test('Martin reads the full events, previews as a visitor, and comes back', asyn
     await expect.poll(() => opened).toEqual(['/admin/events/stream']);
     await page.locator('.card[data-place="centre"]').click({ position: { x: 300, y: 40 } });
     await expect(page.getByRole('dialog').locator('.report-said blockquote')).toHaveText(REPORT_SHOWN);
+  });
+
+  await test.step('the audit log reads the public events, and shows him what it shows a visitor', async () => {
+    opened.length = 0;
+    const audit = '/?view=audit&item=1329';
+    const rows = (p: Page) => p.locator('table.audit tbody tr:not(.day)');
+    await page.goto(audit);
+    await expect(page.getByRole('button', { name: 'Martin', exact: true })).toBeVisible();
+    await expect(rows(page).filter({ hasText: 'A visitor reported a problem on /search' })).toContainText(
+      'Its text is left out: a visitor wrote it.',
+    );
+    await expect(page.locator('main')).not.toContainText(MARTINS_WORDS);
+    const his = await rows(page).allInnerTexts();
+    await expect.poll(() => opened).toEqual(['/api/events/stream']);
+
+    const visitor = await browser.newPage({ baseURL: harness.origin });
+    await visitor.goto(audit);
+    await expect(rows(visitor)).toHaveCount(his.length);
+    expect(await rows(visitor).allInnerTexts()).toEqual(his);
+    await visitor.close();
+
+    // Back on the console, his full events again, for the session's end below.
+    opened.length = 0;
+    await page.goto(SHEET);
+    await expect.poll(() => opened.includes('/admin/events/stream')).toBe(true);
   });
 
   await test.step('a session ended elsewhere closes the stream, and the page goes to the sign-in door', async () => {
