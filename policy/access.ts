@@ -176,6 +176,18 @@ export const ACCESS = {
   'auto-rollback.off': admin('Turn off auto-rollback of a failed canary', true),
   'take.widen': admin('Let the line take more work items, or any rather than one', true),
   'take.narrow': admin('Let the line take fewer work items, or just one'),
+  // The line's controls, within policy (`line.ts`). A change is one route, and is the one of the actions above that it
+  // does, by the controls in force as it is taken, never the request's word: the admin service asks for the passkey
+  // again when that one needs it. Auto-rollback has no route: it stays on until Part C gives it a switch.
+  'line.controls': {
+    ...admin(
+      "Change one of the line's controls: as `autonomy.loosen` or `autonomy.tighten`, `new-work.on` or `new-work.off`, " +
+        '`auto-merge.on` or `auto-merge.off`, `take.widen` or `take.narrow`, by what it changes, with the passkey again ' +
+        'when that one needs it',
+    ),
+    server: 'admin',
+    routes: ['POST /admin/line/controls'],
+  },
 
   // A release in flight: the admin service changes the app's Rollout, the one service of ours that may.
   'release.promote': {

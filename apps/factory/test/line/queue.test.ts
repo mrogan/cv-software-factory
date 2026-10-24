@@ -142,6 +142,33 @@ describe('a queue with a limit', () => {
   });
 });
 
+describe('a queue set to take what Martin chose', () => {
+  it('counts the next few from when he chose them, and takes from then on whatever was taken before', async () => {
+    await database.as.line`insert into line (work_item, stage) values ('9001', 'ended'), ('9002', 'ended')`;
+    const [{ now } = { now: '' }] = await database.owner<{ now: string }[]>`select clock_timestamp()::text as now`;
+    const broken = await ticket('broken', '/search');
+    const degraded = await ticket('degraded', '/products');
+    const queue = new Queue(database.as.line, 'test', { take: 2 });
+    // LINE_TAKE's two are spent; the next one, counted from now, takes one more.
+    expect(await queue.admit()).toBeUndefined();
+    queue.takes({ only: null, take: { most: 1, since: new Date(now).toISOString() } });
+    expect(await queue.admit()).toBe(broken);
+    await end(broken);
+    expect(await queue.admit()).toBeUndefined();
+    // Every ticket.
+    queue.takes({ only: null, take: null });
+    expect(await queue.admit()).toBe(degraded);
+  });
+
+  it('sees only the one work item he chose, from when he chose it', async () => {
+    await database.as.line`insert into line (work_item, stage) values ('1001', 'build'), ('1002', 'plan')`;
+    const queue = new Queue(database.as.line, 'test');
+    expect((await queue.free()).map((i) => i.workItem).sort()).toEqual(['1001', '1002']);
+    queue.takes({ only: '1001', take: null });
+    expect((await queue.free()).map((i) => i.workItem)).toEqual(['1001']);
+  });
+});
+
 describe('a spec waiting for overlapping work', () => {
   it('waits at a stage of its own, which leaves room for the next ticket', async () => {
     const first = await ticket('broken', '/search');

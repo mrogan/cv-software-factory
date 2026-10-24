@@ -101,6 +101,78 @@ serverFiles:
             annotations:
               summary: "The line was started"
               description: "The line takes work again."
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"autonomy-loosened\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "page"
+              kind: "autonomy-loosened"
+            annotations:
+              summary: "Autonomy was loosened"
+              description: "The line's autonomy level was made looser in the console."
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"autonomy-tightened\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "page"
+              kind: "autonomy-tightened"
+            annotations:
+              summary: "Autonomy was tightened"
+              description: "The line's autonomy level was made stricter in the console."
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"new-work-on\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "page"
+              kind: "new-work-on"
+            annotations:
+              summary: "Agents take new work again"
+              description: "Agents were let take new work in the console."
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"new-work-off\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "page"
+              kind: "new-work-off"
+            annotations:
+              summary: "Agents take no new work"
+              description: "Agents were stopped taking new work in the console."
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"auto-merge-on\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "page"
+              kind: "auto-merge-on"
+            annotations:
+              summary: "Auto-merge was turned on"
+              description: "Auto-merge of low-risk changes was turned on in the console."
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"auto-merge-off\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "page"
+              kind: "auto-merge-off"
+            annotations:
+              summary: "Auto-merge was turned off"
+              description: "Auto-merge of low-risk changes was turned off in the console."
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"take-widened\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "page"
+              kind: "take-widened"
+            annotations:
+              summary: "The line takes more"
+              description: "What the line takes was widened in the console."
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"take-narrowed\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "page"
+              kind: "take-narrowed"
+            annotations:
+              summary: "The line takes less"
+              description: "What the line takes was narrowed in the console."
           - alert: SecurityEventsUncounted
             expr: "(count(last_over_time(line_security_events_total{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[6h])) unless count(line_security_events_total{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"})) or max(line_security_events_counting{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}) == 0"
             for: 5m

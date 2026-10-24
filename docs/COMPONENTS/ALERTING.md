@@ -69,8 +69,12 @@ Martin is paged for each of his security events, counted from the stored events 
 | `release-control` | `release.controlled` that promotes a canary or retries a release |
 | `guardrail-approved` | `hold.answered` approving a hold whose cause is a guardrail (`GUARDRAIL_HOLDS` in `policy/access.ts`), the cause read from the hold it answers |
 | `line-started` | `line.started` |
+| `autonomy-loosened`, `autonomy-tightened` | `controls.changed` that makes the autonomy level looser or stricter |
+| `new-work-on`, `new-work-off` | `controls.changed` that lets agents take new work, or stops them |
+| `auto-merge-on`, `auto-merge-off` | `controls.changed` that turns auto-merge of low-risk changes on or off |
+| `take-widened`, `take-narrowed` | `controls.changed` that widens or narrows what the line takes |
 
-The rest of what the access table marks as needing the passkey again (loosening autonomy, auto-merge on, auto-rollback off, a wider take) has no event yet, and a test fails until each that gains one is counted.
+Every change of the line's controls pages, each told from the stored change's before and after alone (`policy/line.ts`), as every change of the settings does. Auto-rollback off, which the access table marks too, has no event until Part C gives it a switch, and a test fails until it is counted.
 
 - **One rule for each kind** pages when its count rises: the first of a kind too, as each count starts at 0. Several of a kind within five minutes are one page.
 - **Another pages when the count is missing or stale:** gone for ten minutes after being there in the six hours before, or the line unable to read the store for five. Meanwhile no security event would page.

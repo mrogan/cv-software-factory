@@ -2,7 +2,7 @@
  * `factory line`: stopping and starting the line (guardrail 9: stop the line always works).
  *
  *     factory line stop [--reason <why>]
- *     factory line start [--reason <why>] [--autonomy supervised|guarded|lights-out]
+ *     factory line start [--reason <why>]
  *     factory line serve
  *     factory line bench [<agent> [<fixture>]] [--commit <sha>]
  *     factory line soak-check [--since <time>] [--no-spend] [--json]
@@ -11,14 +11,18 @@
  * the `runners` namespace. With LINE_MODE set to `live` or `dry-run`, it also runs the line itself (`line/worker.ts`):
  * it takes tickets and carries them through the agents, the gates and review to Martin's merge, acting in GitHub for
  * real or recording what it would have done. LINE_MODE is `off` by default: the line takes no tickets, and only the
- * step API and the smoke run work, and stopping the line still stops their agents. LINE_ONLY, a work item, has the
- * line act on that one alone: it takes the work item's ticket onto the line if it is not there, whatever else is in
- * Plan or Build, and starts no step for any other, reads nothing for it and appends nothing. It is unset by default,
- * when the line acts on every work item; a soak sets it to take one ticket end to end, with one step at a time on
- * the local model. LINE_TAKE, a number, is how many work items the line takes in all, by its own rule, counting every
- * one it has ever taken: once it has taken that many it takes no more, and carries those on it to their end. Unset,
- * as by default, the line takes tickets without limit; a first run on Claude sets it to 1, so that no one chooses the
- * ticket and only one goes through.
+ * step API and the smoke run work, and stopping the line still stops their agents.
+ *
+ * What the line takes is Martin's to set in the console's Controls (every ticket, the next few, or just one), which the
+ * line reads at each pass (`policy/line.ts`). LINE_ONLY and LINE_TAKE are its defaults, for a line with no take set (a
+ * line on a host, a fresh store), and stop applying once he sets one. LINE_ONLY, a work item, has the line act on that
+ * one alone: it takes the work item's ticket onto the line if it is not there, whatever else is in Plan or Build, and
+ * starts no step for any other, reads nothing for it and appends nothing. It is unset by default, when the line acts on
+ * every work item; a soak sets it to take one ticket end to end, with one step at a time on the local model. LINE_TAKE,
+ * a number, is how many work items the line takes in all, by its own rule, counting every one it has ever taken: once
+ * it has taken that many it takes no more, and carries those on it to their end. Unset, as by default, the line takes
+ * tickets without limit; a first run on Claude sets it to 1, so that no one chooses the ticket and only one goes
+ * through. The console's switch for new work stops the line taking tickets and starting agents' steps, as its own.
  *
  * RELEASE_ROLLOUT, the app's Rollout as `<namespace>/<name>`, has the line watch the app's releases: it reads the
  * Rollout and its AnalysisRuns, and each version's figures from Prometheus at PROMETHEUS_URL (required with it), and
@@ -71,12 +75,12 @@
  * own role (`factory_operator`): only his roles may append his commands, and the workers heed them from no other.
  */
 import { parseArgs } from 'node:util';
-import { AUTONOMY, type Autonomy, type NewEvent, VERSIONS } from '@software-factory/events';
+import { type NewEvent, VERSIONS } from '@software-factory/events';
 import { connect, DiskArtifacts, EventWriter } from '@software-factory/store';
 import { rolloutRefOf } from '../release/rollout-ref.ts';
 
 export const USAGE = `  factory line stop [--reason <why>]
-  factory line start [--reason <why>] [--autonomy supervised|guarded|lights-out]
+  factory line start [--reason <why>]
   factory line serve
   factory line bench [<agent> [<fixture>]] [--commit <sha>]
   factory line soak-check [--since <time>] [--no-spend] [--json]`;
@@ -89,13 +93,11 @@ export async function run(args: string[]): Promise<number> {
     allowPositionals: true,
     options: {
       reason: { type: 'string' },
-      autonomy: { type: 'string', default: 'supervised' },
     },
   });
   const [command] = positionals;
   if (command === 'serve') return serve();
-  const autonomy = values.autonomy as Autonomy;
-  if ((command !== 'stop' && command !== 'start') || !AUTONOMY.includes(autonomy)) {
+  if (command !== 'stop' && command !== 'start') {
     console.log(`Usage:\n${USAGE}`);
     return 2;
   }
@@ -122,10 +124,8 @@ export async function run(args: string[]): Promise<number> {
       console.log('The line is stopped. Workers finish what they hold and take nothing new.');
     } else {
       const reason = values.reason?.trim();
-      await writer.append(
-        event('line.started', `The line started, ${autonomy}`, { autonomy, ...(reason && { reason }) }),
-      );
-      console.log(`The line is running, ${autonomy}. Workers take what waited in the inbox.`);
+      await writer.append(event('line.started', 'The line started', reason ? { reason } : {}));
+      console.log('The line is running. Workers take what waited in the inbox.');
     }
     return 0;
   } catch (error) {

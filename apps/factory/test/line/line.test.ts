@@ -912,6 +912,62 @@ describe('the line', () => {
     expect(new Set(one.steps.requests.map((r) => r.workItem))).toEqual(new Set([broken]));
   });
 
+  /** Martin's controls, as the admin service appends them: every control, and the one changed. */
+  const controls = (set: Partial<PayloadOf<'controls.changed'>>) =>
+    martin.append(
+      event(
+        null,
+        'controls.changed',
+        {
+          autonomy: 'supervised',
+          newWork: true,
+          autoMerge: false,
+          take: null,
+          change: { control: 'new-work', before: false, after: true },
+          ...set,
+        },
+        'martin',
+      ),
+    );
+
+  it('takes what Martin set in the console in place of its own default, from its next pass, and nothing outside policy', async () => {
+    const cosmetic = await ticket('cosmetic', '/');
+    const broken = await ticket('broken', '/search');
+    const it = line(AGENTS, events, { take: 0 });
+    // The next fifty is more than policy allows: not in force, so the line's own default is, and it takes nothing.
+    await controls({ take: { kind: 'next-few', count: 50, since: new Date(now).toISOString() } });
+    await it.pass();
+    expect(it.steps.requests).toEqual([]);
+    expect(await stage(broken)).toBeUndefined();
+    // Just the cosmetic one: taken on the next pass, whatever else is open, and nothing else.
+    const take = { kind: 'just-one', workItem: cosmetic } as const;
+    await controls({ take, change: { control: 'take', before: null, after: take } });
+    await it.pass();
+    expect(it.steps.requests.map((r) => [r.workItem, r.agent])).toEqual([[cosmetic, 'planner']]);
+    expect(await stage(broken)).toBeUndefined();
+    // Every ticket: the broken one comes on once nothing waits in Plan or for Build.
+    await controls({ take: { kind: 'every' }, change: { control: 'take', before: take, after: { kind: 'every' } } });
+    await it.pass(); // the coder, on the cosmetic one
+    await it.pass();
+    expect(await stage(broken)).toBeDefined();
+  });
+
+  it('takes no ticket and starts no agent’s step while Martin has agents take no new work, and goes on after', async () => {
+    const broken = await ticket('broken', '/search');
+    const it = line(AGENTS, events);
+    await it.pass(); // the planner
+    expect(await stage(broken)).toBe('build');
+    const cosmetic = await ticket('cosmetic', '/');
+    await controls({ newWork: false, change: { control: 'new-work', before: true, after: false } });
+    await it.pass();
+    await it.pass();
+    expect(it.steps.requests.map((r) => r.agent)).toEqual(['planner']);
+    expect(await stage(cosmetic)).toBeUndefined();
+    await controls({ newWork: true, change: { control: 'new-work', before: false, after: true } });
+    await it.pass();
+    expect(it.steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder']);
+  });
+
   it('gives a step on a local model longer, and more turns, as the policy routes its agent, and Claude’s none', async () => {
     const workItem = await ticket();
     const local = line(AGENTS, events, { providerOf: (agent) => (agent === 'planner' ? 'local' : 'anthropic') });

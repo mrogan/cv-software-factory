@@ -97,6 +97,38 @@ const SECURITY_WORDS: Record<SecurityKind, { summary: string; description: strin
     description: 'A hold whose cause is a guardrail was approved.',
   },
   'line-started': { summary: 'The line was started', description: 'The line takes work again.' },
+  'autonomy-loosened': {
+    summary: 'Autonomy was loosened',
+    description: "The line's autonomy level was made looser in the console.",
+  },
+  'autonomy-tightened': {
+    summary: 'Autonomy was tightened',
+    description: "The line's autonomy level was made stricter in the console.",
+  },
+  'new-work-on': {
+    summary: 'Agents take new work again',
+    description: 'Agents were let take new work in the console.',
+  },
+  'new-work-off': {
+    summary: 'Agents take no new work',
+    description: 'Agents were stopped taking new work in the console.',
+  },
+  'auto-merge-on': {
+    summary: 'Auto-merge was turned on',
+    description: 'Auto-merge of low-risk changes was turned on in the console.',
+  },
+  'auto-merge-off': {
+    summary: 'Auto-merge was turned off',
+    description: 'Auto-merge of low-risk changes was turned off in the console.',
+  },
+  'take-widened': {
+    summary: 'The line takes more',
+    description: 'What the line takes was widened in the console.',
+  },
+  'take-narrowed': {
+    summary: 'The line takes less',
+    description: 'What the line takes was narrowed in the console.',
+  },
 };
 
 /** The line's count of Martin's security events, and of the holds started, as only the line's pods send them. */
