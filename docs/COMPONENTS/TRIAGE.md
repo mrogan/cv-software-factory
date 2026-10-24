@@ -96,6 +96,23 @@ A report or a planner's finding that Jev judges a suggestion (a request for some
 
 Approving one means nothing yet, so Needs you does not offer it: the "+" on Plan (milestone 7 Part B) is where Martin asks for an improvement. Triage acts on his rejection once an event is appended, reading the suggestion holds by an index of their own, and leaves an answer it cannot act on as it leaves [a finding's](#martins-answer-to-a-finding).
 
+## How long a report is kept
+
+A visitor's report is kept for 30 days from when it was received, wherever the factory keeps it: the words they typed, and the page they sent it from as they sent it. Triage forgets each 29 days after it reached the store (`REPORT_TEXT` in `policy/triage.ts`), a day short, as it prunes the inbox, when it starts and every hour. The hour between passes, and the minutes before triage takes a report, then still fall inside the 30 days.
+
+- **The events.** The text goes from the report's `signal.received` and from each `judgement.made` Jev made of it, appended with it. The events stay: they are what the console, the audit log and the scoreboard are made from, and the store keeps every event (append-only, but for [this one change](EVENT-STORE.md#the-table)). What is left is valid at its version, as a report read from a public record has no text either, so every view reads it as a report whose words are withheld. The page stays as the event has it, a path with no query and nothing private in it: the factory's own, which the work item's title and the public view give everyone.
+- **The inbox.** The report's row goes, triaged or not, with its text and the page as it was sent. The log watcher takes up from the newest report the inbox holds, or from a day back when it holds none, and Loki keeps seven days: nothing could send one that old again.
+- **What is not the visitor's stays.** A work item's title, description and story, and a ticket, are the factory's own words, never the visitor's: they quote no report. Jev's answers and the passage of the page it chose are the factory's too. Martin's words on a hold about a report are his own. A planner's finding is the factory's own words, and stays; so do a store's [samples](SAMPLES.md), whose reports are invented.
+- **The gateway's cassettes** of Jev's calls hold the report it judged. The gateway deletes each by the same 29 days, whatever else would keep it ([keeping them](LLM-GATEWAY.md#keeping-them)).
+
+Triage does it through one function the store gives its role (`forget_reports`, `0032_forget-reports.sql`), which runs with the owner's rights and does only that: the role may change no event, and delete no report from the inbox, itself. A store migrated to it forgets every report already older than that as soon as triage next starts; there is nothing to run by hand.
+
+Elsewhere the text goes sooner, or is the cluster's to keep:
+
+- **Loki** keeps the app's log, the widget's records among them, for seven days, and **Tempo** its traces for three ([telemetry](TELEMETRY.md)).
+- **The node's container logs**, the files the app's output is written to before the collector reads them, are rotated by size, not by time: the kubelet keeps five files of up to 10 MiB for each container, its defaults, which the cluster leaves as they are. On a quiet app a report could stay there longer than 30 days. That is the cluster's setting, k3s's, and not the factory's to change.
+- **Postgres** keeps the old version of a row it changed or deleted until autovacuum reclaims it, which it does on its own.
+
 ## The planner's findings
 
 A planner's finding is trusted no more than a report, since a visitor can read the app's public code and argue an agent into seeing a bug. It is judged the same way but never opens a ticket (`routeFinding`). Nothing else opens a ticket from a finding.

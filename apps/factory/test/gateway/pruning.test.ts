@@ -1,6 +1,7 @@
 /**
  * Pruning a recording gateway's cassettes, against the store as the gateway's own role: what goes two weeks after the
- * work items its calls name have closed, after its last call, or after it was written, and what stays.
+ * work items its calls name have closed, after its last call, or after it was written, what goes once a visitor's
+ * report may be kept no longer, and what stays.
  */
 import { mkdtempSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -121,17 +122,35 @@ describe('pruning the cassettes', () => {
     });
   });
 
-  it('prunes only agents’ cassettes where Jev’s calls are replayed from the folder', async () => {
+  it('prunes only agents’ cassettes where Jev’s calls are replayed from the folder, until a report’s time', async () => {
     const agents = cassette(30);
     await call(agents, 20, null);
     const judged = cassette(30);
     await call(judged, 20, null, 'triage/v2');
-    const unnamed = cassette(30);
+    const unnamed = cassette(20);
+    // A report's time is up: what Jev was asked, and a file that could be one of its, go however they are replayed.
+    const judgedLongAgo = cassette(40);
+    await call(judgedLongAgo, 30, null, 'triage/v2');
+    cassette(30); // and a file no call names, as old
     expect(await pruneCassettes({ sql: database.as.gateway, dir, now: NOW, agentsOnly: true })).toEqual({
-      deleted: 1,
+      deleted: 3,
       failed: 0,
     });
     expect(left()).toEqual([judged, unnamed].map(file).sort());
+  });
+
+  it('never keeps a cassette that may hold a report past a report’s time, whatever else would keep it', async () => {
+    // Kept longer than a report may be, the usual rule would keep both; and a work item still open keeps an agent's.
+    const judged = cassette(40);
+    await call(judged, 30, '1000', 'passage/v1');
+    const agents = cassette(40);
+    await call(agents, 30, '1000');
+    const judgedLately = cassette(40);
+    await call(judgedLately, 28, null, 'triage/v2');
+    cassette(30); // a file no call names
+    const pruned = await pruneCassettes({ sql: database.as.gateway, dir, now: NOW, keepDays: 60 });
+    expect(pruned).toEqual({ deleted: 2, failed: 0 });
+    expect(left()).toEqual([agents, judgedLately].map(file).sort());
   });
 
   it('prunes as it starts, logs what went, and waits for a prune in flight when stopped', async () => {

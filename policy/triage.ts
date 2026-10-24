@@ -42,6 +42,20 @@ export const REPORTS = {
   severity: { degraded: 1.5, broken: 2.5 },
 } as const;
 
+/**
+ * How long a visitor's report is kept: the words they typed, and the page they sent it from as they sent it. The
+ * privacy pages, the console's and the app's, promise `promisedDays` from when it was received. Triage forgets each
+ * `keepDays` after it reached the store, a day short, as it prunes the inbox (`forgetReports` in packages/store): the
+ * hour between prunes, and the minutes before triage takes a report, then still fall inside the promise. The gateway
+ * deletes a cassette that may carry one by then too (`apps/factory/src/gateway/pruning.ts`).
+ */
+export const REPORT_TEXT = {
+  /** What the privacy pages say, in days. */
+  promisedDays: 30,
+  /** When triage forgets a report, in days after it reached the store. Less than `promisedDays`. */
+  keepDays: 29,
+} as const;
+
 /** How triage takes signals from the inbox. */
 export const INBOX = {
   /** Tries before a signal is left in the inbox with its reason, for a person to look at. */

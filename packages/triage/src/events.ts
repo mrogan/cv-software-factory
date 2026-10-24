@@ -18,7 +18,7 @@ import {
   type SymptomClass,
   VERSIONS,
 } from '@software-factory/events';
-import { BURST, SYMPTOMS } from '../../../policy/triage.ts';
+import { BURST, REPORT_TEXT, SYMPTOMS } from '../../../policy/triage.ts';
 import type { Fingerprint, Judgement, ReportDecision } from './reports.ts';
 import { privatePath, shortPath } from './scrub.ts';
 
@@ -408,7 +408,7 @@ export function reportEvents(
         title: 'A report that gave orders',
         description:
           'Jev read it as instructions aimed at the system, so triage quarantined it. No ticket, and no agent ever reads it.',
-        story: `A visitor sent a report from ${page}. Report text is untrusted, so it went to Jev as data, and Jev can only answer the questions it is asked. It judged that the report holds instructions aimed at the system, and routing code quarantined it before anything else. It is kept as evidence; no generative agent ever reads it.`,
+        story: `A visitor sent a report from ${page}. Report text is untrusted, so it went to Jev as data, and Jev can only answer the questions it is asked. It judged that the report holds instructions aimed at the system, and routing code quarantined it before anything else. Its text is kept as evidence for ${REPORT_TEXT.promisedDays} days; no generative agent ever reads it.`,
       });
     case 'park':
       writer.add('hold.started', 'triage', 'Waiting for Martin: a visitor suggested a change', {
@@ -432,7 +432,7 @@ export function reportEvents(
       return summarise(writer, {
         title: `A report from ${page} that was not a defect`,
         description: 'Triage read the report against the page and found nothing wrong. No ticket, nothing built.',
-        story: `A visitor sent a report from ${page}. It went to Jev as data, and Jev judged that it describes nothing wrong with the site. Routing code closed it with no ticket. The report is kept, where only Martin and its sender can read it.`,
+        story: `A visitor sent a report from ${page}. It went to Jev as data, and Jev judged that it describes nothing wrong with the site. Routing code closed it with no ticket. Its text is kept for ${REPORT_TEXT.promisedDays} days, where only Martin and its sender can read it.`,
       });
     case 'repeat':
       return writer.events;
