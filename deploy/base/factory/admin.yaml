@@ -74,7 +74,7 @@ spec:
             # match exactly: the local cluster's (deploy/overlays/local/console-ingress.yaml).
             - name: ADMIN_ORIGIN
               value: https://console.localhost:8443
-            # The local cluster's Grafana and Argo CD, which Martin's menu links to: sent to him alone, signed in.
+            # The local cluster's Grafana and Argo CD, which Martin's account menu links to. Only a signed-in session is told them.
             - name: GRAFANA_URL
               value: http://grafana.localhost:8080
             - name: ARGOCD_URL
