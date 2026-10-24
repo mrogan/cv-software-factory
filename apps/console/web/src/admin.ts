@@ -18,7 +18,21 @@ export interface Session {
   token: string;
   passkey: { id: string; name: string };
   passkeys: { id: string; name: string; enrolledAt: string; lastUsedAt: string | null; current: boolean }[];
+  /** This deployment's Grafana and Argo CD, each when the service is given it: told to a signed-in session alone. */
+  tools?: Tools;
 }
+
+export interface Tools {
+  grafana?: string;
+  argocd?: string;
+}
+
+/**
+ * A tool's address from the session, when it is one a link may take (http or https); anything else draws no link.
+ * A session is still Martin's without them.
+ */
+export const toolHref = (value: unknown): string | undefined =>
+  typeof value === 'string' && /^https?:\/\/[^/]/i.test(value) ? value : undefined;
 
 /**
  * Who is looking:

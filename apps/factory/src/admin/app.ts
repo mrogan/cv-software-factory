@@ -18,7 +18,8 @@
  *   the spend caps, within policy, with the passkey again when anything in it raises.
  * - Needs you (`holds.ts`): `POST /admin/holds/:workItem/approve`, `/reject` and `/answer` (with his words), each
  *   naming the hold the card showed, with the passkey again to approve a guardrail's.
- * - `GET /admin/session`, with the token the session's writes carry, and `GET /admin/events/stream`.
+ * - `GET /admin/session`, with the token the session's writes carry and the deployment's tools Martin's menu links to,
+ *   and `GET /admin/events/stream`.
  * - `GET /admin/health`.
  *
  * The session is a cookie, `__Host-session`, holding a random id the store keeps the hash of. Each action is recorded
@@ -143,6 +144,8 @@ export function createAdminApp({
       lastUsedAt: passkey.lastUsedAt?.toISOString() ?? null,
       current: passkey.id === session.passkey.id,
     })),
+    // This deployment's Grafana and Argo CD, for his account menu: told to a signed-in session alone.
+    tools: config.tools ?? {},
   });
 
   /**

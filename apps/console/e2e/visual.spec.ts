@@ -454,7 +454,7 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
       await page.getByRole('button', { name: 'Martin', exact: true }).click();
       await page.locator('#account-menu').waitFor();
       await expect(page).toHaveScreenshot(`m07-account-menu-${width}.png`, {
-        clip: { x: 0, y: 0, width: viewport.width, height: 320 },
+        clip: { x: 0, y: 0, width: viewport.width, height: 600 },
       });
     });
 
@@ -471,8 +471,7 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
       await adminService(page, 'martin');
       await page.goto(consoleUrl());
       await ready(page);
-      // Narrower than a desktop, it is in the account menu.
-      if (width !== 'desktop') await page.getByRole('button', { name: 'Martin', exact: true }).click();
+      await page.getByRole('button', { name: 'Martin', exact: true }).click();
       await page.getByRole('button', { name: 'Preview as visitor' }).click();
       await ready(page);
       await page.getByRole('button', { name: 'Back to admin' }).blur();

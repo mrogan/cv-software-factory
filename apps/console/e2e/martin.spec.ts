@@ -66,6 +66,7 @@ test('Martin reads the full events, previews as a visitor, and comes back', asyn
   await test.step('Preview as visitor reads the public events from the console’s server', async () => {
     opened.length = 0;
     await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.getByRole('button', { name: 'Martin', exact: true }).click();
     await page.getByRole('button', { name: 'Preview as visitor' }).click();
     const banner = page.getByRole('region', { name: 'Preview as visitor' });
     await expect(banner).toContainText(

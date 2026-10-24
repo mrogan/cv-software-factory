@@ -13,6 +13,9 @@
  *   the controls are refused, and nothing here reaches Kubernetes.
  * - FACTORY_PROFILE: local, do or aws (default local), as the gateway's and the line's: the bounds Martin's settings
  *   are held to (`policy/settings.ts`), and their defaults.
+ * - GRAFANA_URL, ARGOCD_URL: this deployment's Grafana and Argo CD, each an http or https address, which Martin's
+ *   session names so his account menu links to them. Only a signed-in session is told them: a public deployment's
+ *   internal hosts never reach a visitor's page. Unset, the menu has no link to that tool.
  * - PORT: where it listens (8080).
  */
 import { BlockList, isIP } from 'node:net';
@@ -29,6 +32,14 @@ export interface AdminConfig {
   rollout?: RolloutRef;
   /** The profile whose policy Martin's settings are held to. */
   profile: Profile;
+  /** This deployment's tools, for Martin's account menu. */
+  tools?: Tools;
+}
+
+/** The deployment's tools Martin's account menu links to, each when it is set. */
+export interface Tools {
+  grafana?: string;
+  argocd?: string;
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv): AdminConfig {
@@ -62,6 +73,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv): AdminConfig {
   if (!PROFILES.includes(profile)) {
     throw new Error(`FACTORY_PROFILE is ${JSON.stringify(profile)}; it must be one of ${PROFILES.join(', ')}.`);
   }
+  const grafana = toolUrl('GRAFANA_URL', env.GRAFANA_URL);
+  const argocd = toolUrl('ARGOCD_URL', env.ARGOCD_URL);
   return {
     origin: url.origin,
     rpId,
@@ -69,7 +82,24 @@ export function configFromEnv(env: NodeJS.ProcessEnv): AdminConfig {
     port,
     profile,
     ...(rollout && { rollout }),
+    tools: { ...(grafana && { grafana }), ...(argocd && { argocd }) },
   };
+}
+
+/** A tool's address, as a link takes it: http or https, and nothing a page would run. Unset or empty, there is none. */
+function toolUrl(name: string, given: string | undefined): string | undefined {
+  const value = given?.trim();
+  if (!value) return undefined;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${name} is not a URL: ${value}`);
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`${name} must be an http or https address: ${value}`);
+  }
+  return url.href;
 }
 
 /** The proxies in front, as `10.42.0.0/16, 127.0.0.1`. */

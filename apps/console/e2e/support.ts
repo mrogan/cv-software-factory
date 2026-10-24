@@ -227,6 +227,7 @@ export const SESSION = {
       current: true,
     },
   ],
+  tools: { grafana: 'http://grafana.localhost:8080/', argocd: 'http://argocd.localhost:8080/' },
 };
 
 /**

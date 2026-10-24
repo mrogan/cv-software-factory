@@ -47,6 +47,79 @@ test('shows Martin his account, whose menu closes on a click outside', async ({ 
   await expect(page.getByRole('link', { name: 'Martin’s sign-in' })).toHaveCount(0);
 });
 
+test('keeps the switches in a visitor’s header, and in Martin’s menu for him, with the tools he is told of', async ({
+  page,
+}) => {
+  await adminService(page, 'visitor');
+  await page.goto(consoleUrl());
+  await ready(page);
+  const header = page.locator('header.top');
+  await expect(header.getByRole('group', { name: 'Theme' })).toBeVisible();
+  await expect(header.getByRole('group', { name: 'Motion' })).toBeVisible();
+
+  await page.unroute('**/admin/session');
+  await adminService(page, 'martin');
+  await page.goto(consoleUrl());
+  await ready(page);
+  await expect(header.getByRole('group', { name: 'Theme' })).toBeHidden();
+  await expect(header.getByRole('button', { name: 'Preview as visitor' })).toBeHidden();
+  await page.getByRole('button', { name: 'Martin', exact: true }).click();
+  const menu = page.locator('#account-menu');
+  await menu.getByRole('group', { name: 'Theme' }).getByRole('button', { name: 'INK' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'ink');
+  // Each tool opens in a new tab, with no hold on this one.
+  for (const [name, href] of [
+    ['Grafana', SESSION.tools.grafana],
+    ['Argo CD', SESSION.tools.argocd],
+  ] as const) {
+    const link = menu.getByRole('link', { name: new RegExp(`^${name}`) });
+    await expect(link).toHaveAttribute('href', href);
+    await expect(link).toHaveAttribute('target', '_blank');
+    await expect(link).toHaveAttribute('rel', 'noopener');
+    await expect(link).toContainText('(opens in a new tab)');
+  }
+});
+
+test('draws no link to a tool the session does not name, or names as anything but http or https', async ({ page }) => {
+  await page.route('**/admin/session', (route) =>
+    route.fulfill({ json: { ...SESSION, tools: { argocd: 'javascript:alert(1)' } } }),
+  );
+  await page.goto(consoleUrl());
+  await ready(page);
+  await page.getByRole('button', { name: 'Martin', exact: true }).click();
+  const menu = page.locator('#account-menu');
+  await expect(menu).toContainText('Settings');
+  await expect(menu.getByRole('link', { name: /^Grafana|^Argo CD/ })).toHaveCount(0);
+});
+
+test('takes anyone home from the brand, and names the footer’s icons', async ({ page }) => {
+  await adminService(page, 'visitor');
+  await page.goto('/?view=privacy');
+  const footer = page.locator('footer');
+  await expect(footer).toContainText('© 2026 Martin Rogan · MIT');
+  await expect(footer.getByRole('link', { name: 'MIT' })).toHaveAttribute(
+    'href',
+    'https://github.com/mrogan/cv-software-factory/blob/main/LICENSE',
+  );
+  await expect(footer.getByRole('link', { name: 'The source on GitHub' })).toHaveAttribute(
+    'href',
+    'https://github.com/mrogan/cv-software-factory',
+  );
+  await expect(footer.getByRole('link', { name: 'Martin Rogan on LinkedIn' })).toHaveAttribute(
+    'href',
+    'https://www.linkedin.com/in/martinrogan/',
+  );
+  await expect(footer.getByRole('link', { name: 'Martin’s sign-in' })).toHaveAttribute('title', 'Martin’s sign-in');
+  await expect(footer.getByRole('link', { name: 'Why it exists' })).toHaveCount(0);
+  await page.getByRole('link', { name: 'Software Factory: Martin Rogan, a live CV, home' }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await ready(page);
+  // The icons are drawn on the doors too, which have a page of their own.
+  await page.goto('/?view=sign-in');
+  await expect(page.locator('#logo-github')).toHaveCount(1);
+  await expect(page.locator('#logo-linkedin')).toHaveCount(1);
+});
+
 test('signs out with a POST of JSON carrying the session’s token, and lands on the door that says so', async ({
   page,
 }) => {

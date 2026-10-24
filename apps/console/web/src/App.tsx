@@ -64,6 +64,8 @@ export function App() {
   if (door) {
     return (
       <>
+        {/* The footer's icons are drawn from these, on the doors as on every page. */}
+        <LogoSymbols />
         <Suspense fallback={null}>
           <Doors door={door} />
         </Suspense>
@@ -157,7 +159,7 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
     setPreviewing(on);
     setOpen(undefined);
     window.scrollTo(0, 0);
-    // Back to admin takes its button away: focus goes to the account button, where Preview as visitor is too.
+    // Back to admin takes its button away: focus goes to the account button, whose menu has Preview as visitor.
     if (!on) requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('.account-btn')?.focus());
   };
 

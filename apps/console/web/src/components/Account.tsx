@@ -1,14 +1,37 @@
 /**
  * Martin's account button, at the right of the header while he is signed in, and its menu: who is signed in, since
- * when and until when, the settings, the audit log, Preview as visitor, then signing out here or everywhere. Escape or a click
- * outside closes it.
+ * when and until when; the settings, the audit log and Preview as visitor; this deployment's Grafana and Argo CD, each
+ * in a new tab, when the admin service names them; Paper or Ink and Motion or Still; then signing out here or
+ * everywhere. Escape or a click outside closes it.
  */
-import { useEffect, useRef, useState } from 'react';
-import { doorHref, leave, post, type Session, said } from '../admin.ts';
+import { lazy, type ReactNode, Suspense, useEffect, useRef, useState } from 'react';
+import { doorHref, leave, post, type Session, said, toolHref } from '../admin.ts';
 import { clock } from '../format.ts';
 import { StepUpLine } from './StepUp.tsx';
+import type { Tool } from './ToolLogos.tsx';
 
-export function Account({ session, onPreview }: { session: Session; onPreview: () => void }) {
+/** The tools' logos arrive only for a menu that has a tool to show. */
+const ToolLogo = lazy(() => import('./ToolLogos.tsx').then((module) => ({ default: module.ToolLogo })));
+
+const TOOLS: { key: Tool; name: string }[] = [
+  { key: 'grafana', name: 'Grafana' },
+  { key: 'argocd', name: 'Argo CD' },
+];
+
+export function Account({
+  session,
+  onPreview,
+  switches,
+}: {
+  session: Session;
+  onPreview: () => void;
+  /** The theme and motion switches, which are in the menu while he is signed in. */
+  switches: ReactNode;
+}) {
+  const tools = TOOLS.flatMap((tool) => {
+    const href = toolHref(session.tools?.[tool.key]);
+    return href ? [{ ...tool, href }] : [];
+  });
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | undefined>(undefined);
@@ -77,6 +100,21 @@ export function Account({ session, onPreview }: { session: Session; onPreview: (
         <button type="button" onClick={onPreview}>
           Preview as visitor
         </button>
+        {tools.length > 0 && <hr />}
+        {tools.map((tool) => (
+          <a key={tool.key} className="tool" href={tool.href} target="_blank" rel="noopener">
+            <Suspense fallback={<span className="logo" aria-hidden="true" />}>
+              <ToolLogo name={tool.key} />
+            </Suspense>
+            {tool.name}
+            <small className="after">
+              {new URL(tool.href).host}
+              <span className="sr"> (opens in a new tab)</span>
+            </small>
+          </a>
+        ))}
+        <hr />
+        {switches}
         <hr />
         <button type="button" disabled={busy} onClick={() => void signOut(false)}>
           Sign out
