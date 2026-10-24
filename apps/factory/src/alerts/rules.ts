@@ -17,6 +17,7 @@ import { type Objectives, objectives } from '../../../../policy/objectives.ts';
 import { STUCK, type StuckStage } from '../../../../policy/stuck.ts';
 import { REPORT_TEXT } from '../../../../policy/triage.ts';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
+import { NUMBER_PATTERN } from '../line/metrics.ts';
 import { SECURITY_KINDS, type SecurityKind } from '../line/security.ts';
 import { METRICS_FROM_THE_LINE } from '../provenance.ts';
 import * as query from './queries.ts';
@@ -163,6 +164,9 @@ const SECURITY_WORDS: Record<SecurityKind, { summary: string; description: strin
 const fromTheLine = (name: string, matcher?: string) =>
   `${name}{${matcher ? `${matcher}, ` : ''}${METRICS_FROM_THE_LINE}}`;
 export const SECURITY_EVENTS = fromTheLine('line_security_events_total');
+export const HOLDS_STORED = fromTheLine('line_holds_stored_total');
+/** The stages' gauges, which only a line that takes work reports, as it does each hold's age. */
+const TAKES_WORK = `max(${fromTheLine('line_work_items')})`;
 /** Whether the line's last read of them from the store succeeded. */
 const COUNTING = fromTheLine('line_security_events_counting');
 
@@ -243,13 +247,13 @@ export const HOLD_WORDS: Record<HoldCause, { summary: string; description: strin
 export const HOLD_AGE = 'line_hold_age_seconds';
 /**
  * How long a hold's alert fires once it starts to wait, or once its series appears already waiting, in minutes:
- * Prometheus evaluates every minute and the line exports every minute, so it cannot be missed, and it is far short of
+ * the line exports every 15 seconds and Prometheus evaluates every minute, so it cannot be missed, and it is far short of
  * Alertmanager's four-hour repeat, so it is sent once. Once it resolves, nothing more is sent.
  */
 export const HOLD_ALERT_MINUTES = 30;
 
-/** A work item's or a pull request's number: all a hold's series may carry to be made a link. */
-export const NUMBER = '[1-9][0-9]*';
+/** A work item's or a pull request's number: all a hold's series may carry to be made a link, as the line checks it. */
+export const NUMBER = NUMBER_PATTERN;
 
 /**
  * A dry run's pull requests (`DRY_RUN_NUMBERS_FROM` up), which are on no GitHub: numbers of its digits or more. A
@@ -275,14 +279,16 @@ function holdsWaiting(cause: HoldCause, offset?: string): string {
  * series is newer than that, for one that appears having waited longer. The first is a new hold, or a hold that waits
  * for him again (a deploy pull request's checks passing after a newer build), whose series reads 0 between; the second
  * a merge hold's newer pull request, or a hold started while the line was down. A series at 0 (a hold no longer
- * waiting, until the line restarts) never fires.
+ * waiting, until the line restarts) never fires, nor one whose age has not moved in that time: while the line cannot
+ * read the store, the SDK sends each hold's last age again, which would otherwise stay young for as long.
  */
 export function holdRule(cause: HoldCause): Rule {
   const waiting = holdsWaiting(cause);
+  const before = holdsWaiting(cause, `${HOLD_ALERT_MINUTES}m`);
   const words = HOLD_WORDS[cause];
   return {
     alert: 'HoldWaits',
-    expr: `(${waiting} > 0 < ${HOLD_ALERT_MINUTES * 60}) or (${waiting} > 0 unless ${holdsWaiting(cause, `${HOLD_ALERT_MINUTES}m`)})`,
+    expr: `((${waiting} > 0 < ${HOLD_ALERT_MINUTES * 60}) unless (${before} == ${waiting})) or (${waiting} > 0 unless ${before} > 0)`,
     for: '0s',
     labels: { level: LEVELS.notify },
     annotations: { summary: `#{{ $labels.work_item }} ${words.summary}`, description: words.description },
@@ -320,7 +326,9 @@ const RECENT = '5m';
  *   man's switch covers (milestone 10). The rule takes the highest of any series by that name, so another can only page
  *   him more, never less;
  * - a notification for each hold that waits for him, once, whoever started it, naming its work item, which Alertmanager
- *   links to its sheet in the console and, with its pull request, to that on GitHub (`holdRule`);
+ *   links to its sheet in the console and, with its pull request, to that on GitHub (`holdRule`). Only a line that
+ *   takes work reports the holds that wait; while none does, a hold triage starts is told by its cause alone, from the
+ *   line's count of the holds stored, which it reports whatever its mode;
  * - a notification when a running shop pod is `SHOP_POD_DAYS` old: the node's container logs, which may hold a report's
  *   text, go only with the pod (docs/COMPONENTS/TRIAGE.md#how-long-a-report-is-kept), and a release replaces it. The oldest
  *   start of any series by that name for a pod is taken, so another can only alert him sooner, never later.
@@ -360,6 +368,17 @@ export function martinRules(): Rule[] {
       },
     },
     ...HOLD_CAUSES.map(holdRule),
+    {
+      alert: 'HoldStarted',
+      expr: `max by (cause) (increase(${HOLDS_STORED}[${RECENT}])) > 0 unless on () ${TAKES_WORK}`,
+      for: '0s',
+      labels: { level: LEVELS.notify },
+      annotations: {
+        summary: 'A hold waits for you',
+        description:
+          'A work item is held for your answer: {{ $labels.cause }}. The line takes no work, so cannot say which: Needs you lists it.',
+      },
+    },
     {
       alert: 'ShopPodOld',
       expr: `max by (pod) (time() - kube_pod_start_time{namespace="website"}) > ${SHOP_POD_DAYS * DAY_SECONDS} and on (pod) (${SHOP_PODS_RUNNING})`,

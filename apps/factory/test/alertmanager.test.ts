@@ -229,10 +229,10 @@ describe('the message to Martin', () => {
   it('links a hold’s sheet at the profile’s console, and its pull request in the app’s repository, by number alone', async () => {
     const text = await template();
     expect(text).toContain(
-      '{{ with .Labels.work_item }}\n<a href="{{ template "console.origin" }}/?item={{ . }}&sheet">#{{ . }} in the console</a>{{ end }}',
+      '{{ with .Labels.work_item }}{{ if match "^[1-9][0-9]*$" . }}\n<a href="{{ template "console.origin" }}/?item={{ . }}&sheet">#{{ . }} in the console</a>{{ end }}{{ end }}',
     );
     expect(text).toContain(
-      `{{ $deploy := eq .Labels.cause "deploy" }}{{ with .Labels.pull_request }} · <a href="https://github.com/${APP_REPOSITORY}/pull/{{ . }}">{{ if $deploy }}Deploy{{ else }}Pull request{{ end }} #{{ . }}</a>{{ end }}`,
+      `{{ $deploy := eq .Labels.cause "deploy" }}{{ with .Labels.pull_request }}{{ if match "^[1-9][0-9]*$" . }} · <a href="https://github.com/${APP_REPOSITORY}/pull/{{ . }}">{{ if $deploy }}Deploy{{ else }}Pull request{{ end }} #{{ . }}</a>{{ end }}{{ end }}`,
     );
     // Every value lands after a fixed scheme and host, so html/template escapes it as a query or a path: none can
     // make a link of its own, or leave the attribute.

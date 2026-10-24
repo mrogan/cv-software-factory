@@ -240,8 +240,12 @@ export function observeStages(sql: Sql): () => void {
   return () => meter.removeBatchObservableCallback(callback, [workItems, oldest]);
 }
 
-/** A work item's or a pull request's number, as the store and GitHub give them. */
-const NUMBER = /^[1-9][0-9]*$/;
+/**
+ * A work item's or a pull request's number, as the store and GitHub give them: all a hold's series may carry, and all
+ * its alert's rule admits (`alerts/rules.ts`), from this one pattern.
+ */
+export const NUMBER_PATTERN = '[1-9][0-9]*';
+const NUMBER = new RegExp(`^${NUMBER_PATTERN}$`);
 
 const holdAge = meter.createObservableGauge('line.hold.age', {
   description:

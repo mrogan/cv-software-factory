@@ -37,7 +37,7 @@ import { coder } from '../src/line/agents/coder.ts';
 import { describer } from '../src/line/agents/describer.ts';
 import { planner } from '../src/line/agents/planner.ts';
 import { reviewer } from '../src/line/agents/reviewer.ts';
-import { OPEN_STAGES } from '../src/line/metrics.ts';
+import { NUMBER_PATTERN, OPEN_STAGES } from '../src/line/metrics.ts';
 import { SECURITY_KINDS } from '../src/line/security.ts';
 import { leaseFor } from '../src/line/worker.ts';
 import { METRICS_FROM_THE_LINE } from '../src/provenance.ts';
@@ -275,10 +275,15 @@ describe('the alerts to Martin', () => {
     expect(at(LEVELS.inform)).toEqual(['auto-merge-off', 'line-stopped', 'new-work-off', 'sign-in', 'take-narrowed']);
   });
 
-  it('say only what happened: no label’s value but a hold’s work item, a number, and whether it has a pull request', () => {
+  it('say only what happened: no label’s value but a hold’s work item, a number, whether it has a pull request, or its cause', () => {
     for (const rule of rules) {
       const words = `${rule.annotations.summary} ${rule.annotations.description}`;
-      const allowed = rule.alert === 'HoldWaits' ? ['{{ $labels.work_item }}', '{{ if $labels.pull_request }}'] : [];
+      const allowed =
+        rule.alert === 'HoldWaits'
+          ? ['{{ $labels.work_item }}', '{{ if $labels.pull_request }}']
+          : rule.alert === 'HoldStarted'
+            ? ['{{ $labels.cause }}']
+            : [];
       const rest = allowed.reduce((text, template) => text.replaceAll(template, ''), words);
       expect(rest.replaceAll('{{ else }}', '').replaceAll('{{ end }}', ''), rule.alert).not.toContain('{{');
     }
@@ -330,7 +335,7 @@ describe('the alerts to Martin', () => {
     it('fire only for numbers, which alone make links, and only from the line', () => {
       for (const rule of holds) {
         const read = selectors(rule.expr);
-        expect(read).toHaveLength(3);
+        expect(read).toHaveLength(5);
         for (const [selector] of read) {
           expect(selector).toContain(`work_item=~"${NUMBER}"`);
           expect(selector).toContain(`pull_request=~"|${NUMBER}"`);
@@ -343,14 +348,16 @@ describe('the alerts to Martin', () => {
       for (const bad of ['', '0', '057', '1a', '1"', '-1', '1 ']) expect(number.test(bad), bad).toBe(false);
     });
 
-    it('fire once: while the hold is new, or its series is, and never for a series at 0', () => {
+    it('fire once: while the hold is new, or its series is, and never for a series at 0 or an age that has stopped', () => {
       const window = HOLD_ALERT_MINUTES * 60;
       for (const rule of holds) {
         const [waiting] = rule.expr.split(' > 0 < ');
-        expect(waiting?.startsWith('(max by (work_item, cause, pull_request) (')).toBe(true);
-        const series = waiting?.slice(1);
+        expect(waiting?.startsWith('((max by (work_item, cause, pull_request) (')).toBe(true);
+        const series = waiting?.slice(2);
+        const before = series?.replace(/(\})(, "pull_request")/, `$1 offset ${HOLD_ALERT_MINUTES}m$2`);
+        expect(before).not.toBe(series);
         expect(rule.expr).toBe(
-          `(${series} > 0 < ${window}) or (${series} > 0 unless ${series?.replace(/(\})(, "pull_request")/, `$1 offset ${HOLD_ALERT_MINUTES}m$2`)})`,
+          `((${series} > 0 < ${window}) unless (${before} == ${series})) or (${series} > 0 unless ${before} > 0)`,
         );
       }
       // Long enough that a minute's export and evaluation cannot miss it, short of Alertmanager's four-hour repeat.
@@ -366,7 +373,7 @@ describe('the alerts to Martin', () => {
       expect(dryRun.test(String(DRY_RUN_NUMBERS_FROM - 1))).toBe(false);
       expect(() => dryRunNumbers(1_500_000_000)).toThrow(/power of ten/);
       for (const rule of holds) {
-        expect(rule.expr.match(/label_replace\(/g)).toHaveLength(3);
+        expect(rule.expr.match(/label_replace\(/g)).toHaveLength(5);
         expect(rule.expr).toContain(`, "pull_request", "", "pull_request", "${dryRunNumbers()}")`);
       }
     });
@@ -377,10 +384,24 @@ describe('the alerts to Martin', () => {
       );
     });
 
-    it('replace the count of holds by cause, which named no work item', () => {
-      expect(rules.map((rule) => rule.alert)).not.toContain('HoldStarted');
-      expect(render(objectives)).not.toContain('line_holds_stored_total');
+    it('admit the very numbers the line exports, from one pattern', () => {
+      expect(NUMBER).toBe(NUMBER_PATTERN);
     });
+
+    it('fall back on the count of holds stored, by cause, only while no line takes work and reports them', () => {
+      const [started, ...more] = rules.filter((rule) => rule.alert === 'HoldStarted');
+      expect(more).toEqual([]);
+      expect(started?.labels).toEqual({ level: LEVELS.notify });
+      expect(started?.expr).toBe(
+        `max by (cause) (increase(line_holds_stored_total{${METRICS_FROM_THE_LINE}}[5m])) > 0 unless on () max(line_work_items{${METRICS_FROM_THE_LINE}})`,
+      );
+    });
+  });
+
+  it('say little enough that a hold’s links fit in Pushover’s 1,024 characters after it', () => {
+    for (const rule of rules) {
+      expect(`${rule.annotations.description}`.length, rule.alert).toBeLessThan(600);
+    }
   });
 
   it('notify when a running shop pod is old enough that a report in its logs nears the privacy pages’ promise', () => {

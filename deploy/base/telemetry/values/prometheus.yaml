@@ -56,14 +56,14 @@ alertmanager:
   # The message to Martin, which each Pushover receiver below sends. For a hold, two links: its work item's sheet in the
   # console, at the profile's origin (`console.origin`, which each overlay defines, as the console's address is the
   # profile's), and its pull request in the app's repository, if it has one. The rules let a hold alert only with
-  # numbers in those labels (apps/factory/src/alerts/rules.ts), and html/template escapes them as a link's query or
-  # path whatever they hold. Newlines may read as spaces in Pushover's HTML: each line ends a sentence, so it reads
+  # numbers in those labels (apps/factory/src/alerts/rules.ts), and the template links a label only if it is digits, as
+  # anything else that reaches Alertmanager could send one; html/template escapes it besides. Newlines may read as spaces in Pushover's HTML: each line ends a sentence, so it reads
   # either way.
   templates:
     martin.tmpl: |-
       {{ define "martin.message" }}{{ range .Alerts.Firing }}{{ or .Annotations.description .Annotations.summary .Labels.alertname }}
-      Firing since {{ .StartsAt.UTC.Format "15:04 UTC, 2 January" }}.{{ with .Labels.work_item }}
-      <a href="{{ template "console.origin" }}/?item={{ . }}&sheet">#{{ . }} in the console</a>{{ end }}{{ $deploy := eq .Labels.cause "deploy" }}{{ with .Labels.pull_request }} · <a href="https://github.com/mrogan/cv-worlds-worst-website/pull/{{ . }}">{{ if $deploy }}Deploy{{ else }}Pull request{{ end }} #{{ . }}</a>{{ end }}{{ end }}{{ end }}
+      Firing since {{ .StartsAt.UTC.Format "15:04 UTC, 2 January" }}.{{ with .Labels.work_item }}{{ if match "^[1-9][0-9]*$" . }}
+      <a href="{{ template "console.origin" }}/?item={{ . }}&sheet">#{{ . }} in the console</a>{{ end }}{{ end }}{{ $deploy := eq .Labels.cause "deploy" }}{{ with .Labels.pull_request }}{{ if match "^[1-9][0-9]*$" . }} · <a href="https://github.com/mrogan/cv-worlds-worst-website/pull/{{ . }}">{{ if $deploy }}Deploy{{ else }}Pull request{{ end }} #{{ . }}</a>{{ end }}{{ end }}{{ end }}{{ end }}
   config:
     # The chart's ConfigMap holds the templates beside the configuration, in the folder it is mounted at.
     templates:
