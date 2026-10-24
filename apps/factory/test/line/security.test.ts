@@ -94,6 +94,11 @@ describe('the count of Martin’s security events', () => {
     await append(operator, 'line.started', { autonomy: 'supervised' });
     await append(operator, 'line.stopped', { reason: 'night' });
     for (const action of RELEASE_CONTROLS) await append(admin, 'release.controlled', { action });
+    await append(admin, 'controls.changed', {
+      change: { control: 'autonomy', before: 'supervised', after: 'guarded' },
+    });
+    await append(admin, 'controls.changed', { change: { control: 'take', before: null, after: { kind: 'every' } } });
+    await append(admin, 'controls.changed', { change: { control: 'new-work', before: true, after: false } });
     await append(database.as.line, 'model.called', {});
 
     const tally = await readOn(database.as.line, emptyTally());
@@ -106,6 +111,14 @@ describe('the count of Martin’s security events', () => {
       'release-control': STEPPED_UP_CONTROLS.length,
       'guardrail-approved': 0,
       'line-started': 1,
+      'autonomy-loosened': 1,
+      'autonomy-tightened': 0,
+      'new-work-on': 0,
+      'new-work-off': 1,
+      'auto-merge-on': 0,
+      'auto-merge-off': 0,
+      'take-widened': 1,
+      'take-narrowed': 0,
     });
   });
 
@@ -207,8 +220,8 @@ describe('what counts as a security event', () => {
   });
 
   it('counts every action that needs the passkey again, or names the event it waits for', () => {
-    // Each action the access table marks, by the kind its event is counted as. The line's controls of task 8 have no
-    // event yet: each joins the count when its event joins the catalogue, and this test fails until it does.
+    // Each action the access table marks, by the kind its event is counted as. Auto-rollback has no switch, and so no
+    // event, until Part C gives it one: it joins the count then, and this test fails until it does.
     const counted: Record<string, string> = {
       'step-up': 'stepped-up',
       'passkey.revoke': 'passkey-revoked',
@@ -218,10 +231,10 @@ describe('what counts as a security event', () => {
       'release.retry': 'release-control',
       'agent.raise': 'setting-changed',
       'caps.raise': 'setting-changed',
-      'autonomy.loosen': 'no event yet',
-      'auto-merge.on': 'no event yet',
+      'autonomy.loosen': 'autonomy-loosened',
+      'auto-merge.on': 'auto-merge-on',
       'auto-rollback.off': 'no event yet',
-      'take.widen': 'no event yet',
+      'take.widen': 'take-widened',
     };
     const marked = Object.entries(ACCESS as Record<string, { stepUp: boolean }>)
       .filter(([, access]) => access.stepUp)
@@ -234,6 +247,29 @@ describe('what counts as a security event', () => {
     for (const kind of Object.values(counted).filter((kind) => kind !== 'no event yet')) {
       expect(SECURITY_KINDS).toContain(kind);
     }
+  });
+
+  it('counts every change of the line’s controls, as the action it is, from its before and after alone', () => {
+    const changed = (change: object) => countAs({ type: 'controls.changed', change });
+    expect(changed({ control: 'autonomy', before: 'supervised', after: 'guarded' })).toEqual({
+      kind: 'autonomy-loosened',
+    });
+    expect(changed({ control: 'autonomy', before: 'guarded', after: 'supervised' })).toEqual({
+      kind: 'autonomy-tightened',
+    });
+    expect(changed({ control: 'new-work', before: true, after: false })).toEqual({ kind: 'new-work-off' });
+    expect(changed({ control: 'new-work', before: false, after: true })).toEqual({ kind: 'new-work-on' });
+    expect(changed({ control: 'auto-merge', before: false, after: true })).toEqual({ kind: 'auto-merge-on' });
+    expect(changed({ control: 'auto-merge', before: true, after: false })).toEqual({ kind: 'auto-merge-off' });
+    const one = { kind: 'just-one', workItem: '1290' };
+    expect(changed({ control: 'take', before: one, after: { kind: 'every' } })).toEqual({ kind: 'take-widened' });
+    expect(changed({ control: 'take', before: { kind: 'every' }, after: one })).toEqual({ kind: 'take-narrowed' });
+    expect(changed({ control: 'take', before: null, after: one })).toEqual({ kind: 'take-widened' });
+    expect(changed({ control: 'auto-rollback', before: true, after: false })).toBeNull();
+    expect(countAs({ type: 'controls.changed' })).toBeNull();
+    // A malformed change is counted as nothing, and stops no count.
+    expect(changed({ control: 'take', before: one, after: null })).toBeNull();
+    expect(changed({ control: 'autonomy', before: 'supervised', after: 'yolo' })).toBeNull();
   });
 
   it('tells a guardrail by the access table’s list', () => {

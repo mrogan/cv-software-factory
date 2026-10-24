@@ -132,6 +132,8 @@ export const PUBLIC_VIEWS = {
   'release.controlled': redacted,
   // His settings are everyone's to see: models, efforts and caps, and nothing of his session.
   'settings.changed': redacted,
+  // His controls of the line are everyone's to see too, as Controls shows them to visitors.
+  'controls.changed': redacted,
 } satisfies { [K in EventType]: PublicViewOf<K> };
 
 /** The public view of an event. Applying it twice changes nothing. */

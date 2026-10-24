@@ -322,7 +322,7 @@ const command = (type: EventType, workItem: string | null = null): NewEvent =>
 const PAYLOADS: Partial<Record<EventType, object>> = {
   'hold.answered': { decision: 'approved' },
   'line.stopped': { reason: 'Martin stopped the line' },
-  'line.started': { autonomy: 'supervised' },
+  'line.started': { reason: 'Back from lunch' },
   'admin.signed-out': { everywhere: false },
   'passkey.revoked': { from: 'console' },
   'release.controlled': { action: 'pause', release: '68ff668868-4', version: 'v0.9.4', weight: 25 },
@@ -335,6 +335,13 @@ const PAYLOADS: Partial<Record<EventType, object>> = {
     },
     caps: { dayUsd: 20, monthUsd: null, workItemUsd: 1 },
     changes: [{ field: 'model', agent: 'coder', before: 'claude-sonnet-5-5', after: 'claude-opus-5-5' }],
+  },
+  'controls.changed': {
+    autonomy: 'guarded',
+    newWork: true,
+    autoMerge: false,
+    take: null,
+    change: { control: 'autonomy', before: 'supervised', after: 'guarded' },
   },
 };
 

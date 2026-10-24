@@ -7,7 +7,8 @@ Martin's sign-in, his sessions, and the one way a browser changes the factory (s
 - **v1:** Martin's settings: each agent's model and effort, and the spend caps, within policy ([below](#the-settings)).
 - **v1:** Martin's answers to holds, from Needs you: approve, reject, or answer in words ([below](#needs-you)).
 - **v1:** Stop the line and Start the line, from the console's header, with the canary in flight aborted as the line stops ([below](#stopping-and-starting-the-line)).
-- **Later:** the rest of task 8 (the line's controls: autonomy, the switches, and what the line takes) and task 10, each a write route in the access table.
+- **v1:** the line's controls: the autonomy level, whether agents take new work, auto-merge, and what the line takes, within policy ([below](#the-lines-controls)).
+- **Later:** the actions of task 10, each a write route in the access table.
 
 ```mermaid
 flowchart LR
@@ -41,6 +42,7 @@ Every route it answers is in [`policy/access.ts`](../../policy/access.ts), and i
 | `hold.reject`, `hold.answer` | `POST /admin/holds/:workItem/reject`, `/answer` | a write's four checks |
 | `line.stop` | `POST /admin/line/stop` | a write's four checks |
 | `line.start` | `POST /admin/line/start` | a write's four checks, and the passkey given within five minutes |
+| `line.controls` | `POST /admin/line/controls` | a write's four checks, and the passkey given within five minutes when the change loosens (`autonomy.loosen`, `auto-merge.on`, `take.widen`) |
 
 A write's four checks, in order: `Origin` exactly the console's origin in configuration, never one made from the request's `Host`; a live session; the session's token in `X-CSRF-Token`; and, for an action the table marks, the passkey given again within `STEP_UP.minutes`. Every write is a `POST` with a JSON body, which no form can send. The actions of tasks 8 and 10 plug in the same way: a route on their entry, and a handler; the guard comes from the table.
 
@@ -95,6 +97,17 @@ The console's header stops and starts the line (`admin/line.ts`), each with Mart
 - **Only when it does something** (409 otherwise, having appended nothing): a stopped line is not stopped again, nor a running one started. Each is taken under the lock every append takes, so two presses cannot both do it.
 - **`make stop-the-line` keeps its own path,** unchanged: `factory line stop` as Martin's command line's role, then `scripts/abort-canaries.sh` with his own kubeconfig, each run whichever fails. It needs neither the console nor the admin service.
 
+## The line's controls
+
+`POST /admin/line/controls` changes one of the line's controls (`admin/line.ts`), within [`policy/line.ts`](../../policy/line.ts), with one of `{"autonomy": "guarded"}`, `{"newWork": false}`, `{"autoMerge": true}` or `{"take": {"kind": "every" | "next-few", "count": 3 | "just-one", "workItem": "1290"}}`.
+
+- **One event a change,** `controls.changed`: every control as it now stands (the autonomy level, `newWork`, `autoMerge`, and the take, or none), and the one changed, with its value before and after. Its summary says what he did ("Martin loosened autonomy from Supervised to Guarded", "Martin narrowed what the line takes to just #1290"), and its public view is the event as it is. A change to what is already so records nothing (200, `change: null`). Changes are taken one at a time, under the lock every append takes.
+- **The passkey again to loosen,** decided from the controls in force as the change is taken, read from the store after the lock, never from the request: a looser autonomy level (Supervised, then Guarded, then Lights-out), auto-merge on, or a wider take, which takes more kinds of work (just one, then the next few, then every ticket) or the next few more. Their opposites, and new work either way, ask nothing: starting the line again is what asks. Just one moved to another work item is no wider. A first take, set over the line's own default (`LINE_TAKE`, `LINE_ONLY`), which the service cannot see, counts as wider whatever it is.
+- **Within policy, or refused** (422), having changed nothing: the next few are 1 to 20 work items, and just one is a work item with an open ticket (one that has not closed, and not a sample's, which the line never takes). The line checks what it reads again, with the same function (`controlsInForce`), as the console's Controls is to: an event outside policy has no effect there either.
+- **The next few count from when he chose them,** and keep that start while only their number changes. Chosen again with the same number, they start again from then, which lets the line take that many more: wider, and it asks.
+- **What each does:** the line reads the take and the switch for new work at its next pass ([orchestrator](ORCHESTRATOR.md#taking-work)). Nothing routes by the autonomy level or auto-merge until approval routing comes (Part C): every merge still waits for Martin. Auto-rollback has no route: a failing canary is always rolled back until Part C gives it a switch.
+- **Each change pages Martin,** as a [security event](ALERTING.md#security-events) of its own kind.
+
 ## The settings
 
 `POST /admin/settings` saves Martin's settings (`admin/settings.ts`): each agent's model and effort, and the day's, the month's and a work item's spend caps, within the bounds [`policy/models.ts`](../../policy/models.ts) and [`policy/spend.ts`](../../policy/spend.ts) set. The body gives only what changes: `{"agents": {"coder": {"model": "claude-opus-5-5", "effort": "high"}}, "caps": {"workItemUsd": 2}}`, where a month's cap of `null` is the profile's default, which on `local` is none.
@@ -115,7 +128,7 @@ Martin answers a hold from its card in Needs you (`admin/holds.ts`): `POST /admi
 
 ## What it records
 
-Every action is an event with Martin as its actor, appended in the same transaction as the action, so it is done and recorded or neither: `passkey.enrolled`, `admin.signed-in`, `admin.signed-out` (here, everywhere, or by signing in again over a live session in the same browser), `admin.stepped-up` (the passkey given again), `passkey.revoked` (from the console, or the command line) `release.controlled` (a control of the canary: which, the release, its version, the canary's weight then, for a promotion the weight it goes to, and whether it was Stop the line's abort), `line.stopped` and `line.started` (with his reason), `settings.changed` (the settings, with each change before and after), with a `hold.answered` for each `spend` hold a raised work item's cap clears, and `hold.answered` (his answer to a hold from Needs you, naming the hold). Each is one of [Martin's commands](EVENT-STORE.md#martins-commands), which no worker can append. Their public views say what he did and never with which passkey: no name, id, address or browser.
+Every action is an event with Martin as its actor, appended in the same transaction as the action, so it is done and recorded or neither: `passkey.enrolled`, `admin.signed-in`, `admin.signed-out` (here, everywhere, or by signing in again over a live session in the same browser), `admin.stepped-up` (the passkey given again), `passkey.revoked` (from the console, or the command line) `release.controlled` (a control of the canary: which, the release, its version, the canary's weight then, for a promotion the weight it goes to, and whether it was Stop the line's abort), `line.stopped` and `line.started` (with his reason), `controls.changed` (the line's controls, with the one changed before and after), `settings.changed` (the settings, with each change before and after), with a `hold.answered` for each `spend` hold a raised work item's cap clears, and `hold.answered` (his answer to a hold from Needs you, naming the hold). Each is one of [Martin's commands](EVENT-STORE.md#martins-commands), which no worker can append. Their public views say what he did and never with which passkey: no name, id, address or browser.
 
 ## Settings
 

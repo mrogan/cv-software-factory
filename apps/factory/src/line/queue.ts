@@ -8,12 +8,15 @@
  * real events only. A spec that waits for overlapping work in flight is at a stage of its own (`waiting`, 0016), which
  * may last until that work is verified, so it holds up no ticket. One decision at a time takes it (an advisory lock), so two workers cannot take the same ticket.
  *
- * A queue for one work item only (`only`, the line's LINE_ONLY) sees nothing else on the line, and takes that ticket
- * onto it whatever else is in Plan or Build: every other work item is left as it is, so it holds up nothing.
+ * What the queue takes (`Takes`) is Martin's take from the console's Controls, read each pass, or else the line's own
+ * default (LINE_ONLY, LINE_TAKE):
  *
- * A queue with a limit (`take`, the line's LINE_TAKE) takes tickets by the same rule until that many work items have
- * come onto the line in all, and then no more, while those on it go on to their end. It counts the line's own rows,
- * which are never deleted, under the same lock: a restart, or a second worker, takes none beyond the limit.
+ * - A queue for one work item only (`only`: Just one, or LINE_ONLY) sees nothing else on the line, and takes that
+ *   ticket onto it whatever else is in Plan or Build: every other work item is left as it is, so it holds up nothing.
+ * - A queue with a limit (`take`: The next few, or LINE_TAKE) takes tickets by the same rule until that many work items
+ *   have come onto the line since the limit was set (`since`; LINE_TAKE counts every one there has ever been), and
+ *   then no more, while those on it go on to their end. It counts the line's own rows, which are never deleted, by
+ *   when each was taken, under the same lock: a restart, or a second worker, takes none beyond the limit.
  *
  * A work item that closed as verified and reopened (triage reopens it when its signal comes back, and a line running
  * live one a dry run verified) is taken back into Plan for a fresh pass (`revive`), whatever else is on the line and
@@ -22,6 +25,7 @@
  */
 import { lastEnd } from '@software-factory/store';
 import type { JSONValue, Sql } from 'postgres';
+import type { Take } from '../../../../policy/line.ts';
 import type { Handback } from '../runners/steps.ts';
 import type { Draft } from './gates.ts';
 import type { LineAgent, QueueStage } from './machine.ts';
@@ -109,18 +113,51 @@ const unheld = (sql: Sql) => sql`(l.held_until is null or l.held_until < clock_t
  */
 const VOLUME_GONE_SECONDS = 60;
 
+/** What the queue takes. */
+export interface Takes {
+  /** The one work item it sees, if it sees only one. */
+  only: string | null;
+  /**
+   * How many work items the line takes, if it takes only so many: counted from `since`, or, with none, every one it has
+   * ever taken.
+   */
+  take: { most: number; since: string | null } | null;
+}
+
+/**
+ * What the line takes, from Martin's take (`policy/line.ts`), or, with none in force, from its own default: LINE_ONLY's
+ * one work item, and LINE_TAKE's count of every work item it has ever taken.
+ */
+export function takesOf(take: Take | null, defaults: { only: string | null; take: number | null }): Takes {
+  if (take === null) {
+    return { only: defaults.only, take: defaults.take === null ? null : { most: defaults.take, since: null } };
+  }
+  switch (take.kind) {
+    case 'every':
+      return { only: null, take: null };
+    case 'next-few':
+      return { only: null, take: { most: take.count, since: take.since } };
+    case 'just-one':
+      return { only: take.workItem, take: null };
+  }
+}
+
 export class Queue {
   readonly #sql: Sql;
   /** Who this worker is, as its leases name it. */
   readonly #me: string;
-  /** The one work item this queue sees, if it sees only one. */
-  readonly #only: string | null;
-  /** How many work items the line takes in all, if it takes only so many. */
-  readonly #take: number | null;
+  #only: string | null;
+  #take: Takes['take'];
 
   constructor(sql: Sql, me: string, { only = null, take = null }: { only?: string | null; take?: number | null } = {}) {
     this.#sql = sql;
     this.#me = me;
+    this.#only = only;
+    this.#take = take === null ? null : { most: take, since: null };
+  }
+
+  /** What it takes from now on: the line sets it each pass, from Martin's take or its own default. */
+  takes({ only, take }: Takes): void {
     this.#only = only;
     this.#take = take;
   }
@@ -129,7 +166,7 @@ export class Queue {
    * Takes the next ticket into Plan, if nothing is in Plan or waiting for Build: the oldest open ticket of the
    * highest severity that has never been on the line. Returns its work item, or undefined. A queue of one takes its
    * own ticket, if it is open and not yet on the line, and no other. A queue with a limit takes none once the line
-   * has taken that many work items, whichever they were.
+   * has taken that many work items since it was set, whichever they were.
    */
   async admit(): Promise<string | undefined> {
     const only = this.#only;
@@ -137,8 +174,10 @@ export class Queue {
     return this.#sql.begin(async (tx) => {
       await tx`select pg_advisory_xact_lock(hashtext('line'))`;
       if (take !== null) {
-        const [row] = await tx<{ taken: number }[]>`select count(*)::int as taken from line`;
-        if ((row?.taken ?? 0) >= take) return undefined;
+        const [row] = await tx<{ taken: number }[]>`
+          select count(*)::int as taken from line
+          ${take.since === null ? tx`` : tx`where taken_at >= ${take.since}::timestamptz`}`;
+        if ((row?.taken ?? 0) >= take.most) return undefined;
       }
       const [busy] = only ? [] : await tx`select 1 from line where stage in ('plan', 'build') limit 1`;
       if (busy) return undefined;

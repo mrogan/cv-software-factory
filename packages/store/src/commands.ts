@@ -4,7 +4,7 @@
  * `actor: martin` proves nothing by itself: the line, triage and the gateway act on an admin event only when one of
  * his roles appended it, and log any other once.
  */
-import { ADMIN_TYPES } from '@software-factory/events';
+import { ADMIN_TYPES, VERSIONS } from '@software-factory/events';
 import type { Sql, TransactionSql } from 'postgres';
 import { MARTINS_ROLES } from '../../../policy/store-grants.ts';
 
@@ -27,6 +27,18 @@ export async function lineStopped(sql: Sql | TransactionSql): Promise<boolean> {
     select e.type from events e where e.type in ('line.started', 'line.stopped') and ${fromMartin(sql, 'e')}
     order by e.seq desc limit 1`;
   return last?.type === 'line.stopped';
+}
+
+/**
+ * The payload of the latest `controls.changed` one of Martin's roles appended, that this code can read, or undefined:
+ * the line's controls as he chose them, unchecked. `policy/line.ts`'s `controlsInForce` says what is in force.
+ */
+export async function latestControls(sql: Sql | TransactionSql): Promise<unknown> {
+  const [row] = await sql<{ payload: unknown }[]>`
+    select e.payload from events e
+    where e.type = 'controls.changed' and e.version <= ${VERSIONS['controls.changed']} and ${fromMartin(sql, 'e')}
+    order by e.seq desc limit 1`;
+  return row?.payload;
 }
 
 interface Log {

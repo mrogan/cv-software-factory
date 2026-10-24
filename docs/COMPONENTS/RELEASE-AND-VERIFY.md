@@ -163,6 +163,6 @@ A line running live closes a dry run's merge with no change as it starts ([after
 
 A dry run's release never shipped, so it sets off no look again at a held or waiting work item: only a real promotion does, which with `RELEASE_ROLLOUT` the line records in a dry run too. Its closes are then the GitHub worker's records. Without it, held work items are never looked at, and a waiting one goes on to Build as `unsure`.
 
-## With `LINE_ONLY`
+## With just one work item
 
-The watch records only a release that carries that work item or none. One that also carries another is left for the whole line, and that work item stays held at Release. The line says nothing of the deploy pull request. Its spec waits for no other work item, and the stable version a look again reads may lag the app's, since a release that carries others goes unrecorded.
+With Martin's take of Just one, or `LINE_ONLY` with no take set ([orchestrator](ORCHESTRATOR.md#taking-work)), the watch records only a release that carries that work item or none. One that also carries another is left for the whole line, and that work item stays held at Release. The line says nothing of the deploy pull request. Its spec waits for no other work item, and the stable version a look again reads may lag the app's, since a release that carries others goes unrecorded.

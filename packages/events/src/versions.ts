@@ -59,6 +59,8 @@ export const VERSIONS = {
   'release.controlled': 2,
   // Martin's settings: each agent's model and effort, and the spend caps (the admin service)
   'settings.changed': 1,
+  // Martin's controls of the line: the autonomy level, the switches, and what the line takes (the admin service)
+  'controls.changed': 1,
 } as const;
 
 export type EventType = keyof typeof VERSIONS;
@@ -79,6 +81,7 @@ export const LINE_TYPES: readonly EventType[] = [
   'passkey.revoked',
   'release.controlled',
   'settings.changed',
+  'controls.changed',
 ];
 
 /**
@@ -99,9 +102,10 @@ export const RELEASE_TYPES: readonly EventType[] = [
  * that the line, triage and the gateway act on only when one of his roles appended it. Signing in and out, giving his
  * passkey again, and his passkeys are among them, so no worker can forge one (`0025_admin-service.sql`,
  * `0026_admin-stepped-up.sql`), and so are his controls of a release (`release.controlled`,
- * `0027_release-controls.sql`), and his settings (`settings.changed`, `0028_settings.sql`). Each of the admin
- * service's commands still to come (autonomy, the switches) joins this list when its type joins the catalogue, and a
- * migration adds it to the store's own list (`admin_event`): the store's tests fail until the two agree. `release.aborted` is not one: it is the line's record of
+ * `0027_release-controls.sql`), his settings (`settings.changed`, `0028_settings.sql`), and his controls of the line
+ * (`controls.changed`, `0030_line-controls.sql`). Each command the admin service adds joins this list when its type
+ * joins the catalogue, and a migration adds it to the store's own list (`admin_event`): the store's tests fail until
+ * the two agree. `release.aborted` is not one: it is the line's record of
  * what the Rollout did, and says `by: martin` when his control came first.
  */
 export const ADMIN_TYPES: readonly EventType[] = [
@@ -115,6 +119,7 @@ export const ADMIN_TYPES: readonly EventType[] = [
   'passkey.revoked',
   'release.controlled',
   'settings.changed',
+  'controls.changed',
 ];
 
 export const isEventType = (type: string): type is EventType => Object.hasOwn(VERSIONS, type);

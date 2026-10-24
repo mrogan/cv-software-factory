@@ -54,14 +54,24 @@ Each stage can also hold for Martin (see [Holds](#holds-and-martins-answers)).
 - As a ticket enters Plan, it opens the ticket's issue through the App, from the ticket's public view. The fix's pull request refers to that issue.
 - After Martin's merge, it carries the work item through Release and Verify until it closes.
 
-Two settings narrow what it takes:
+What it takes is Martin's to set in the console's Controls ([admin service](ADMIN-SERVICE.md#the-lines-controls)), read at each pass as `controls.changed`'s latest from his roles, held to policy by `policy/line.ts` as it is read: Every ticket, The next few (from when he chose them, at most 20), or Just one. With none in force, before he sets one or when the latest is outside policy, two settings are the line's own default:
 
-- **`LINE_ONLY`**, set to a work item, makes the line act on that one alone.
+- **`LINE_ONLY`**, set to a work item, makes the line act on that one alone, as Just one does.
   - It takes that ticket onto the line whatever else is in Plan or Build.
   - It starts no step for any other work item, reads nothing for it and appends nothing.
   - It says nothing of the deploy pull request.
   - It still watches the app's releases, and records one that carries that work item or none (those go on the line). A release that also carries another work item is left for the whole line. The work item stays held at Release (cause `deploy`, so Needs you lists it) until the line records that release, or finds it live.
-- **`LINE_TAKE`**, set to a number, has the line take tickets by its own rule until it has taken that many work items in all. The count comes from the `line` table, so a restart takes none more. It then takes no more, and carries those it has to their end.
+- **`LINE_TAKE`**, set to a number, has the line take tickets by its own rule until it has taken that many work items in all, as The next few do from when Martin chose them. The count comes from the `line` table, by when each work item came onto it, so a restart takes none more. It then takes no more, and carries those it has to their end.
+
+A take Martin sets applies from the line's next pass, which his change wakes.
+
+### Agents take new work
+
+Martin's switch in Controls (`newWork`, on by default). Off, the line takes no new ticket and starts no agent's step; a step in hand finishes, and the rest goes on: triage, the senses, Release and Verify, the looks again, and a kept handback's effects, of a step already run. Unlike stopping the line, it aborts no canary, and turning it on again needs no passkey.
+
+### Autonomy and auto-merge
+
+Martin's autonomy level (Supervised, Guarded, Lights-out) and auto-merge of low-risk changes are recorded with his controls, and shown, and nothing routes by them yet: every merge waits for him on GitHub until approval routing comes (Part C, [approval routing](APPROVAL-ROUTING.md)). Auto-rollback is not a control yet: a failing canary is always rolled back.
 
 ### A spec that overlaps
 
@@ -72,11 +82,11 @@ Two tickets can be one defect, seen by two checks on two pages, and that shows o
 - **While it waits**, each release is looked at as for a hold, and one that clears its signal closes it.
 - **No cycles.** A work item never waits on one that waits on it, directly or through others.
 - A spec written again before any push is checked again; one written once there is a pull request is not.
-- **With `LINE_ONLY`** there is no wait: a line of one work item sees nothing else.
+- **With just one work item** (Martin's take, or `LINE_ONLY`) there is no wait: a line of one work item sees nothing else.
 
 ### A ticket that reopens
 
-When a verified ticket reopens ([triage](TRIAGE.md) reopens it), its work item comes back into Plan for a fresh pass, whatever else is on the line and whatever `LINE_TAKE` says, since the line took it already. Each pass of the line, before it takes a ticket:
+When a verified ticket reopens ([triage](TRIAGE.md) reopens it), its work item comes back into Plan for a fresh pass, whatever else is on the line and however many it may take, since the line took it already. Each pass of the line, before it takes a ticket:
 
 1. It waits until the runners' old volume is gone.
 2. It reopens the ticket's issue through the App, saying what came back. If the App can no longer open that issue, the work item comes back without it and the line opens a new one.
