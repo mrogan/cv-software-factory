@@ -261,7 +261,8 @@ table.agents {
     padding-top: 24px;
   }
   .settings-head h1,
-  .audit-head h1 {
+  .audit-head h1,
+  .privacy-head h1 {
     font-size: 34px;
   }
   .settings {

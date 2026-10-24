@@ -93,3 +93,8 @@ table.privacy-kept {
 .privacy-proof a {
   color: inherit;
 }
+@media (max-width: 720px) {
+  .privacy-page {
+    padding-top: 24px;
+  }
+}
