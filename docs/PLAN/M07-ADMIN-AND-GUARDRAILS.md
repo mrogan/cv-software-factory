@@ -115,12 +115,13 @@ Public profiles get their certificates from Cloudflare (milestone 10).
 - **A flag goes out in stages,** each one change in the console:
   1. the factory's own marked requests, so Verify can check the acceptance criteria in production with nobody else seeing the change. The mark is one only the probes and the traffic generator can make, never a header anyone could send, and it is settled when Part B is detailed;
   2. browsers that opt in to preview it, the preview cookie counting from this stage on and never before;
-  3. a share of browsers, sticky by a random id in the app's own cookie;
+  3. a share of the traffic generator's browsers, sticky by an id each sends beside the factory's mark, so a visitor is never in it;
   4. everyone.
 
   Off is a kill switch for everyone, and beats a preview.
-- **Verify compares a flag's two sides at the share stage.** The factory's marked requests are too few to judge on, and are left out of the judged figures, so stage 1 checks the acceptance criteria and the share stage compares. Each request's telemetry carries the variant it was given (OpenFeature's OpenTelemetry hooks), and Verify judges flag-on against flag-off on errors, latency and journeys, as the canary judges versions. The traffic generator carries a browser id of its own, so both sides get enough requests.
-- **A preview is the app's own feature, and harmless.** `?preview=<flag>` sets the app's preview cookie. The console's "Preview it" link uses it during the opt-in stage. The app accepts only flag names flagd knows, never echoes the parameter, and someone who sets it by hand sees a deployed feature in their own browser only.
+- **Verify compares a flag's two sides at the share stage, on the factory's own browsers.** The probes' marked requests are too few to judge on, so stage 1 checks the acceptance criteria and the share stage compares. Each request's telemetry carries the variant it was given (OpenFeature's OpenTelemetry hooks), and Verify judges flag-on against flag-off on errors, latency and journeys, as the canary judges versions. It judges the traffic generator's browsers alone: both sides walk the same journeys, the generator runs enough browsers to give each side enough requests, and visitors' requests are left out of the figures.
+- **A preview is the app's own feature, and harmless.** `?preview=<flag>` sets the app's preview cookie. The console's "Preview it" link uses it during the opt-in stage. The app accepts only flag names flagd knows, never echoes the parameter, and someone who sets it by hand sees a deployed feature in their own browser only. The cookie is set only when someone asks for the preview, to give them what they asked for, so it is strictly necessary.
+- **Nothing on a visitor's device that they did not ask for.** Neither the console nor the app has a cookie banner, so each keeps on a visitor's device only what is strictly necessary (PECR regulation 6, as the Data (Use and Access) Act 2025 amends it, and the ICO's guidance on storage and access). Flags add the preview cookie, and nothing else: a share of visitors would need an id kept on each device, and telling them apart by address and user agent instead is ruled out too, since the same rules cover it. Whatever pull request adds a cookie, or anything else kept on a device, adds it in the same pull request to the device gates' allow-list (the console's browser tests, and the probes' `/device` check for the app), and names it on the console's privacy page and, when it is the app's, on the app's `/privacy`.
 
 ### Autonomy (Part C)
 
@@ -279,9 +280,9 @@ On the local cluster, on Claude, at Supervised:
 Outlined here, and detailed when Part A is done.
 
 - **14. `/implement` in the app's repository.** A work item may name the app's repository. Its worktree lives under this checkout's `scratch/`, its worker follows the app's `AGENTS.md` and `docs/REVIEWERS.md`, and nothing it writes, in code, commits, pull requests or replies, mentions or hints at seeded defects.
-- **15. OpenFeature and flagd in the app.** The SDK, flagd beside the app, its image admitted by digest, the variant on the app's telemetry, the browser id and preview cookies. This is platform work, so one of Martin's sessions builds it, as his drills were.
+- **15. OpenFeature and flagd in the app.** The SDK, flagd beside the app, its image admitted by digest, the variant on the app's telemetry, the share by the id the traffic generator's browsers send, and the preview cookie, allowed by the device gates and named on both privacy pages. This is platform work, so one of Martin's sessions builds it, as his drills were.
 - **16. Flags in the console.** The ConfigMap, the admin service's Role for it, and the stages and the kill switch in Controls, read-only for visitors.
-- **17. Verify by variant.** Verify judges flag-on against flag-off for a work item shipped behind a flag. The traffic generator carries a browser id.
+- **17. Verify by variant.** Verify judges flag-on against flag-off for a work item shipped behind a flag, on the traffic generator's browsers alone. Each of them sends an id of its own beside the mark, which the share stage splits by.
 - **18. The "+".** A request from Martin becomes a work item of kind improvement. The planner's spec template takes a flag and its stages, its questions arrive in Needs you, and Martin approves the spec before any code. The server refuses an improvement from anyone else.
 - **19. The first improvement.** Dark mode, asked for with the "+", shipped behind a flag, verified on both sides, and switched on for everyone, with no human code.
 
