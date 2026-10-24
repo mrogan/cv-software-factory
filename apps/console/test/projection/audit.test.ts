@@ -151,6 +151,36 @@ describe('the detail under a row', () => {
     expect(row?.withheld).toBe('Its text is left out: a visitor wrote it.');
   });
 
+  it('says whose text triage’s judgement left out: a visitor’s, or the planner’s', () => {
+    const finding = event(
+      0,
+      'signal.received',
+      'planner',
+      { sense: 'planner', check: 'finding', route: '/', version: 'v1', report: { page: '/' }, planning: '2' },
+      'The planner noted something on /',
+      '9',
+    );
+    const judged = event(
+      1,
+      'judgement.made',
+      'triage',
+      {
+        questionSet: 'triage/v1',
+        model: 'jev-1.13.0',
+        state: { report: { page: '/' } },
+        answers: [{ type: 'choice', key: 'category', question: 'What kind?', answer: 'content', probabilities: {} }],
+        costUsd: 0.001,
+        durationMs: 100,
+        cassette: 'a'.repeat(64),
+      } as PayloadOf<'judgement.made'>,
+      'Triage: content',
+      '9',
+    );
+    expect(only([finding, judged]).withheld).toBe(
+      'Its text is left out, as a visitor’s is: the planner wrote it from a page.',
+    );
+  });
+
   it('is the reason Martin gave to stop or start the line', () => {
     expect(only([event(0, 'line.stopped', 'martin', { reason: 'Going out' })]).detail).toBe('“Going out”');
     // A start with a reason, as a later version of the type carries it.
@@ -168,7 +198,10 @@ describe('the detail under a row', () => {
     });
     expect(only([kept]).detail).toBeUndefined();
     const approved = event(2, 'hold.answered', 'martin', { decision: 'approved', report: true });
-    expect(only([approved]).withheld).toBeUndefined();
+    expect(only([approved]).withheld).toBe('Any words of his stay his: the hold was about a visitor’s report.');
+    const plain = event(3, 'hold.answered', 'martin', { decision: 'approved' });
+    expect(only([plain]).detail).toBeUndefined();
+    expect(only([plain]).withheld).toBeUndefined();
   });
 
   it('is each setting changed, before and after, and when the passkey was given for a raise', () => {

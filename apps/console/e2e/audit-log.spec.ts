@@ -96,6 +96,16 @@ test('the filters narrow the log, live in the address, and say when nothing matc
   await expect(page.getByLabel('Work item')).toHaveValue('1315');
   await expect(page.getByRole('button', { name: 'Agent actions' })).toHaveAttribute('aria-pressed', 'false');
 
+  // Every kind off matches nothing, from the address too.
+  await page.goto(auditUrl('paper', '&kinds=none'));
+  await expect(page.locator('tr.none')).toBeVisible();
+  for (const name of ['Admin actions', 'Agent actions', 'Model calls'])
+    await expect(page.getByRole('button', { name })).toHaveAttribute('aria-pressed', 'false');
+  await page.getByRole('button', { name: 'Model calls' }).click();
+  await page.getByRole('button', { name: 'Model calls' }).click();
+  await expect(page).toHaveURL(/[?&]kinds=none(&|$)/);
+
+  await page.goto(auditUrl());
   await page.getByLabel('Actor', { exact: true }).selectOption({ label: 'the describer' });
   await page.getByLabel('Work item').fill('1293');
   await expect(page.locator('tr.none')).toHaveText(

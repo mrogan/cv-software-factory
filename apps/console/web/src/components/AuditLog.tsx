@@ -52,10 +52,9 @@ function toAddress(filter: AuditFilter) {
   const set = (name: string, value: string) => (value ? params.set(name, value) : params.delete(name));
   set('actor', filter.actor);
   set('item', filter.item.replace(/[^0-9]/g, ''));
-  set(
-    'kinds',
-    AUDIT_KINDS.every((kind) => filter.kinds[kind]) ? '' : AUDIT_KINDS.filter((k) => filter.kinds[k]).join(','),
-  );
+  const kinds = AUDIT_KINDS.filter((kind) => filter.kinds[kind]);
+  // Every kind is the default, and none is said in so many words, so a link to an empty log stays empty.
+  set('kinds', kinds.length === AUDIT_KINDS.length ? '' : kinds.join(',') || 'none');
   history.replaceState(history.state, '', `?${params}`);
 }
 
@@ -164,7 +163,7 @@ export function AuditLog({ events, t, profile, settled }: Props) {
           </tr>
         </thead>
         {view.days.map((day) => (
-          <tbody key={day.day}>
+          <tbody key={day.rows[0]?.seq}>
             <tr className="day">
               <th scope="colgroup" colSpan={5}>
                 {day.label}

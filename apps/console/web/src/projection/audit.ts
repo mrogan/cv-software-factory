@@ -13,18 +13,17 @@ import {
   type Actor,
   ADMIN_TYPES,
   AGENTS,
-  EFFORTS,
-  type Effort,
   type HoldCause,
   type PayloadOf,
   type PublicEvent,
   SENSES,
 } from '@software-factory/events';
-import { dearness } from '../../../../../policy/models.ts';
+import { CAP_NAMES, type CapField, changesBetween, inForce } from '../../../../../policy/settings.ts';
 import type { Profile } from '../../../../../policy/spend.ts';
-import { FRESH_MINUTES, GUARDRAIL_HOLDS, STEP_UP } from '../access.ts';
-import { clock, dayLabel, modelTitle, money, tokens } from '../format.ts';
+import { FRESH_MINUTES, GUARDRAIL_HOLDS, SETTINGS_STEP_UP, STEP_UP } from '../access.ts';
+import { changeWords, clock, dayLabel, modelTitle, money, tokens } from '../format.ts';
 import { startOfDay } from './line.ts';
+import { SENSE_NAME } from './sheet.ts';
 
 /** An admin action (a person), an agent's or a system's action (the arrows), or a model call (a chip). */
 export const AUDIT_KINDS = ['admin', 'agent', 'model'] as const;
@@ -40,11 +39,11 @@ export const ACTOR_NAME: Record<Actor, string> = {
   reviewer: 'the reviewer',
   describer: 'the describer',
   'red-team': 'the red-team agent',
-  probe: 'the probe',
-  crawler: 'the crawler',
-  metrics: 'the metrics',
-  logs: 'the log watcher',
-  canary: 'the canary',
+  probe: SENSE_NAME.probe,
+  crawler: SENSE_NAME.crawler,
+  metrics: SENSE_NAME.metrics,
+  logs: SENSE_NAME.logs,
+  canary: SENSE_NAME.canary,
   widget: 'the report widget',
   injector: 'the injector',
   actions: 'GitHub Actions',
@@ -99,6 +98,8 @@ export const VISITOR_WROTE = 'Its text is left out: a visitor wrote it.';
 export const PLANNER_WROTE = 'Its text is left out, as a visitor’s is: the planner wrote it from a page.';
 /** Martin's words on a hold about a visitor's report, which stay his. */
 export const MARTIN_KEPT = 'His words stay his: the hold was about a visitor’s report.';
+/** Any words he gave with an approval or a rejection on such a hold, which the public view leaves out as well. */
+export const MARTIN_ANY_KEPT = 'Any words of his stay his: the hold was about a visitor’s report.';
 
 /** The mechanisms' refusals: an action the platform or the scope fence stopped, and the gateway's at a spend cap. */
 const REFUSALS = new Set<string>(['action.refused', 'spend.capped']);
@@ -120,53 +121,45 @@ function reasonOf(payload: unknown): string | undefined {
 
 const quoted = (words: string) => `“${words}”`;
 
-type Change = PayloadOf<'settings.changed'>['changes'][number];
+type Settings = PayloadOf<'settings.changed'>;
 
-/** A change in words: "the coder’s effort, medium → high". */
-function changeWords(change: Change): string {
-  const usd = (figure: number | null) => (figure === null ? 'none' : money(figure));
-  switch (change.field) {
-    case 'model':
-      return `the ${change.agent}’s model, ${modelTitle(change.before)} → ${modelTitle(change.after)}`;
-    case 'effort':
-      return `the ${change.agent}’s effort, ${change.before ?? 'none'} → ${change.after ?? 'none'}`;
-    case 'cap':
-      return `the ${change.cap === 'work-item' ? 'work item' : change.cap}’s cap, ${usd(change.beforeUsd)} → ${usd(change.afterUsd)}`;
-  }
-}
+/** The cap's field in a settings event, by the name a change gives it. */
+const CAP_FIELD = Object.fromEntries(Object.entries(CAP_NAMES).map(([field, name]) => [name, field])) as Record<
+  (typeof CAP_NAMES)[CapField],
+  CapField
+>;
 
-/** Whether a change raises spend, as `policy/settings.ts` judges it: a dearer model, more effort, or a higher cap. */
-function raises(profile: Profile, change: Change): boolean {
-  switch (change.field) {
-    case 'model':
-      return dearness(profile, change.after) > dearness(profile, change.before);
-    case 'effort': {
-      const rank = (effort: Effort | null) => (effort === null ? -1 : EFFORTS.indexOf(effort));
-      return rank(change.after) > rank(change.before);
-    }
-    case 'cap': {
-      const rank = (usd: number | null) => usd ?? Number.POSITIVE_INFINITY;
-      return rank(change.afterUsd) > rank(change.beforeUsd);
-    }
+/**
+ * Whether a save raised spend, by policy's own rule (`changesBetween`): the settings before it, made from the ones after
+ * and each change's value before, against the ones after.
+ */
+function raises(profile: Profile, saved: Settings): boolean {
+  const before = structuredClone({ agents: saved.agents, caps: saved.caps });
+  for (const change of saved.changes) {
+    if (change.field === 'cap') before.caps[CAP_FIELD[change.cap]] = change.beforeUsd as number;
+    else if (change.field === 'model') before.agents[change.agent].model = change.before;
+    else if (change.before === null) delete before.agents[change.agent].effort;
+    else before.agents[change.agent].effort = change.before;
   }
+  const after = { agents: saved.agents, caps: saved.caps };
+  const { actions } = changesBetween(profile, inForce(profile, before), inForce(profile, after));
+  return actions.some((action) => SETTINGS_STEP_UP[action]);
 }
 
 /** Every event up to t as a row, newest first. */
 export function auditRows(events: readonly PublicEvent[], t: number, profile: Profile): AuditRow[] {
   const causes = new Map<string, HoldCause>();
-  const steppedUp: number[] = [];
+  // Whose words a work item's report is: a visitor's, or the planner's finding.
+  const reporters = new Map<string, string>();
+  let steppedUp: number | undefined;
   const rows: AuditRow[] = [];
   for (const event of events) {
     const at = Date.parse(event.ts);
     if (!(at <= t)) continue;
     if (event.type === 'hold.started') causes.set(event.id, event.payload.cause);
-    if (event.type === 'admin.stepped-up') steppedUp.push(at);
-
-    // When Martin last gave his passkey, if it was fresh for this action.
-    const given = () => {
-      const last = steppedUp.findLast((when) => when <= at && at - when <= FRESH_MS);
-      return last === undefined ? undefined : `passkey given at ${clock(last)}`;
-    };
+    if (event.type === 'admin.stepped-up') steppedUp = at;
+    if (event.type === 'signal.received' && event.payload.report && event.work_item)
+      reporters.set(event.work_item, event.payload.sense === 'planner' ? PLANNER_WROTE : VISITOR_WROTE);
     const asks = askedForPasskey(event, causes, profile);
     const parts: string[] = [];
     let withheld: string | undefined;
@@ -190,7 +183,7 @@ export function auditRows(events: readonly PublicEvent[], t: number, profile: Pr
           plural(p.answers.length),
           money(p.costUsd),
         );
-        withheld = VISITOR_WROTE;
+        withheld = (event.work_item && reporters.get(event.work_item)) || VISITOR_WROTE;
         break;
       }
       case 'signal.received':
@@ -198,7 +191,7 @@ export function auditRows(events: readonly PublicEvent[], t: number, profile: Pr
         break;
       case 'hold.answered':
         if (event.payload.answer) parts.push(quoted(event.payload.answer));
-        else if (event.payload.report && event.payload.decision === 'answered') withheld = MARTIN_KEPT;
+        else if (event.payload.report) withheld = event.payload.decision === 'answered' ? MARTIN_KEPT : MARTIN_ANY_KEPT;
         break;
       case 'settings.changed':
         parts.push(event.payload.changes.map(changeWords).join('; '));
@@ -213,8 +206,9 @@ export function auditRows(events: readonly PublicEvent[], t: number, profile: Pr
         if (reason) parts.push(quoted(reason));
       }
     }
-    const passkey = asks ? given() : undefined;
-    if (passkey) parts.push(passkey);
+    // When Martin last gave his passkey, if it was fresh for an action that asks for it.
+    if (asks && steppedUp !== undefined && at - steppedUp <= FRESH_MS)
+      parts.push(`passkey given at ${clock(steppedUp)}`);
 
     rows.push({
       seq: event.seq,
@@ -244,7 +238,7 @@ function askedForPasskey(event: PublicEvent, causes: Map<string, HoldCause>, pro
     case 'passkey.revoked':
       return event.payload.from === 'console';
     case 'settings.changed':
-      return event.payload.changes.some((change) => raises(profile, change));
+      return raises(profile, event.payload);
     case 'hold.answered': {
       const cause = event.payload.hold ? causes.get(event.payload.hold) : undefined;
       return event.payload.decision === 'approved' && cause !== undefined && GUARDRAIL_HOLDS.includes(cause);
