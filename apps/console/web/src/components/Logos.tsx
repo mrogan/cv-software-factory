@@ -1,9 +1,11 @@
 /**
- * Logos for the packages and providers the console names, from theSVG (MIT; the marks belong to their owners).
- * Bundled with the console and never fetched, and defined once, as symbols that each use refers to.
+ * Logos for the packages and providers the console names, and the places the footer links to, from theSVG (MIT; the
+ * marks belong to their owners). Bundled with the console and never fetched, and defined once, as symbols that each
+ * use refers to. GitHub's and LinkedIn's are drawn in the text colour, so they follow the theme. The tools in Martin's
+ * menu have theirs in `ToolLogos.tsx`, which only he loads.
  */
 
-export type Logo = 'node' | 'otel' | 'trivy' | 'dependabot' | 'anthropic' | 'jev';
+export type Logo = 'node' | 'otel' | 'trivy' | 'dependabot' | 'anthropic' | 'jev' | 'github' | 'linkedin';
 
 /** Draws a logo defined by LogoSymbols. */
 export function LogoMark({ name, className }: { name: Logo; className?: string }) {
@@ -21,6 +23,8 @@ const VIEWBOX: Record<Logo, string> = {
   dependabot: '0 0 24 24',
   anthropic: '0 0 24 24',
   jev: '0 0 16 16',
+  github: '0 0 16 16',
+  linkedin: '0 0 64 64',
 };
 
 /** The logo for a package, when the console has one. */
@@ -105,6 +109,20 @@ export function LogoSymbols() {
       </symbol>
       <symbol id="logo-jev" viewBox="0 0 16 16">
         <path fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" d="M3 4.5h10M3 8h6M3 11.5h8" />
+      </symbol>
+      <symbol id="logo-github" viewBox="0 0 16 16">
+        <path
+          fill="currentColor"
+          fillRule="evenodd"
+          clipRule="evenodd"
+          d="M8 0C3.6 0 0 3.6 0 8C0 11.5 2.3 14.5 5.5 15.6C5.9 15.7 6 15.4 6 15.2C6 15 6 14.4 6 13.7C4 14.1 3.5 13.2 3.3 12.8C3.2 12.6 2.8 11.8 2.5 11.7C2.2 11.5 1.8 11.1 2.5 11.1C3.1 11.1 3.6 11.7 3.7 11.9C4.4 13.2 5.6 12.8 6 12.6C6.1 12.1 6.3 11.7 6.6 11.5C4.8 11.3 2.9 10.6 2.9 7.6C2.9 6.7 3.2 6 3.7 5.4C3.7 5.2 3.4 4.4 3.8 3.3C3.8 3.3 4.5 3.1 6 4.1C6.7 4 7.3 3.9 8 3.9C8.7 3.9 9.4 4 10 4.1C11.6 3.1 12.2 3.3 12.2 3.3C12.7 4.4 12.4 5.2 12.3 5.4C12.8 6 13.1 6.7 13.1 7.6C13.1 10.7 11.2 11.3 9.5 11.5C9.8 11.8 10 12.3 10 13C10 14.1 10 14.9 10 15.2C10 15.4 10.2 15.7 10.6 15.6C13.7 14.5 16 11.5 16 8C16 3.6 12.4 0 8 0Z"
+        />
+      </symbol>
+      <symbol id="logo-linkedin" viewBox="0 0 64 64">
+        <path
+          fill="currentColor"
+          d="M54.5 54.5h-9.5v-14.8c0-3.6 0-8.1-4.9-8.1-4.9 0-5.7 3.8-5.7 7.8v15.1h-9.5V24h9.1v4.2h.2a10 10 0 0 1 9-5c9.6 0 11.3 6.4 11.3 14.6l0 16.7ZM14.2 19.8c-3 0-5.5-2.4-5.5-5.5 0-3 2.5-5.5 5.5-5.5 3.1 0 5.5 2.5 5.5 5.5A5.5 5.5 0 0 1 14.2 19.8m4.8 34.7H9.5V24h9.5v30.5ZM59.3 0H4.7C2.1 0 0 2 0 4.6v54.8c0 2.6 2.1 4.6 4.7 4.6h54.6c2.5 0 4.7-2 4.7-4.6V4.6c0-2.6-2.2-4.6-4.7-4.6"
+        />
       </symbol>
     </svg>
   );

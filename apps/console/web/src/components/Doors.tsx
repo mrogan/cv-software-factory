@@ -25,7 +25,7 @@ export function Doors({ door }: { door: Door }) {
     <>
       <header className="top">
         <div className="wrap">
-          <a className="brand" href="/" aria-label="Software Factory: Martin Rogan, a live CV">
+          <a className="brand" href="/" aria-label="Software Factory: Martin Rogan, a live CV, home">
             <Mark />
             <span className="rule" aria-hidden="true" />
             <span>

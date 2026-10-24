@@ -72,6 +72,29 @@ describe('the settings', () => {
     expect(() => configFromEnv({ ADMIN_ORIGIN: 'https://a.b', ADMIN_TRUSTED_PROXIES: 'traefik' })).toThrow();
     expect(() => configFromEnv({ ADMIN_ORIGIN: 'https://a.b', ADMIN_TRUSTED_PROXIES: '10.0.0.0/33' })).toThrow();
   });
+
+  it('take the deployment’s Grafana and Argo CD as http or https addresses, each only when set', () => {
+    const origin = { ADMIN_ORIGIN: 'https://console.localhost:8443' };
+    expect(configFromEnv(origin).tools).toEqual({});
+    expect(configFromEnv({ ...origin, GRAFANA_URL: '', ARGOCD_URL: ' ' }).tools).toEqual({});
+    expect(
+      configFromEnv({
+        ...origin,
+        GRAFANA_URL: 'http://grafana.localhost:8080',
+        ARGOCD_URL: 'https://argocd.example.com/applications',
+      }).tools,
+    ).toEqual({ grafana: 'http://grafana.localhost:8080/', argocd: 'https://argocd.example.com/applications' });
+    for (const given of [
+      'grafana.localhost',
+      'javascript:alert(1)',
+      'data:text/html,hi',
+      'ftp://grafana.example',
+      'https://admin:secret@grafana.example',
+    ]) {
+      expect(() => configFromEnv({ ...origin, GRAFANA_URL: given }), given).toThrow();
+      expect(() => configFromEnv({ ...origin, ARGOCD_URL: given }), given).toThrow();
+    }
+  });
 });
 
 describe('an enrolment code', () => {

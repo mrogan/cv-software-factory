@@ -253,6 +253,8 @@ describe('enrolment', () => {
     expect(session.status).toBe(200);
     expect(session.body).toMatchObject({ passkey: { id: passkey.credentialId, name: 'Laptop' }, steppedUp: false });
     expect(session.body.token).toBe(tokenOf(browser.cookie ?? ''));
+    // No tools in this service's settings, so none for the menu.
+    expect(session.body.tools).toEqual({});
     // Recorded as Martin's, his passkey's name in the full events and not in the public views.
     const [signedIn, enrolled] = await lastEvents(2);
     expect(enrolled).toMatchObject({ type: 'passkey.enrolled', actor: 'martin', payload: { passkey: 'Laptop' } });
@@ -442,6 +444,17 @@ describe('signing in', () => {
     const [now, ended] = await lastEvents(2);
     expect(ended).toMatchObject({ type: 'admin.signed-out', actor: 'martin', payload: { everywhere: false } });
     expect(now?.type).toBe('admin.signed-in');
+  });
+
+  it('tells a signed-in session the deployment’s Grafana and Argo CD, and nobody else', async () => {
+    await service.stop();
+    const tools = { grafana: 'http://grafana.localhost:8080/', argocd: 'http://argocd.localhost:8080/' };
+    await start({ tools });
+    const { browser } = await signedIn();
+    expect((await browser.get('/admin/session')).body.tools).toEqual(tools);
+    const visitor = await new Browser().get('/admin/session');
+    expect(visitor.status).toBe(401);
+    expect(JSON.stringify(visitor.body)).not.toContain('localhost:8080');
   });
 
   it('records no sign-out for a session the browser had that had already ended', async () => {

@@ -428,6 +428,33 @@ footer.foot .left {
 footer.foot a {
   color: var(--text-muted);
 }
+footer.foot .foot-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+/* The footer's icons: GitHub, LinkedIn and the key to Martin's sign-in, at the text's height in its colour, each a
+   target as large as a line of the footer. */
+footer.foot .foot-icons {
+  display: inline-flex;
+  gap: 4px;
+}
+footer.foot .foot-icons a,
+footer.foot a.foot-key {
+  min-width: 24px;
+  min-height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--radius-small);
+}
+footer.foot .foot-icons a:hover,
+footer.foot a.foot-key:hover {
+  color: var(--text);
+}
+.foot-icon {
+  width: 14px;
+  height: 14px;
+}
 
 .phone-status {
   display: none;

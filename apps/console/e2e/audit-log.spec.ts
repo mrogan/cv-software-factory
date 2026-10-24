@@ -143,6 +143,12 @@ test('the way to it from Controls, the account menu and the footer', async ({ pa
     'Settings',
     'Audit log',
     'Preview as visitor',
+    /^Grafana/,
+    /^Argo CD/,
+    'PAPER',
+    'INK',
+    'MOTION',
+    'STILL',
     'Sign out',
     /^Sign out everywhere/,
   ]);

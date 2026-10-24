@@ -29,7 +29,7 @@ The console mockup links `tokens.css` and `station.js` directly, so a change her
 
 Components use role names only, never hex values. Each theme assigns every role, so switching theme is one attribute: `<html data-theme="ink">` (or the class `theme-ink` on any container).
 
-**Paper always comes first.** Every visit opens in Paper, whatever the visitor's system setting. Ink is offered by a switch on the page and is not remembered between visits.
+**Paper always comes first.** Every visit opens in Paper, whatever the visitor's system setting. Ink is offered by a switch in the header (in Martin's account menu while he is signed in) and is not remembered between visits.
 
 | Role | Use for | Never for |
 |---|---|---|
@@ -236,7 +236,7 @@ The picture is evidence, so it is always something the factory captured, never a
 
 On a small picture (a phone's card, a block in the sheet's evidence), each picture keeps its headline and drops its secondary rows: timings, the hops after the first two, a rule's full sentence, the unused answers. Type inside the new pictures never drops below 9px.
 
-Package logos come from [theSVG](https://github.com/glincker/thesvg) (MIT; the marks belong to their owners) and are bundled with the console, never fetched.
+Package and tool logos, and the footer's GitHub and LinkedIn icons, come from [theSVG](https://github.com/glincker/thesvg) (MIT; the marks belong to their owners) and are bundled with the console, never fetched.
 
 ### The sheet
 
@@ -281,7 +281,7 @@ A notice is a `t-label` word and a sentence in `text-2`, inside a dashed `line-s
 
 An **MR monogram**: Martin Rogan's initials in Instrument Serif, with the R set so that it shares the M's last stem, and a full stop in `attn`. The shared stem makes two letters read as one mark. The ember full stop is the same colour that means "a person should look" on the console, so it carries the system's idea into the signature.
 
-- **On the page:** inline the SVG with `fill: currentColor` for the letters and `var(--attn)` for the full stop, so it follows the theme. Height 30px in the header and 18px in the footer, with a hairline rule between the mark and "Software Factory".
+- **On the page:** inline the SVG with `fill: currentColor` for the letters and `var(--attn)` for the full stop, so it follows the theme. Height 30px in the header and 18px in the footer, with a hairline rule between the mark and "Software Factory". In the header the mark and the name are one link to the console's home page from a page of its own (its top on the console itself, so nothing there is reloaded), named in the words it shows and "home" ("Software Factory: Martin Rogan, a live CV, home"), so speech input finds it by what it says; in the footer the mark is decoration.
 - **Files:** `mark/mark.svg` (Paper), `mark/mark-ink.svg` (Ink) and `mark/icon.svg`: the monogram in paper on the station-face dark square, for favicons and app icons. It reads down to 16px.
 - **Beyond the console:** the same mark and ember full stop can sign the CV, the README and the social card, with "Martin Rogan." set in Instrument Serif.
 - Letterforms are from Instrument Serif (SIL Open Font Licence), which allows its use in a logo.
@@ -304,7 +304,8 @@ The phone keeps the stations: they are the thing people remember, and at a quart
 
 Each panel does one job:
 
-- **Header:** mark, name, whether the line is running (with the autonomy level), and, for admin, Preview as visitor, Stop the line (Start the line while stopped) and the account menu. Autonomy is set in Controls.
+- **Header:** mark and name, which go home, whether the line is running (with the autonomy level), and, for a visitor, the theme and motion switches; for admin, Stop the line (Start the line while stopped) and the account menu, which holds the switches and Preview as visitor. Autonomy is set in Controls.
+- **Footer:** the mark, `© 2026 Martin Rogan · MIT` (MIT links to the licence), the GitHub and LinkedIn icons, Audit log and Privacy, and, for a visitor where there is a service to sign in to, the key to Martin's sign-in; the build at the right. The icons are monochrome at the text's height in `text-muted`, following the theme, each a link named in words ("The source on GitHub", "Martin Rogan on LinkedIn", "Martin's sign-in") with the same words on a hover. Audit log and Privacy stay words: no icon for them reads without a key.
 - **Scoreboard:** three figures: found, verified fixed, median time to verified. No totals, false positives or separate "fixed" count: "fixed" and "verified" are too close to earn two places.
 - **Canary:** the release in flight against the version it replaces, step by step, for everyone. It says the canary decides for itself; promote, pause, abort and retry are admin's, and a visitor sees them with what each does.
 - **Captions under stations:** the name and one line: state word and one figure. Descriptions belong in the stage panel, switches in Controls.
@@ -429,7 +430,7 @@ Pressing one opens a small dialog: "Your passkey, again", the action's name as i
 
 Two pages of their own, each a single card in the middle of the page, under a header with only the mark and "Back to the console". They are the doors: nothing of the console shows behind them.
 
-- **Sign in:** says what it is for and what to do: "Sign in with the passkey on this device to answer holds, change settings and run the line." One button, **Sign in with a passkey**, and, under a hairline, a short way back for a visitor: "Visiting? Everything Martin can change is on the console already, read-only. Back to the console". Reached from a quiet "Martin's sign-in" link in the footer, which only a visitor sees.
+- **Sign in:** says what it is for and what to do: "Sign in with the passkey on this device to answer holds, change settings and run the line." One button, **Sign in with a passkey**, and, under a hairline, a short way back for a visitor: "Visiting? Everything Martin can change is on the console already, read-only. Back to the console". Reached from a quiet key in the footer, named "Martin's sign-in", which only a visitor sees.
   - Its states, each a box above the button: no passkey was used (`attn` rule: the sheet was closed or the device has none, which the browser does not tell apart, and how to enrol one); the session ended ("A session lasts 30 minutes from signing in, however busy"); signed out; signed out everywhere (`line-strong` rule: they are facts, not faults).
 - **Enrol a passkey:** three numbered steps, each ticked in `ok` as it is done: run `factory admin enrol` on the command line, which prints a code that lasts ten minutes and allows five tries; enter the code; make a passkey on this device, with a name for it ("iPhone"), so the settings can list it. Then "Passkey made, and you are signed in on this device". The code is entered in one field in Geist Mono, 20px, upper case, and the page accepts it with or without its dashes.
   - A wrong code says how many tries are left, across every browser; a code that has expired, been used or had its five tries says so in one sentence and that `factory admin enrol` prints a new one, and the field is disabled. Both take the `attn` rule. The foot names `factory admin enrol --revoke-others` for a lost device.
@@ -437,9 +438,9 @@ Two pages of their own, each a single card in the middle of the page, under a he
 
 ### The header and the account menu
 
-For admin, the header's right side reads: the line's status, Preview as visitor, the step-up pill when it shows, Stop the line, and the account button (an "M" disc in Instrument Serif on `text`, and "Martin"). Narrower than a desktop (1100px and below), where the header also holds the theme and motion switches, Preview as visitor is in the menu alone. On a phone, the status moves under the name as it does now, and the button keeps only its disc.
+For admin, the header's right side reads: the line's status, the step-up pill when it shows, Stop the line, and the account button (an "M" disc in Instrument Serif on `text`, and "Martin"). Preview as visitor and the theme and motion switches are in the menu, at every width. On a phone, the status moves under the name as it does now, and the button keeps only its disc.
 
-The menu: "Martin Rogan", when he signed in and when the session ends; Settings, Audit log, Preview as visitor; then, under a hairline, Sign out and Sign out everywhere ("every device"). Escape or a click outside closes it.
+The menu: "Martin Rogan", when he signed in and when the session ends; Settings, Audit log, Preview as visitor; under a hairline, this deployment's Grafana and Argo CD, each with its logo and its host after it in `text-muted` (cut short with an ellipsis where it is long), opening in a new tab, and each only when the admin service names it; under another, Theme (Paper, Ink) and Motion (Motion, Still), each a row with its name; then, under a hairline, Sign out and Sign out everywhere ("every device"). Escape or a click outside closes it.
 
 ### Stopping and starting the line
 
@@ -503,7 +504,7 @@ Abort opens a dialog saying that the version before takes all the traffic at onc
 
 ### Preview as visitor
 
-From the header or the account menu. A green banner across the top says: "Previewing as a visitor: the public stream, as the server sends it to anyone without your session. You are still signed in", with Back to admin. Everything below is the public view, served by the server rather than hidden in the browser, so what Martin sees is exactly what a visitor gets. The header's pill reads VISITOR VIEW, since Martin holds no visitor's key.
+From the account menu. A green banner across the top says: "Previewing as a visitor: the public stream, as the server sends it to anyone without your session. You are still signed in", with Back to admin. Everything below is the public view, served by the server rather than hidden in the browser, so what Martin sees is exactly what a visitor gets. The header's pill reads VISITOR VIEW, since Martin holds no visitor's key.
 
 ### Dialogs
 

@@ -27,7 +27,7 @@ Every route it answers is in [`policy/access.ts`](../../policy/access.ts), and i
 | Entry | Routes | Takes |
 |---|---|---|
 | `admin.health` | `GET /admin/health` | nothing |
-| `session` | `GET /admin/session` | his session; it answers with the token his writes carry, and his passkeys |
+| `session` | `GET /admin/session` | his session; it answers with the token his writes carry, his passkeys, and the deployment's tools his menu links to |
 | `full-events` | `GET /admin/events/stream` | his session |
 | `enrol` | `POST /admin/enrol/options`, `POST /admin/enrol` | the code, the console's `Origin`, and the enrolment's rate limit |
 | `sign-in` | `POST /admin/sign-in/options`, `POST /admin/sign-in` | a passkey, the console's `Origin`, and the sign-in's rate limit |
@@ -139,6 +139,7 @@ Every action is an event with Martin as its actor, appended in the same transact
 | `ADMIN_TRUSTED_PROXIES` | The proxy in front, as addresses or CIDR ranges; none by default. |
 | `RELEASE_ROLLOUT` | The app's Rollout, as `<namespace>/<name>`, as the line is given it: what the canary's controls patch. Unset, they are refused. |
 | `KUBE_API_URL` | On a host, where `kubectl proxy` serves the API; in the cluster, its service account's token. |
+| `GRAFANA_URL`, `ARGOCD_URL` | This deployment's Grafana and Argo CD, each an `http` or `https` address with no user name or password in it, which a signed-in session is told so the account menu links to them. Only a session is told: a public deployment's internal hosts never reach a visitor's page. Unset, the menu has no link to that tool. |
 | `FACTORY_PROFILE` | `local`, `do` or `aws`, `local` by default, as the gateway's and the line's: the bounds Martin's settings are held to, and their defaults. |
 | `PORT` | Where it listens, 8080 by default. |
 | `DATABASE_URL`, `PG*` | The store, as `factory_admin`, whose password is in `postgres-admin`. |

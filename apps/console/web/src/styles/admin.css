@@ -94,12 +94,25 @@
   border-top: 1px solid var(--line);
 }
 
-/* Preview as visitor: the header's button, the banner across the top while it lasts, and the pill in Martin's place. */
-.btn.preview-btn {
-  min-height: 36px;
-  padding: 0 12px;
-  font-size: 13px;
+/* This deployment's tools: the logo, the name, and the host it opens, in a new tab. */
+.menu a.tool {
+  gap: 10px;
 }
+.menu a.tool .logo {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.menu a.tool small.after {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 11px / 1 var(--font-mono);
+}
+
+/* Preview as visitor: the banner across the top while it lasts, and the pill in Martin's place. */
 .preview-banner {
   background: var(--ok-wash);
   border-bottom: 1px solid var(--ok-line);
@@ -299,14 +312,6 @@ input.code::placeholder {
   letter-spacing: 1px;
 }
 
-/* Narrower than a desktop, Preview as visitor is in the account menu alone: the header has no room for it beside the
-   line's status and the switches. */
-@media (max-width: 1100px) {
-  .preview-btn {
-    display: none;
-  }
-}
-
 @media (max-width: 720px) {
   .preview-banner .wrap {
     align-items: flex-start;
@@ -345,4 +350,39 @@ input.code::placeholder {
     letter-spacing: 0.3px;
     padding: 12px 4px;
   }
+}
+
+/* Paper or Ink, and Motion or Still, each a row with its name. */
+.switch-row {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px 0 10px;
+  font-size: 13.5px;
+}
+.switch-row .seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 148px;
+}
+.menu .seg button {
+  display: inline-block;
+  min-height: 32px;
+  min-width: 52px;
+  padding: 0 10px;
+  font: 11px / 1 var(--font-mono);
+  letter-spacing: 0.6px;
+  color: var(--text-2);
+  text-align: center;
+}
+.menu .seg button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--text);
+}
+.menu .seg button[aria-pressed="true"],
+.menu .seg button[aria-pressed="true"]:hover {
+  background: var(--text);
+  color: var(--on-inverse);
 }
