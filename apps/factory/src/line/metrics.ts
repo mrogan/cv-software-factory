@@ -5,7 +5,7 @@
  *
  * But one: `line.hold.age` has a series for each hold that waits for Martin, named by its work item and, where he
  * answers it on GitHub, its pull request, so the alert for a new hold can say which and link it. Those series are as
- * many as the holds waiting for him, a handful, and each ends with its hold, reading 0, and goes when the line next
+ * many as the holds that waited for him since the line started, a handful, and each ends with its hold, reading 0, and goes when the line next
  * starts; both labels are numbers the store assigned, never a title, a reason or anything a visitor wrote. The alert
  * rule that reads it, one alert per hold, comes with the image that exports it (`alerts/rules.ts`, issue #562).
  *
@@ -263,7 +263,7 @@ const holdAge = meter.createObservableGauge('line.hold.age', {
  * it would change every worker's observable gauges, and mean building the OTLP reader by hand. The series kept are
  * one for each hold that waited for Martin while the line ran, and every deploy of the factory starts it again; the
  * SDK's own limit of 2000 sets an instrument folds any beyond it into one overflow series. A line that starts again
- * reports only what waits then. A read that fails reports nothing that time.
+ * reports only what waits then. A read that fails observes nothing that time: the SDK sends the last values again.
  */
 export function observeHolds(sql: Sql): () => void {
   const reported = new Map<string, Attributes>();
