@@ -105,7 +105,7 @@ interface Context {
 type Reply = { status: number; body: object; cookie?: string } | 'streaming';
 
 const sessionCookie = (id: string) =>
-  `${COOKIE}=${id}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${SESSION.hours * 3600}`;
+  `${COOKIE}=${id}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${SESSION.minutes * 60}`;
 const clearedCookie = `${COOKIE}=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0`;
 
 const name = z.string().trim().min(1).max(40);

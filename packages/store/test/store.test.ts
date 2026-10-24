@@ -101,6 +101,7 @@ describe('migrations', () => {
       { version: 27, name: 'release-controls' },
       { version: 28, name: 'settings' },
       { version: 29, name: 'suggestion-holds' },
+      { version: 31, name: 'session-30-minutes' },
     ]);
   });
 });

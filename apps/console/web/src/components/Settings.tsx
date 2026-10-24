@@ -19,7 +19,7 @@ import {
   inForce,
 } from '../../../../../policy/settings.ts';
 import { CEILINGS } from '../../../../../policy/spend.ts';
-import { SETTINGS_STEP_UP } from '../access.ts';
+import { SESSION_MINUTES, SETTINGS_STEP_UP } from '../access.ts';
 import { type Admin, doorHref, post, type Session, said, write } from '../admin.ts';
 import { clock, dayLabel, modelTitle, money } from '../format.ts';
 import type { SettingsView } from '../projection/index.ts';
@@ -527,7 +527,7 @@ function ThisSession({ session }: { session: Session }) {
       <h2 id="session-title">This session</h2>
       <p className="help">
         Signed in at {clock(Date.parse(session.signedInAt))} with {session.passkey.name}’s passkey. It ends at{' '}
-        {clock(Date.parse(session.expiresAt))}: eight hours, however busy.
+        {clock(Date.parse(session.expiresAt))}: {SESSION_MINUTES} minutes, however busy.
       </p>
       <div className="row">
         <button type="button" className="btn small" disabled={busy} onClick={() => void signOut(false)}>

@@ -129,7 +129,7 @@ export const said = (got: Answer): string =>
 /** Where a door is: `?view=sign-in` or `?view=enrol` on the console's own page. */
 export type Door = 'sign-in' | 'enrol';
 
-/** Why the sign-in page was opened, shown above its button: a session that ended, here, everywhere or by its hours. */
+/** Why the sign-in page was opened, shown above its button: a session that ended, here, everywhere or by its time. */
 export type Ended = 'here' | 'everywhere' | 'expired';
 
 export const doorHref = (door: Door, ended?: Ended, at?: string) => {
@@ -167,7 +167,7 @@ export async function stillSignedIn(expiresAt: string): Promise<boolean> {
 }
 
 /**
- * Whether this browser is signed in, asked as the page opens, and again when the session's eight hours are up or the
+ * Whether this browser is signed in, asked as the page opens, and again when the session's 30 minutes are up or the
  * page is shown again: a session that has ended sends the page to the sign-in door, saying so. Only the live console asks: a recording has no service.
  */
 export function useAdmin(live: boolean): Admin {
