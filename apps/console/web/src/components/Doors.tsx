@@ -8,6 +8,7 @@
  */
 import { startAuthentication, startRegistration } from '@simplewebauthn/browser';
 import { type FormEvent, type ReactNode, type RefObject, useEffect, useRef, useState } from 'react';
+import { SESSION_MINUTES } from '../access.ts';
 import { type Answer, type Door, doorHref, type Ended, post, said } from '../admin.ts';
 import { clock } from '../format.ts';
 import { Glyph } from './Glyph.tsx';
@@ -63,7 +64,7 @@ const ENDED: Record<Ended, (at: number) => string> = {
   here: () => 'Signed out. This browser holds no session now.',
   everywhere: () => 'Signed out everywhere: every session on every device has ended, this one too.',
   expired: (at) =>
-    `Your session ended${Number.isNaN(at) ? '' : ` at ${clock(at)}`}. A session lasts eight hours from signing in, however busy.`,
+    `Your session ended${Number.isNaN(at) ? '' : ` at ${clock(at)}`}. A session lasts ${SESSION_MINUTES} minutes from signing in, however busy.`,
 };
 
 type SignInNote = { kind: 'ended'; ended: Ended; at: number } | { kind: 'none' } | { kind: 'refused'; text: string };

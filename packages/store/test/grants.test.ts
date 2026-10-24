@@ -3,7 +3,7 @@
  * a membership that changes fails here until the table says so. Then what each worker's role may and may not do, as
  * the worker would try it; that only Martin's roles append his commands; and the tables of signing in.
  */
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -474,14 +474,14 @@ describe('signing in', () => {
     );
   });
 
-  it('holds Martin to two passkeys, and a session to eight hours, ended when its passkey is revoked', async () => {
+  it('holds Martin to two passkeys, and a session to 30 minutes, ended when its passkey is revoked', async () => {
     expect(PASSKEYS.most).toBe(2);
-    expect(SESSION.hours).toBe(8);
+    expect(SESSION.minutes).toBe(30);
     await enrolled(1);
     await enrolled(2);
     await expect(enrolled(3)).rejects.toThrow('two passkeys already');
     const session = hex(500);
-    // The store sets a session's eight hours from its own clock: the admin service cannot set either end.
+    // The store sets a session's 30 minutes from its own clock: the admin service cannot set either end.
     await expect(
       db.admin`insert into sessions (id_sha256, passkey, expires_at)
                values (${session}, ${key(1)}, now() + interval '1 day')`,
@@ -491,9 +491,13 @@ describe('signing in', () => {
                values (${session}, ${key(1)}, now() - interval '1 day')`,
     ).rejects.toThrow('permission denied');
     await db.admin`insert into sessions (id_sha256, passkey) values (${session}, ${key(1)})`;
-    const [lasts] = await db.admin<{ hours: number }[]>`
-      select extract(epoch from expires_at - signed_in_at) / 3600 as hours from sessions where id_sha256 = ${session}`;
-    expect(Number(lasts?.hours)).toBe(SESSION.hours);
+    const [lasts] = await db.admin<{ minutes: number }[]>`
+      select extract(epoch from expires_at - signed_in_at) / 60 as minutes from sessions where id_sha256 = ${session}`;
+    expect(Number(lasts?.minutes)).toBe(SESSION.minutes);
+    // Nor can the database's owner keep one longer.
+    await expect(
+      db.owner`update sessions set expires_at = signed_in_at + interval '31 minutes' where id_sha256 = ${session}`,
+    ).rejects.toThrow('sessions_lasts');
     // `factory admin enrol --revoke-others` revokes, and the store ends the passkey's sessions with it.
     await db.enrol`update passkeys set revoked_at = now() where id = ${key(1)}`;
     const [ended] = await db.admin<{ ended_by: string }[]>`select ended_by from sessions where id_sha256 = ${session}`;
@@ -503,6 +507,50 @@ describe('signing in', () => {
       db.admin`update sessions set ended_at = null, ended_by = null where id_sha256 = ${session}`,
     ).rejects.toThrow('stays ended');
     await enrolled(3);
+  });
+
+  it('cuts the sessions it keeps to 30 minutes from their sign-in, ended ones too', async () => {
+    // Sessions kept under the eight hours 0023 allowed, before 0031 cut it to 30 minutes.
+    const migration = readFileSync(new URL('../migrations/0031_session-30-minutes.sql', import.meta.url), 'utf-8');
+    await db.owner`alter table sessions drop constraint sessions_lasts`;
+    await db.owner`alter table sessions add constraint sessions_check
+                   check (expires_at > signed_in_at and expires_at <= signed_in_at + interval '8 hours')`;
+    try {
+      const kept = [
+        { id: hex(600), signedIn: '1 hour', expires: '7 hours', ended: false },
+        { id: hex(601), signedIn: '10 minutes', expires: '7 hours 50 minutes', ended: false },
+        { id: hex(602), signedIn: '9 hours', expires: '-1 hour', ended: true },
+        { id: hex(603), signedIn: '5 minutes', expires: '25 minutes', ended: false },
+      ];
+      for (const { id, signedIn, expires, ended } of kept) {
+        await db.owner`
+        insert into sessions (id_sha256, passkey, signed_in_at, expires_at, ended_at, ended_by)
+        values (${id}, ${key(2)}, now() - ${signedIn}::interval, now() + ${expires}::interval,
+                ${ended ? db.owner`now() - interval '2 hours'` : null}, ${ended ? 'sign-out' : null})`;
+      }
+      await db.owner.unsafe(migration);
+      const rows = await db.owner<{ id_sha256: string; minutes: number; live: boolean; ended_by: string | null }[]>`
+      select id_sha256, extract(epoch from expires_at - signed_in_at) / 60 as minutes, expires_at > now() as live,
+             ended_by
+      from sessions where id_sha256 in ${db.owner(kept.map((k) => k.id))} order by id_sha256`;
+      expect(rows.map((r) => ({ ...r, minutes: Number(r.minutes) }))).toEqual([
+        // Signed in an hour ago: it ends at once, and Martin signs in again.
+        { id_sha256: hex(600), minutes: 30, live: false, ended_by: null },
+        { id_sha256: hex(601), minutes: 30, live: true, ended_by: null },
+        // An ended session stays ended, with only its end cut.
+        { id_sha256: hex(602), minutes: 30, live: false, ended_by: 'sign-out' },
+        // Within 30 minutes already: left as it was.
+        { id_sha256: hex(603), minutes: 30, live: true, ended_by: null },
+      ]);
+      // The trigger that keeps an ended session ended is back on.
+      await expect(
+        db.owner`update sessions set ended_at = null, ended_by = null where id_sha256 = ${hex(602)}`,
+      ).rejects.toThrow('stays ended');
+    } finally {
+      // Whatever failed, the tests after this one meet the store as 0031 leaves it.
+      const [old] = await db.owner`select 1 from pg_constraint where conname = 'sessions_check'`;
+      if (old) await db.owner.unsafe(migration);
+    }
   });
 
   it('uses each WebAuthn challenge once', async () => {

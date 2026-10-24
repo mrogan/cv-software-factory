@@ -17,7 +17,7 @@ import {
   SESSION,
   STEP_UP,
 } from '../../../policy/access.ts';
-import { CONTROL_STEP_UP, LINE_STEP_UP } from '../web/src/access.ts';
+import { CONTROL_STEP_UP, LINE_STEP_UP, SESSION_MINUTES } from '../web/src/access.ts';
 
 const entries = Object.entries(ACCESS) as [Name, Access][];
 const doc = (path: string) => readFileSync(new URL(`../../../${path}`, import.meta.url), 'utf-8');
@@ -72,8 +72,10 @@ describe('the access table', () => {
     expect(Object.keys(CONTROL_STEP_UP).sort()).toEqual(named.sort());
   });
 
-  it('holds the plan’s figures: eight hours a session with no idle timeout, five minutes a passkey given again', () => {
-    expect(SESSION).toEqual({ hours: 8, idleTimeout: false });
+  it('holds the plan’s figures: 30 minutes a session with no idle timeout, five minutes a passkey given again', () => {
+    expect(SESSION).toEqual({ minutes: 30, idleTimeout: false });
+    // The console's copy, which its image is built with in place of the table.
+    expect(SESSION_MINUTES).toBe(SESSION.minutes);
     expect(STEP_UP).toEqual({ minutes: 5 });
   });
 
