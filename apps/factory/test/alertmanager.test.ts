@@ -216,14 +216,14 @@ describe('the message to Martin', () => {
     expect(await template()).toMatch(/^\{\{ define "martin\.message" \}\}.*\{\{ end \}\}$/s);
   });
 
-  it('says what each alert’s rule says and when it began, and of the labels only its name and a hold’s numbers', async () => {
+  it('says what each alert’s rule says and when it began, and of the labels only its name, and a hold’s numbers and cause', async () => {
     const text = await template();
     expect(text).toContain(
       '{{ range .Alerts.Firing }}{{ or .Annotations.description .Annotations.summary .Labels.alertname }}',
     );
     expect(text).toContain('Firing since {{ .StartsAt.UTC.Format "15:04 UTC, 2 January" }}.');
     const labels = [...text.matchAll(/\.(?:Common)?Labels\.(\w+)/g)].map((m) => m[1]);
-    expect(labels.sort()).toEqual(['alertname', 'pull_request', 'work_item']);
+    expect([...new Set(labels)].sort()).toEqual(['alertname', 'cause', 'pull_request', 'work_item']);
   });
 
   it('links a hold’s sheet at the profile’s console, and its pull request in the app’s repository, by number alone', async () => {
@@ -232,7 +232,7 @@ describe('the message to Martin', () => {
       '{{ with .Labels.work_item }}\n<a href="{{ template "console.origin" }}/?item={{ . }}&sheet">#{{ . }} in the console</a>{{ end }}',
     );
     expect(text).toContain(
-      `{{ with .Labels.pull_request }} · <a href="https://github.com/${APP_REPOSITORY}/pull/{{ . }}">Pull request #{{ . }}</a>{{ end }}`,
+      `{{ $deploy := eq .Labels.cause "deploy" }}{{ with .Labels.pull_request }} · <a href="https://github.com/${APP_REPOSITORY}/pull/{{ . }}">{{ if $deploy }}Deploy{{ else }}Pull request{{ end }} #{{ . }}</a>{{ end }}`,
     );
     // Every value lands after a fixed scheme and host, so html/template escapes it as a query or a path: none can
     // make a link of its own, or leave the attribute.

@@ -63,7 +63,7 @@ alertmanager:
     martin.tmpl: |-
       {{ define "martin.message" }}{{ range .Alerts.Firing }}{{ or .Annotations.description .Annotations.summary .Labels.alertname }}
       Firing since {{ .StartsAt.UTC.Format "15:04 UTC, 2 January" }}.{{ with .Labels.work_item }}
-      <a href="{{ template "console.origin" }}/?item={{ . }}&sheet">#{{ . }} in the console</a>{{ end }}{{ with .Labels.pull_request }} · <a href="https://github.com/mrogan/cv-worlds-worst-website/pull/{{ . }}">Pull request #{{ . }}</a>{{ end }}{{ end }}{{ end }}
+      <a href="{{ template "console.origin" }}/?item={{ . }}&sheet">#{{ . }} in the console</a>{{ end }}{{ $deploy := eq .Labels.cause "deploy" }}{{ with .Labels.pull_request }} · <a href="https://github.com/mrogan/cv-worlds-worst-website/pull/{{ . }}">{{ if $deploy }}Deploy{{ else }}Pull request{{ end }} #{{ . }}</a>{{ end }}{{ end }}{{ end }}
   config:
     # The chart's ConfigMap holds the templates beside the configuration, in the folder it is mounted at.
     templates:
@@ -108,7 +108,7 @@ alertmanager:
             # each of his own sign-ins.
             priority: "1"
             # What happened and when, from the rule's summary and description, and for a hold the links to answer it
-            # by (`martin.message`, below). Of the labels, only the alert's name and a hold's two numbers.
+            # by (`martin.message`, above). Of the labels, only the alert's name, and a hold's two numbers and its cause.
             title: '{{ or .CommonAnnotations.summary .CommonLabels.alertname }}'
             message: '{{ template "martin.message" . }}'
             # Pushover's HTML, for links in the message: Alertmanager renders the message with Go's html/template, which

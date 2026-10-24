@@ -94,7 +94,7 @@ Every change of the line's controls alerts him, each told from the stored change
 
 ## Holds
 
-Martin is notified of each hold that waits for him, once, as it starts to wait (`HoldWaits`, one rule for each [cause](ORCHESTRATOR.md#holds-and-martins-answers), with its own words in `HOLD_WORDS`), whoever started it. The message names the work item, as "#1304 waits for your merge", and links its sheet in the console, and for a merge or a deploy its pull request on GitHub, so he can answer it from his phone:
+Martin is notified of each hold that waits for him, once, as it starts to wait (`HoldWaits`, one rule for each [cause](ORCHESTRATOR.md#holds-and-martins-answers), with its own words in `HOLD_WORDS`), whoever started it. The message names the work item, as "#1304 waits for your merge", and links its sheet in the console, and for a merge or a deploy its pull request on GitHub ("Deploy #212" for a deploy, as the console names it), so he can answer it from his phone:
 
 > **#1304 waits for your merge**
 > Its fix has passed its gates and review.
