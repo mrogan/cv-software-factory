@@ -366,13 +366,21 @@ describe('an artifact that goes wrong partway', () => {
   });
 
   it('keeps answering when a file it closes unread then fails to open', async () => {
-    // As a file stream does when its file was deleted after the store found it: it fails once it is closed.
+    // As a file stream does when its file was deleted after the store found it: it fails to open, here once the console
+    // has closed it unread, the latest it could. The failure waits for the close, not a timer, so it never comes first.
+    let fail: () => void = () => {};
     const body = new Readable({
       construct(callback) {
-        setTimeout(() => callback(Object.assign(new Error('no such file'), { code: 'ENOENT' })), 10);
+        fail = () => callback(Object.assign(new Error('no such file'), { code: 'ENOENT' }));
       },
       read() {},
     });
+    const destroy = body.destroy.bind(body);
+    body.destroy = (error) => {
+      destroy(error);
+      fail();
+      return body;
+    };
     const { url, close } = await consoleWith(body);
     expect((await fetch(`${url}/artifacts/${screenshot}`, { method: 'HEAD' })).status).toBe(200);
     await expect.poll(() => body.errored).toBeTruthy();
