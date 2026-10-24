@@ -23,6 +23,7 @@ import {
   auditView,
 } from '../projection/audit.ts';
 import { Glyph, type GlyphName } from './Glyph.tsx';
+import { ToolMark } from './Logos.tsx';
 import '../styles/settings.css';
 import '../styles/audit.css';
 
@@ -202,6 +203,7 @@ function Row({ row }: { row: AuditRow }) {
       <td>
         <span className="kindw">
           <Glyph name={kind.glyph} />
+          {row.admission && <ToolMark name="kyverno" />}
           <span>{kind.name}</span>
         </span>
       </td>

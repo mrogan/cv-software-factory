@@ -7,8 +7,9 @@ import { clock, clockSeconds, duration, isCommit, percent, shortVersion, shortWh
 import type { End, Release, Sheet as SheetData, Shipped, Verified } from '../projection/index.ts';
 import { marksNote, SENSE_NAME } from '../projection/index.ts';
 import { endedWords } from '../projection/release.ts';
-import { figureOf, phaseOf, standing, VERDICT, Verdict } from './Canary.tsx';
+import { figureOf, phaseOf, rollouts, standing, VERDICT, Verdict } from './Canary.tsx';
 import { Glyph } from './Glyph.tsx';
+import { ToolMark } from './Logos.tsx';
 import { Picture, Shot } from './Pictures.tsx';
 
 export function ShippedSection({ sheet }: { sheet: SheetData }) {
@@ -67,6 +68,12 @@ function Block({
       <Facts r={r} own={own} />
       <Steps r={r} />
       <Ending r={r} />
+      {rollouts(r) && (
+        <p className="source">
+          <ToolMark name="argo" />
+          <span>Argo CD synced the deploy that carried it, and Argo Rollouts {r.end ? 'ran' : 'runs'} its canary.</span>
+        </p>
+      )}
       {verification && <Verify v={verification} />}
     </>
   );

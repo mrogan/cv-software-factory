@@ -114,6 +114,8 @@ describe('the rows', () => {
     );
     expect(refused.every((row) => /refused/i.test(row.what))).toBe(true);
     expect(refused.map((row) => row.item)).toEqual(expect.arrayContaining(['1315', '1293']));
+    // Admission control's refusal is Kyverno's, and only it carries Kyverno's mark.
+    expect(all.filter((row) => row.admission).map((row) => row.item)).toEqual(['1293']);
     const capped = event(0, 'spend.capped', 'factory', {
       cap: 'day',
       limitUsd: 5,

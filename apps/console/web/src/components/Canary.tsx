@@ -21,6 +21,7 @@ import {
 } from '../projection/release.ts';
 import { Dialog } from './Dialog.tsx';
 import { Glyph, type GlyphName } from './Glyph.tsx';
+import { ToolMark } from './Logos.tsx';
 import { type Asked, Key, useStepUp } from './StepUp.tsx';
 
 export type Tone = 'signal' | 'ok' | 'attn' | 'faint';
@@ -523,6 +524,12 @@ interface CanaryProps {
   lineStopped: boolean;
 }
 
+/**
+ * Whether Argo Rollouts ran this release's canary: an image admission control let in, and not a dry run, which is the
+ * line's own record and moves nothing.
+ */
+export const rollouts = (r: Release) => !r.dryRun && r.image?.admitted === true;
+
 export function Canary({ view, t, onOpen, admin, lineStopped }: CanaryProps) {
   if (view.state !== 'shown') {
     const r = view.state === 'idle' ? view.release : undefined;
@@ -614,9 +621,12 @@ export function Canary({ view, t, onOpen, admin, lineStopped }: CanaryProps) {
       </div>
       {/* A release of its own: what was pressed for another, and refused, is not said under this one. */}
       <CanaryControls key={r.id} r={r} admin={admin} lineStopped={lineStopped} />
-      <p className="help">
-        The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody
-        needs to press anything.
+      <p className="help tooled">
+        {rollouts(r) && <ToolMark name="argo" />}
+        <span>
+          {rollouts(r) ? 'Argo Rollouts’ canary' : 'The canary'} moves on by itself while every measure passes, and
+          rolls back by itself the moment one fails. Nobody needs to press anything.
+        </span>
       </p>
     </section>
   );
