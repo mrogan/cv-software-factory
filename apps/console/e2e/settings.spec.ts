@@ -41,6 +41,16 @@ test('a visitor sees the models and the caps, read only, and who changes them', 
   await expect(page.getByLabel('Each day')).toBeDisabled();
   await expect(page.getByLabel('Each day')).toHaveValue('20');
   await expect(page.getByRole('heading', { name: 'Who changes these' })).toBeVisible();
+  // The line's controls, Controls' own, read only as there.
+  const line = page.locator('article', { has: page.getByRole('heading', { name: 'The line' }) });
+  await expect(line.locator('.panel-head .label')).toHaveText('Read only');
+  await expect(line.getByRole('group', { name: 'Autonomy' }).getByRole('button', { name: 'Guarded' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  for (const button of await line.getByRole('button').all()) await expect(button).toBeDisabled();
+  await expect(line.locator('.glyph.key')).toHaveCount(0);
+  await expect(line).toContainText('Only Martin changes these');
   await expect(page.getByRole('heading', { name: 'Passkeys' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Save' })).toHaveCount(0);
   // The describer may have no more than medium: high and beyond are listed, and disabled.

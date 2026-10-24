@@ -460,7 +460,7 @@ The card keeps the `attn` rule on its left edge. A count in the panel's head say
 
 Four groups, each under a `t-label`, then a key to the key, and links to the settings and the audit log:
 
-- **Autonomy:** Supervised, Guarded, Lights-out, and one line saying what the chosen one means. Loosening asks for the passkey; tightening is immediate.
+- **Autonomy:** Supervised, Guarded, Lights-out, and one line saying what the chosen one means. Loosening asks for the passkey; tightening is immediate. The words take the room of the longest level's, so nothing below moves when the level changes.
 - **Switches:** Agents take new work, Auto-merge low-risk changes, Auto-rollback, each with a line saying what it does, or what off means. Turning agents back on asks for nothing: it is not starting the line, which has its own button and asks. Auto-merge does nothing until Part C routes by autonomy, and Auto-rollback's switch is Part C's (off leaves a failed canary paused for Martin); both are drawn now so the row is complete.
 - **What the line takes:** Every ticket, The next few (with how many, and how many it has taken so far) or Just one (with its number), and a line saying what the line will do. These are `LINE_TAKE` and `LINE_ONLY` as settings.
 - **Spend:** three meters in ink (spend is not a fault): models today against the day's cap, this month against the month's, and the dearest work item today against a work item's cap, with when the day resets, in UTC. A meter at its cap turns `attn`.
@@ -470,14 +470,15 @@ Four groups, each under a `t-label`, then a key to the key, and links to the set
 A page of its own, from the account menu and from Controls: "Settings" for Martin, "Models and spend" for a visitor.
 
 - **Models:** a table with a row per agent (the planner, the coder, the reviewer, the describer), each with what it does, its model, its effort, and what it spent in the last seven days. The model's drop-down offers the models `policy/models.ts` gives the profile, by the names the sheet uses: Claude Haiku, Sonnet and Opus, and, on a profile with a local model, that one too ("Qwen3.8 27B · local"); a cloud profile has no local entry. Efforts above policy's highest for that agent are listed and disabled, "· above policy", and a hint under the field says "up to high". Each row's cells sit at the top, so the two drop-downs line up, the same height, and the hint hangs beneath. A line says that a change applies from an agent's next step, and that triage is not here, since it asks Jev.
+- **The line** (everyone): Controls' Autonomy, Switches and What the line takes, the same controls and not a copy, at the top of the right-hand column. A change acts at once, as in Controls, with no Save; Martin's panel ends with the key to the key, and a visitor's is read-only, as in Controls.
 - **Spend caps:** each day, each month, each work item: a field in dollars, a meter of what has been spent against it, and its ceiling from `policy/spend.ts`. A line says that raising a cap asks for the passkey, carries on the work it held, and that a higher ceiling is a pull request.
 - **Unsaved changes:** a changed field takes a 2px `signal` rule inside its left edge, and a bar under the caps, ruled the same, lists them in words ("the coder's effort, medium → high"), says when saving asks for the passkey, and has Discard and Save.
 - **Passkeys** (Martin only): each by its name, when it was enrolled and last used, which is this device, and Revoke, with the key. A line says that each is added with `factory admin enrol`, never from here.
 - **This session** (Martin only): when it started, with which passkey, when it ends, and Sign out and Sign out everywhere.
 
-A visitor sees the models and the caps read-only, and in place of the last two a panel saying who changes these and that the gateway checks every setting against policy as it reads it.
+A visitor sees the models, the caps and the line read-only, and in place of the last two a panel saying who changes these and that the gateway checks every setting against policy as it reads it.
 
-On a laptop the models and caps are on the left and the passkeys and session on the right; on a phone everything is one column, and each agent's row stacks its model and effort side by side under its name.
+On a laptop the models and caps are on the left, and the line, the passkeys and the session on the right; on a phone everything is one column, and each agent's row stacks its model and effort side by side under its name.
 
 ### The audit log
 
