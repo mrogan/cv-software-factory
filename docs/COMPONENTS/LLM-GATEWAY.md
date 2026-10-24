@@ -57,7 +57,7 @@ A provider refusing because the account's credit is spent or the workspace's lim
 
 1. no retry;
 2. it appends `spend.capped`, naming the provider;
-3. it answers agent calls 429 until a probe, a few minutes apart, is answered;
+3. it answers agent calls 429 until a probe, a few minutes apart, is answered (one token, with no thinking, from the cheapest model the profile offers there: Claude Haiku 5.5, or the local model);
 4. it appends `spend.cleared`.
 
 ## Modes and cassettes
@@ -91,10 +91,10 @@ But a cassette of Jev's holds the visitor's report it judged, so none is kept pa
 
 Martin chooses each agent's model and effort, and the spend caps, from the console, within the bounds policy sets (`FACTORY_PROFILE`'s):
 
-- [`policy/models.ts`](../../policy/models.ts) names the models each agent may use (Claude Haiku, Sonnet and Opus, and Qwen on `local`, each priced in `gateway/prices.ts`, cheapest first) and its most effort, with its default;
+- [`policy/models.ts`](../../policy/models.ts) names the models each agent may use (Claude Haiku 5.5, Sonnet 5.5 and Opus 5.5, and Qwen on `local`, each priced in `gateway/prices.ts`, cheapest first) and its most effort, with its default;
 - [`policy/spend.ts`](../../policy/spend.ts) names each cap's default and ceiling.
 
-His choice is a `settings.changed` event, which the [admin service](ADMIN-SERVICE.md#the-settings) appends. The gateway reads the latest that one of [Martin's roles](EVENT-STORE.md#martins-commands) appended (`apps/factory/src/settings.ts`), and checks it against policy as it reads it (`policy/settings.ts`, the one check the line and the admin service make too): anything outside policy is not in force, and policy's default is, field by field. Zero, null and anything not a finite number are never "no cap".
+His choice is a `settings.changed` event, which the [admin service](ADMIN-SERVICE.md#the-settings) appends. The gateway reads the latest that one of [Martin's roles](EVENT-STORE.md#martins-commands) appended (`apps/factory/src/settings.ts`), and checks it against policy as it reads it (`policy/settings.ts`, the one check the line and the admin service make too): anything outside policy is not in force, and policy's default is, field by field: an agent left on a model no longer offered runs on its default model, at the effort Martin chose if that is within policy, and the console says so beside it. Zero, null and anything not a finite number are never "no cap".
 
 - **From an agent's next step.** A job runs under the settings in force when its token was issued, read at its first call and kept for the job, never changed part-way through it. The step's `model.called` records the model and effort.
 - **The caps** are read again at every check, a few seconds old at most, so a cap Martin raises or lowers applies from the next call, and a day's or month's cap raised past the spend clears its `spend.capped` at the next call or within a minute, which wakes the line.
@@ -105,7 +105,7 @@ His choice is a `settings.changed` event, which the [admin service](ADMIN-SERVIC
 - **One cap across every provider** (the day's and the month's [in force](#settings)), counted from the `model_calls` table: the audit log of every call, with its tokens, cache reads and writes, cost and job.
 - **At a day or month cap** the gateway refuses, and appends `spend.capped` to the line; `spend.cleared` follows when the window ends, or the cap is raised past the spend.
 - **Each work item** has a cap of its own ([the line](ORCHESTRATOR.md#spend)).
-- **Prices** include the cache's (`gateway/prices.ts`).
+- **Prices** include the cache's (`gateway/prices.ts`), and a long prompt's where a model has one: a Claude Haiku 5.5 call whose prompt (fresh, cached and written to the cache) is over 100K tokens is priced whole at the long rate, five times the other.
 
 ## Logging and telemetry
 

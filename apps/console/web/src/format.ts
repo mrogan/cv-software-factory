@@ -74,6 +74,8 @@ export const shortVersion = (version: string) => (isCommit(version) ? version.sl
 const MODEL_NAME: Record<string, string> = {
   'claude-opus-5-5': 'Claude Opus 5.5',
   'claude-sonnet-5-5': 'Claude Sonnet 5.5',
+  'claude-haiku-5-5': 'Claude Haiku 5.5',
+  // No longer offered, but named by calls and settings made while it was.
   'claude-haiku-4-5': 'Claude Haiku 4.5',
   'qwen/qwen3.8-27b': 'Qwen3.8 27B',
 };

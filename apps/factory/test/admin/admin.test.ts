@@ -43,6 +43,7 @@ import { fold, type LineEvent } from '../../src/line/machine.ts';
 import { KubeError, type KubeWriter } from '../../src/runners/kube.ts';
 import { settingsNow } from '../../src/settings.ts';
 import { CANARY, commitOf, digestOf, type RolloutState, releaseOf, rollout, STABLE } from '../release/fixtures.ts';
+import { appendSettings, settingsPayload } from '../settings-events.ts';
 import { Authenticator, type Ceremony } from './authenticator.ts';
 
 const ORIGIN = 'https://console.localhost:8443';
@@ -1411,12 +1412,12 @@ describe('the settings', () => {
   it('saves a cheaper model, less effort and a lower cap without the passkey again, as one public event', async () => {
     const { browser } = await atDefaults();
     const saved = await browser.post('/admin/settings', {
-      agents: { coder: { model: 'claude-haiku-4-5' }, reviewer: { effort: 'low' } },
+      agents: { coder: { model: 'claude-haiku-5-5' }, reviewer: { effort: 'low' } },
       caps: { dayUsd: 10.5, monthUsd: 90 },
     });
     expect(saved.status, JSON.stringify(saved.body)).toBe(200);
     const changes = [
-      { field: 'model', agent: 'coder', before: 'claude-sonnet-5-5', after: 'claude-haiku-4-5' },
+      { field: 'model', agent: 'coder', before: 'claude-sonnet-5-5', after: 'claude-haiku-5-5' },
       { field: 'effort', agent: 'reviewer', before: 'medium', after: 'low' },
       { field: 'cap', cap: 'day', beforeUsd: 20, afterUsd: 10.5 },
       { field: 'cap', cap: 'month', beforeUsd: null, afterUsd: 90 },
@@ -1425,13 +1426,13 @@ describe('the settings', () => {
     const [event] = await lastEvents(1);
     expect(event).toMatchObject({ type: 'settings.changed', actor: 'martin', payload: { changes } });
     expect(event?.summary).toBe(
-      "Martin changed the coder's model, claude-sonnet-5-5 → claude-haiku-4-5; the reviewer's effort, medium → low; " +
+      "Martin changed the coder's model, claude-sonnet-5-5 → claude-haiku-5-5; the reviewer's effort, medium → low; " +
         "the day's cap, $20.00 → $10.50; the month's cap, none → $90.00",
     );
     // Everyone sees the settings: the public view is the event.
     expect(event?.public).toMatchObject({ payload: event?.payload });
     const settings = await inForceNow();
-    expect(settings.agents.coder).toEqual({ provider: 'anthropic', model: 'claude-haiku-4-5', effort: 'medium' });
+    expect(settings.agents.coder).toEqual({ provider: 'anthropic', model: 'claude-haiku-5-5', effort: 'medium' });
     expect(settings.caps).toEqual({ dayUsd: 10.5, monthUsd: 90, workItemUsd: 1 });
     // No month's cap is policy's default: on `local`, none, which is a raise from $90.
     expect((await browser.post('/admin/settings', { caps: { monthUsd: null } })).body.refused).toBe('step-up');
@@ -1439,6 +1440,26 @@ describe('the settings', () => {
     const before = await settingsEvents();
     expect((await browser.post('/admin/settings', { caps: { dayUsd: 10.5 } })).body).toMatchObject({ changes: [] });
     expect(await settingsEvents()).toBe(before);
+  });
+
+  it('saves over a setting for a model no longer offered from what is in force, the agent’s default model', async () => {
+    const { browser } = await atDefaults();
+    // Claude Haiku 4.5 was offered until Haiku 5.5 took its place: Martin's last save may name it.
+    await appendSettings(
+      db.admin,
+      settingsPayload({ agents: { coder: { model: 'claude-haiku-4-5', effort: 'low' } } }),
+    );
+    expect((await inForceNow()).outside).toEqual(['coder.model']);
+    const saved = await browser.post('/admin/settings', { agents: { reviewer: { effort: 'low' } } });
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    expect(saved.body).toMatchObject({
+      changes: [{ field: 'effort', agent: 'reviewer', before: 'medium', after: 'low' }],
+    });
+    const [event] = await lastEvents(1);
+    expect(event?.payload).toMatchObject({ agents: { coder: { model: 'claude-sonnet-5-5', effort: 'low' } } });
+    const settings = await inForceNow();
+    expect(settings.outside).toEqual([]);
+    expect(settings.agents.coder).toEqual({ provider: 'anthropic', model: 'claude-sonnet-5-5', effort: 'low' });
   });
 
   it('asks for the passkey again for a dearer model, more effort or a higher cap, alone or with a lower one', async () => {
@@ -1464,7 +1485,7 @@ describe('the settings', () => {
       (await browser.post('/admin/settings', { agents: { describer: { model: 'qwen/qwen3.8-27b' } } })).status,
     ).toBe(200);
     expect(
-      (await browser.post('/admin/settings', { agents: { describer: { model: 'claude-haiku-4-5' } } })).body.refused,
+      (await browser.post('/admin/settings', { agents: { describer: { model: 'claude-haiku-5-5' } } })).body.refused,
     ).toBe('step-up');
     expect((await stepUp(browser, passkey)).status).toBe(200);
     const saved = await browser.post('/admin/settings', raises[4] as Body);
@@ -1489,7 +1510,7 @@ describe('the settings', () => {
       { caps: { dayUsd: 0 } },
       { caps: { monthUsd: 251 } },
       { caps: { workItemUsd: -1 } },
-      { caps: { workItemUsd: 11 }, agents: { coder: { model: 'claude-haiku-4-5' } } },
+      { caps: { workItemUsd: 11 }, agents: { coder: { model: 'claude-haiku-5-5' } } },
     ]) {
       expect(await browser.post('/admin/settings', save), JSON.stringify(save)).toMatchObject({
         status: 422,

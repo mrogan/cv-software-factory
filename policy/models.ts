@@ -70,7 +70,7 @@ const QWEN: Offered = { provider: 'local', model: 'qwen/qwen3.8-27b' };
 
 // Bedrock joins in milestone 11; until then every profile calls Anthropic's API for Claude.
 const CLAUDE: readonly Offered[] = [
-  { provider: 'anthropic', model: 'claude-haiku-4-5' },
+  { provider: 'anthropic', model: 'claude-haiku-5-5' },
   { provider: 'anthropic', model: 'claude-sonnet-5-5' },
   { provider: 'anthropic', model: 'claude-opus-5-5' },
 ];
@@ -84,7 +84,8 @@ function agentsOn(models: readonly Offered[]): Record<ModelAgent, AgentBounds> {
     coder: { models: all, maxEffort: 'high', default: sonnet('medium') },
     // High effort flags more minor findings, and each one is work for the coder.
     reviewer: { models: all, maxEffort: 'high', default: sonnet('medium') },
-    // Measured against Claude Haiku 4.5 in milestone 5. A description needs no more than medium.
+    // Sonnet at low was measured against Claude Haiku 4.5 in milestone 5, and kept. A description needs no more than
+    // medium.
     describer: { models: all, maxEffort: 'medium', default: sonnet('low') },
   };
 }

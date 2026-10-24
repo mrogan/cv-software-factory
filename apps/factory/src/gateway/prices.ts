@@ -3,8 +3,9 @@
  * price is refused rather than called for free: the caps could not hold.
  *
  * Claude's prompt cache is priced apart from fresh input: a read at a fraction of it, and a write at 1.25 times it
- * for five minutes or twice it for an hour (Anthropic's prices, October 2026). A local model costs nothing, and is
- * listed so that a call to it is still known, counted and capped.
+ * for five minutes or twice it for an hour (Anthropic's prices, October 2026). Some models have a dearer rate for a long
+ * prompt, which prices the whole call, cache and output included, once its prompt is over a size. A local model costs
+ * nothing, and is listed so that a call to it is still known, counted and capped.
  */
 import { BadRequest } from './errors.ts';
 
@@ -16,6 +17,11 @@ export interface Price {
   cacheWritePerMillion?: number;
   /** A cache write that lives an hour. */
   cacheWriteHourPerMillion?: number;
+  /**
+   * For a call whose prompt (its input: fresh, read from the cache and written to it) is over `overTokens`: every rate
+   * above, `times` as much.
+   */
+  longPrompt?: { overTokens: number; times: number };
 }
 
 const claude = (input: number, output: number, cacheRead: number): Price => ({
@@ -33,7 +39,8 @@ export const PRICES: Readonly<Record<string, Price>> = {
   'jev-1.13.0': { inputPerMillion: 0.042, outputPerMillion: 0 },
   'claude-opus-5-5': claude(4, 20, 0.2),
   'claude-sonnet-5-5': claude(2, 10, 0.2),
-  'claude-haiku-4-5': claude(1, 5, 0.1),
+  // Up to 100K tokens of prompt; over that, five times as much.
+  'claude-haiku-5-5': { ...claude(0.1, 0.5, 0.01), longPrompt: { overTokens: 100_000, times: 5 } },
   // LM Studio on Martin's Mac.
   'qwen/qwen3.8-27b': FREE,
 };
@@ -55,16 +62,23 @@ export interface Usage {
   cacheWriteHourTokens?: number;
 }
 
-/** What a call cost. */
+/** What a call cost, at the long prompt's rate if its prompt is over that size. */
 export function costOf(model: string, usage: Usage): number {
   const price = priceOf(model);
+  const prompt =
+    usage.inputTokens +
+    (usage.cacheReadTokens ?? 0) +
+    (usage.cacheWriteTokens ?? 0) +
+    (usage.cacheWriteHourTokens ?? 0);
+  const times = price.longPrompt && prompt > price.longPrompt.overTokens ? price.longPrompt.times : 1;
   const part = (tokens = 0, perMillion = price.inputPerMillion) => tokens * perMillion;
   return (
-    (part(usage.inputTokens) +
-      part(usage.outputTokens, price.outputPerMillion) +
-      part(usage.cacheReadTokens, price.cacheReadPerMillion) +
-      part(usage.cacheWriteTokens, price.cacheWritePerMillion) +
-      part(usage.cacheWriteHourTokens, price.cacheWriteHourPerMillion)) /
+    (times *
+      (part(usage.inputTokens) +
+        part(usage.outputTokens, price.outputPerMillion) +
+        part(usage.cacheReadTokens, price.cacheReadPerMillion) +
+        part(usage.cacheWriteTokens, price.cacheWritePerMillion) +
+        part(usage.cacheWriteHourTokens, price.cacheWriteHourPerMillion))) /
     1_000_000
   );
 }

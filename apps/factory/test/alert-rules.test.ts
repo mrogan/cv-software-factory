@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { HOLD_CAUSES } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { objectives } from '../../../policy/objectives.ts';
 import { STUCK } from '../../../policy/stuck.ts';
@@ -10,10 +11,15 @@ import {
   BUDGET_INTERVAL,
   BUDGET_WINDOWS,
   budgetRulesFor,
+  dryRunNumbers,
+  HOLD_AGE,
+  HOLD_ALERT_MINUTES,
+  HOLD_WORDS,
   isBudgetRate,
   LAST_STEP,
   LEVELS,
   martinRules,
+  NUMBER,
   OBJECTIVES,
   outOfDate,
   RULES_FILE,
@@ -26,11 +32,12 @@ import {
   SHOP_POD_RELEASE_DAYS,
   stuckRulesFor,
 } from '../src/alerts/rules.ts';
+import { DRY_RUN_NUMBERS_FROM } from '../src/github/actions.ts';
 import { coder } from '../src/line/agents/coder.ts';
 import { describer } from '../src/line/agents/describer.ts';
 import { planner } from '../src/line/agents/planner.ts';
 import { reviewer } from '../src/line/agents/reviewer.ts';
-import { OPEN_STAGES } from '../src/line/metrics.ts';
+import { NUMBER_PATTERN, OPEN_STAGES } from '../src/line/metrics.ts';
 import { SECURITY_KINDS } from '../src/line/security.ts';
 import { leaseFor } from '../src/line/worker.ts';
 import { METRICS_FROM_THE_LINE } from '../src/provenance.ts';
@@ -268,10 +275,17 @@ describe('the alerts to Martin', () => {
     expect(at(LEVELS.inform)).toEqual(['auto-merge-off', 'line-stopped', 'new-work-off', 'sign-in', 'take-narrowed']);
   });
 
-  it('say only what happened: no label’s value but a cause from a closed list', () => {
+  it('say only what happened: no label’s value but a hold’s work item, a number, whether it has a pull request, or its cause', () => {
     for (const rule of rules) {
       const words = `${rule.annotations.summary} ${rule.annotations.description}`;
-      expect(words.replaceAll('{{ $labels.cause }}', ''), rule.alert).not.toContain('{{');
+      const allowed =
+        rule.alert === 'HoldWaits'
+          ? ['{{ $labels.work_item }}', '{{ if $labels.pull_request }}']
+          : rule.alert === 'HoldStarted'
+            ? ['{{ $labels.cause }}']
+            : [];
+      const rest = allowed.reduce((text, template) => text.replaceAll(template, ''), words);
+      expect(rest.replaceAll('{{ else }}', '').replaceAll('{{ end }}', ''), rule.alert).not.toContain('{{');
     }
   });
 
@@ -288,7 +302,7 @@ describe('the alerts to Martin', () => {
     expect(read).toBeGreaterThan(SECURITY_KINDS.length);
   });
 
-  it('page when the count goes missing or stale, a silence is in place, and notify of each new hold', () => {
+  it('page when the count goes missing or stale, and when a silence is in place', () => {
     const by = (name: string) => rules.filter((rule) => rule.alert === name);
     expect(by('SecurityEventsUncounted').map((rule) => rule.labels.level)).toEqual([LEVELS.page]);
     expect(by('SecurityEventsUncounted')[0]?.expr).toContain('line_security_events_counting');
@@ -296,8 +310,98 @@ describe('the alerts to Martin', () => {
     expect(by('AlertmanagerSilenced').map((rule) => [rule.labels.level, rule.expr])).toEqual([
       [LEVELS.page, 'max(alertmanager_silences{state=~"active|pending"}) > 0'],
     ]);
-    expect(by('HoldStarted').map((rule) => rule.labels.level)).toEqual([LEVELS.notify]);
-    expect(by('HoldStarted')[0]?.expr).toMatch(/^max by \(cause\) \(increase\(line_holds_stored_total\{/);
+  });
+
+  describe('for each hold that waits for Martin', () => {
+    const holds = rules.filter((rule) => rule.alert === 'HoldWaits');
+    const selectors = (expr: string) => [...expr.matchAll(new RegExp(`${HOLD_AGE}\\{[^}]*\\}( offset \\w+)?`, 'g'))];
+
+    it('notify of every cause, in a rule of its own with its own words, naming the work item', () => {
+      expect(holds.map((rule) => rule.expr.match(/cause="([^"]+)"/)?.[1])).toEqual([...HOLD_CAUSES]);
+      for (const [i, rule] of holds.entries()) {
+        const cause = HOLD_CAUSES[i] as (typeof HOLD_CAUSES)[number];
+        expect(rule.labels, cause).toEqual({ level: LEVELS.notify });
+        expect(rule.for).toBe('0s');
+        expect(rule.annotations).toEqual({
+          summary: `#{{ $labels.work_item }} ${HOLD_WORDS[cause].summary}`,
+          description: HOLD_WORDS[cause].description,
+        });
+      }
+      expect(holds.find((rule) => rule.expr.includes('cause="merge"'))?.annotations.summary).toBe(
+        '#{{ $labels.work_item }} waits for your merge',
+      );
+    });
+
+    it('fire only for numbers, which alone make links, and only from the line', () => {
+      for (const rule of holds) {
+        const read = selectors(rule.expr);
+        expect(read).toHaveLength(5);
+        for (const [selector] of read) {
+          expect(selector).toContain(`work_item=~"${NUMBER}"`);
+          expect(selector).toContain(`pull_request=~"|${NUMBER}"`);
+          expect(selector).toContain(METRICS_FROM_THE_LINE);
+        }
+      }
+      // Prometheus anchors a matcher at both ends.
+      const number = new RegExp(`^(?:${NUMBER})$`);
+      for (const ok of ['1', '57', '1304']) expect(number.test(ok), ok).toBe(true);
+      for (const bad of ['', '0', '057', '1a', '1"', '-1', '1 ']) expect(number.test(bad), bad).toBe(false);
+    });
+
+    it('fire once: while the hold is new, or its series is, and never for a series at 0 or an age that has stopped', () => {
+      const window = HOLD_ALERT_MINUTES * 60;
+      for (const rule of holds) {
+        const [waiting] = rule.expr.split(' > 0 < ');
+        expect(waiting?.startsWith('((max by (work_item, cause, pull_request) (')).toBe(true);
+        const series = waiting?.slice(2);
+        const before = series?.replace(/(\})(, "pull_request")/, `$1 offset ${HOLD_ALERT_MINUTES}m$2`);
+        expect(before).not.toBe(series);
+        expect(rule.expr).toBe(
+          `((${series} > 0 < ${window}) unless (${before} == ${series})) or (${series} > 0 unless ${before} > 0)`,
+        );
+      }
+      // Long enough that a minute's export and evaluation cannot miss it, short of Alertmanager's four-hour repeat.
+      expect(HOLD_ALERT_MINUTES).toBeGreaterThanOrEqual(10);
+      expect(HOLD_ALERT_MINUTES).toBeLessThan(4 * 60);
+    });
+
+    it('link no dry run’s pull request, which is on no GitHub, and still alert for its hold', () => {
+      expect(dryRunNumbers()).toBe('[1-9][0-9]{9,}');
+      const dryRun = new RegExp(`^(?:${dryRunNumbers()})$`);
+      expect(dryRun.test(String(DRY_RUN_NUMBERS_FROM))).toBe(true);
+      expect(dryRun.test(String(DRY_RUN_NUMBERS_FROM + 4))).toBe(true);
+      expect(dryRun.test(String(DRY_RUN_NUMBERS_FROM - 1))).toBe(false);
+      expect(() => dryRunNumbers(1_500_000_000)).toThrow(/power of ten/);
+      for (const rule of holds) {
+        expect(rule.expr.match(/label_replace\(/g)).toHaveLength(5);
+        expect(rule.expr).toContain(`, "pull_request", "", "pull_request", "${dryRunNumbers()}")`);
+      }
+    });
+
+    it('say for a deploy whether a pull request waits for its merge or a release for its retry', () => {
+      expect(HOLD_WORDS.deploy.description).toMatch(
+        /^\{\{ if \$labels\.pull_request \}\}.+\{\{ else \}\}.+\{\{ end \}\}$/,
+      );
+    });
+
+    it('admit the very numbers the line exports, from one pattern', () => {
+      expect(NUMBER).toBe(NUMBER_PATTERN);
+    });
+
+    it('fall back on the count of holds stored, by cause, only while no line takes work and reports them', () => {
+      const [started, ...more] = rules.filter((rule) => rule.alert === 'HoldStarted');
+      expect(more).toEqual([]);
+      expect(started?.labels).toEqual({ level: LEVELS.notify });
+      expect(started?.expr).toBe(
+        `max by (cause) (increase(line_holds_stored_total{${METRICS_FROM_THE_LINE}}[5m])) > 0 unless on () max(line_work_items{${METRICS_FROM_THE_LINE}})`,
+      );
+    });
+  });
+
+  it('say little enough that a hold’s links fit in Pushover’s 1,024 characters after it', () => {
+    for (const rule of rules) {
+      expect(`${rule.annotations.description}`.length, rule.alert).toBeLessThan(600);
+    }
   });
 
   it('notify when a running shop pod is old enough that a report in its logs nears the privacy pages’ promise', () => {

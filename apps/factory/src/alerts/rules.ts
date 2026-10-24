@@ -12,9 +12,12 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { HOLD_CAUSES, type HoldCause } from '@software-factory/events';
 import { type Objectives, objectives } from '../../../../policy/objectives.ts';
 import { STUCK, type StuckStage } from '../../../../policy/stuck.ts';
 import { REPORT_TEXT } from '../../../../policy/triage.ts';
+import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
+import { NUMBER_PATTERN } from '../line/metrics.ts';
 import { SECURITY_KINDS, type SecurityKind } from '../line/security.ts';
 import { METRICS_FROM_THE_LINE } from '../provenance.ts';
 import * as query from './queries.ts';
@@ -162,8 +165,135 @@ const fromTheLine = (name: string, matcher?: string) =>
   `${name}{${matcher ? `${matcher}, ` : ''}${METRICS_FROM_THE_LINE}}`;
 export const SECURITY_EVENTS = fromTheLine('line_security_events_total');
 export const HOLDS_STORED = fromTheLine('line_holds_stored_total');
+/** The stages' gauges, which only a line that takes work reports, as it does each hold's age. */
+const TAKES_WORK = `max(${fromTheLine('line_work_items')})`;
 /** Whether the line's last read of them from the store succeeded. */
 const COUNTING = fromTheLine('line_security_events_counting');
+
+/**
+ * What an alert says of each hold that waits for Martin, by its cause: its title, which names the work item, and a line
+ * more. Only the work item's number, and for a deploy whether there is a pull request, is templated into either: no
+ * title, reason or visitor's text, which no label carries.
+ */
+export const HOLD_WORDS: Record<HoldCause, { summary: string; description: string }> = {
+  suggestion: {
+    summary: 'waits for you: a suggestion',
+    description: 'Triage parked a suggestion: only you ask for improvements.',
+  },
+  finding: {
+    summary: 'waits for you: the planner found something',
+    description: 'The planner noticed a defect outside its ticket, which its word alone never opens.',
+  },
+  burst: {
+    summary: 'waits for you: a burst of problems',
+    description: 'One sense found more new problems at once than a handful, so their tickets wait unopened.',
+  },
+  environment: {
+    summary: 'waits for you: held for its backends',
+    description: 'Something its sense reads besides the app was not healthy when it saw the problem.',
+  },
+  spec: { summary: 'waits for your approval of its spec', description: 'Nothing is built until you approve it.' },
+  question: { summary: 'waits for your answer', description: 'An agent asks you something only you can say.' },
+  'ticket-rejected': {
+    summary: 'waits for you: the planner turned it down',
+    description: 'The planner judged it a ticket it cannot turn into a testable fix.',
+  },
+  scope: {
+    summary: 'waits for you: held by the fence',
+    description: "The coder changed files outside the spec's scope.",
+  },
+  'nothing-to-fix': {
+    summary: 'waits for you: the coder found nothing',
+    description: 'The coder says the code already does what the spec asks.',
+  },
+  failures: {
+    summary: 'waits for you: a step kept failing',
+    description: 'A step failed as often as the line allows.',
+  },
+  gates: {
+    summary: 'waits for you: held by a gate',
+    description: 'The gates kept failing after the returns to the coder the line allows.',
+  },
+  review: {
+    summary: 'waits for you: held by review',
+    description: 'The reviewer escalated, or still asked for changes after the last review the line allows.',
+  },
+  'beyond-ticket': {
+    summary: 'waits for you: beyond its ticket',
+    description: 'The reviewer found the spec or the change going beyond what the ticket asks.',
+  },
+  merge: { summary: 'waits for your merge', description: 'Its fix has passed its gates and review.' },
+  deploy: {
+    summary: 'waits for your deploy',
+    description:
+      '{{ if $labels.pull_request }}Its fix is merged, and the deploy pull request that carries it has passed its checks.{{ else }}Its release was aborted or erred, and waits for your retry.{{ end }}',
+  },
+  verify: {
+    summary: 'waits for you: Verify asks',
+    description: 'Verification after the release could not settle its ticket by itself.',
+  },
+  spend: {
+    summary: 'waits for you: at its spend cap',
+    description: 'It has spent as much on models as one may.',
+  },
+  'tests-first': {
+    summary: 'waits for you: tests that prove nothing',
+    description: 'Its new tests pass without the fix.',
+  },
+  unknown: { summary: 'waits for you', description: 'It is held for your answer.' },
+};
+
+/** How long each hold that waits for Martin has waited, in seconds, one series each (`line/metrics.ts`). */
+export const HOLD_AGE = 'line_hold_age_seconds';
+/**
+ * How long a hold's alert fires once it starts to wait, or once its series appears already waiting, in minutes:
+ * the line exports every 15 seconds and Prometheus evaluates every minute, so it cannot be missed, and it is far short of
+ * Alertmanager's four-hour repeat, so it is sent once. Once it resolves, nothing more is sent.
+ */
+export const HOLD_ALERT_MINUTES = 30;
+
+/** A work item's or a pull request's number: all a hold's series may carry to be made a link, as the line checks it. */
+export const NUMBER = NUMBER_PATTERN;
+
+/**
+ * A dry run's pull requests (`DRY_RUN_NUMBERS_FROM` up), which are on no GitHub: numbers of its digits or more. A
+ * dry run's merge hold still alerts, with no pull request to link.
+ */
+export function dryRunNumbers(from = DRY_RUN_NUMBERS_FROM): string {
+  const digits = String(from);
+  if (!/^10*$/.test(digits)) throw new Error(`A dry run's numbers start at ${from}, not a power of ten`);
+  return `[1-9][0-9]{${digits.length - 1},}`;
+}
+
+/**
+ * Each hold of a cause that waits for Martin, one series each, by work item, cause and pull request, the highest of the
+ * line's replicas', which report the same; a dry run's pull request taken off, and read as it was `offset` ago if given.
+ */
+function holdsWaiting(cause: HoldCause, offset?: string): string {
+  const selector = `${fromTheLine(HOLD_AGE, `cause="${cause}", work_item=~"${NUMBER}", pull_request=~"|${NUMBER}"`)}${offset ? ` offset ${offset}` : ''}`;
+  return `max by (work_item, cause, pull_request) (label_replace(${selector}, "pull_request", "", "pull_request", "${dryRunNumbers()}"))`;
+}
+
+/**
+ * The alert for each hold that waits for Martin, once: while it has waited less than `HOLD_ALERT_MINUTES`, or while its
+ * series is newer than that, for one that appears having waited longer. The first is a new hold, or a hold that waits
+ * for him again (a deploy pull request's checks passing after a newer build), whose series reads 0 between; the second
+ * a merge hold's newer pull request, or a hold started while the line was down. A series at 0 (a hold no longer
+ * waiting, until the line restarts) never fires, nor one whose age has not moved in that time: while the line cannot
+ * read the store, the SDK sends each hold's last age again, which would otherwise stay young for as long.
+ */
+export function holdRule(cause: HoldCause): Rule {
+  const waiting = holdsWaiting(cause);
+  const before = holdsWaiting(cause, `${HOLD_ALERT_MINUTES}m`);
+  const words = HOLD_WORDS[cause];
+  return {
+    alert: 'HoldWaits',
+    expr: `((${waiting} > 0 < ${HOLD_ALERT_MINUTES * 60}) unless (${before} == ${waiting})) or (${waiting} > 0 unless ${before} > 0)`,
+    for: '0s',
+    labels: { level: LEVELS.notify },
+    annotations: { summary: `#{{ $labels.work_item }} ${words.summary}`, description: words.description },
+  };
+}
 
 const DAY_SECONDS = 24 * 60 * 60;
 
@@ -195,7 +325,10 @@ const RECENT = '5m';
  *   from Martin, and nothing here makes one. A silence that matches this alert keeps it quiet too: the limit the dead
  *   man's switch covers (milestone 10). The rule takes the highest of any series by that name, so another can only page
  *   him more, never less;
- * - a notification for each hold started, by its cause, whoever started it;
+ * - a notification for each hold that waits for him, once, whoever started it, naming its work item, which Alertmanager
+ *   links to its sheet in the console and, with its pull request, to that on GitHub (`holdRule`). Only a line that
+ *   takes work reports the holds that wait; while none does, a hold triage starts is told by its cause alone, from the
+ *   line's count of the holds stored, which it reports whatever its mode;
  * - a notification when a running shop pod is `SHOP_POD_DAYS` old: the node's container logs, which may hold a report's
  *   text, go only with the pod (docs/COMPONENTS/TRIAGE.md#how-long-a-report-is-kept), and a release replaces it. The oldest
  *   start of any series by that name for a pod is taken, so another can only alert him sooner, never later.
@@ -234,14 +367,16 @@ export function martinRules(): Rule[] {
         description: 'Alertmanager has a silence in place, which keeps the alerts it matches from your phone.',
       },
     },
+    ...HOLD_CAUSES.map(holdRule),
     {
       alert: 'HoldStarted',
-      expr: `max by (cause) (increase(${HOLDS_STORED}[${RECENT}])) > 0`,
+      expr: `max by (cause) (increase(${HOLDS_STORED}[${RECENT}])) > 0 unless on () ${TAKES_WORK}`,
       for: '0s',
       labels: { level: LEVELS.notify },
       annotations: {
         summary: 'A hold waits for you',
-        description: 'A work item is held for your answer: {{ $labels.cause }}.',
+        description:
+          'A work item is held for your answer: {{ $labels.cause }}. The line takes no work, so it cannot say which: Needs you lists it.',
       },
     },
     {
