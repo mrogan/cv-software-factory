@@ -23,7 +23,8 @@ flowchart TB
     line --> runners[Agent runners] --> gateway[LLM gateway]
     line --> worker[GitHub worker]
     store[(Event store)] --> console[Console]
-    admin[Admin service] -- "Martin's commands" --> store
+    console -- "Martin's writes" --> admin[Admin service]
+    admin -- "Martin's commands; the full events" --- store
     scoreboard[Scoreboard]
   end
   subgraph github [GitHub plane]
@@ -33,6 +34,7 @@ flowchart TB
     key[Answer key]
   end
   app -- probed --> senses
+  admin -- "Martin's canary controls" --> app
   telemetry -- read --> senses
   worker -- pull requests --> repos
   repos -- "Argo CD pulls main" --> argo

@@ -33,7 +33,7 @@ Each rule says how loudly it is told by a `level` label, and Alertmanager routes
 | Level | Label | Sent to | For |
 |---|---|---|---|
 | Page | `level: page` | Pushover, at high priority, which sounds through Martin's quiet hours | the security events that loosen a guardrail or change who can sign in, the security events' count missing or stale, a silence in place |
-| Notify | `level: notify` | Pushover, at normal priority | each hold that waits for Martin, the shop's pod 25 days old, the security events that widen what the line does or act on a release |
+| Notify | `level: notify` | Pushover, at normal priority | each hold that waits for Martin, the shop's pod 25 days old, the security events that widen what the line does, act on a release, change a setting or tighten autonomy |
 | Inform | `level: inform` | Pushover, at low priority, with no sound or vibration | the security events that tighten, but for autonomy, or only record Martin's own use |
 | Dashboard only | none | no one: a receiver that sends nothing | everything else |
 
