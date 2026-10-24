@@ -27,6 +27,104 @@ serverFiles:
               summary: "{{ $labels.http_route }}: p95 latency above 1 s"
               description: "Over 15 minutes, with at least 20 requests."
               threshold: "1"
+      - name: martin
+        rules:
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"sign-in\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "page"
+              kind: "sign-in"
+            annotations:
+              summary: "Signed in as Martin"
+              description: "A passkey signed in to the console."
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"passkey-enrolled\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "page"
+              kind: "passkey-enrolled"
+            annotations:
+              summary: "A passkey was enrolled"
+              description: "A new passkey can sign in as Martin."
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"passkey-revoked\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "page"
+              kind: "passkey-revoked"
+            annotations:
+              summary: "A passkey was revoked"
+              description: "A passkey can no longer sign in as Martin."
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"setting-changed\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "page"
+              kind: "setting-changed"
+            annotations:
+              summary: "A setting was changed"
+              description: "An agent's model or effort, or a spend cap, was changed in the console."
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"stepped-up\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "page"
+              kind: "stepped-up"
+            annotations:
+              summary: "The passkey was given again"
+              description: "For five minutes, the session may do what needs the passkey again."
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"release-control\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "page"
+              kind: "release-control"
+            annotations:
+              summary: "A release was promoted or retried"
+              description: "The app's canary was promoted, or a stopped release retried, from the console."
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"guardrail-approved\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "page"
+              kind: "guardrail-approved"
+            annotations:
+              summary: "A guardrail was overridden"
+              description: "A hold whose cause is a guardrail was approved."
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"line-started\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "page"
+              kind: "line-started"
+            annotations:
+              summary: "The line was started"
+              description: "The line takes work again."
+          - alert: SecurityEventsUncounted
+            expr: "(count(last_over_time(line_security_events_total{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[6h])) unless count(line_security_events_total{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"})) or max(line_security_events_counting{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}) == 0"
+            for: 5m
+            labels:
+              level: "page"
+            annotations:
+              summary: "Security events are not being counted"
+              description: "The line has not counted sign-ins and the rest for some minutes, so none of them would page."
+          - alert: AlertmanagerSilenced
+            expr: "max(alertmanager_silences{state=~\"active|pending\"}) > 0"
+            for: 0s
+            labels:
+              level: "page"
+            annotations:
+              summary: "Alerts are silenced"
+              description: "Alertmanager has a silence in place, which keeps the alerts it matches from your phone."
+          - alert: HoldStarted
+            expr: "max by (cause) (increase(line_holds_stored_total{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "notify"
+            annotations:
+              summary: "A hold waits for you"
+              description: "A work item is held for your answer: {{ $labels.cause }}."
   recording_rules.yml:
     groups:
       - name: routes

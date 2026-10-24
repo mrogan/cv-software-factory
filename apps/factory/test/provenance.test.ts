@@ -12,8 +12,14 @@ import { Prometheus } from '../src/clients/prometheus.ts';
 import { Tempo } from '../src/clients/tempo.ts';
 import { signalForDisagreement } from '../src/logs/agreement.ts';
 import { Watcher } from '../src/logs/watcher.ts';
-import { LOGS_FROM_THE_APP, METRICS_FROM_THE_APP, TRACES_FROM_THE_APP } from '../src/provenance.ts';
+import {
+  LOGS_FROM_THE_APP,
+  METRICS_FROM_THE_APP,
+  METRICS_FROM_THE_LINE,
+  TRACES_FROM_THE_APP,
+} from '../src/provenance.ts';
 import { routeTemplates } from '../src/routes.ts';
+import { type Manifest, manifests } from './deploy.ts';
 
 /**
  * Any worker may send the collector telemetry that names itself the app. The senses take as the app's only what the
@@ -157,6 +163,39 @@ describe('the collector stamps the app’s records, and the backends keep what t
     for (const pipeline of ['logs', 'metrics', 'traces']) {
       expect(config.service.pipelines[pipeline].processors).toContain('k8s_attributes');
     }
+  });
+
+  it('stamps the metrics from pods in `factory` with their namespace and name label, and never the pod’s name', async () => {
+    const { config } = await values('otel-collector.yaml');
+    const k8s = config.processors['k8s_attributes/factory'];
+    expect(k8s.filter).toEqual({ namespace: 'factory' });
+    expect(k8s.pod_association).toEqual([{ sources: [{ from: 'connection' }] }]);
+    // Not `k8s.pod.name`, which marks the app's logs as the app's: a worker naming itself `website` would carry it.
+    expect(k8s.extract).toEqual({
+      metadata: ['k8s.namespace.name'],
+      labels: [{ tag_name: 'k8s.pod.label.app.kubernetes.io/name', key: 'app.kubernetes.io/name', from: 'pod' }],
+    });
+    // Metrics alone, after the app's own stamp.
+    for (const pipeline of ['logs', 'traces']) {
+      expect(config.service.pipelines[pipeline].processors).not.toContain('k8s_attributes/factory');
+    }
+    const metrics: string[] = config.service.pipelines.metrics.processors;
+    expect(metrics.indexOf('k8s_attributes/factory')).toBe(metrics.indexOf('k8s_attributes') + 1);
+  });
+
+  it('Prometheus keeps the line’s stamps as labels, which the alerts to Martin select on', async () => {
+    const { server } = await values('prometheus.yaml');
+    expect(server.otlp.promote_resource_attributes).toEqual(
+      expect.arrayContaining(['k8s.namespace.name', 'k8s.pod.label.app.kubernetes.io/name']),
+    );
+    expect(METRICS_FROM_THE_LINE).toBe('k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="line"');
+    // The line's pods carry the label the selector names.
+    const line = (
+      await manifests<Manifest & { spec?: { template?: { metadata?: { labels?: Record<string, string> } } } }>()
+    )
+      .filter(({ manifest, namespace }) => manifest.kind === 'Deployment' && namespace === 'factory')
+      .find(({ manifest }) => manifest.metadata?.name === 'line');
+    expect(line?.manifest.spec?.template?.metadata?.labels?.['app.kubernetes.io/name']).toBe('line');
   });
 
   it('Prometheus makes the hash a label of each series', async () => {

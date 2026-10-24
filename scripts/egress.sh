@@ -41,6 +41,13 @@
 # the exporter reaches Postgres, and nothing else: not the collector, the gateway, the app, the Kubernetes API or the
 # internet.
 #
+# Then Alertmanager (milestone 7), which sends Martin's pages: a pod labelled like it reaches the intake and the
+# internet on 443, for Pushover, and nothing else: not Prometheus, Postgres, the gateway, the admin service, the
+# Kubernetes API, the host, the metadata address or the internet on another port. Only Prometheus's server and Grafana
+# reach it, as anything that did could silence a page: Prometheus's server does, and the stranger in `telemetry`, whose
+# own egress is open, does not, so only Alertmanager's fence stops it. A worker cannot either, though its own fence
+# would stop it first.
+#
 # Then the admin service (milestone 7), which believes forwarded headers from the pod network because only Traefik may
 # reach it: a worker, an agent pod and the scoreboard cannot, nor the stranger in `telemetry`, whose own egress is
 # open, so only the admin service's fence stops it; and it reaches Postgres, the collector and the Kubernetes API, for
@@ -105,6 +112,12 @@ for deployment in "${workers[@]}" telemetry/query "${scraped[@]}"; do
     exit 1
   fi
 done
+# Alertmanager, whose fence the checks of who reaches it prove, is a StatefulSet.
+if ! kubectl --context "$context" -n telemetry rollout status statefulset/prometheus-alertmanager --timeout=3m >/dev/null
+then
+  echo "telemetry/prometheus-alertmanager has not rolled out: run this again when it has." >&2
+  exit 1
+fi
 # The pod log collector, which Prometheus scrapes too, is a DaemonSet.
 if ! kubectl --context "$context" -n pod-logs rollout status daemonset/pod-logs-agent --timeout=3m >/dev/null; then
   echo "pod-logs/pod-logs-agent has not rolled out: run this again when it has." >&2
@@ -120,8 +133,8 @@ cleanup() {
   kubectl --context "$context" -n argo-rollouts delete pod egress-rollouts --ignore-not-found --wait=false >/dev/null || true
   kubectl --context "$context" -n pod-logs delete pod egress-pod-logs --ignore-not-found --wait=false >/dev/null || true
   kubectl --context "$context" -n kyverno delete pod egress-admission egress-kyverno --ignore-not-found --wait=false >/dev/null || true
-  kubectl --context "$context" -n telemetry delete pod egress-stranger egress-prometheus egress-tempo --ignore-not-found \
-    --wait=false >/dev/null || true
+  kubectl --context "$context" -n telemetry delete pod egress-stranger egress-prometheus egress-tempo egress-alertmanager \
+    --ignore-not-found --wait=false >/dev/null || true
   for worker in "${workers[@]}"; do
     kubectl --context "$context" -n "${worker%%/*}" delete pod "egress-${worker#*/}" --ignore-not-found --wait=false \
       >/dev/null || true
@@ -289,6 +302,9 @@ app.kubernetes.io/component: server"
 # Tempo by the one label Prometheus's fence selects on, and not its instance's: the tempo Service and StatefulSet must not
 # take this pod for one of theirs.
 start_pod telemetry egress-tempo "$runner_image" node "app.kubernetes.io/name: tempo"
+# Alertmanager by the one label its fence, and the intake's, select on, and not its instance's: neither its Service and
+# StatefulSet nor Prometheus, which sends alerts to the pods of its own instance, must take this pod for Alertmanager.
+start_pod telemetry egress-alertmanager "$runner_image" node "app.kubernetes.io/name: alertmanager"
 # The Postgres exporter by the one label its fence, and Postgres's, select on, on the factory image: the exporter's
 # own has no Node.
 start_pod factory egress-postgres-exporter "$image" /nodejs/bin/node "app.kubernetes.io/name: postgres-exporter"
@@ -303,7 +319,7 @@ done
 for started in factory/$pod runners/egress-agent runners/egress-prepare website/egress-journeys website/egress-app \
   website/egress-stranger argo-rollouts/egress-rollouts pod-logs/egress-pod-logs kyverno/egress-admission \
   kyverno/egress-kyverno telemetry/egress-stranger telemetry/egress-prometheus telemetry/egress-tempo \
-  factory/egress-postgres-exporter
+  telemetry/egress-alertmanager factory/egress-postgres-exporter
 do
   kubectl --context "$context" -n "${started%%/*}" wait "pod/${started#*/}" --for=condition=Ready --timeout=2m >/dev/null
 done
@@ -542,6 +558,24 @@ expect "the exporter cannot reach the app" egress-postgres-exporter http://websi
 expect "the exporter cannot reach the Kubernetes API" egress-postgres-exporter "https://$api_ip/version" blocked
 expect "the exporter cannot reach a public address" egress-postgres-exporter https://1.1.1.1 blocked
 
+echo "A pod labelled like Alertmanager (egress-alertmanager), and who reaches Alertmanager:"
+alertmanager=http://prometheus-alertmanager.telemetry:9093/-/healthy
+expect "Alertmanager reaches the intake" telemetry:egress-alertmanager http://intake.factory:8080/health "reached, HTTP 200"
+expect "Alertmanager reaches Pushover" telemetry:egress-alertmanager https://api.pushover.net/1/messages.json reached
+expect "Alertmanager reaches a public address on 443" telemetry:egress-alertmanager https://1.1.1.1 reached
+expect "Alertmanager cannot leave on another port" telemetry:egress-alertmanager http://1.1.1.1 blocked
+expect "Alertmanager cannot reach Prometheus" telemetry:egress-alertmanager http://prometheus-server.telemetry/-/healthy blocked
+expect "Alertmanager cannot reach Postgres" telemetry:egress-alertmanager "http://$postgres_ip:5432" blocked
+expect "Alertmanager cannot reach the gateway" telemetry:egress-alertmanager http://gateway.factory:8080/health blocked
+expect "Alertmanager cannot reach the admin service" telemetry:egress-alertmanager "http://$admin_ip:8080/admin/health" blocked
+expect "Alertmanager cannot reach the Kubernetes API" telemetry:egress-alertmanager "https://$api_ip/version" blocked
+expect "Alertmanager cannot reach the API server on the node" telemetry:egress-alertmanager "https://$node_ip:6443" blocked
+expect "Alertmanager cannot reach the host" telemetry:egress-alertmanager http://0.250.250.254:1234/v1/models blocked
+expect "Alertmanager cannot reach the metadata address" telemetry:egress-alertmanager https://169.254.169.254 blocked
+expect "Prometheus's server reaches Alertmanager" telemetry:egress-prometheus "$alertmanager" "reached, HTTP 200"
+expect "the stranger in telemetry cannot reach Alertmanager" telemetry:egress-stranger "$alertmanager" blocked
+expect "the worker cannot reach Alertmanager" "$pod" "$alertmanager" blocked
+
 echo "The admin service:"
 expect "the admin service reaches Postgres" egress-admin tcp://postgres:5432 reached
 expect "the admin service reaches the collector" egress-admin http://otel-collector.telemetry:4318 reached
@@ -628,8 +662,9 @@ if [ -n "$answers" ]; then echo "$answers"; failed=1; else
 fi
 
 if [ "$failed" = 0 ]; then
-  echo "Only the gateway, the GitHub worker and Kyverno's admission controller leave the cluster; the readers of telemetry"
-  echo "only query the backends; only Prometheus's server scrapes the platform's metrics; the runners, the release, the"
-  echo "traffic, the app, the Postgres exporter and the scoreboard are fenced."
+  echo "Only the gateway, the GitHub worker, a runner's prepare pod, Kyverno's admission controller and Alertmanager leave"
+  echo "the cluster; the readers of telemetry only query the backends; only Prometheus's server scrapes the platform's"
+  echo "metrics; a stranger cannot reach Alertmanager; the runners, the release, the traffic, the app, the Postgres exporter"
+  echo "and the scoreboard are fenced."
 else echo "The network policies do not hold."; fi
 exit "$failed"

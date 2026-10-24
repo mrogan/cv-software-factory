@@ -11,15 +11,39 @@
 # (rollouts/values.yaml), Kyverno (admission/values) and Argo CD (deploy/argocd/values.yaml). Prometheus scrapes itself
 # in its own job.
 #
-# Alertmanager has one receiver: the factory's intake, which turns each firing alert into a signal. Until the intake
-# is deployed, deliveries fail and Alertmanager retries them. The sub-chart's defaults already meet the restricted
-# Pod Security Standard.
+# Alertmanager sends each alert by the level its rule gives it, in a `level` label (docs/COMPONENTS/ALERTING.md):
+#
+# - `page` and `notify` go to Martin's phone through Pushover, at high priority (sounding through quiet hours) and at
+#   normal priority;
+# - an alert with neither is for the dashboards only, and goes to a receiver that sends nothing;
+# - the app's objective alerts, which carry no level, go to the factory's intake, which turns each into a signal. An
+#   alert with a level never reaches it: an alert to Martin is not a signal for the senses.
+#
+# Pushover's application token and Martin's user key are in the `pushover` Secret, which `make up` makes from the
+# Keychain (`make pushover-key`). It is mounted optional, so a cluster with no Pushover account still comes up and still
+# routes to the intake; each page then fails to send, which Alertmanager's own metrics count. Alertmanager reads the
+# files each time it sends, so a key added later is used without a restart. Until the intake is deployed, deliveries to
+# it fail and Alertmanager retries them. The sub-chart's defaults already meet the restricted Pod Security Standard.
+#
+# Its first NetworkPolicy, alertmanager-fence.yaml, lets it reach the intake, DNS and the internet on 443, and lets in
+# only Prometheus and Grafana: anything that reached it could silence a page.
 alertmanager:
   enabled: true
-  # Its own metrics, among them the deliveries to the intake that failed, on its HTTP port.
+  # Its own metrics, among them the deliveries that failed, by receiver, on its HTTP port.
   podAnnotations:
     prometheus.io/scrape: "true"
     prometheus.io/port: "9093"
+  # One replica, so no peers: with the cluster's address empty, Alertmanager listens on no gossip port (9094).
+  extraArgs:
+    cluster.listen-address: ""
+  extraSecretMounts:
+    - name: pushover
+      mountPath: /etc/pushover
+      # The chart writes a subPath for every mount: empty, the whole Secret is the folder.
+      subPath: ""
+      secretName: pushover
+      readOnly: true
+      optional: true
   persistence:
     size: 100Mi
   resources:
@@ -30,19 +54,52 @@ alertmanager:
       memory: 128Mi
   config:
     route:
-      receiver: intake
-      # Alerts of one route and objective arrive together; a quiet app has few.
-      group_by: [route, objective]
+      # Dashboard only: an alert that no route below takes.
+      receiver: dashboard
       group_wait: 10s
       group_interval: 1m
-      # A rule that still fires is told to the intake again every hour, and triage counts it as seen again.
-      repeat_interval: 1h
+      repeat_interval: 4h
+      routes:
+        - receiver: intake
+          matchers: ['objective=~".+"', 'level=""']
+          # Alerts of one route and objective arrive together; a quiet app has few.
+          group_by: [route, objective]
+          # A rule that still fires is told to the intake again every hour, and triage counts it as seen again.
+          repeat_interval: 1h
+        # Each alert to Martin is a message of its own, never folded into another's. One that still fires is sent again
+        # every four hours, Alertmanager's default.
+        - receiver: page
+          matchers: [level="page"]
+          group_by: ["..."]
+        - receiver: notify
+          matchers: [level="notify"]
+          group_by: ["..."]
     receivers:
+      - name: dashboard
       - name: intake
         webhook_configs:
           # Resolved alerts say nothing the senses need: a ticket closes when its fix is verified.
           - url: http://intake.factory.svc:8080/v1/alerts
             send_resolved: false
+      - name: page
+        pushover_configs:
+          - &pushover
+            token_file: /etc/pushover/app-token
+            user_key_file: /etc/pushover/user-key
+            # Sounds through Martin's quiet hours. Emergency (2), which repeats until acknowledged, would repeat at
+            # each of his own sign-ins.
+            priority: "1"
+            # What happened and when, from the rule's summary: never the labels' or annotations' other values.
+            title: '{{ or .CommonAnnotations.summary .CommonLabels.alertname }}'
+            message: >-
+              {{ range .Alerts.Firing }}{{ or .Annotations.description .Annotations.summary .Labels.alertname }}
+              Firing since {{ .StartsAt.UTC.Format "15:04 UTC, 2 January" }}.{{ end }}
+            # A resolved alert would be a second message about the same thing.
+            send_resolved: false
+      - name: notify
+        pushover_configs:
+          - <<: *pushover
+            priority: "0"
 # kube-state-metrics: each pod's restarts and readiness, and each Deployment's, StatefulSet's, DaemonSet's and Job's
 # replicas and outcomes, read from the Kubernetes API. It asks to be scraped as Traefik does, with
 # `prometheus.io/` annotations on its pod, rather than on the Service the chart would annotate. The scrape keeps the
@@ -126,6 +183,10 @@ server:
       - deployment.environment.name
       # Which of a release's two versions a series is from: the stable's hash or the canary's (otel-collector.yaml).
       - k8s.pod.label.rollouts-pod-template-hash
+      # Which factory worker a series is from, by its pod's namespace and name label, which only the collector sets: the
+      # alerts to Martin read the line's own counts by them (otel-collector.yaml, provenance.ts).
+      - k8s.namespace.name
+      - k8s.pod.label.app.kubernetes.io/name
   resources:
     requests:
       cpu: 100m
@@ -140,7 +201,8 @@ server:
 # be a target behind a fence Prometheus cannot pass, down for as long as it asked; and one Prometheus could reach would
 # keep the labels it sent (`honor_labels`, the chart's default), the one that marks the app's own metrics among them
 # (provenance.ts). A namespace the platform starts to run a target in is a name here. And whatever is scraped, that
-# label is dropped from it: only the collector stamps it, on what arrives over OTLP.
+# label is dropped from it, as are the two that mark the line's own counts, which page Martin: only the collector
+# stamps them, on what arrives over OTLP.
 #
 # `target_info` is a service that sends metrics over OTLP, and triage counts those to see that metrics still arrive
 # (environment.ts). The collector also serves its own where it is scraped, as may any SDK's exporter, which would be
@@ -166,6 +228,8 @@ scrapeConfigs:
         regex: target_info
         action: drop
       - regex: k8s_pod_label_rollouts_pod_template_hash
+        action: labeldrop
+      - regex: k8s_namespace_name|k8s_pod_label_app_kubernetes_io_name
         action: labeldrop
       # Every `pg_settings_*` but `max_connections`: marked, dropped unless marked, and the mark taken off.
       - source_labels: [__name__]
