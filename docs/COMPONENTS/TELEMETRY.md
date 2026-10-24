@@ -226,6 +226,28 @@ The exporter counts the store's connections as Postgres sees them, all clients t
 | Request metrics | `http_route` (the path asked for, such as `/products/glove-left`), the status and `service_version` |
 | Request log records | `route` (the template, `/products/:slug`), `path`, `status`, `ms` and the trace id |
 
+## What is kept of a visitor
+
+Nothing that says who they are. The collector rewrites every span and log record before it is sent anywhere, the app's, the console's and the admin service's alike (`transform/visitors` in [`values/otel-collector.yaml`](../../deploy/base/telemetry/values/otel-collector.yaml)):
+
+- **No address.** It deletes the client's and the peer's address and port, in OpenTelemetry's current names and its old ones (`client.address`, `network.peer.address`, `net.peer.ip`, `http.client_ip` and the rest), and every request header a sender captured, the proxy's `X-Forwarded-For` among them. `server.address`, which names the server a call went to and the [service graph](#the-service-graph) draws, stays.
+- **No user agent.** A server span keeps of the browser only `browser.name` (Chrome, Safari, Firefox, Edge or `other`), `browser.major`, `os.name` (macOS, iOS, Android, Windows, Linux, ChromeOS or `other`) and `device.type` (`mobile`, a phone or a tablet, or `desktop`; an iPad's Safari says it is a Mac), read from the user agent with OTTL's `UserAgent()`; then the user agent itself goes. A sender's own values of these are deleted first, so each is one of the few set here, and a client span, a call out, gets none. A log record keeps none of it: none carries a browser.
+- **The factory's own traffic is marked.** `traffic` is `factory` on a request the [traffic generator](TRAFFIC-GENERATOR.md) sent, which names itself `software-factory-traffic`, and `visitor` on any other. The probes, the crawler and the journeys send `x-unmeasured`, so the app records nothing of theirs ([whose requests are judged](PROGRESSIVE-DELIVERY.md#whose-requests-are-judged)).
+
+What a pod writes to its own output goes to Loki through the [pod log collector](#every-pods-log) instead, untouched: the app and the console write no address or user agent there, only the method, path, status and time of each request.
+
+Loki keeps the logs for seven days, Tempo the traces for three, and Prometheus its series for [seven days](#what-prometheus-keeps), or less when they outgrow its volume.
+
+### Browsers, counted
+
+The collector counts the app's and the console's requests from browsers as it passes their server spans on, and Prometheus keeps the count: anonymous in aggregate, and the one place browsers are counted.
+
+| Series | Labels |
+|---|---|
+| `http_server_browser_requests_total` | `browser_name`, `os_name`, `device_type` and `traffic`, beside the sender's `job`; not the major version, which would make a series of every release of every browser |
+
+`sum by (browser_name) (increase(http_server_browser_requests_total{traffic="visitor"}[1d]))` is the last day's visitors' requests by browser. A request is a page, a stylesheet or a call to an API, not a visit. The count is a delta for each batch of spans, which the collector adds to a running total as it arrives (`delta_to_cumulative`), so a restart of the collector starts every total again, as a restarted service's counters do. A series with no request for a day is forgotten too. Prometheus reads nothing into a series' first sample, so the first request of each kind after either is not counted. Any sender may name itself `website`, so it is a picture of who visits, never [evidence](#which-records-are-the-apps).
+
 ## The factory's own health
 
 Each worker that sends telemetry, and the console, reports its own runtime over OTLP ([`telemetry.ts`](../../apps/factory/src/telemetry.ts), the OpenTelemetry runtime instrumentation): the series an alert or a dashboard would need to see one running out of memory or stalling before Kubernetes restarts it, though none reads them yet. The scoreboard and the runners send nothing, so report none. In Prometheus, by `job` (`software-factory/<worker>`):
