@@ -47,6 +47,8 @@ const PERSONAL = [
   'http.request.header.x-forwarded-for',
   'http.request.header.x-real-ip',
   'http.request.header.forwarded',
+  'http.request.header.user-agent',
+  'http.request.header.cookie',
   'user_agent.original',
   'http.user_agent',
 ];
@@ -111,6 +113,14 @@ describe('the collector keeps nothing that says who a visitor is', () => {
       statements.flatMap((s) => /^set\(span\.attributes\["([^"]+)"\]/.exec(s)?.[1] ?? []).filter(Boolean),
     );
     expect([...set].sort()).toEqual(['browser.major', 'browser.name', 'device.type', 'os.name', 'traffic']);
+    // A sender's own values of them go first, and only a server span's agent is read.
+    expect(statements[0]).toBe(
+      'delete_matching_keys(span.attributes, "^(browser\\\\.(name|major)|os\\\\.name|device\\\\.type|traffic)$")',
+    );
+    expect(statements.filter((s) => s.startsWith('set(span.cache["agent"]'))).toEqual([
+      'set(span.cache["agent"], span.attributes["user_agent.original"]) where span.kind == SPAN_KIND_SERVER',
+      'set(span.cache["agent"], span.attributes["http.user_agent"]) where span.kind == SPAN_KIND_SERVER and span.cache["agent"] == nil',
+    ]);
     // Each value is one of a few, set in the file; only the major version is read from the agent, and only digits.
     const values = new Set(
       statements.flatMap((s) => /^set\(span\.attributes\["[^"]+"\], "([^"]+)"\)/.exec(s)?.[1] ?? []),
