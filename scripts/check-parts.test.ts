@@ -80,6 +80,9 @@ function required(
     ].join('\n'),
   );
   stub('sleep', 'exit 0');
+  // Five tries at main's run, not the script's 72: enough to outlast GH_FAILS and then give up, without the hundreds of
+  // processes 72 tries start, which made a test take seconds on a busy machine.
+  stub('seq', 'printf "%s\\n" 1 2 3 4 5');
   const result = spawnSync('bash', ['-eo', 'pipefail', '-c', script], {
     env: {
       PATH: `${bin}:${process.env.PATH}`,

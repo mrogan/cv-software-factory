@@ -332,7 +332,9 @@ describe('agents through the gateway', () => {
     } finally {
       await database.owner`alter table events enable row level security`;
     }
-    expect((await call(token, agentRequest())).status).toBe(200);
+    const response = await call(token, agentRequest());
+    expect(response.status).toBe(200);
+    await response.text();
     expect(captured.text()).toMatch(/ignored line\.stopped: factory_gateway appended it/);
   });
 
@@ -676,9 +678,9 @@ describe('what the gateway lets through', () => {
     const search = await send({ ...agentRequest(), tools: [{ type: 'web_search_20260209', name: 'web_search' }] });
     expect(search.status).toBe(400);
     expect((await send({ ...agentRequest(), service_tier: 'priority' })).status).toBe(400);
-    expect(
-      (await send({ ...agentRequest(), tools: [{ name: 'Bash', input_schema: { type: 'object' } }] })).status,
-    ).toBe(200);
+    const bash = await send({ ...agentRequest(), tools: [{ name: 'Bash', input_schema: { type: 'object' } }] });
+    expect(bash.status).toBe(200);
+    await bash.text();
     expect(provider.requests).toHaveLength(1);
   });
 
