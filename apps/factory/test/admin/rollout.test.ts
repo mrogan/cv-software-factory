@@ -9,9 +9,9 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { type Canary, canaryOf, latestRecord, planOf, summaryOf } from '../../src/admin/rollout.ts';
-import type { TargetRecord } from '../../src/release/recorded.ts';
+import { recordedFrom, type TargetRecord } from '../../src/release/recorded.ts';
 import { DEPLOY } from '../deploy.ts';
-import { CANARY, type RolloutState, releaseOf, rollout, STABLE } from '../release/fixtures.ts';
+import { CANARY, commitOf, type RolloutState, releaseOf, rollout, STABLE } from '../release/fixtures.ts';
 
 const read = (state: RolloutState, paused = false) => {
   const r = rollout(state);
@@ -32,6 +32,21 @@ describe('the canary, as the controls see it', () => {
     });
     // At 50% the next is all of the traffic: there is no step before it.
     expect(read({ current: CANARY, stable: STABLE, stepIndex: 4, weight: 50 })?.next).toBeUndefined();
+  });
+
+  it('is named as the line recorded it: under its pod hash alone, or at its revision', () => {
+    const r = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    const withVersion = { ...r, metadata: { ...r.metadata, resourceVersion: '7' } };
+    const started = (release: string) => ({
+      work_item: '1290',
+      ts: '2026-10-24T09:00:00.000Z',
+      type: 'release.started',
+      payload: { release, version: commitOf(CANARY) },
+    });
+    // A release the line recorded before releases were named by revision, still in flight: the line's name for it.
+    expect(canaryOf(withVersion, recordedFrom([started(CANARY)]))?.release).toBe(CANARY);
+    // Recorded at its revision, it is that.
+    expect(canaryOf(withVersion, recordedFrom([started(releaseOf(CANARY))]))?.release).toBe(releaseOf(CANARY));
   });
 
   it('is stopped once aborted, at nought; between releases, nothing is in flight; and it waits for the status', () => {

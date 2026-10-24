@@ -37,7 +37,7 @@ describe('validation', () => {
   });
 
   it('keeps line events and work-item events apart', () => {
-    const line = { ...opened, type: 'line.started', version: 1, payload: { autonomy: 'supervised' } };
+    const line = { ...opened, type: 'line.started', version: 2, payload: { reason: 'Back from lunch' } };
     expect(validate({ ...line, work_item: null })).toEqual({ ok: true });
     expect(validate(line)).toEqual({ ok: false, problems: ['line.started belongs to the line, not to a work item'] });
     expect(validate({ ...opened, work_item: null })).toEqual({
@@ -762,6 +762,30 @@ describe('upcasting the real catalogue', () => {
     expect(answer({ ...approved, hold: opened.id, report: true })).toEqual({ ok: true });
     expect(answer({ ...approved, hold: 'hold-1' }).ok).toBe(false);
     expect(answer({ ...approved, report: false }).ok).toBe(false);
+  });
+
+  it('reads version 1 of line.started as it was, and takes a reason, and no autonomy level, at 2', () => {
+    expect(upcast({ type: 'line.started', version: 1, payload: { autonomy: 'guarded' } })).toMatchObject({
+      event: { version: 2, payload: { autonomy: 'guarded' } },
+    });
+    const started = (payload: object) =>
+      validate({ ...opened, work_item: null, type: 'line.started', version: 2, actor: 'martin', payload });
+    expect(started({ reason: 'The fix for the gateway is in' })).toEqual({ ok: true });
+    expect(started({})).toEqual({ ok: true });
+    expect(started({ autonomy: 'supervised', reason: 'Morning' })).toEqual({ ok: true });
+    expect(started({ reason: '' }).ok).toBe(false);
+  });
+
+  it('reads version 1 of release.controlled as the panel’s, and marks Stop the line’s abort at 2', () => {
+    const control = { action: 'abort', release: '68ff668868-4', version: 'v0.9.4', weight: 25 };
+    expect(upcast({ type: 'release.controlled', version: 1, payload: control })).toMatchObject({
+      event: { version: 2, payload: control },
+    });
+    const controlled = (payload: object) =>
+      validate({ ...opened, work_item: null, type: 'release.controlled', version: 2, actor: 'martin', payload });
+    expect(controlled({ ...control, stop: true })).toEqual({ ok: true });
+    expect(controlled({ ...control, action: 'pause', stop: true }).ok).toBe(false);
+    expect(controlled({ ...control, stop: false }).ok).toBe(false);
   });
 
   it('reads version 3 of signal.received as it was, and takes triage’s look at what the sense reads at 4', () => {

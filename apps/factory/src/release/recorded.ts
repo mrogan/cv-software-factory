@@ -1,9 +1,11 @@
 /**
  * What the line has recorded of the app's releases, read back from their events, and how it names them: on their own,
  * with nothing but the events package to import, so the admin service reads a release as the line does without the
- * watch's reads and their settings.
+ * watch's reads and their settings. The line and the admin service read the records from the store with the same
+ * queries (`releaseRecords`, `lastPromoted`).
  */
-import type { PayloadOf } from '@software-factory/events';
+import { type PayloadOf, type RawEvent, RELEASE_TYPES, upcast } from '@software-factory/events';
+import type { Sql } from 'postgres';
 
 type Started = PayloadOf<'release.started'>;
 
@@ -72,3 +74,43 @@ export const releaseName = (hash: string, revision: string) => `${hash}-${revisi
 
 /** A version as a reader takes it in: a commit by its first seven characters, anything else as it is. */
 export const short = (version: string) => (/^[0-9a-f]{8,40}$/.test(version) ? version.slice(0, 7) : version);
+
+/** A release event as `recordedFrom` reads it. */
+export interface RecordedRow {
+  work_item: string | null;
+  ts: string;
+  type: string;
+  payload: unknown;
+}
+
+/**
+ * The release events recorded for these releases, upcast, in order; or, `byHash`, for every release of these versions,
+ * whatever its revision: the line's record of a release in flight may be under another name than the Rollout's
+ * (`namedReleases`), and only the record of every release of its hash says which.
+ */
+export async function releaseRecords(sql: Sql, names: readonly string[], byHash = false): Promise<RecordedRow[]> {
+  if (!names.length) return [];
+  const release = byHash ? sql`split_part(payload->>'release', '-', 1)` : sql`payload->>'release'`;
+  const rows = await sql<(RawEvent & { work_item: string | null; ts: Date })[]>`
+    select seq, work_item, ts, type, version, payload from events
+    where type in ${sql(RELEASE_TYPES as string[])} and ${release} in ${sql(names as string[])}
+    order by seq`;
+  return rows.flatMap((row) => {
+    const read = upcast({ ...row, seq: Number(row.seq) });
+    if (!read.ok) return [];
+    const { type, payload } = read.event;
+    return [{ work_item: row.work_item, ts: new Date(row.ts).toISOString(), type, payload }];
+  });
+}
+
+/**
+ * The app's last release that shipped, by its name, and the version it made stable. A promotion of version 1, from
+ * before releases were named, has no name, and says nothing of which image shipped last.
+ */
+export async function lastPromoted(sql: Sql): Promise<{ release: string | undefined; version: string } | undefined> {
+  const [row] = await sql<{ release: string | null; version: string }[]>`
+    select payload->>'release' as release, payload->>'version' as version from events
+    where type = 'release.promoted' and (payload->>'dryRun')::boolean is not true
+    order by seq desc limit 1`;
+  return row && { release: row.release ?? undefined, version: row.version };
+}

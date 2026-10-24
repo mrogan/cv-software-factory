@@ -5,8 +5,8 @@
 import { validateSignal } from '@software-factory/events/schemas';
 import { describe, expect, it } from 'vitest';
 import { recordedFrom } from '../../src/release/recorded.ts';
+import { observe } from '../../src/release/rollout.ts';
 import { canarySignal, failedMeasures, JOURNEY_FALLBACK } from '../../src/release/signals.ts';
-import { observe } from '../../src/release/watch.ts';
 import { CANARY, commitOf, digestOf, releaseOf, rollout, run, STABLE } from './fixtures.ts';
 
 const T0 = '2026-10-11T09:00:00Z';

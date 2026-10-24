@@ -28,8 +28,13 @@ class Rollout implements KubeWriter {
   /** How many of the next patches to the spec find the Rollout changed, as the controller's writes to it would. */
   specConflicts = 0;
   object: Record<string, unknown> = {
-    metadata: { generation: 1, annotations: { 'rollout.argoproj.io/revision': '913' } },
+    metadata: { name: 'website', generation: 1, annotations: { 'rollout.argoproj.io/revision': '913' } },
     spec: {
+      template: {
+        spec: {
+          containers: [{ name: 'website', image: `ghcr.io/mrogan/cv-worlds-worst-website@sha256:${'9'.repeat(64)}` }],
+        },
+      },
       strategy: {
         canary: {
           steps: [

@@ -163,9 +163,9 @@ export const ACCESS = {
     routes: ['POST /admin/holds/:workItem/answer'],
   },
 
-  // The line.
-  'line.stop': admin('Stop the line'),
-  'line.start': admin('Start the line', true),
+  // The line. Stopping aborts the canary in flight too; `make stop-the-line` does the same without the console.
+  'line.stop': { ...admin('Stop the line'), server: 'admin', routes: ['POST /admin/line/stop'] },
+  'line.start': { ...admin('Start the line', true), server: 'admin', routes: ['POST /admin/line/start'] },
   'autonomy.tighten': admin('Make the autonomy level stricter'),
   'autonomy.loosen': admin('Make the autonomy level looser', true),
   'new-work.on': admin('Let agents take new work'),

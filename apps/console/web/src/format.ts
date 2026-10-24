@@ -2,6 +2,7 @@
  * Words and figures as the console writes them: British English, times where the viewer is, money in dollars
  * because that is what the models are billed in.
  */
+import type { Change } from '../../../../policy/settings.ts';
 
 const time = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' });
 const precise = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -71,6 +72,19 @@ const MODEL_NAME: Record<string, string> = {
 
 /** Claude Sonnet 5.5, Qwen3.8 27B: a pinned model as the sheet and the settings name it. */
 export const modelTitle = (model: string) => MODEL_NAME[model] ?? model;
+
+/** A change to the settings in words, as the settings' bar and the audit log say it: "the coder’s effort, medium → high". */
+export function changeWords(change: Change): string {
+  const usd = (figure: number | null) => (figure === null ? 'none' : money(figure));
+  switch (change.field) {
+    case 'model':
+      return `the ${change.agent}’s model, ${modelTitle(change.before)} → ${modelTitle(change.after)}`;
+    case 'effort':
+      return `the ${change.agent}’s effort, ${change.before ?? 'none'} → ${change.after ?? 'none'}`;
+    case 'cap':
+      return `the ${change.cap === 'work-item' ? 'work item' : change.cap}’s cap, ${usd(change.beforeUsd)} → ${usd(change.afterUsd)}`;
+  }
+}
 
 /** $0.31, or <$0.01 for less than a cent. */
 export const money = (usd: number) => (usd > 0 && usd < 0.01 ? '<$0.01' : `$${usd.toFixed(2)}`);

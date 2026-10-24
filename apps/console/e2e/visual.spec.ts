@@ -10,7 +10,8 @@
  * work item's among them. Milestone 7's from a stand-in for the admin service: the sign-in and enrolment doors, a code
  * refused, Martin's account menu, a visitor's report quoted on his sheet, Preview as visitor, the settings for Martin
  * with a change unsaved and for a visitor, and the bottom row: Needs you (Waiting on Martin for a visitor, his words
- * being written for him, the passkey asked for on a guardrail's Approve, and nothing waiting) beside Controls.
+ * being written for him, the passkey asked for on a guardrail's Approve, and nothing waiting) beside Controls; and the
+ * audit log, whole and narrowed to a visitor's report.
  */
 import type { Page } from '@playwright/test';
 import { STAGES as KINDS } from '@software-factory/events';
@@ -575,6 +576,42 @@ test.describe('the settings in Ink', () => {
     await expect(page.locator('.bottom')).toHaveScreenshot('m07-bottom-martin-ink.png');
   });
 });
+
+/** Milestone 7: the audit log, the same for everyone, as a visitor reads it. */
+for (const [width, viewport] of Object.entries(WIDTHS)) {
+  test.describe(`${width}, the audit log`, () => {
+    test.use({ viewport });
+
+    test('the audit log', async ({ page }) => {
+      await adminService(page, 'visitor');
+      await auditPage(page);
+      await expect(page).toHaveScreenshot(`m07-audit-${width}.png`);
+    });
+
+    test('the audit log, narrowed to a visitor’s report', async ({ page }) => {
+      await adminService(page, 'visitor');
+      await auditPage(page, 'paper', '&item=1329');
+      await expect(page).toHaveScreenshot(`m07-audit-report-${width}.png`, { fullPage: true });
+    });
+  });
+}
+
+test.describe('the audit log in Ink', () => {
+  test.use({ viewport: WIDTHS.desktop });
+
+  test('the audit log', async ({ page }) => {
+    await adminService(page, 'visitor');
+    await auditPage(page, 'ink');
+    await expect(page).toHaveScreenshot('m07-audit-ink.png');
+  });
+});
+
+/** The audit log drawn, with the fonts it is set in. */
+async function auditPage(page: Page, theme: 'paper' | 'ink' = 'paper', more = '') {
+  await page.goto(`${consoleUrl({ theme })}&view=audit${more}`);
+  await page.locator('table.audit tbody tr:not(.day)').first().waitFor();
+  await page.evaluate(() => document.fonts.ready);
+}
 
 /** The settings page drawn, with the fonts it is set in. */
 async function settingsPage(page: Page, theme: 'paper' | 'ink' = 'paper') {

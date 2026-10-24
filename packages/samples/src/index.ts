@@ -75,7 +75,7 @@ const LINE_STARTED: NewEvent<'line.started'> = {
   ts: '2026-09-29T07:00:00.000Z',
   work_item: null,
   type: 'line.started',
-  version: 1,
+  version: 2,
   actor: 'martin',
   summary: 'Martin started the line at Guarded autonomy',
   payload: { autonomy: 'guarded' },

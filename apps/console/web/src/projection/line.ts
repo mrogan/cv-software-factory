@@ -142,7 +142,8 @@ export function header(events: readonly PublicEvent[]): Header {
   };
   for (const event of events) {
     if (event.type === 'line.started') {
-      state = { ...state, running: true, autonomy: event.payload.autonomy, stopped: undefined };
+      // A start from the console names no level: the one before stands.
+      state = { ...state, running: true, autonomy: event.payload.autonomy ?? state.autonomy, stopped: undefined };
     }
     if (event.type === 'line.stopped') state = { ...state, running: false, stopped: event.payload.reason };
     if (event.type === 'spend.capped') {
