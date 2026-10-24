@@ -1,10 +1,13 @@
 /**
- * What the console keeps of the access table (`policy/access.ts`), which the admin service enforces: how long the
- * passkey given again is fresh, and which of Martin's controls ask for it, so the page draws the key where the service
+ * What the console keeps of the access table (`policy/access.ts`), which the admin service enforces: how long a
+ * session lasts, how long the passkey given again is fresh, and which of Martin's controls ask for it, so the page draws the key where the service
  * will ask. The console's image is built without `policy/access.ts`, so it keeps these copies, and a test holds them to
  * the table.
  */
 import type { HoldCause, ReleaseControl } from '@software-factory/events';
+
+/** How long a session lasts from sign-in, however busy: `SESSION.minutes`. */
+export const SESSION_MINUTES = 30;
 
 /** How long the passkey, given again, is fresh: `STEP_UP.minutes`. */
 export const FRESH_MINUTES = 5;

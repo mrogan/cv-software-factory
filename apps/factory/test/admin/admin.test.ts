@@ -173,9 +173,9 @@ async function stepUp(browser: Browser, passkey: Authenticator) {
 
 const sessionOf = (browser: Browser) => sha256(browser.cookie ?? '');
 
-/** Ends a session's eight hours, as the store's clock would. */
+/** Ends a session's 30 minutes, as the store's clock would. */
 const expire = (browser: Browser) => db.owner`
-  update sessions set signed_in_at = now() - interval '9 hours', expires_at = now() - interval '1 hour'
+  update sessions set signed_in_at = now() - interval '31 minutes', expires_at = now() - interval '1 minute'
   where id_sha256 = ${sessionOf(browser)}`;
 
 const lastEvents = (n: number) => db.owner<
@@ -242,7 +242,7 @@ describe('enrolment', () => {
     const res = await enrolWith(browser, passkey, await newCode());
     expect(res.status).toBe(200);
     expect(browser.setCookie).toBe(
-      `${COOKIE}=${browser.cookie}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${SESSION.hours * 3600}`,
+      `${COOKIE}=${browser.cookie}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${SESSION.minutes * 60}`,
     );
     expect(browser.cookie).toMatch(/^[A-Za-z0-9_-]{43}$/);
     // The store keeps the id's hash, never the id.

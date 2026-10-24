@@ -405,6 +405,10 @@ export function Settings({ view, allLocal, admin }: { view: SettingsView; allLoc
   );
 }
 
+/** How long a session lasts, in minutes, from its own times: the store sets them, whatever this image was built with. */
+const lasts = (session: Session) =>
+  Math.round((Date.parse(session.expiresAt) - Date.parse(session.signedInAt)) / 60_000);
+
 const capitalised = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /** What Martin last chose for an agent that policy does not allow now, in words; nothing when all of it is in force. */
@@ -507,7 +511,7 @@ function ThisSession({ session }: { session: Session }) {
       <h2 id="session-title">This session</h2>
       <p className="help">
         Signed in at {clock(Date.parse(session.signedInAt))} with {session.passkey.name}’s passkey. It ends at{' '}
-        {clock(Date.parse(session.expiresAt))}: eight hours, however busy.
+        {clock(Date.parse(session.expiresAt))}: {lasts(session)} minutes, however busy.
       </p>
       <div className="row">
         <button type="button" className="btn small" disabled={busy} onClick={() => void signOut(false)}>
