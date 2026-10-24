@@ -93,7 +93,7 @@ export function Privacy() {
           </li>
           <li>
             <strong>A report you send</strong> is shown on the console only to Martin and to you, and its words are
-            deleted {REPORT_KEPT_DAYS} days after they arrive.
+            deleted, from the logs too, within {REPORT_KEPT_DAYS} days of their arrival.
           </li>
           <li>
             <strong>Signing in</strong> counts the tries from each address for {TRIES_MINUTES} minutes, in memory, so
