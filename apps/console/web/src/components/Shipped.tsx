@@ -73,7 +73,8 @@ function Block({
         <p className="source">
           <ToolMark name="argo" />
           <span>
-            Argo CD synced the deploy that carried it, and Argo Rollouts ran its canary; the line recorded each step.
+            Argo CD synced the deploy that carried it, and Argo Rollouts {r.end ? 'ran' : 'runs'} its canary; the line
+            records each step.
           </span>
         </p>
       )}

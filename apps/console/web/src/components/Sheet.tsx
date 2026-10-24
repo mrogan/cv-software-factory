@@ -80,7 +80,7 @@ const TOOLS: Partial<Record<PictureData['type'], ToolName[]>> = {
 
 /** Admission control's refusal: Kyverno's own words, on an image Sigstore's signature did not vouch for. */
 const ADMISSION_SOURCE =
-  'Kyverno’s own refusal, stored with the event: it admits only an image whose Sigstore signature says the pipeline built it on main.';
+  'Kyverno’s own refusal, stored with the event: it admits only an image whose Sigstore signature says the pipeline built it on main, or one of the few it names by digest.';
 
 const SENSE_NAME: Record<Sense, string> = {
   probe: 'Probes',
@@ -522,8 +522,8 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                   <p className="help tooled ran">
                     <ToolMark name="kubernetes" />
                     <span>
-                      Each step ran in a Kubernetes pod of its own in the <code>runners</code> namespace, able to reach
-                      the gateway and the line, and nothing else.
+                      Each step of the line’s agents ran in a Kubernetes pod of its own in the <code>runners</code>{' '}
+                      namespace, able to reach the gateway and the line, and nothing else.
                     </span>
                   </p>
                 )}
