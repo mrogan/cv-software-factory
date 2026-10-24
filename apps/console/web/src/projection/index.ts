@@ -6,7 +6,7 @@
  */
 import type { PublicEvent, Stage } from '@software-factory/events';
 import { STAGES } from '@software-factory/events';
-import { type ControlsView, controlsView } from './controls.ts';
+import { type ControlsView, controlsOf } from './controls.ts';
 import { foldItems, type ItemState } from './items.ts';
 import {
   drawn,
@@ -93,7 +93,8 @@ export const upTo = (events: readonly PublicEvent[], t: number) => events.filter
 export function project(events: readonly PublicEvent[], t: number): View {
   const seen = upTo(events, t);
   const items = foldItems(seen);
-  const line = header(seen);
+  const controls = controlsOf(seen);
+  const line = header(seen, controls.autonomy);
   const sent = returnsAt(seen, t);
   const returns = drawn(sent, items);
   const cards = items.map((item) => card(item, seen, t));
@@ -112,7 +113,7 @@ export function project(events: readonly PublicEvent[], t: number): View {
     cards,
     timeline: timeline(cards, shipped),
     needs: needsView(items, t),
-    controls: controlsView(seen, t),
+    controls,
   };
 }
 

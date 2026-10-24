@@ -4,7 +4,7 @@
  */
 import type { Autonomy, PayloadOf, PublicEvent, Sense, Stage } from '@software-factory/events';
 import { isSense, returnWords, SENSES, STAGES } from '@software-factory/events';
-import { controlsAfter } from './controls.ts';
+import { DEFAULT_CONTROLS } from '../../../../../policy/line.ts';
 import { endedSinceMerge } from './fixing.ts';
 import { clearanceWords, type ItemState } from './items.ts';
 import { endedWords, inFlight, type Release, SIGNALLED, stopWait, stopWords } from './release.ts';
@@ -132,10 +132,11 @@ export interface StagePanel {
   queued: number;
 }
 
-export function header(events: readonly PublicEvent[]): Header {
+/** The line's state for the header, at the autonomy level the controls hold. */
+export function header(events: readonly PublicEvent[], autonomy: Autonomy = DEFAULT_CONTROLS.autonomy): Header {
   let state: Header = {
     running: false,
-    autonomy: controlsAfter(events).autonomy,
+    autonomy,
     stopped: undefined,
     capped: undefined,
     caps: [],

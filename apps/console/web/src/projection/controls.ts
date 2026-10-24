@@ -4,7 +4,7 @@
  * all three agree), and, while the line takes the next few, how many it has taken since he chose them.
  *
  * The line counts the next few by when it took each work item onto its own table, which no event records. The console
- * counts the first thing the line or its agents record on each after its ticket: a work item counts once its
+ * counts the first thing the line's agents record on each after its ticket: a work item counts once its
  * planner's first step has ended, and one taken just before the take was chosen counts if that step ended after.
  */
 import { AUTONOMY, type Autonomy, type PublicEvent } from '@software-factory/events';
@@ -27,20 +27,22 @@ export interface ControlsView extends ControlsInForce {
   at: number | undefined;
 }
 
-/** Who records what the line does with a work item once it has taken it: its agents, and the line itself. */
-const LINE_ACTORS: ReadonlySet<string> = new Set(['planner', 'coder', 'reviewer', 'describer', 'factory']);
+/**
+ * The agents the line runs on a work item only once it has taken it. The line itself (`factory`) is left out: it
+ * records holds, closes and releases on work items it never took.
+ */
+const LINE_ACTORS: ReadonlySet<string> = new Set(['planner', 'coder', 'reviewer', 'describer']);
 
 /** Martin's changes of the line's controls: admin events only his roles can append, as the store has them. */
 const changes = (events: readonly PublicEvent[]) =>
   events.filter((event) => event.type === 'controls.changed' && event.actor === 'martin');
 
-/** The controls in force after these events, policy's defaults until Martin sets any. */
-export const controlsAfter = (events: readonly PublicEvent[]): ControlsInForce =>
-  controlsInForce(changes(events).at(-1)?.payload);
-
 /** The controls in force at t, and what the next few have taken so far. */
-export function controlsView(events: readonly PublicEvent[], t: number): ControlsView {
-  const seen = events.filter((event) => Date.parse(event.ts) <= t);
+export const controlsView = (events: readonly PublicEvent[], t: number): ControlsView =>
+  controlsOf(events.filter((event) => Date.parse(event.ts) <= t));
+
+/** The same, after the events that had happened by t, in seq order, as `project` holds them. */
+export function controlsOf(seen: readonly PublicEvent[]): ControlsView {
   const made = changes(seen);
   const last = made.at(-1);
   const controls = controlsInForce(last?.payload);
@@ -54,7 +56,7 @@ export function controlsView(events: readonly PublicEvent[], t: number): Control
       if (was?.kind !== 'next-few' || was.since !== take.since) break;
       since = Date.parse(event.ts);
     }
-    // Each work item with a ticket, and when the line first did anything with it after the ticket opened.
+    // Each work item with a ticket, and when an agent of the line first did anything with it after the ticket opened.
     const ticketed = new Set<string>();
     const first = new Map<string, number>();
     for (const event of seen) {

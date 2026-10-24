@@ -97,9 +97,6 @@ const TAKE_LABEL: Record<TakeKind, string> = {
   'just-one': 'Just one',
 };
 
-/** How much a kind of take lets the line take: as `controlAction` orders them. */
-const BREADTH: Record<TakeKind, number> = { 'just-one': 0, 'next-few': 1, every: 2 };
-
 /** What the line will do with a take, in a sentence. */
 function takeWords(take: Take | null, nextFew: ControlsView['nextFew'], viewer: Viewer): string {
   if (!take) {
@@ -177,15 +174,16 @@ function Refusal({ changer, where }: { changer: Changer; where: Where }) {
 }
 
 function AutonomyGroup({ controls, viewer, changer }: { controls: ControlsView; viewer: Viewer; changer: Changer }) {
+  const id = useId();
   const { autonomy } = controls;
   const martin = viewer === 'martin';
   return (
     <div className="ctl-group">
-      <span className="label" id="autonomy-label">
+      <span className="label" id={`${id}-autonomy`}>
         <span>Autonomy</span>
       </span>
       {/* biome-ignore lint/a11y/useSemanticElements: a fieldset needs a legend, and the group's label is above it */}
-      <div className={`seg ${martin ? '' : 'ro-seg'}`} role="group" aria-labelledby="autonomy-label">
+      <div className={`seg ${martin ? '' : 'ro-seg'}`} role="group" aria-labelledby={`${id}-autonomy`}>
         {LEVELS.map((level) => {
           const change: ControlChange = { control: 'autonomy', before: autonomy, after: level };
           return (
@@ -201,7 +199,7 @@ function AutonomyGroup({ controls, viewer, changer }: { controls: ControlsView; 
                   'autonomy',
                   { autonomy: level },
                   {
-                    title: 'Loosen autonomy',
+                    title: asks(change) ? 'Loosen autonomy' : 'Tighten autonomy',
                     what: (
                       <>
                         <b>The line runs at {AUTONOMY[level]}.</b> {MEANS[level].martin} {RECORDED.martin}
@@ -292,9 +290,9 @@ function SwitchesGroup({ controls, viewer, changer }: { controls: ControlsView; 
               'switches',
               { newWork: !newWork },
               {
-                title: 'Let agents take new work',
+                title: newWork ? 'Stop agents taking new work' : 'Let agents take new work',
                 what: <b>Agents take new work: {newWork ? 'off' : 'on'}.</b>,
-                why: 'This loosens a control',
+                why: 'The admin service asks for it',
               },
             )
           }
@@ -315,15 +313,21 @@ function SwitchesGroup({ controls, viewer, changer }: { controls: ControlsView; 
             void changer.change(
               'switches',
               { autoMerge: !autoMerge },
-              {
-                title: 'Turn on auto-merge',
-                what: (
-                  <>
-                    <b>Auto-merge low-risk changes: on.</b> {RECORDED.martin}
-                  </>
-                ),
-                why: 'Auto-merge lets changes merge without you',
-              },
+              autoMerge
+                ? {
+                    title: 'Turn off auto-merge',
+                    what: <b>Auto-merge low-risk changes: off.</b>,
+                    why: 'The admin service asks for it',
+                  }
+                : {
+                    title: 'Turn on auto-merge',
+                    what: (
+                      <>
+                        <b>Auto-merge low-risk changes: on.</b> {RECORDED.martin}
+                      </>
+                    ),
+                    why: 'Auto-merge lets changes merge without you',
+                  },
             )
           }
         />
@@ -343,6 +347,9 @@ function SwitchesGroup({ controls, viewer, changer }: { controls: ControlsView; 
   );
 }
 
+/** How many the next few's field offers first. */
+const FIRST_FEW = 3;
+
 /** What Martin is choosing under What the line takes, before he sets it: how many, or which work item. */
 type Draft = { kind: 'next-few'; count: string } | { kind: 'just-one'; workItem: string };
 
@@ -358,6 +365,14 @@ function draftTake(draft: Draft, before: Take | null, now: number): Take | undef
   const workItem = draft.workItem.trim().replace(/^#/, '');
   return /^[1-9]\d{0,8}$/.test(workItem) ? { kind: 'just-one', workItem } : undefined;
 }
+
+/** The take a button offers, as it would first set it: the next few at the field's first number. */
+const offered = (kind: TakeKind): Take =>
+  kind === 'every'
+    ? { kind }
+    : kind === 'next-few'
+      ? { kind, count: FIRST_FEW, since: new Date().toISOString() }
+      : { kind, workItem: '1' };
 
 function TakeGroup({ controls, viewer, changer }: { controls: ControlsView; viewer: Viewer; changer: Changer }) {
   const martin = viewer === 'martin';
@@ -396,11 +411,11 @@ function TakeGroup({ controls, viewer, changer }: { controls: ControlsView; view
 
   return (
     <div className="ctl-group">
-      <span className="label" id="take-label">
+      <span className="label" id={`${id}-label`}>
         <span>What the line takes</span>
       </span>
       {/* biome-ignore lint/a11y/useSemanticElements: a fieldset needs a legend, and the group's label is above it */}
-      <div className={`seg ${martin ? '' : 'ro-seg'}`} role="group" aria-labelledby="take-label">
+      <div className={`seg ${martin ? '' : 'ro-seg'}`} role="group" aria-labelledby={`${id}-label`}>
         {TAKES.map((kind) => (
           <button
             key={kind}
@@ -418,15 +433,16 @@ function TakeGroup({ controls, viewer, changer }: { controls: ControlsView; view
               if (kind === take?.kind) return setDraft(undefined);
               setDraft(
                 kind === 'next-few'
-                  ? { kind, count: '3' }
+                  ? { kind, count: String(FIRST_FEW) }
                   : { kind, workItem: take?.kind === 'just-one' ? take.workItem : '' },
               );
             }}
           >
             {TAKE_LABEL[kind]}
-            {martin && !changer.fresh && kind !== take?.kind && (!take || BREADTH[kind] > BREADTH[take.kind]) && (
-              <Key />
-            )}
+            {martin &&
+              !changer.fresh &&
+              kind !== take?.kind &&
+              asks({ control: 'take', before: take, after: offered(kind) }) && <Key />}
           </button>
         ))}
       </div>

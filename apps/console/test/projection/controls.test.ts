@@ -68,10 +68,11 @@ describe('the line’s controls', () => {
       ...taken('3', 20),
       // A new number keeps when they started.
       changed(22, { take: { kind: 'next-few', count: 4, since } }),
-      // Triage's ticket alone is not taken: the line has done nothing with it yet.
+      // Triage's ticket alone is not taken, nor one the line only recorded something on: no agent has worked on it.
       ...work('4', start)
         .open()
-        .add(25, 'ticket.opened', 'triage', {} as never).events,
+        .add(25, 'ticket.opened', 'triage', {} as never)
+        .add(26, 'work-item.closed', 'factory', {} as never).events,
     ].sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
     expect(controlsView(events, at(11)).nextFew).toEqual({ since: at(10), taken: 0 });
     expect(controlsView(events, at(15)).nextFew).toEqual({ since: at(10), taken: 1 });

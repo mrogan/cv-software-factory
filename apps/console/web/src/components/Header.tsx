@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { LINE_STEP_UP } from '../access.ts';
 import { type Admin, said, write } from '../admin.ts';
 import { AUTONOMY, duration } from '../format.ts';
 import type { Header as LineState, Score } from '../projection/index.ts';
@@ -139,7 +140,7 @@ function LineButton({ line, token }: { line: LineState; token: string }) {
         {stopped ? (
           <>
             Start<span className="line-word"> the line</span>
-            {!stepUp.fresh && <Key />}
+            {LINE_STEP_UP['line.start'] && !stepUp.fresh && <Key />}
           </>
         ) : (
           <>
@@ -148,7 +149,7 @@ function LineButton({ line, token }: { line: LineState; token: string }) {
           </>
         )}
       </button>
-      {open && <LineDialog kind={open} token={token} onClose={() => setOpen(undefined)} />}
+      {open && <LineDialog kind={open} stopped={stopped} token={token} onClose={() => setOpen(undefined)} />}
     </>
   );
 }
@@ -158,7 +159,18 @@ function LineButton({ line, token }: { line: LineState; token: string }) {
  * button runs the passkey sheet itself ("Use your passkey and start") when the service asks for it. What the service
  * says shows here, where he pressed: a refusal, or, once the line has stopped, that a canary in flight was not aborted.
  */
-function LineDialog({ kind, token, onClose }: { kind: 'stop' | 'start'; token: string; onClose: () => void }) {
+function LineDialog({
+  kind,
+  stopped,
+  token,
+  onClose,
+}: {
+  kind: 'stop' | 'start';
+  /** Whether the line is stopped now, as the events say. */
+  stopped: boolean;
+  token: string;
+  onClose: () => void;
+}) {
   const stepUp = useStepUp();
   const id = useId();
   const field = useRef<HTMLTextAreaElement>(null);
@@ -173,6 +185,13 @@ function LineDialog({ kind, token, onClose }: { kind: 'stop' | 'start'; token: s
     [],
   );
   const stop = kind === 'stop';
+  const asks = LINE_STEP_UP[`line.${kind}`];
+  // Stopped or started from elsewhere while it was open (`make stop-the-line`, another tab): it would do nothing now.
+  // Not while it acts, or once it has something to say, which the line's own change brings.
+  const moot = stop === stopped && !busy && answer === undefined;
+  useEffect(() => {
+    if (moot) onClose();
+  }, [moot, onClose]);
 
   const act = async () => {
     const why = reason.trim();
@@ -182,10 +201,16 @@ function LineDialog({ kind, token, onClose }: { kind: 'stop' | 'start'; token: s
     setAnswer(undefined);
     let refused: string | undefined;
     const prove = async () => {
-      refused = await stepUp.prove();
-      return refused === undefined;
+      refused = await stepUp.prove(() => live.current);
+      return refused === undefined && live.current;
     };
-    const got = await write(`/admin/line/${kind}`, { reason: why }, token, stop ? undefined : prove);
+    const got = await write(
+      `/admin/line/${kind}`,
+      { reason: why },
+      token,
+      LINE_STEP_UP[`line.${kind}`] ? prove : undefined,
+    );
+    // Closed while it asked: nothing more is sent, and nothing to say.
     if (!live.current) return;
     setBusy(false);
     if (got.status !== 200) return setAnswer({ text: refused ?? said(got), done: false });
@@ -195,7 +220,7 @@ function LineDialog({ kind, token, onClose }: { kind: 'stop' | 'start'; token: s
   };
 
   const done = answer?.done === true;
-  const label = stop ? 'Stop the line' : stepUp.fresh ? 'Start the line' : 'Use your passkey and start';
+  const label = stop ? 'Stop the line' : asks && !stepUp.fresh ? 'Use your passkey and start' : 'Start the line';
   return (
     <Dialog
       title={stop ? 'Stop the line' : 'Start the line'}
@@ -218,7 +243,7 @@ function LineDialog({ kind, token, onClose }: { kind: 'stop' | 'start'; token: s
               onClick={() => void act()}
             >
               {label}
-              {!stop && !stepUp.fresh && <Glyph name="key" className="glyph key" />}
+              {asks && !stepUp.fresh && <Glyph name="key" className="glyph key" />}
             </button>
           </>
         )
@@ -259,7 +284,7 @@ function LineDialog({ kind, token, onClose }: { kind: 'stop' | 'start'; token: s
           </span>
         </div>
       )}
-      {!stop && !stepUp.fresh && !done && <p className="help">Starting the line asks for your passkey again.</p>}
+      {asks && !stepUp.fresh && !done && <p className="help">Starting the line asks for your passkey again.</p>}
       {answer && (
         <p className="dialog-refusal" role="alert">
           {answer.text}

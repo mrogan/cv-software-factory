@@ -33,9 +33,9 @@ export interface StepUp {
   ask(asked: Asked): Promise<boolean>;
   /**
    * The passkey sheet itself, for a dialog that says already that it asks (Start the line's "Use your passkey and
-   * start"): nothing once given, or why not, in words.
+   * start"): nothing once given, or why not, in words. It opens no sheet once `live` says the dialog has gone.
    */
-  prove(): Promise<string | undefined>;
+  prove(live: () => boolean): Promise<string | undefined>;
 }
 
 const NONE: StepUp = {
@@ -43,7 +43,7 @@ const NONE: StepUp = {
   until: undefined,
   now: 0,
   ask: async () => false,
-  prove: async () => 'Sign in first.',
+  prove: async (_live: () => boolean) => 'Sign in first.',
 };
 const StepUpContext = createContext<StepUp>(NONE);
 
@@ -88,15 +88,18 @@ export function StepUpProvider({ session, children }: { session: Session | undef
     [hasSession],
   );
   const token = session?.token;
-  const prove = useCallback(async () => {
-    if (!token) return 'Sign in first.';
-    const refusal = await ceremony(token, () => true);
-    if (refusal === undefined) {
-      setGiven(Date.now());
-      setNow(Date.now());
-    }
-    return refusal;
-  }, [token]);
+  const prove = useCallback(
+    async (live: () => boolean) => {
+      if (!token) return 'Sign in first.';
+      const refusal = await ceremony(token, live);
+      if (refusal === undefined) {
+        setGiven(Date.now());
+        setNow(Date.now());
+      }
+      return refusal;
+    },
+    [token],
+  );
   /** An answer to one ask: it settles that ask alone, though a passkey given late still counts as given. */
   const answered = (id: number, yes: boolean) => {
     if (yes) {
