@@ -139,9 +139,11 @@ export function controlAction(change: ControlChange): ControlAction {
       const { before, after } = change;
       if (before === null) return 'take.widen';
       if (breadth(after) !== breadth(before)) return breadth(after) > breadth(before) ? 'take.widen' : 'take.narrow';
-      // The next few: more of them, or the same number counted again from later, is wider.
+      // The next few: more of them, or the same number counted again from another moment, is wider. The admin service
+      // only ever starts them again from later, to the microsecond, so any other start is one: `Date.parse` keeps
+      // milliseconds, and would call two starts in one millisecond the same.
       if (after.kind === 'next-few' && before.kind === 'next-few') {
-        const again = after.count === before.count && Date.parse(after.since) > Date.parse(before.since);
+        const again = after.count === before.count && after.since !== before.since;
         return after.count > before.count || again ? 'take.widen' : 'take.narrow';
       }
       return 'take.narrow';

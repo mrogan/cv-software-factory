@@ -101,6 +101,14 @@ describe('each change', () => {
     expect(change('take', next(3), { kind: 'next-few', count: 3, since: '2026-10-24T10:00:00.000Z' })).toBe(
       'take.widen',
     );
+    // Even in the same millisecond, as the admin service stamps it to the microsecond.
+    expect(
+      change(
+        'take',
+        { kind: 'next-few', count: 3, since: '2026-10-24T10:00:00.000100Z' },
+        { kind: 'next-few', count: 3, since: '2026-10-24T10:00:00.000200Z' },
+      ),
+    ).toBe('take.widen');
     // Just one, moved to another work item, is still one.
     expect(change('take', one('1290'), one('1291'))).toBe('take.narrow');
   });

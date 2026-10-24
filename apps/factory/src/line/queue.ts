@@ -174,9 +174,11 @@ export class Queue {
     return this.#sql.begin(async (tx) => {
       await tx`select pg_advisory_xact_lock(hashtext('line'))`;
       if (take !== null) {
+        // `since` goes as text, for Postgres to read to the microsecond: as a timestamptz, postgres.js would make a
+        // `Date` of it first, which keeps only milliseconds.
         const [row] = await tx<{ taken: number }[]>`
           select count(*)::int as taken from line
-          ${take.since === null ? tx`` : tx`where taken_at >= ${take.since}::timestamptz`}`;
+          ${take.since === null ? tx`` : tx`where taken_at >= ${take.since}::text::timestamptz`}`;
         if ((row?.taken ?? 0) >= take.most) return undefined;
       }
       const [busy] = only ? [] : await tx`select 1 from line where stage in ('plan', 'build') limit 1`;
