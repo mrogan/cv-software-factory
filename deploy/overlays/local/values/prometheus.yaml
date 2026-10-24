@@ -5,3 +5,9 @@
 scrapeConfigs:
   kubernetes-api-servers:
     enabled: false
+
+# The console's origin on this profile, for the links in an alert to Martin (base/telemetry/values/prometheus.yaml): the
+# one the admin service's passkeys are bound to (base/factory/admin.yaml, console-ingress.yaml).
+alertmanager:
+  templates:
+    profile.tmpl: '{{ define "console.origin" }}https://console.localhost:8443{{ end }}'
