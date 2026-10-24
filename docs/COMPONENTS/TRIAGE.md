@@ -98,7 +98,7 @@ Approving one means nothing yet, so Needs you does not offer it: the "+" on Plan
 
 ## How long a report is kept
 
-A visitor's report is kept for 30 days from when it was received, wherever the factory keeps it: the words they typed, and the page they sent it from as they sent it. Triage forgets each 29 days after it reached the store (`REPORT_TEXT` in `policy/triage.ts`), a day short, as it prunes the inbox, when it starts and every hour. The hour between passes, and the minutes before triage takes a report, then still fall inside the 30 days.
+A visitor's report is kept for 30 days from when it was received, wherever the factory keeps it: the words they typed, and the page they sent it from as they sent it. Triage forgets each 29 days after it reached the inbox (`REPORT_TEXT` in `policy/triage.ts`), a day short, as it prunes the inbox, when it starts and every hour, so the hour between passes still falls inside the 30 days. A report that waited for the gateway, as one does while a spend cap holds, is forgotten by when it arrived, not when triage got to it, and one that has waited 28 days is never judged at all: it is forgotten unjudged.
 
 - **The events.** The text goes from the report's `signal.received` and from each `judgement.made` Jev made of it, appended with it. The events stay: they are what the console, the audit log and the scoreboard are made from, and the store keeps every event (append-only, but for [this one change](EVENT-STORE.md#the-table)). What is left is valid at its version, as a report read from a public record has no text either, so every view reads it as a report whose words are withheld. The page stays as the event has it, a path with no query and nothing private in it: the factory's own, which the work item's title and the public view give everyone.
 - **The inbox.** The report's row goes, triaged or not, with its text and the page as it was sent. The log watcher takes up from the newest report the inbox holds, or from a day back when it holds none, and Loki keeps seven days: nothing could send one that old again.
@@ -112,6 +112,8 @@ Elsewhere the text goes sooner, or is the cluster's to keep:
 - **Loki** keeps the app's log, the widget's records among them, for seven days, and **Tempo** its traces for three ([telemetry](TELEMETRY.md)).
 - **The node's container logs**, the files the app's output is written to before the collector reads them, are rotated by size, not by time: the kubelet keeps five files of up to 10 MiB for each container, its defaults, which the cluster leaves as they are. On a quiet app a report could stay there longer than 30 days. That is the cluster's setting, k3s's, and not the factory's to change.
 - **Postgres** keeps the old version of a row it changed or deleted until autovacuum reclaims it, which it does on its own.
+- **Martin's console** keeps the full events it has read in the tab, and a report forgotten meanwhile is quoted there until the tab loads them again; a session lasts 30 minutes at most.
+- **A gateway on the host** in `replay-record`, as `AGENTS.md` runs one against the cluster's store, prunes nothing: its folder is the one a developer gave it, kept out of the repository, and what it recorded of real reports is theirs to delete.
 
 ## The planner's findings
 

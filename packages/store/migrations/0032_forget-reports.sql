@@ -40,31 +40,41 @@ create index events_report_text on events (appended_at)
 --
 -- - the text of every visitor's report that reached the store before `before`, and of each judgement Jev made of it,
 --   appended with it (the same work item and time). A planner's finding is the factory's own words, and stays;
+-- - and of every report appended to the work item of one the inbox received before then, since it was received: a
+--   report triage took late, waiting for the gateway, is forgotten by when it arrived, not when triage got to it. A
+--   newer report on the same work item may go with it, a little early. (Triage takes no report within a day of this,
+--   `#claim` in packages/triage, so none is still being judged as its row goes.)
 -- - every report in the inbox received before then, triaged or not. The log watcher takes up from the newest report
 --   the inbox holds, or from a day back when it holds none; a report that old is far older than either, and than
 --   what Loki keeps, so nothing reads one again.
 create function forget_reports(before timestamptz, out texts integer, out reports integer)
 language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
-declare
-  judgements integer;
 begin
   before := least(before, now() - interval '29 days');
-  with sent as (
-    select work_item, ts from public.events
-    where type = 'signal.received' and payload ->> 'sense' = 'report' and payload -> 'report' ? 'text'
-      and appended_at < before and not sample
+  with late as (
+    select work_item, received_at from public.inbox
+    where sense = 'report' and received_at < before and work_item is not null
+  ),
+  sent as (
+    select e.id, e.work_item, e.ts from public.events e
+    where e.type = 'signal.received' and e.payload ->> 'sense' = 'report' and e.payload -> 'report' ? 'text'
+      and not e.sample
+      and (e.appended_at < before
+           or exists (select 1 from late where late.work_item = e.work_item and e.appended_at >= late.received_at))
+  ),
+  judgements as (
+    update public.events judged set payload = judged.payload #- '{state,report,text}'
+    from sent
+    where judged.type = 'judgement.made' and judged.work_item = sent.work_item and judged.ts = sent.ts
+      and judged.payload -> 'state' -> 'report' ? 'text'
+    returning judged.id
+  ),
+  signals as (
+    update public.events signal set payload = signal.payload #- '{report,text}'
+    from sent where signal.id = sent.id
+    returning signal.id
   )
-  update public.events judged set payload = judged.payload #- '{state,report,text}'
-  from sent
-  where judged.type = 'judgement.made' and judged.work_item = sent.work_item and judged.ts = sent.ts
-    and judged.payload -> 'state' -> 'report' ? 'text';
-  get diagnostics judgements = row_count;
-
-  update public.events set payload = payload #- '{report,text}'
-  where type = 'signal.received' and payload ->> 'sense' = 'report' and payload -> 'report' ? 'text'
-    and appended_at < before and not sample;
-  get diagnostics texts = row_count;
-  texts := texts + judgements;
+  select (select count(*) from judgements) + (select count(*) from signals) into texts;
 
   delete from public.inbox where sense = 'report' and received_at < before;
   get diagnostics reports = row_count;

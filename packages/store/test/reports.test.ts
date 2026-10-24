@@ -112,6 +112,8 @@ describe('forgetting reports', () => {
     await appendedAgo(db, judged('1000', 'report', 'The price says £0, my email is [email]'), 30);
     await appendedAgo(db, judged('1001', 'planner', 'The footer links to a page that is not there'), 30);
     await appendedAgo(db, judged('1002', 'report', 'The basket forgets what I put in it'), 28);
+    // Received 30 days ago, but judged only 2 days ago, after waiting for the gateway.
+    await appendedAgo(db, judged('1003', 'report', 'The search finds nothing'), 2);
     before = await stored(db.owner);
 
     const rows = [
@@ -120,15 +122,17 @@ describe('forgetting reports', () => {
       ['new report', 'report', daysAgo(28), 'report'],
       ['old finding', 'planner', daysAgo(30), 'finding'],
       ['old repeat', 'crawler', daysAgo(30), 'opened'],
+      ['judged late', 'report', daysAgo(30), 'report'],
     ] as const;
     for (const [name, sense, at, outcome] of rows) {
       const id = crypto.randomUUID();
       inbox[name] = id;
       const words = sense === 'crawler' ? {} : { report: { page: '/about?q=me', text: 'words' } };
-      await db.owner`insert into inbox (id, sense, fingerprint, signal, received_at, triaged_at, outcome)
+      const workItem = name === 'judged late' ? '1003' : null;
+      await db.owner`insert into inbox (id, sense, fingerprint, signal, received_at, triaged_at, outcome, work_item)
                      values (${id}, ${sense}, ${sense === 'crawler' ? '/about broken-link' : null},
                              ${db.owner.json({ sense, route: '/about', ...words })}, ${at},
-                             ${outcome ? at : null}, ${outcome})`;
+                             ${outcome ? at : null}, ${outcome}, ${workItem})`;
     }
   });
 
@@ -141,12 +145,18 @@ describe('forgetting reports', () => {
   it('takes the text out of each report older than 29 days, and of Jev’s judgements of it, however late the cut', async () => {
     // The migration holds the same 29 days: a caller cannot make it forget sooner.
     expect(REPORT_TEXT.keepDays).toBe(29);
-    expect(await forgetReports(triage, cut)).toEqual({ texts: 2, reports: 2 });
+    expect(await forgetReports(triage, cut)).toEqual({ texts: 4, reports: 3 });
     const after = await stored(db.owner);
     expect(after.get('1000 signal.received')?.payload).toMatchObject({ report: { page: '/about' } });
     expect(after.get('1000 signal.received')?.payload).not.toHaveProperty('report.text');
     expect(after.get('1000 judgement.made')?.payload).toMatchObject({ state: { report: { page: '/about' } } });
     expect(after.get('1000 judgement.made')?.payload).not.toHaveProperty('state.report.text');
+  });
+
+  it('forgets a report by when the inbox received it, however late triage appended it', async () => {
+    const after = await stored(db.owner);
+    expect(after.get('1003 signal.received')?.payload).not.toHaveProperty('report.text');
+    expect(after.get('1003 judgement.made')?.payload).not.toHaveProperty('state.report.text');
   });
 
   it('keeps a planner’s finding, a report not 29 days old, and every public view as they were', async () => {

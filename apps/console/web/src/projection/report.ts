@@ -10,6 +10,12 @@
 /** The most of a report's text the console shows. */
 export const REPORT_CHARS = 140;
 
+/**
+ * How long a report's text is kept, in days, from when it was received: `REPORT_TEXT.promisedDays` in policy/triage.ts,
+ * which the console's image is built without, so it keeps this copy, and a test holds it to the policy.
+ */
+export const REPORT_KEPT_DAYS = 30;
+
 /** Everything else is left out: no markup characters, no `@`, nothing outside ASCII. */
 const NOT_ALLOWED = /[^A-Za-z0-9 .,!?'"():;/-]/g;
 

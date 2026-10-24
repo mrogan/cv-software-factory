@@ -5,7 +5,7 @@ import { type InboxSignal, type NewEvent, type PayloadOf, type Screenshot, VERSI
 import { DiskArtifacts, EventWriter, lastEnd, lineStopped, sendSignal } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { BURST, INBOX } from '../../../../policy/triage.ts';
+import { BURST, INBOX, REPORT_TEXT } from '../../../../policy/triage.ts';
 import { type Database, freshDatabase } from '../../../store/test/database.ts';
 import { burstEvents, idsFor, senseEvidence, senseTicket } from '../../src/events.ts';
 import { type Answer, type Judge, JudgeWaiting } from '../../src/judge.ts';
@@ -1030,6 +1030,19 @@ describe('triage', () => {
     const [row] = await writer`select attempts, failure, triaged_at from inbox where id = ${id}`;
     expect(row).toMatchObject({ attempts: 0, failure: 'No cassette for this report, and the gateway has no key' });
     expect(row?.triaged_at).toBeNull();
+  });
+
+  it('never judges a report so late that its words would outlive their time', async () => {
+    const id = await sendSignal(
+      database.owner,
+      found({ sense: 'report', symptom: undefined, report: { page: '/', text: 'Nothing loads at all' } }),
+    );
+    await database.owner`update inbox set received_at = received_at - make_interval(days => ${REPORT_TEXT.keepDays - 1})
+                         where id = ${id}`;
+    const worker = triage();
+    for (let i = 0; i < 20 && (await worker.takeOne()) !== 'idle'; i++) {}
+    const [row] = await writer`select attempts, triaged_at from inbox where id = ${id}`;
+    expect(row).toMatchObject({ attempts: 0, triaged_at: null });
   });
 
   it('keeps opening the senses’ tickets while reports wait for the gateway', async () => {
