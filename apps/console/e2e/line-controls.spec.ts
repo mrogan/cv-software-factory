@@ -217,6 +217,10 @@ test('Martin tightens and loosens autonomy, turns a switch, and widens and narro
     ).toBeVisible();
     await expect(take.getByRole('button', { name: 'Every ticket (asks for your passkey)' })).toBeVisible();
     await expect(take.getByRole('button', { name: 'Just one', exact: true })).toBeVisible();
+    // Fewer of the next few count again from now, which may take more: Set asks too.
+    await panel.getByLabel('How many').fill('2');
+    await expect(panel.getByRole('button', { name: 'Set (asks for your passkey)' })).toBeVisible();
+    await panel.getByRole('button', { name: 'Cancel' }).click();
     await expect(panel.getByRole('switch', { name: /Auto-rollback/ })).toBeDisabled();
   });
 
