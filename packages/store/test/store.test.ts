@@ -370,8 +370,8 @@ describe('reading', () => {
 });
 
 describe("Martin's command line", () => {
-  // Neither readies his role here, so neither changes its password beside another file's migration (postgres.ts),
-  // which readies it as this file's did.
+  // Neither readies his role here, so neither changes the password the run's setup gave it (postgres.ts) while other
+  // files connect as it.
   it('connects as the owner on a store not yet migrated to his role, and fails on one migrated without it', async () => {
     const old = await freshDatabase('before_0023');
     try {
