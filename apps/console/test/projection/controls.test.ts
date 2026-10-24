@@ -66,7 +66,7 @@ describe('the line’s controls', () => {
       changed(10, { take: { kind: 'next-few', count: 3, since } }),
       ...taken('2', 12),
       ...taken('3', 20),
-      // A new number keeps when they started.
+      // A change that keeps when they started counts on from then: the count follows the event's own start.
       changed(22, { take: { kind: 'next-few', count: 4, since } }),
       // Triage's ticket alone is not taken, nor one the line only recorded something on: no agent has worked on it.
       ...work('4', start)
@@ -82,10 +82,10 @@ describe('the line’s controls', () => {
     });
     // Only the next few count.
     expect(controlsView([...events, changed(31, { take: { kind: 'every' } })], at(32)).nextFew).toBeUndefined();
-    // Chosen again with the same number, they start again.
+    // Chosen again, as the admin service stamps it, they start again, fewer too.
     const again = [
       ...events,
-      changed(31, { take: { kind: 'next-few', count: 4, since: new Date(at(31)).toISOString() } }),
+      changed(31, { take: { kind: 'next-few', count: 2, since: new Date(at(31)).toISOString() } }),
     ];
     expect(controlsView(again, at(32)).nextFew).toEqual({ since: at(31), taken: 0 });
   });

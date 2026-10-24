@@ -54,7 +54,7 @@ Each stage can also hold for Martin (see [Holds](#holds-and-martins-answers)).
 - As a ticket enters Plan, it opens the ticket's issue through the App, from the ticket's public view. The fix's pull request refers to that issue.
 - After Martin's merge, it carries the work item through Release and Verify until it closes.
 
-What it takes is Martin's to set in the console's Controls ([admin service](ADMIN-SERVICE.md#the-lines-controls)), read at each pass as `controls.changed`'s latest from his roles, held to policy by `policy/line.ts` as it is read: Every ticket, The next few (from when he chose them, at most 20), or Just one. With none in force, before he sets one or when the latest is outside policy, two settings are the line's own default:
+What it takes is Martin's to set in the console's Controls ([admin service](ADMIN-SERVICE.md#the-lines-controls)), read at each pass as `controls.changed`'s latest from his roles, held to policy by `policy/line.ts` as it is read: Every ticket, The next few (counted from when he last chose a number, at most 20), or Just one. With none in force, before he sets one or when the latest is outside policy, two settings are the line's own default:
 
 - **`LINE_ONLY`**, set to a work item, makes the line act on that one alone, as Just one does.
   - It takes that ticket onto the line whatever else is in Plan or Build.
