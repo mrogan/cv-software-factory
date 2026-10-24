@@ -14,6 +14,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { type Objectives, objectives } from '../../../../policy/objectives.ts';
 import { STUCK, type StuckStage } from '../../../../policy/stuck.ts';
+import { REPORT_TEXT } from '../../../../policy/triage.ts';
 import { SECURITY_KINDS, type SecurityKind } from '../line/security.ts';
 import { METRICS_FROM_THE_LINE } from '../provenance.ts';
 import * as query from './queries.ts';
@@ -167,6 +168,23 @@ export const HOLDS_STORED = fromTheLine('line_holds_stored_total');
 /** Whether the line's last read of them from the store succeeded. */
 const COUNTING = fromTheLine('line_security_events_counting');
 
+const DAY_SECONDS = 24 * 60 * 60;
+
+/**
+ * The days Martin has, once told, to release the shop before a report in its pod's logs is older than the privacy pages
+ * promise (`REPORT_TEXT.promisedDays`): time to merge a pending update or its deploy pull request.
+ */
+export const SHOP_POD_RELEASE_DAYS = 5;
+/** How old a running shop pod is, in days, when Martin is told: `SHOP_POD_RELEASE_DAYS` before the promise. */
+export const SHOP_POD_DAYS = REPORT_TEXT.promisedDays - SHOP_POD_RELEASE_DAYS;
+
+/**
+ * Each running pod of the shop, from kube-state-metrics: the Rollout's, which its ReplicaSets own, not the canary
+ * analysis's journeys, which their Jobs own. Each series is the pod's, by `pod`, at 1.
+ */
+const SHOP_PODS_RUNNING =
+  'max by (pod) (kube_pod_owner{namespace="website", owner_kind="ReplicaSet"}) and on (pod) max by (pod) (kube_pod_status_phase{namespace="website", phase="Running"} == 1)';
+
 /** How far back an alert to Martin looks for a new event: one or several in it are one message. */
 const RECENT = '5m';
 
@@ -180,10 +198,13 @@ const RECENT = '5m';
  *   from Martin, and nothing here makes one. A silence that matches this alert keeps it quiet too: the limit the dead
  *   man's switch covers (milestone 10). The rule takes the highest of any series by that name, so another can only page
  *   him more, never less;
- * - a notification for each hold started, by its cause, whoever started it.
+ * - a notification for each hold started, by its cause, whoever started it;
+ * - a notification when a running shop pod is `SHOP_POD_DAYS` old: the node's container logs, which may hold a report's
+ *   text, go only with the pod (docs/COMPONENTS/TRIAGE.md#how-long-a-report-is-kept), and a release replaces it. The oldest
+ *   start of any series by that name for a pod is taken, so another can only alert him sooner, never later.
  *
- * Each reads the line's series alone (`METRICS_FROM_THE_LINE`), and takes the highest of its replicas', which report the
- * same figure.
+ * Each that reads the line's series reads them alone (`METRICS_FROM_THE_LINE`), and takes the highest of its replicas',
+ * which report the same figure.
  */
 export function martinRules(): Rule[] {
   const security = SECURITY_KINDS.map((kind) => ({
@@ -224,6 +245,18 @@ export function martinRules(): Rule[] {
       annotations: {
         summary: 'A hold waits for you',
         description: 'A work item is held for your answer: {{ $labels.cause }}.',
+      },
+    },
+    {
+      alert: 'ShopPodOld',
+      expr: `max by (pod) (time() - kube_pod_start_time{namespace="website"}) > ${SHOP_POD_DAYS * DAY_SECONDS} and on (pod) (${SHOP_PODS_RUNNING})`,
+      // The age only grows, so the hour costs little of the five days. A series missed for longer than Prometheus looks
+      // back resolves the alert, and it is told again an hour after the series returns, not at once.
+      for: '1h',
+      labels: { level: LEVELS.notify },
+      annotations: {
+        summary: `The shop's pod is ${SHOP_POD_DAYS} days old`,
+        description: `Its container logs on the node may hold a visitor's report, and they go only with the pod. Release the shop (merge a pending update, or its deploy pull request), so a new pod replaces it before a report in its logs is ${REPORT_TEXT.promisedDays} days old. With none pending, restart its Rollout: with one replica, the shop is down until the new pod is ready.`,
       },
     },
   ];
@@ -404,8 +437,9 @@ ${map(rule.annotations, '              ')}`,
             expr: ${JSON.stringify(rule.expr)}${rule.labels ? `\n            labels:\n${map(rule.labels, '              ')}` : ''}`,
       )
       .join('\n');
-  return `# Generated from policy/objectives.ts and policy/stuck.ts by apps/factory/src/alerts/rules.ts. Do not edit it: change
-# the policy, then run \`node apps/factory/src/alerts/rules.ts\`. \`make check\` fails when this file is out of date.
+  return `# Generated from policy/objectives.ts, policy/stuck.ts and policy/triage.ts by apps/factory/src/alerts/rules.ts. Do
+# not edit it: change the policy, then run \`node apps/factory/src/alerts/rules.ts\`. \`make check\` fails when this
+# file is out of date.
 serverFiles:
   alerting_rules.yml:
     groups:

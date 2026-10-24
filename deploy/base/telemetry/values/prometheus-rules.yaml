@@ -1,5 +1,6 @@
-# Generated from policy/objectives.ts and policy/stuck.ts by apps/factory/src/alerts/rules.ts. Do not edit it: change
-# the policy, then run `node apps/factory/src/alerts/rules.ts`. `make check` fails when this file is out of date.
+# Generated from policy/objectives.ts, policy/stuck.ts and policy/triage.ts by apps/factory/src/alerts/rules.ts. Do
+# not edit it: change the policy, then run `node apps/factory/src/alerts/rules.ts`. `make check` fails when this
+# file is out of date.
 serverFiles:
   alerting_rules.yml:
     groups:
@@ -197,6 +198,14 @@ serverFiles:
             annotations:
               summary: "A hold waits for you"
               description: "A work item is held for your answer: {{ $labels.cause }}."
+          - alert: ShopPodOld
+            expr: "max by (pod) (time() - kube_pod_start_time{namespace=\"website\"}) > 2160000 and on (pod) (max by (pod) (kube_pod_owner{namespace=\"website\", owner_kind=\"ReplicaSet\"}) and on (pod) max by (pod) (kube_pod_status_phase{namespace=\"website\", phase=\"Running\"} == 1))"
+            for: 1h
+            labels:
+              level: "notify"
+            annotations:
+              summary: "The shop's pod is 25 days old"
+              description: "Its container logs on the node may hold a visitor's report, and they go only with the pod. Release the shop (merge a pending update, or its deploy pull request), so a new pod replaces it before a report in its logs is 30 days old. With none pending, restart its Rollout: with one replica, the shop is down until the new pod is ready."
   recording_rules.yml:
     groups:
       - name: routes

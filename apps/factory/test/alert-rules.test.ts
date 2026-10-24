@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { objectives } from '../../../policy/objectives.ts';
 import { STUCK } from '../../../policy/stuck.ts';
+import { REPORT_TEXT } from '../../../policy/triage.ts';
 import * as query from '../src/alerts/queries.ts';
 import {
   BUDGET_INTERVAL,
@@ -21,6 +22,8 @@ import {
   routeRulesFor,
   rulesFor,
   SECURITY_LEVELS,
+  SHOP_POD_DAYS,
+  SHOP_POD_RELEASE_DAYS,
   stuckRulesFor,
 } from '../src/alerts/rules.ts';
 import { coder } from '../src/line/agents/coder.ts';
@@ -295,6 +298,23 @@ describe('the alerts to Martin', () => {
     ]);
     expect(by('HoldStarted').map((rule) => rule.labels.level)).toEqual([LEVELS.notify]);
     expect(by('HoldStarted')[0]?.expr).toMatch(/^max by \(cause\) \(increase\(line_holds_stored_total\{/);
+  });
+
+  it('notify when a running shop pod is old enough that a report in its logs nears the privacy pages’ promise', () => {
+    const [old, ...more] = rules.filter((rule) => rule.alert === 'ShopPodOld');
+    expect(more).toEqual([]);
+    expect(old?.labels.level).toBe(LEVELS.notify);
+    // Days before the promise, for Martin to release the shop, less the hour's hold.
+    expect(SHOP_POD_DAYS + SHOP_POD_RELEASE_DAYS).toBe(REPORT_TEXT.promisedDays);
+    expect(SHOP_POD_RELEASE_DAYS).toBeGreaterThanOrEqual(1);
+    expect(old?.for).toBe('1h');
+    expect(old?.expr).toContain(` > ${SHOP_POD_DAYS * 24 * 60 * 60} and on (pod) `);
+    // The Rollout's pods, which ReplicaSets own, while they run: never the journeys' Jobs.
+    expect(old?.expr).toContain('kube_pod_start_time{namespace="website"}');
+    expect(old?.expr).toContain('kube_pod_owner{namespace="website", owner_kind="ReplicaSet"}');
+    expect(old?.expr).toContain('kube_pod_status_phase{namespace="website", phase="Running"} == 1');
+    expect(old?.annotations.summary).toBe(`The shop's pod is ${SHOP_POD_DAYS} days old`);
+    expect(old?.annotations.description).toMatch(/^Its container logs .* Release the shop /);
   });
 
   it('set a level Alertmanager routes, or none: a mistyped one would reach no one', () => {

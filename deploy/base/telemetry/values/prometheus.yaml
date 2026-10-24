@@ -109,8 +109,8 @@ alertmanager:
         pushover_configs:
           - <<: *pushover
             priority: "-1"
-# kube-state-metrics: each pod's restarts and readiness, and each Deployment's, StatefulSet's, DaemonSet's and Job's
-# replicas and outcomes, read from the Kubernetes API. It asks to be scraped as Traefik does, with
+# kube-state-metrics: each pod's restarts, readiness and start, and each Deployment's, StatefulSet's, DaemonSet's and
+# Job's replicas and outcomes, read from the Kubernetes API. It asks to be scraped as Traefik does, with
 # `prometheus.io/` annotations on its pod, rather than on the Service the chart would annotate. The scrape keeps the
 # `namespace` and `pod` its series name (the `kubernetes-pods` job honours their labels), not its own.
 #
