@@ -8,7 +8,7 @@ Martin's sign-in, his sessions, and the one way a browser changes the factory (s
 - **v1:** Martin's answers to holds, from Needs you: approve, reject, or answer in words ([below](#needs-you)).
 - **v1:** Stop the line and Start the line, from the console's header, with the canary in flight aborted as the line stops ([below](#stopping-and-starting-the-line)).
 - **v1:** the line's controls: the autonomy level, whether agents take new work, auto-merge, and what the line takes, within policy ([below](#the-lines-controls)).
-- **Later:** the actions of task 10, each a write route in the access table.
+- **Later:** improvement requests, feature flags and their stages, the red-team attacks, auto-rollback's switch and visitor keys' usage (spec 5.4), each a route in the access table.
 
 ```mermaid
 flowchart LR
@@ -44,7 +44,7 @@ Every route it answers is in [`policy/access.ts`](../../policy/access.ts), and i
 | `line.start` | `POST /admin/line/start` | a write's four checks, and the passkey given within five minutes |
 | `line.controls` | `POST /admin/line/controls` | a write's four checks, and the passkey given within five minutes when the change loosens (`autonomy.loosen`, `auto-merge.on`, `take.widen`) |
 
-A write's four checks, in order: `Origin` exactly the console's origin in configuration, never one made from the request's `Host`; a live session; the session's token in `X-CSRF-Token`; and, for an action the table marks, the passkey given again within `STEP_UP.minutes`. Every write is a `POST` with a JSON body, which no form can send. The actions of tasks 8 and 10 plug in the same way: a route on their entry, and a handler; the guard comes from the table.
+A write's four checks, in order: `Origin` exactly the console's origin in configuration, never one made from the request's `Host`; a live session; the session's token in `X-CSRF-Token`; and, for an action the table marks, the passkey given again within `STEP_UP.minutes`. Every write is a `POST` with a JSON body, which no form can send. An action added later plugs in the same way: a route on its entry, and a handler; the guard comes from the table.
 
 ## Signing in
 

@@ -19,7 +19,10 @@ export default defineConfig({
   reporter: process.env.CI ? [['github'], ['html', { open: 'never', outputFolder: 'e2e-report' }]] : 'list',
   outputDir: 'e2e-results',
   snapshotPathTemplate: '{testDir}/snapshots/{testFileName}/{arg}{ext}',
-  expect: { toHaveScreenshot: { animations: 'disabled', caret: 'hide', scale: 'css' } },
+  // How far a pixel's colour may drift before it counts as changed: half Playwright's default of 0.2, so a token's
+  // colour that moves a little still fails. It is the least of those tried that passes every snapshot run after run in
+  // the pinned image: at 0.05 two fail by a pixel or ten at an edge, and at 0 which ones fail changes from run to run.
+  expect: { toHaveScreenshot: { animations: 'disabled', caret: 'hide', scale: 'css', threshold: 0.1 } },
   use: {
     baseURL: `http://localhost:${PORT}`,
     timezoneId: 'Europe/London',

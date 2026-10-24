@@ -6,7 +6,7 @@
 import { adminService, consoleUrl, expect, ready, SESSION, test } from './support.ts';
 
 test('offers no sign-in where there is no admin service to sign in to', async ({ page }) => {
-  // The console's server answers `/admin/session` with its own 404, as a cluster before the service's Deployment does.
+  // The console's server answers `/admin/session` with its own 404, as a deployment without the service does.
   await page.goto(consoleUrl());
   await ready(page);
   await expect(page.getByRole('link', { name: 'Martin’s sign-in' })).toHaveCount(0);
