@@ -1,4 +1,4 @@
--- A visitor's report is kept for a while, not for ever (REPORTS in policy/triage.ts): once old enough, its text goes
+-- A visitor's report is kept for a while, not for ever (REPORT_TEXT in policy/triage.ts): once old enough, its text goes
 -- from the events, and its row from the inbox. `forgetReports` in packages/store/src/reports.ts says what goes.
 --
 -- The events stay append-only but for that one change. An update is refused unless all it does is take the text out
@@ -47,8 +47,9 @@ create index events_report_text on events (appended_at)
 --   appended with it (the same work item and time). A planner's finding is the factory's own words, and stays;
 -- - and of every report appended to the work item of one the inbox received before then, since it was received: a
 --   report triage took late, waiting for the gateway, is forgotten by when it arrived, not when triage got to it. A
---   newer report on the same work item may go with it, a little early. (Triage takes no report within a day of this,
---   `#claim` in packages/triage, so none is still being judged as its row goes.)
+--   newer report on the same work item may go with it, a little early. (Triage takes no report older than
+--   `REPORT_TEXT.judgeDays`, a week short of this, `#claim` in packages/triage, so none is still being judged as its
+--   row goes.)
 -- - every report in the inbox received before then, triaged or not. The log watcher takes up from the newest report
 --   the inbox holds, or from a day back when it holds none; a report that old is far older than either, and than
 --   what Loki keeps, so nothing reads one again.
