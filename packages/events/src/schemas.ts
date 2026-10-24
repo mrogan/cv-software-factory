@@ -30,6 +30,16 @@ const pullRequest = z.number().int().positive();
 const stage = z.enum(V.STAGES);
 const severities = z.strictObject({ critical: count, high: count, medium: count, low: count });
 
+/**
+ * What the line takes: every ticket; the next few, counted from when Martin chose it (`since`); or just one work item.
+ * Its bounds are policy's (`policy/line.ts`), checked where it is read.
+ */
+const take = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('every') }),
+  z.strictObject({ kind: z.literal('next-few'), count: z.number().int().positive().max(1000), since: timestamp }),
+  z.strictObject({ kind: z.literal('just-one'), workItem }),
+]);
+
 /** Where on a page something is, in CSS pixels from the top left of the screenshot. */
 const rect = {
   x: z.number().nonnegative(),
@@ -843,7 +853,8 @@ export const PAYLOADS = {
 
   /**
    * The line started: from the console's Start the line, with Martin's reason, or from `make start-the-line`, with his
-   * reason if he gave one, and the autonomy level if he named one.
+   * reason if he gave one. The autonomy level is a control of its own (`controls.changed`): a start that names one is
+   * from before it was, kept as it was recorded, and sets nothing.
    */
   'line.started': z.strictObject({ autonomy: z.enum(V.AUTONOMY).optional(), reason: text(200).optional() }),
   /** The line stopped, from the console's Stop the line or `make stop-the-line`, with Martin's reason. */
@@ -988,6 +999,30 @@ export const PAYLOADS = {
       )
       .min(1)
       .max(20),
+  }),
+  /**
+   * Martin changed one of the line's controls in the console (`policy/line.ts`): every control as it now stands, and
+   * the one he changed, with its value before and after. The line and the admin service read the latest one his roles
+   * appended, and check it against policy as they read it: anything outside it is not in force, and policy's default
+   * is. Nothing routes by the autonomy level or auto-merge until approval routing comes (Part C); the line acts on
+   * the switch for new work and on what it takes from its next pass.
+   */
+  'controls.changed': z.strictObject({
+    autonomy: z.enum(V.AUTONOMY),
+    newWork: z.boolean(),
+    autoMerge: z.boolean(),
+    /** None: no take set, so the line's own default (`LINE_TAKE`, `LINE_ONLY`) is in force. */
+    take: take.nullable(),
+    change: z.discriminatedUnion('control', [
+      z.strictObject({
+        control: z.literal('autonomy'),
+        before: z.enum(V.AUTONOMY),
+        after: z.enum(V.AUTONOMY),
+      }),
+      z.strictObject({ control: z.literal('new-work'), before: z.boolean(), after: z.boolean() }),
+      z.strictObject({ control: z.literal('auto-merge'), before: z.boolean(), after: z.boolean() }),
+      z.strictObject({ control: z.literal('take'), before: take.nullable(), after: take }),
+    ]),
   }),
 } satisfies { [K in EventType]: z.ZodType };
 

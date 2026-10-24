@@ -14,7 +14,10 @@
  *   `release-control` (a `release.controlled` that promotes or retries), `guardrail-approved` (a `hold.answered`
  *   approving a hold whose cause is a guardrail, read from the hold it answers: the latest on its work item before it,
  *   which is the hold the line takes it to answer, so an approval counts as what it does),
- *   and `line-started`.
+ *   and `line-started`;
+ * - every change of the line's controls (`controls.changed`), as the access table's action it is, told from the
+ *   stored change's before and after alone (`policy/line.ts`): `autonomy-loosened` and `autonomy-tightened`,
+ *   `new-work-on` and `new-work-off`, `auto-merge-on` and `auto-merge-off`, `take-widened` and `take-narrowed`.
  *
  * And every hold started, by its cause, whoever started it.
  *
@@ -26,9 +29,10 @@
  * and the log: the alert on the count going stale or missing pages instead.
  */
 import { type BatchObservableResult, metrics } from '@opentelemetry/api';
-import { HOLD_CAUSES, type HoldCause, type ReleaseControl, upcast } from '@software-factory/events';
+import { HOLD_CAUSES, type HoldCause, LINE_CONTROLS, type ReleaseControl, upcast } from '@software-factory/events';
 import type { Sql } from 'postgres';
 import { GUARDRAIL_HOLDS } from '../../../../policy/access.ts';
+import { type ControlAction, type ControlChange, controlAction } from '../../../../policy/line.ts';
 import type { Logger } from '../log.ts';
 
 const meter = metrics.getMeter('factory-line');
@@ -43,6 +47,14 @@ export const SECURITY_KINDS = [
   'release-control',
   'guardrail-approved',
   'line-started',
+  'autonomy-loosened',
+  'autonomy-tightened',
+  'new-work-on',
+  'new-work-off',
+  'auto-merge-on',
+  'auto-merge-off',
+  'take-widened',
+  'take-narrowed',
 ] as const;
 export type SecurityKind = (typeof SECURITY_KINDS)[number];
 
@@ -62,6 +74,7 @@ const TYPES = [
   'release.controlled',
   'hold.answered',
   'line.started',
+  'controls.changed',
   'hold.started',
 ] as const;
 
@@ -74,6 +87,29 @@ export interface Stored {
   decision?: string | null;
   /** A hold's cause; for an answer, the cause of the hold it answers. */
   cause?: string | null;
+  /** A change of the line's controls: the one control, with its value before and after. */
+  change?: unknown;
+}
+
+/** The kind each change of the line's controls counts as, by the access table's action it is. */
+const CONTROL_KINDS: Record<ControlAction, SecurityKind> = {
+  'autonomy.loosen': 'autonomy-loosened',
+  'autonomy.tighten': 'autonomy-tightened',
+  'new-work.on': 'new-work-on',
+  'new-work.off': 'new-work-off',
+  'auto-merge.on': 'auto-merge-on',
+  'auto-merge.off': 'auto-merge-off',
+  'take.widen': 'take-widened',
+  'take.narrow': 'take-narrowed',
+};
+
+/** A stored change, if it has the shape of one: a control the line has, and a value before and after. */
+function changeOf(value: unknown): ControlChange | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const { control } = value as { control?: unknown };
+  return (LINE_CONTROLS as readonly unknown[]).includes(control) && 'before' in value && 'after' in value
+    ? (value as ControlChange)
+    : undefined;
 }
 
 /**
@@ -101,6 +137,10 @@ export function countAs(event: Stored): { kind: SecurityKind } | { hold: HoldCau
       return { kind: 'stepped-up' };
     case 'line.started':
       return { kind: 'line-started' };
+    case 'controls.changed': {
+      const change = changeOf(event.change);
+      return change ? { kind: CONTROL_KINDS[controlAction(change)] } : null;
+    }
     case 'release.controlled':
       return STEPPED_UP_CONTROLS.includes(event.action as ReleaseControl) ? { kind: 'release-control' } : null;
     case 'hold.answered':
@@ -140,12 +180,14 @@ export async function readOn(sql: Sql, tally: Tally): Promise<Tally> {
       type: string | null;
       action: string | null;
       decision: string | null;
+      change: unknown;
       hold_version: number | null;
       hold_payload: Record<string, unknown> | null;
     }[]
   >`
     with upto as (select max(seq) as last from events)
     select upto.last::text as last, e.type, e.payload->>'action' as action, e.payload->>'decision' as decision,
+           e.payload->'change' as change,
            h.version as hold_version, h.payload as hold_payload
     from upto
     left join events e
@@ -160,7 +202,13 @@ export async function readOn(sql: Sql, tally: Tally): Promise<Tally> {
   const next: Tally = { seq: rows[0]?.last ?? tally.seq, kinds: { ...tally.kinds }, holds: { ...tally.holds } };
   for (const row of rows) {
     if (!row.type) continue;
-    const counted = countAs({ type: row.type, action: row.action, decision: row.decision, cause: causeOf(row) });
+    const counted = countAs({
+      type: row.type,
+      action: row.action,
+      decision: row.decision,
+      change: row.change,
+      cause: causeOf(row),
+    });
     if (counted && 'kind' in counted) next.kinds[counted.kind] += 1;
     else if (counted) next.holds[counted.hold] += 1;
   }
@@ -168,7 +216,8 @@ export async function readOn(sql: Sql, tally: Tally): Promise<Tally> {
 }
 
 const securityEvents = meter.createObservableCounter('line.security_events', {
-  description: 'Martin’s security events the store holds, by kind: sign-ins, passkeys, settings and stepped-up actions',
+  description:
+    'Martin’s security events the store holds, by kind: sign-ins, passkeys, settings, the line’s controls and stepped-up actions',
 });
 
 const holdsStored = meter.createObservableCounter('line.holds.stored', {

@@ -14,11 +14,35 @@
  * at a time, under the lock every append takes, so two presses cannot both stop or both start it.
  *
  * `make stop-the-line` keeps its own path, which needs neither the console nor the admin service.
+ *
+ * **The line's controls** (`POST /admin/line/controls`), from the console's Controls: the autonomy level, whether
+ * agents take new work, whether low-risk changes merge by themselves, and what the line takes, within policy
+ * (`policy/line.ts`). One change a request, and one `controls.changed` event, carrying every control as it now stands
+ * and the one changed, with its value before and after.
+ *
+ * - Which action a change is (`autonomy.loosen`, `take.widen`, …) is decided from the controls in force as it is taken,
+ *   read from the store under the lock every append takes, never from the request's word: the passkey again for one
+ *   that loosens, asked again after the lock.
+ * - A change outside policy is refused (422), having changed nothing: the next few beyond its most, or just one work
+ *   item that has no open ticket. The line checks what it reads again, whatever is written here.
+ * - The next few count from when Martin chose them, so changing only their number keeps when they started.
+ * - A change to what is already so records nothing.
  */
+import { AUTONOMY } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
-import { lineStopped, lockAppends } from '@software-factory/store';
+import { lastEnd, latestControls, lineStopped, lockAppends } from '@software-factory/store';
 import type { Logger } from 'pino';
+import type { TransactionSql } from 'postgres';
 import { z } from 'zod';
+import { ACCESS } from '../../../../policy/access.ts';
+import {
+  type ControlChange,
+  type Controls,
+  controlAction,
+  controlsInForce,
+  TAKE,
+  type Take,
+} from '../../../../policy/line.ts';
 import type { ReleaseControls } from './rollout.ts';
 import { type AdminStore, adminEvent, Refused, type Session, steppedUpNow } from './store.ts';
 
@@ -98,4 +122,139 @@ export async function startLine(store: AdminStore, session: Session, reason: str
     () => [adminEvent('line.started', 'Martin started the line', { reason })],
   );
   return { started: true };
+}
+
+/** One change of one control, as Controls sends it. */
+export const CHANGE = z.union([
+  z.strictObject({ autonomy: z.enum(AUTONOMY) }),
+  z.strictObject({ newWork: z.boolean() }),
+  z.strictObject({ autoMerge: z.boolean() }),
+  z.strictObject({
+    take: z.discriminatedUnion('kind', [
+      z.strictObject({ kind: z.literal('every') }),
+      z.strictObject({ kind: z.literal('next-few'), count: z.number() }),
+      z.strictObject({ kind: z.literal('just-one'), workItem: z.string().max(20) }),
+    ]),
+  }),
+]);
+export type Change = z.infer<typeof CHANGE>;
+
+/** What a change did: the controls now in force, and the change, or none when it was so already. */
+export interface Changed {
+  controls: Controls;
+  change: ControlChange | null;
+}
+
+const AUTONOMY_WORDS = { supervised: 'Supervised', guarded: 'Guarded', 'lights-out': 'Lights-out' } as const;
+
+/** A take in words, as the summary says it. */
+const takeWords = (take: Take) =>
+  take.kind === 'every'
+    ? 'every ticket'
+    : take.kind === 'next-few'
+      ? `the next ${take.count === 1 ? 'one' : `${take.count}`}`
+      : `just #${take.workItem}`;
+
+/** The summary of a change, in the console's words. */
+export function changeSummary(change: ControlChange): string {
+  switch (change.control) {
+    case 'autonomy': {
+      const how = controlAction(change) === 'autonomy.loosen' ? 'loosened' : 'tightened';
+      return `Martin ${how} autonomy from ${AUTONOMY_WORDS[change.before]} to ${AUTONOMY_WORDS[change.after]}`;
+    }
+    case 'new-work':
+      return change.after ? 'Martin let agents take new work again' : 'Martin stopped agents taking new work';
+    case 'auto-merge':
+      return change.after
+        ? 'Martin turned on auto-merge of low-risk changes'
+        : 'Martin turned off auto-merge of low-risk changes';
+    case 'take': {
+      const how = controlAction(change) === 'take.widen' ? 'widened' : 'narrowed';
+      return `Martin ${how} what the line takes to ${takeWords(change.after)}`;
+    }
+  }
+}
+
+/**
+ * The change asked for, against the controls in force: the next few keep when they started while they stay the next
+ * few, and start now otherwise. Unchecked: a number outside policy stays as given, and is refused.
+ */
+function changeOf(before: Controls, asked: Change, now: Date): ControlChange {
+  if ('autonomy' in asked) return { control: 'autonomy', before: before.autonomy, after: asked.autonomy };
+  if ('newWork' in asked) return { control: 'new-work', before: before.newWork, after: asked.newWork };
+  if ('autoMerge' in asked) return { control: 'auto-merge', before: before.autoMerge, after: asked.autoMerge };
+  const { take } = asked;
+  const after: Take =
+    take.kind === 'next-few'
+      ? {
+          kind: 'next-few',
+          count: take.count,
+          since: before.take?.kind === 'next-few' ? before.take.since : now.toISOString(),
+        }
+      : take;
+  return { control: 'take', before: before.take, after };
+}
+
+/** Whether a change leaves its control as it was. */
+const same = (change: ControlChange) => JSON.stringify(change.before) === JSON.stringify(change.after);
+
+/** The controls with a change made. */
+function withChange(controls: Controls, change: ControlChange): Controls {
+  switch (change.control) {
+    case 'autonomy':
+      return { ...controls, autonomy: change.after };
+    case 'new-work':
+      return { ...controls, newWork: change.after };
+    case 'auto-merge':
+      return { ...controls, autoMerge: change.after };
+    case 'take':
+      return { ...controls, take: change.after };
+  }
+}
+
+/** Whether a work item has a ticket, and has not closed since: one the line can take. */
+async function openTicket(tx: TransactionSql, workItem: string): Promise<boolean> {
+  const [row] = await tx`
+    select 1 from events t
+    where t.type = 'ticket.opened' and t.work_item = ${workItem}
+      and ${lastEnd(tx, 't.work_item')} is distinct from 'work-item.closed'
+    limit 1`;
+  return row !== undefined;
+}
+
+/** Makes one change of the line's controls, or refuses having changed nothing. */
+export async function changeControls(store: AdminStore, session: Session, asked: Change): Promise<Changed> {
+  const { after, change } = await store.record(
+    async (tx) => {
+      await lockAppends(tx);
+      const { outside: _, ...before } = controlsInForce(await latestControls(tx));
+      const change = changeOf(before, asked, new Date());
+      if (same(change)) return { after: before, change: null };
+      const after = withChange(before, change);
+      // Only a take can be: the request's shape holds the rest to what policy allows.
+      if (controlsInForce(after).outside.length) {
+        const why =
+          change.control === 'take' && change.after.kind === 'next-few'
+            ? `the next few are 1 to ${TAKE.most} work items`
+            : 'just one is a work item, by its number';
+        throw new Refused('policy', 422, `That is outside policy: ${why}.`);
+      }
+      if (
+        change.control === 'take' &&
+        change.after.kind === 'just-one' &&
+        !(await openTicket(tx, change.after.workItem))
+      ) {
+        throw new Refused('policy', 422, `#${change.after.workItem} has no open ticket for the line to take.`);
+      }
+      // Asked as the change is taken, after the lock, from the controls in force: the passkey given may have gone
+      // stale while it waited.
+      if (ACCESS[controlAction(change)].stepUp && !(await steppedUpNow(tx, session))) {
+        throw new Refused('step-up', 403, 'This needs your passkey again.');
+      }
+      return { after, change };
+    },
+    ({ after, change }) =>
+      change ? [adminEvent('controls.changed', changeSummary(change), { ...after, change })] : [],
+  );
+  return { controls: after, change };
 }

@@ -204,6 +204,18 @@ export type HoldAnswer = (typeof HOLD_ANSWERS)[number];
 export const AUTONOMY = ['supervised', 'guarded', 'lights-out'] as const;
 export type Autonomy = (typeof AUTONOMY)[number];
 
+/**
+ * Martin's controls of the line, from the console's Controls (the admin service): the autonomy level, whether agents
+ * take new work, whether low-risk changes merge by themselves, and what the line takes. Auto-rollback is not one until
+ * Part C gives it a switch: a failing canary is always rolled back.
+ */
+export const LINE_CONTROLS = ['autonomy', 'new-work', 'auto-merge', 'take'] as const;
+export type LineControl = (typeof LINE_CONTROLS)[number];
+
+/** What the line takes: every ticket, the next few from when Martin set it, or just one work item. */
+export const TAKES = ['every', 'next-few', 'just-one'] as const;
+export type TakeKind = (typeof TAKES)[number];
+
 /** Tags that route a change to a human, depending on autonomy (docs/COMPONENTS/APPROVAL-ROUTING.md). */
 export const RISKS = ['test-loosening', 'dependency-change', 'security-headers', 'out-of-scope'] as const;
 export type Risk = (typeof RISKS)[number];

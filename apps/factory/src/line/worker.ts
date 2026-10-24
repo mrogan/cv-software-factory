@@ -44,9 +44,15 @@
  *   a work item whose pull request was the dry run's, merged or not, closes with no change, so the next signal of its
  *   defect opens a fresh ticket; a ticket the dry run verified, whose fix never shipped, reopens, and comes back into
  *   Plan as any reopened ticket does.
- * - With `only`, it acts on that one work item, taking its ticket onto the line if it is not there: it starts no
- *   step for any other, reads nothing for it and appends nothing, so a soak can take one ticket end to end. It still
- *   watches the app's releases, and records one that carries that work item or none.
+ * - What it takes is Martin's take from the console's Controls (`policy/line.ts`), read each pass, or, with none in
+ *   force, its own default (`only`, `take`: LINE_ONLY and LINE_TAKE): every ticket, the next few from when he chose
+ *   them, or just one (`queue.ts`).
+ * - With just one (`only`), it acts on that one work item, taking its ticket onto the line if it is not there: it
+ *   starts no step for any other, reads nothing for it and appends nothing, so a soak can take one ticket end to end.
+ *   It still watches the app's releases, and records one that carries that work item or none.
+ * - With Martin's switch for new work off, it takes no new ticket and starts no agent's step; a step in hand finishes,
+ *   and the rest goes on: Release, Verify, the looks again, and a kept handback's effects. Unlike stopping the line,
+ *   it aborts nothing, and starting new work again needs no passkey.
  * - When the line stops, it stops every step in hand, wherever it is, and takes nothing new; their work is lost and
  *   nothing of it is recorded, so starting again runs those steps afresh from the last event. It still watches the
  *   app's releases, which only reads and records, so the abort Stop the line makes is recorded as it happens; a dry
@@ -72,10 +78,18 @@ import type {
   SymptomClass,
 } from '@software-factory/events';
 import { returnWords, SENSES, scopesOverlap, upcast, WORDS_LEAVE_HELD, workItemsWords } from '@software-factory/events';
-import { type EventWriter, fromMartin, IgnoredCommands, lineStopped, sendSignal } from '@software-factory/store';
+import {
+  type EventWriter,
+  fromMartin,
+  IgnoredCommands,
+  latestControls,
+  lineStopped,
+  sendSignal,
+} from '@software-factory/store';
 import { uuidFrom } from '@software-factory/triage';
 import type { Logger } from 'pino';
 import type { JSONValue, Sql } from 'postgres';
+import { type Controls, controlsInForce } from '../../../../policy/line.ts';
 import { release as RELEASE } from '../../../../policy/release.ts';
 import { sendCounts } from '../counts.ts';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
@@ -125,7 +139,7 @@ import {
 import { countRecorded, countStep, observeStages, type StepEnding, zeroCounts } from './metrics.ts';
 import { stepCalls, workItemSpend } from './model-calls.ts';
 import { type Own, pagesFor } from './pictures.ts';
-import { type Pending, Queue, type QueueItem } from './queue.ts';
+import { type Pending, Queue, type QueueItem, takesOf } from './queue.ts';
 import { carried, Releases, type ReleaseWatchOptions } from './release.ts';
 import {
   closingComment,
@@ -214,11 +228,14 @@ export interface LineOptions {
   providerOf?: (agent: LineAgent) => Provider;
   /** Martin's settings, read at each pass, so each step starts under those in force; null, as by default, for none. */
   settings?: LineSettings | null;
-  /** The one work item the line acts on, leaving every other as it is; null, as by default, for them all. */
+  /**
+   * The one work item the line acts on, leaving every other as it is; null, as by default, for them all. Its default:
+   * Martin's take, when one is in force, is what the line takes.
+   */
   only?: string | null;
   /**
    * How many work items the line takes in all, counting every one it has taken, before it takes no more; null, as by
-   * default, for no limit. Those already on it go on to their end.
+   * default, for no limit. Those already on it go on to their end. Its default, as `only` is.
    */
   take?: number | null;
 }
@@ -288,6 +305,10 @@ export class Line {
   readonly #dryRunLeft = new Set<string>();
   /** Martin's commands that a role not his appended: ignored, and each logged once. */
   readonly #ignored: IgnoredCommands;
+  /** The one work item the line acts on, as this pass read Martin's take; until the first pass, the options'. */
+  #only: string | null;
+  /** Whether agents take new work, as this pass read Martin's switch. */
+  #newWork = true;
   /** The settings in force, as this pass read them; until the first pass, the options'. */
   #inForce: Awaited<ReturnType<LineSettings['now']>> | undefined;
 
@@ -332,6 +353,7 @@ export class Line {
       only: this.#o.only,
     });
     this.#dryRunsEnded = this.#o.dryRun;
+    this.#only = this.#o.only;
   }
 
   /**
@@ -359,6 +381,8 @@ export class Line {
     if (!this.#o.takesWork) return;
     // Every step this pass starts runs under the settings in force now: an append, Martin's settings among them, wakes it.
     if (this.#o.settings) this.#inForce = await this.#o.settings.now();
+    // And under his controls in force now: what the line takes, and whether agents take new work.
+    this.#control(controlsInForce(await latestControls(this.#o.sql)));
     this.#promotion = undefined;
     this.#flight = undefined;
     if (!this.#dryRunsEnded) {
@@ -370,7 +394,7 @@ export class Line {
       this.#gatesReadAt = this.#o.now().getTime();
       await this.#readGates();
     }
-    if (this.#o.only === null && this.#o.now().getTime() - this.#deployReadAt >= this.#o.deployEveryMs) {
+    if (this.#only === null && this.#o.now().getTime() - this.#deployReadAt >= this.#o.deployEveryMs) {
       this.#deployReadAt = this.#o.now().getTime();
       await this.#describeDeploy().catch((error: unknown) =>
         this.#o.log.warn({ err: error }, 'could not say what the deploy pull request carries'),
@@ -378,7 +402,8 @@ export class Line {
     }
     await this.#watchReleases(false);
     await this.#reopen();
-    const taken = await this.#queue.admit();
+    // With agents taking no new work, no ticket comes onto the line.
+    const taken = this.#newWork ? await this.#queue.admit() : undefined;
     if (taken) this.#o.log.info({ workItem: taken }, 'a ticket came onto the line');
     for (const item of await this.#queue.free()) {
       if (this.#inFlight.has(item.workItem) || this.#dryRunLeft.has(item.workItem)) continue;
@@ -386,6 +411,21 @@ export class Line {
         this.#o.log.error({ workItem: item.workItem, err: error }, 'could not move a work item on'),
       );
     }
+  }
+
+  /**
+   * Acts on Martin's controls from this pass on: what the line takes, his take or else its own default (`only`,
+   * `take`), and whether agents take new work.
+   */
+  #control({ take, newWork }: Pick<Controls, 'take' | 'newWork'>): void {
+    const takes = takesOf(take, { only: this.#o.only, take: this.#o.take });
+    if (takes.only !== this.#only || newWork !== this.#newWork) {
+      this.#o.log.info({ ...takes, newWork }, 'the line acts on what Martin set it to take');
+    }
+    this.#only = takes.only;
+    this.#newWork = newWork;
+    this.#queue.takes(takes);
+    this.#releases.actOn(takes.only);
   }
 
   /** Reads the app's releases when they are due: the Rollout alone while the line is stopped. */
@@ -638,6 +678,8 @@ export class Line {
       if (next.do === 'step') {
         // One step at a time in each of Plan, Build and Review.
         if ([...this.#inFlight.values()].some((s) => s.stage === STAGE_OF[next.agent])) return;
+        // With agents taking no new work, none starts; a kept handback's effects, of a step already run, go on.
+        if (!kept && !this.#newWork) return;
         // And one at a time on the local model, which answers one prediction at a time. A kept handback calls no model.
         const provider = this.#providerOf(next.agent);
         const localBusy = () => provider === 'local' && [...this.#inFlight.values()].some((s) => s.local);
@@ -660,7 +702,7 @@ export class Line {
         const workItem = item.workItem;
         // A kept handback dropped since it was read leaves the agent's step to run again, on its model.
         const effects = kept ? claimed.effects : null;
-        if (!effects && localBusy()) {
+        if (!effects && (localBusy() || !this.#newWork)) {
           await this.#queue.release(workItem, item.stage);
           return;
         }
@@ -1644,7 +1686,7 @@ export class Line {
     // Once, before the coder's first round: not after a coder's step has failed, or handed back work not yet done.
     const started = item.failures > 0 || item.effects !== null;
     const atCheck = !s.hold && !s.merged && s.spec && !s.waiting && !s.pullRequest && !s.rebuild && !started;
-    if (atCheck && s.spec && this.#o.only === null) facts.overlaps = await this.#overlaps(item.workItem, s.spec.scope);
+    if (atCheck && s.spec && this.#only === null) facts.overlaps = await this.#overlaps(item.workItem, s.spec.scope);
     return facts;
   }
 

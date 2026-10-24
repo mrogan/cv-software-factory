@@ -12,7 +12,7 @@
  * - forwarded headers from anywhere but the proxy are ignored.
  */
 import type { AddressInfo } from 'node:net';
-import { type NewEvent, upcast, VERSIONS } from '@software-factory/events';
+import { type NewEvent, type PayloadOf, upcast, VERSIONS } from '@software-factory/events';
 import { DiskArtifacts, EventWriter, nextWorkItem, readPublic } from '@software-factory/store';
 import postgres, { type Sql } from 'postgres';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, inject, it } from 'vitest';
@@ -501,6 +501,7 @@ const WRITES: [string, Body][] = [
   ['/admin/release/retry', { release: 'whichever-1' }],
   ['/admin/line/stop', { reason: 'Something is wrong' }],
   ['/admin/line/start', { reason: 'Fixed' }],
+  ['/admin/line/controls', { newWork: true }],
   ['/admin/settings', { caps: { dayUsd: 10 } }],
   ['/admin/holds/1/approve', { hold: crypto.randomUUID() }],
   ['/admin/holds/1/reject', { hold: crypto.randomUUID() }],
@@ -1578,6 +1579,201 @@ describe('the settings', () => {
     expect((await browser.post('/admin/settings', { caps: { workItemUsd: 5 } })).body).toMatchObject({
       answered: [b],
     });
+  });
+});
+
+describe('the line’s controls', () => {
+  const event = (workItem: string | null, type: string, actor: string, payload: object) =>
+    ({
+      id: crypto.randomUUID(),
+      ts: new Date().toISOString(),
+      work_item: workItem,
+      type,
+      version: VERSIONS[type as keyof typeof VERSIONS],
+      actor,
+      summary: `${type} for the test`,
+      payload,
+      artifacts: [],
+    }) as NewEvent;
+  const append = (sql: Sql, events: NewEvent[]) =>
+    new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts('/nonexistent') }).append(events);
+
+  /** The controls as stored, from Martin's command line's role, so each test starts from what it says. */
+  const stored = (controls: Partial<PayloadOf<'controls.changed'>>) =>
+    append(db.operator, [
+      event(null, 'controls.changed', 'martin', {
+        autonomy: 'supervised',
+        newWork: true,
+        autoMerge: false,
+        take: null,
+        change: { control: 'new-work', before: false, after: true },
+        ...controls,
+      }),
+    ]);
+
+  const changes = () =>
+    db.owner<{ appended_by: string; summary: string; payload: Body; public: Body }[]>`
+      select appended_by, summary, payload, public from events where type = 'controls.changed' order by seq`;
+
+  /** A work item with a ticket, as triage opens one; closed, if asked. */
+  async function ticketed(closed = false): Promise<string> {
+    const workItem = await nextWorkItem(db.as.triage);
+    await append(db.as.triage, [
+      event(workItem, 'work-item.opened', 'probe', { kind: 'defect-fix', title: 'A page for the test', sample: false }),
+      event(workItem, 'ticket.opened', 'triage', {
+        title: 'A page for the test',
+        category: 'errors',
+        severity: 'broken',
+        fingerprint: { route: '/search', class: 'server-error' },
+        traces: [],
+      }),
+      ...(closed
+        ? [event(workItem, 'work-item.closed', 'triage', { outcome: 'no-change', reason: 'Closed for the test' })]
+        : []),
+    ]);
+    return workItem;
+  }
+
+  it('loosens autonomy only with the passkey again, and tightens it without, as one public event each', async () => {
+    await stored({});
+    const { browser, passkey } = await signedIn();
+    const before = (await changes()).length;
+    expect(await browser.post('/admin/line/controls', { autonomy: 'guarded' })).toMatchObject({
+      status: 403,
+      body: { refused: 'step-up' },
+    });
+    expect(await changes()).toHaveLength(before);
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect(await browser.post('/admin/line/controls', { autonomy: 'guarded' })).toEqual({
+      status: 200,
+      body: {
+        controls: { autonomy: 'guarded', newWork: true, autoMerge: false, take: null },
+        change: { control: 'autonomy', before: 'supervised', after: 'guarded' },
+      },
+    });
+    const [loosened] = (await changes()).slice(before);
+    expect(loosened).toMatchObject({
+      appended_by: 'factory_admin',
+      summary: 'Martin loosened autonomy from Supervised to Guarded',
+      payload: {
+        autonomy: 'guarded',
+        newWork: true,
+        autoMerge: false,
+        take: null,
+        change: { control: 'autonomy', before: 'supervised', after: 'guarded' },
+      },
+    });
+    expect(loosened?.public).toMatchObject({ summary: loosened?.summary, payload: loosened?.payload });
+    // A fresh session, the passkey not given again: tightening asks nothing.
+    const other = (await signedIn()).browser;
+    expect(await other.post('/admin/line/controls', { autonomy: 'supervised' })).toMatchObject({ status: 200 });
+    expect((await changes()).at(-1)?.summary).toBe('Martin tightened autonomy from Guarded to Supervised');
+  });
+
+  it('decides what a change does from the controls in force, never from the request', async () => {
+    // Lights-out in force: Guarded is a tightening, and asks nothing.
+    await stored({ autonomy: 'lights-out', autoMerge: true });
+    const { browser } = await signedIn();
+    expect(await browser.post('/admin/line/controls', { autonomy: 'guarded' })).toMatchObject({
+      status: 200,
+      body: { change: { control: 'autonomy', before: 'lights-out', after: 'guarded' } },
+    });
+    expect((await changes()).at(-1)?.summary).toBe('Martin tightened autonomy from Lights-out to Guarded');
+    // Every other control stays as it was in force.
+    expect((await changes()).at(-1)?.payload).toMatchObject({ autoMerge: true });
+    // What policy does not allow is not in force, whatever the event says: the next fifty are more than it allows, so
+    // no take is, and the next three, though fewer, are wider than none.
+    await stored({ take: { kind: 'next-few', count: 50, since: new Date().toISOString() } });
+    expect((await browser.post('/admin/line/controls', { take: { kind: 'next-few', count: 3 } })).body.refused).toBe(
+      'step-up',
+    );
+  });
+
+  it('turns new work off and on without the passkey, and auto-merge on only with it', async () => {
+    await stored({});
+    const { browser, passkey } = await signedIn();
+    expect(await browser.post('/admin/line/controls', { newWork: false })).toMatchObject({ status: 200 });
+    expect((await changes()).at(-1)?.summary).toBe('Martin stopped agents taking new work');
+    expect(await browser.post('/admin/line/controls', { newWork: true })).toMatchObject({ status: 200 });
+    expect((await changes()).at(-1)?.summary).toBe('Martin let agents take new work again');
+    expect((await browser.post('/admin/line/controls', { autoMerge: true })).body.refused).toBe('step-up');
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect(await browser.post('/admin/line/controls', { autoMerge: true })).toMatchObject({ status: 200 });
+    expect((await changes()).at(-1)?.summary).toBe('Martin turned on auto-merge of low-risk changes');
+    const other = (await signedIn()).browser;
+    expect(await other.post('/admin/line/controls', { autoMerge: false })).toMatchObject({ status: 200 });
+  });
+
+  it('asks for the passkey again to widen what the line takes, and not to narrow it, counting the next few from when he chose them', async () => {
+    await stored({});
+    const workItem = await ticketed();
+    const { browser, passkey } = await signedIn();
+    // A first take, over the line's own default, which the service cannot see: wider, whatever it is.
+    expect((await browser.post('/admin/line/controls', { take: { kind: 'just-one', workItem } })).body.refused).toBe(
+      'step-up',
+    );
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect(await browser.post('/admin/line/controls', { take: { kind: 'just-one', workItem } })).toMatchObject({
+      status: 200,
+      body: { controls: { take: { kind: 'just-one', workItem } } },
+    });
+    expect((await changes()).at(-1)?.summary).toBe(`Martin widened what the line takes to just #${workItem}`);
+    expect(await browser.post('/admin/line/controls', { take: { kind: 'next-few', count: 3 } })).toMatchObject({
+      status: 200,
+    });
+    const since = ((await changes()).at(-1)?.payload.take as { since: string } | undefined)?.since ?? '';
+    expect(Date.now() - Date.parse(since)).toBeLessThan(60_000);
+    expect((await changes()).at(-1)?.summary).toBe('Martin widened what the line takes to the next 3');
+    // Without the passkey again: fewer is narrower, and keeps when the next few started; more is wider.
+    const other = (await signedIn()).browser;
+    expect(await other.post('/admin/line/controls', { take: { kind: 'next-few', count: 2 } })).toMatchObject({
+      status: 200,
+      body: { controls: { take: { kind: 'next-few', count: 2, since } } },
+    });
+    expect((await changes()).at(-1)?.summary).toBe('Martin narrowed what the line takes to the next 2');
+    for (const take of [{ kind: 'next-few', count: 5 }, { kind: 'every' }]) {
+      expect((await other.post('/admin/line/controls', { take })).body.refused, JSON.stringify(take)).toBe('step-up');
+    }
+    expect(await other.post('/admin/line/controls', { take: { kind: 'just-one', workItem } })).toMatchObject({
+      status: 200,
+    });
+    // Just one, moved to another work item, is no wider.
+    const another = await ticketed();
+    expect(await other.post('/admin/line/controls', { take: { kind: 'just-one', workItem: another } })).toMatchObject({
+      status: 200,
+    });
+  });
+
+  it('refuses a change outside policy, passkey or no, and records nothing for one already in force', async () => {
+    await stored({ take: { kind: 'every' } });
+    const closed = await ticketed(true);
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    const before = (await changes()).length;
+    for (const take of [
+      { kind: 'next-few', count: 0 },
+      { kind: 'next-few', count: 21 },
+      { kind: 'next-few', count: 2.5 },
+      { kind: 'just-one', workItem: 'abc' },
+      { kind: 'just-one', workItem: '999999' },
+      { kind: 'just-one', workItem: closed },
+    ]) {
+      expect(await browser.post('/admin/line/controls', { take }), JSON.stringify(take)).toMatchObject({
+        status: 422,
+        body: { refused: 'policy' },
+      });
+    }
+    for (const body of [{}, { newWork: true, autoMerge: true }, { autoRollback: false }, { autonomy: 'yolo' }]) {
+      expect(await browser.post('/admin/line/controls', body), JSON.stringify(body)).toMatchObject({
+        status: 400,
+        body: { refused: 'body' },
+      });
+    }
+    expect(await browser.post('/admin/line/controls', { take: { kind: 'every' } })).toMatchObject({
+      status: 200,
+      body: { change: null },
+    });
+    expect(await changes()).toHaveLength(before);
   });
 });
 

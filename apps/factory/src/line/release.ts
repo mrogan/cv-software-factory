@@ -102,6 +102,7 @@ export interface ReleasesOptions {
   dryRun: boolean;
   /** How long a dry run's release takes over each of its moves. */
   dryRunEveryMs: number;
+  /** The one work item the line acts on, or null for them all: its own default, until the line sets it (`act`). */
   only: string | null;
 }
 
@@ -121,7 +122,12 @@ export class Releases {
   readonly #signalled = new Set<string>();
 
   constructor(options: ReleasesOptions) {
-    this.#o = options;
+    this.#o = { ...options };
+  }
+
+  /** The one work item the line acts on from now, or null for them all: the line sets it each pass, from its take. */
+  actOn(only: string | null): void {
+    this.#o.only = only;
   }
 
   /**
