@@ -233,7 +233,9 @@ export async function changeControls(store: AdminStore, session: Session, asked:
     async (tx) => {
       await lockAppends(tx);
       const { outside: _, ...before } = controlsInForce(await latestControls(tx));
-      const change = changeOf(before, asked, new Date());
+      // The store's clock, as the line counts the next few by when each work item came onto it.
+      const [{ now } = { now: new Date() }] = await tx<{ now: Date }[]>`select clock_timestamp() as now`;
+      const change = changeOf(before, asked, now);
       if (same(change)) return { after: before, change: null };
       const after = withChange(before, change);
       // Only a take can be: the request's shape holds the rest to what policy allows.

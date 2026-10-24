@@ -364,6 +364,9 @@ export class Line {
    */
   async tick(): Promise<void> {
     await this.#ignored.check();
+    // Martin's controls in force now: what the line takes, and whether agents take new work. Read first, so the release
+    // watch records by the take in force while the line is stopped too.
+    if (this.#o.takesWork) this.#control(controlsInForce(await latestControls(this.#o.sql)));
     if (await lineStopped(this.#o.sql)) {
       if (!this.#stopped) {
         this.#stopped = true;
@@ -383,8 +386,6 @@ export class Line {
     if (!this.#o.takesWork) return;
     // Every step this pass starts runs under the settings in force now: an append, Martin's settings among them, wakes it.
     if (this.#o.settings) this.#inForce = await this.#o.settings.now();
-    // And under his controls in force now: what the line takes, and whether agents take new work.
-    this.#control(controlsInForce(await latestControls(this.#o.sql)));
     this.#promotion = undefined;
     this.#flight = undefined;
     if (!this.#dryRunsEnded) {
