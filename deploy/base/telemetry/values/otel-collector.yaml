@@ -85,6 +85,69 @@ config:
           - tag_name: k8s.pod.label.app.kubernetes.io/name
             key: app.kubernetes.io/name
             from: pod
+    # Nothing kept says who a visitor is. A span or log record from anyone, the app, the console and the admin service
+    # among them, loses every address of the client or the peer it came from, the proxy's `X-Forwarded-For` too if a
+    # sender captured it, and the browser's whole user agent. A server span keeps of the browser only its family, its
+    # major version, its operating system and whether it is a phone or a computer, read with OTTL's UserAgent(); and
+    # `traffic`, which says whether the factory's traffic generator sent it (its user agent is its name) or a visitor
+    # did. The probes, the crawler and the journeys send `x-unmeasured`, which the app records nothing of. Logs keep
+    # no browser at all: no log record carries one. It runs after k8s_attributes, which finds the pod by the
+    # connection, not by any attribute here.
+    transform/visitors:
+      error_mode: ignore
+      trace_statements:
+        - statements:
+            - set(span.cache["agent"], span.attributes["user_agent.original"])
+            - set(span.cache["agent"], span.attributes["http.user_agent"]) where span.cache["agent"] == nil
+            - set(span.cache["ua"], UserAgent(span.cache["agent"])) where span.cache["agent"] != nil
+            - set(span.attributes["browser.name"], "other") where span.cache["agent"] != nil
+            - set(span.attributes["browser.name"], "Edge") where IsMatch(span.cache["ua"]["user_agent.name"], "^Edge( Mobile)?$")
+            - set(span.attributes["browser.name"], "Chrome") where IsMatch(span.cache["ua"]["user_agent.name"], "^(Chrome( Mobile( iOS| WebView)?)?|Chromium)$")
+            - set(span.attributes["browser.name"], "Firefox") where IsMatch(span.cache["ua"]["user_agent.name"], "^Firefox( Mobile| iOS)?$")
+            - set(span.attributes["browser.name"], "Safari") where IsMatch(span.cache["ua"]["user_agent.name"], "^(Mobile )?Safari$")
+            - set(span.attributes["browser.major"], ExtractPatterns(span.cache["ua"]["user_agent.version"], "^(?P<major>[0-9]{1,4})")["major"]) where span.attributes["browser.name"] != nil and span.attributes["browser.name"] != "other"
+            - set(span.attributes["os.name"], "other") where span.cache["agent"] != nil
+            - set(span.attributes["os.name"], "macOS") where span.cache["ua"]["os.name"] == "Mac OS X"
+            - set(span.attributes["os.name"], "iOS") where span.cache["ua"]["os.name"] == "iOS"
+            - set(span.attributes["os.name"], "Android") where span.cache["ua"]["os.name"] == "Android"
+            - set(span.attributes["os.name"], "Windows") where span.cache["ua"]["os.name"] == "Windows"
+            - set(span.attributes["os.name"], "ChromeOS") where span.cache["ua"]["os.name"] == "Chrome OS"
+            - set(span.attributes["os.name"], "Linux") where IsMatch(span.cache["ua"]["os.name"], "^(Linux|Ubuntu|Debian|Fedora|Red Hat|SUSE|openSUSE|Mint|Arch Linux|Gentoo)$")
+            - set(span.attributes["device.type"], "desktop") where span.cache["agent"] != nil
+            - set(span.attributes["device.type"], "mobile") where span.cache["agent"] != nil and IsMatch(span.cache["agent"], "Mobi|Android|iPhone|iPad|iPod")
+            - set(span.attributes["traffic"], "visitor") where span.cache["agent"] != nil
+            - set(span.attributes["traffic"], "factory") where span.cache["agent"] == "software-factory-traffic"
+            - delete_matching_keys(span.attributes, "^(user_agent\\.original|http\\.user_agent)$")
+            - delete_matching_keys(span.attributes, "^(client\\.(address|port)|network\\.peer\\.(address|port)|net\\.peer\\.(ip|port)|net\\.sock\\.peer\\.(addr|port)|http\\.client_ip|http\\.request\\.header\\.(x-forwarded-for|x-real-ip|forwarded))$")
+      log_statements:
+        - statements:
+            - delete_matching_keys(log.attributes, "^(user_agent\\.original|http\\.user_agent)$")
+            - delete_matching_keys(log.attributes, "^(client\\.(address|port)|network\\.peer\\.(address|port)|net\\.peer\\.(ip|port)|net\\.sock\\.peer\\.(addr|port)|http\\.client_ip|http\\.request\\.header\\.(x-forwarded-for|x-real-ip|forwarded))$")
+    # The count below is a delta for each batch of spans, timed by its spans. Prometheus takes a running total, so each
+    # is timed as it arrives, in order, and added to the total for its series, which the collector keeps in memory: a
+    # restart starts every total again, as a restarted service's counters do.
+    transform/browser-count-now:
+      metric_statements:
+        - statements:
+            - set(datapoint.start_time, Now())
+            - set(datapoint.time, Now())
+    delta_to_cumulative: {}
+  connectors:
+    # The app's and the console's requests from browsers, counted by family, operating system and phone or computer,
+    # and whether the traffic generator or a visitor sent them: `http_server_browser_requests_total` in Prometheus.
+    # Anonymous in aggregate. Not the major version, which would make a series of every release of every browser.
+    # Any sender may name itself `website`, so it is a picture of who visits, never evidence (provenance.ts).
+    count/browsers:
+      spans:
+        http.server.browser.requests:
+          description: Requests to the app and the console from browsers, by browser family, operating system and device class.
+          conditions:
+            - span.kind == SPAN_KIND_SERVER and span.attributes["browser.name"] != nil and (resource.attributes["service.name"] == "website" or resource.attributes["service.name"] == "console")
+          attributes:
+            - key: browser.name
+            - key: os.name
+            - key: device.type
+            - key: traffic
   exporters:
     otlp_http/tempo:
       endpoint: http://tempo:4318
@@ -96,8 +159,14 @@ config:
     pipelines:
       traces:
         receivers: [otlp]
-        processors: [memory_limiter, resource/drop-pod-claims, attributes/drop-pod-claims, k8s_attributes, batch]
-        exporters: [otlp_http/tempo]
+        processors:
+          - memory_limiter
+          - resource/drop-pod-claims
+          - attributes/drop-pod-claims
+          - k8s_attributes
+          - transform/visitors
+          - batch
+        exporters: [otlp_http/tempo, count/browsers]
       metrics:
         receivers: [otlp]
         processors:
@@ -108,9 +177,19 @@ config:
           - k8s_attributes/factory
           - batch
         exporters: [otlp_http/prometheus]
+      metrics/browsers:
+        receivers: [count/browsers]
+        processors: [memory_limiter, transform/browser-count-now, delta_to_cumulative, batch]
+        exporters: [otlp_http/prometheus]
       logs:
         receivers: [otlp]
-        processors: [memory_limiter, resource/drop-pod-claims, attributes/drop-pod-claims, k8s_attributes, batch]
+        processors:
+          - memory_limiter
+          - resource/drop-pod-claims
+          - attributes/drop-pod-claims
+          - k8s_attributes
+          - transform/visitors
+          - batch
         exporters: [otlp_http/loki]
 
 # The restricted Pod Security Standard, which the telemetry namespace enforces.
