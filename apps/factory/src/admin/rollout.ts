@@ -20,6 +20,16 @@
  *
  * There is no rollback: that stays the analysis's alone.
  *
+ * **Stop the line** aborts whatever canary is in flight as the line stops (`line.ts`), named by nothing: the same abort,
+ * recorded with a mark that it came with the stop, so the line records `release.aborted` with `by: stop` from it. A
+ * release the line has not recorded yet has no version to record: it is aborted all the same, and the line tells who
+ * aborted it by time, from the line's stop just before, as it tells `make stop-the-line`'s.
+ *
+ * The Rollout is read through the line's own schema and `observe` (`release/rollout.ts`), and the release in it named
+ * as the line names it (`namedReleases`), from the line's records of every release of its pod hash, read with the
+ * line's own queries (`release/recorded.ts`): a release the line recorded under another name than the Rollout's is the
+ * one controlled.
+ *
  * Each control names the release the panel showed Martin, and is refused if another is in flight now. The first patch
  * is conditional on the Rollout being as it was read (its `resourceVersion`), so a release that moved on in between is
  * read again, and the control decided again, rather than applied to what Martin did not see.
@@ -33,45 +43,37 @@
  * canary at or past its step, or all of the traffic). An append that fails is tried once more, and if that fails too,
  * the control is logged as made without its event.
  */
-import { type NewEvent, RELEASE_TYPES, type ReleaseControl } from '@software-factory/events';
+import type { NewEvent, ReleaseControl } from '@software-factory/events';
 import { validate } from '@software-factory/events/schemas';
 import { lineStopped } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { REVISION, recordedFrom, releaseName, short, type TargetRecord } from '../release/recorded.ts';
+import {
+  lastPromoted,
+  type Recorded,
+  recordedFrom,
+  releaseName,
+  releaseRecords,
+  short,
+  type TargetRecord,
+} from '../release/recorded.ts';
+import { namedReleases, observe, podHashes, rolloutSchema } from '../release/rollout.ts';
 import type { RolloutRef } from '../release/rollout-ref.ts';
 import { KubeError, type KubeWriter } from '../runners/kube.ts';
 import { adminEvent, appendMartins, Refused } from './store.ts';
 
 /**
- * The Rollout, as far as the controls read it: which release is in it, where its canary is, and what a conditional
- * patch needs. A subset, as the line's is (`release/read.ts`), so a field Argo Rollouts adds or drops elsewhere changes
- * nothing here.
+ * The Rollout, as the line reads it (`release/rollout.ts`), and what the controls read besides: what a conditional patch
+ * needs, whether Martin paused it, and whether it is being promoted fully.
  */
-const rolloutWithVersion = z.object({
-  metadata: z.object({
-    resourceVersion: z.string(),
-    generation: z.number().int().optional(),
-    annotations: z.record(z.string(), z.string()).default({}),
-  }),
-  spec: z.object({
-    paused: z.boolean().optional(),
-    strategy: z.object({
-      canary: z.object({ steps: z.array(z.object({ setWeight: z.number().int().optional() })).default([]) }).optional(),
-    }),
-  }),
-  status: z
-    .object({
-      currentPodHash: z.string().optional(),
-      observedGeneration: z.union([z.string(), z.number()]).optional(),
-      stableRS: z.string().optional(),
-      currentStepIndex: z.number().int().optional(),
-      abort: z.boolean().optional(),
-      promoteFull: z.boolean().optional(),
-      canary: z.object({ weights: z.object({ canary: z.object({ weight: z.number().int() }) }).optional() }).optional(),
-    })
-    .default({}),
+const rolloutWithVersion = rolloutSchema.extend({
+  metadata: rolloutSchema.shape.metadata.extend({ resourceVersion: z.string() }),
+  spec: rolloutSchema.shape.spec.extend({ paused: z.boolean().optional() }),
+  status: rolloutSchema.shape.status
+    .unwrap()
+    .extend({ promoteFull: z.boolean().optional() })
+    .default({ conditions: [] }),
 });
 type Rollout = z.infer<typeof rolloutWithVersion>;
 
@@ -83,7 +85,10 @@ const rolloutRaw = z.object({
 
 /** The release in the Rollout now, as the controls see it. */
 export interface Canary {
-  /** Its name, as the line records it: the canary's pod-template hash and the Rollout's revision. */
+  /**
+   * Its name, as the line records it (`namedReleases`): the canary's pod-template hash and the Rollout's revision, or the
+   * name the line recorded it under.
+   */
   release: string;
   /** The Rollout's version, for a conditional patch. */
   resourceVersion: string;
@@ -102,27 +107,26 @@ export interface Canary {
 }
 
 /**
- * What the controls see of a Rollout: undefined while it has no release to act on, or its status has not caught up
- * with its spec (its revision may then be the next release's).
+ * What the controls see of a Rollout, given the line's records of the releases of its pod hashes and the release it
+ * recorded promoted last: undefined while it has no release to act on, or its status has not caught up with its spec
+ * (its revision may then be the next release's).
  */
-export function canaryOf(rollout: Rollout): Canary | undefined {
+export function canaryOf(rollout: Rollout, recorded: Recorded = new Map(), lastRelease?: string): Canary | undefined {
   const { metadata, spec, status } = rollout;
-  const caughtUp =
-    metadata.generation === undefined || String(status.observedGeneration) === String(metadata.generation);
-  const revision = metadata.annotations[REVISION];
-  const current = status.currentPodHash;
-  if (!caughtUp || !current || !revision || !/^\d{1,12}$/.test(revision)) return undefined;
-  const out = current !== status.stableRS;
-  const aborted = status.abort === true;
+  const o = observe(rollout, []);
+  const { current, revision } = o;
+  if (!current || !revision) return undefined;
+  const out = current !== o.stable;
+  const aborted = o.aborted;
   const weight = status.canary?.weights?.canary.weight ?? 0;
   const steps = spec.strategy.canary?.steps ?? [];
-  const at = status.currentStepIndex ?? 0;
+  const at = o.stepIndex;
   const index = steps.findIndex(
     (step, i) => i > at && step.setWeight !== undefined && step.setWeight > weight && step.setWeight < 100,
   );
   const next = index === -1 ? undefined : { index, weight: steps[index]?.setWeight ?? 0 };
   return {
-    release: releaseName(current, revision),
+    release: namedReleases(o, recorded, lastRelease).current ?? releaseName(current, revision),
     resourceVersion: metadata.resourceVersion,
     inFlight: out && !aborted,
     aborted: out && aborted,
@@ -181,6 +185,19 @@ export function planOf(action: ReleaseControl, canary: Canary): Plan | { refused
 /** How many times a control reads the Rollout again when it changed between the read and the patch. */
 const TRIES = 3;
 
+/** The refusal while the Rollout's status has not caught up with its spec: Stop the line waits it out. */
+class BetweenReleases extends Refused {
+  constructor() {
+    super('release', 409, 'The Rollout is between releases: look again in a moment.');
+  }
+}
+
+/**
+ * How long Stop the line waits for the Rollout's status to catch up with its spec, a second at a time: a release just
+ * starting has its canary named in a moment, and is aborted then.
+ */
+const STOP_WAITS = 5;
+
 export interface Controlled {
   action: ReleaseControl;
   release: string;
@@ -201,6 +218,26 @@ export const STILL_PAUSED =
 /** The same, after a control that was made and could not be recorded either. */
 const PAUSE_TOO = 'Your pause is still set too: resume the canary when the panel offers it.';
 
+/** What Stop the line did to the canary: there was none in flight, or it aborted it. */
+export type StopAbort =
+  | { canary: 'none' }
+  | {
+      canary: 'aborted';
+      release: string;
+      /** Whether its control was recorded: not for a release the line had not recorded yet, nor when the store failed. */
+      recorded: boolean;
+      warning?: string;
+    };
+
+/** The Rollout as the controls read it: the canary in it, and what the line has recorded of its releases. */
+interface Read {
+  canary: Canary;
+  /** The line's record of the canary's release, if it has one, and it is not a dry run's. */
+  record: TargetRecord | undefined;
+  /** What naming the release in the Rollout again takes. */
+  names: { recorded: Recorded; lastRelease: string | undefined };
+}
+
 export class ReleaseControls {
   readonly #kube: KubeWriter;
   readonly #path: string;
@@ -217,12 +254,32 @@ export class ReleaseControls {
   }
 
   /** Makes a control of the release the panel showed, and records it; or refuses, having changed nothing. */
-  async control(action: ReleaseControl, release: string): Promise<Answered> {
+  control(action: ReleaseControl, release: string): Promise<Answered> {
+    return this.#tried(() => this.#once(action, release));
+  }
+
+  /**
+   * Stop the line's abort of whatever canary is in flight, recorded by the line or not, made once the line's stop is
+   * recorded; nothing when none is in flight. Its control is recorded when the line has recorded the release, and a
+   * failure to record it is logged and no more: the line tells the abort by time then, from the stop just before.
+   */
+  async stop(): Promise<StopAbort> {
+    for (let wait = 1; ; wait++) {
+      try {
+        return await this.#tried(() => this.#stopOnce());
+      } catch (error) {
+        if (!(error instanceof BetweenReleases) || wait > STOP_WAITS) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+    }
+  }
+
+  /** Does it, reading the Rollout again and deciding again when it changed between the read and the patch. */
+  async #tried<T>(once: () => Promise<T>): Promise<T> {
     for (let attempt = 1; ; attempt++) {
       try {
-        return await this.#once(action, release);
+        return await once();
       } catch (error) {
-        // The Rollout changed between the read and the patch: read it again, and decide again.
         if (!(error instanceof KubeError) || error.status !== 409) throw error;
         if (attempt < TRIES) continue;
         throw new Refused('release', 409, 'The Rollout kept changing as you pressed: look again.');
@@ -230,35 +287,48 @@ export class ReleaseControls {
     }
   }
 
-  async #once(action: ReleaseControl, release: string): Promise<Answered> {
+  /**
+   * The Rollout, the canary in it, named as the line names it from its records of every release of the Rollout's pod
+   * hashes, and the line's record of the canary's release.
+   */
+  async #read(): Promise<Read> {
     const rollout = await this.#kube.get(this.#path, rolloutWithVersion);
     if (!rollout) throw new Refused('rollout', 404, 'There is no Rollout of the app to control.');
-    const canary = canaryOf(rollout);
-    if (!canary) throw new Refused('release', 409, 'The Rollout is between releases: look again in a moment.');
+    const [rows, last] = await Promise.all([
+      releaseRecords(this.#sql, podHashes(observe(rollout, [])), true),
+      lastPromoted(this.#sql),
+    ]);
+    const names = { recorded: recordedFrom(rows), lastRelease: last?.release };
+    const canary = canaryOf(rollout, names.recorded, names.lastRelease);
+    if (!canary) throw new BetweenReleases();
+    const record = latestRecord([...(names.recorded.get(canary.release)?.values() ?? [])]);
+    return { canary, record: record?.started.dryRun ? undefined : record, names };
+  }
+
+  async #once(action: ReleaseControl, release: string): Promise<Answered> {
+    const { canary, record, names } = await this.#read();
     if (canary.release !== release) {
       throw new Refused('release', 409, 'That release is no longer the one in the Rollout: look again.');
     }
     const plan = planOf(action, canary);
     if ('refused' in plan) throw new Refused('release', 409, plan.refused);
-    const [recorded, stopped] = await Promise.all([
-      this.#recorded(release),
-      action === 'retry' ? lineStopped(this.#sql) : false,
-    ]);
-    if (!recorded) {
+    if (!record) {
       throw new Refused('release', 409, 'The line has not recorded this release yet: look again in a moment.');
     }
     if (action === 'retry') {
-      if (recorded.ended === 'rolled-back') {
+      if (record.ended === 'rolled-back') {
         throw new Refused(
           'release',
           409,
           'A rollback is the analysis’s: the fix goes out with the next release that carries it.',
         );
       }
-      if (recorded.ended !== 'aborted' && recorded.ended !== 'errored') {
+      if (record.ended !== 'aborted' && record.ended !== 'errored') {
         throw new Refused('release', 409, 'The line has not recorded how this release stopped yet: look again.');
       }
-      if (stopped) throw new Refused('line', 409, 'Start the line first: a stopped line starts no canary.');
+      if (await lineStopped(this.#sql)) {
+        throw new Refused('line', 409, 'Start the line first: a stopped line starts no canary.');
+      }
     }
     const controlled: Controlled = {
       action,
@@ -268,12 +338,12 @@ export class ReleaseControls {
     };
     // Stamped as the patch is made, and checked before it, so a control whose event the store would refuse changes
     // nothing.
-    const event = adminEvent('release.controlled', summaryOf(controlled, recorded.version), {
-      ...controlled,
-      version: recorded.version,
-    });
-    const valid = validate(event);
-    if (!valid.ok) throw new Error(`a control's event is not valid: ${valid.problems.join('; ')}`);
+    const event = checked(
+      adminEvent('release.controlled', summaryOf(controlled, record.started.version), {
+        ...controlled,
+        version: record.started.version,
+      }),
+    );
     await this.#first(plan, canary);
     // Made: recorded at once, in a transaction of its own, so no connection waits on Kubernetes, and the line finds
     // Martin's control before it says who made what the Rollout did. Then the resume, if one follows, whatever the
@@ -282,13 +352,45 @@ export class ReleaseControls {
       () => undefined,
       (error: unknown) => error,
     );
-    const resumed = plan.status && plan.spec ? await this.#resume(plan.spec, canary) : true;
+    const resumed = plan.status && plan.spec ? await this.#resume(plan.spec, canary, names) : true;
     if (recording instanceof Refused && !resumed) {
       throw new Refused(recording.refused, recording.status, `${recording.message} ${PAUSE_TOO}`);
     }
     if (recording) throw recording;
     this.#log.info({ action, release, weight: canary.weight, to: plan.to }, `Martin's ${action} of the canary`);
     return resumed ? controlled : { ...controlled, warning: STILL_PAUSED };
+  }
+
+  async #stopOnce(): Promise<StopAbort> {
+    const { canary, record, names } = await this.#read();
+    if (!canary.inFlight) return { canary: 'none' };
+    const plan = planOf('abort', canary) as Plan;
+    const event =
+      record &&
+      checked(
+        adminEvent('release.controlled', stopSummary(canary.weight, record.started.version), {
+          action: 'abort',
+          release: canary.release,
+          version: record.started.version,
+          weight: canary.weight,
+          stop: true,
+        }),
+      );
+    await this.#first(plan, canary);
+    const recorded = event
+      ? await this.#record(event).then(
+          () => true,
+          () => false,
+        )
+      : false;
+    const resumed = plan.spec ? await this.#resume(plan.spec, canary, names) : true;
+    this.#log.info({ release: canary.release, weight: canary.weight, recorded }, 'Stop the line aborted the canary');
+    return {
+      canary: 'aborted',
+      release: canary.release,
+      recorded,
+      ...(!resumed && { warning: STILL_PAUSED }),
+    };
   }
 
   /**
@@ -317,11 +419,11 @@ export class ReleaseControls {
    * its status often change it, it is read and tried again, up to `TRIES` times. Whether it was made is the answer: if
    * not, the control was made, and the canary stays paused until Martin resumes it.
    */
-  async #resume(spec: Record<string, unknown>, canary: Canary): Promise<boolean> {
+  async #resume(spec: Record<string, unknown>, canary: Canary, names: Read['names']): Promise<boolean> {
     for (let attempt = 1; ; attempt++) {
       try {
         const now = await this.#kube.get(this.#path, rolloutWithVersion);
-        const still = now && canaryOf(now);
+        const still = now && canaryOf(now, names.recorded, names.lastRelease);
         if (still?.release !== canary.release) {
           this.#log.error('made a control of the canary, and another release is in the Rollout now: it stays paused');
           return false;
@@ -375,18 +477,6 @@ export class ReleaseControls {
       }
     }
   }
-
-  /** What the line recorded of a release, as the line reads it (`recordedFrom`): its version, and how it ended. */
-  async #recorded(release: string): Promise<{ version: string; ended: TargetRecord['ended'] } | undefined> {
-    const rows = await this.#sql<{ work_item: string | null; ts: Date; type: string; payload: unknown }[]>`
-      select work_item, ts, type, payload from events
-      where type in ${this.#sql(RELEASE_TYPES as string[])} and payload->>'release' = ${release}
-      order by seq`;
-    const recorded = recordedFrom(rows.map((row) => ({ ...row, ts: new Date(row.ts).toISOString() })));
-    const record = latestRecord([...(recorded.get(release)?.values() ?? [])]);
-    if (!record || record.started.dryRun) return undefined;
-    return { version: record.started.version, ended: record.ended };
-  }
 }
 
 /**
@@ -424,6 +514,17 @@ function kubeRefusal(error: unknown): Refused | undefined {
   }
   return undefined;
 }
+
+/** A control's event, checked as the store will check it: one it would refuse is a fault here, and nothing is done. */
+function checked(event: NewEvent): NewEvent {
+  const valid = validate(event);
+  if (!valid.ok) throw new Error(`a control's event is not valid: ${valid.problems.join('; ')}`);
+  return event;
+}
+
+/** The summary of Stop the line's abort, in the console's words. */
+export const stopSummary = (weight: number, version: string) =>
+  `Martin stopped the line, which aborted the canary of ${short(version)} at ${weight}%`;
 
 /** The event's summary, in the console's words. */
 export function summaryOf({ action, weight, to }: Controlled, version: string): string {

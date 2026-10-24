@@ -22,7 +22,7 @@ export const fromMartin = (sql: Sql | TransactionSql, alias: string) =>
  * Whether the line is stopped: the last of `line.started` and `line.stopped` that one of Martin's roles appended
  * decides. Every worker asks before it takes work.
  */
-export async function lineStopped(sql: Sql): Promise<boolean> {
+export async function lineStopped(sql: Sql | TransactionSql): Promise<boolean> {
   const [last] = await sql<{ type: string }[]>`
     select e.type from events e where e.type in ('line.started', 'line.stopped') and ${fromMartin(sql, 'e')}
     order by e.seq desc limit 1`;

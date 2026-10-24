@@ -4,8 +4,7 @@
  * deploy/base/analysis/line-reads-release.yaml), and each version's figures from Prometheus, by the pod-template hash
  * Argo Rollouts gives it. It polls; it never watches.
  *
- * The schemas are subsets: only what the release watch (`watch.ts`) reads, so a field Argo Rollouts adds or drops
- * elsewhere changes nothing here.
+ * The Rollout's and the runs' schemas are `rollout.ts`'s, which the admin service shares.
  */
 import type { PayloadOf } from '@software-factory/events';
 import { z } from 'zod';
@@ -14,122 +13,8 @@ import type { Prometheus } from '../clients/prometheus.ts';
 import { comparisonIn, type Regression } from '../gates/journeys.ts';
 import type { Kube } from '../runners/kube.ts';
 import { routeQueries, versionQueries } from './analysis.ts';
+import { type AnalysisRun, analysisRunSchema, type Measurement, type Rollout, rolloutSchema } from './rollout.ts';
 import type { RolloutRef } from './rollout-ref.ts';
-
-const condition = z.object({
-  type: z.string(),
-  status: z.string(),
-  reason: z.string().optional(),
-  message: z.string().optional(),
-});
-
-/** The app's Rollout, as far as the watch reads it. */
-export const rolloutSchema = z.object({
-  metadata: z.object({
-    name: z.string(),
-    /** Counted up on each change to the spec; the status says which it has caught up with. */
-    generation: z.number().int().optional(),
-    /** `rollout.argoproj.io/revision`: the version the spec asks for, counted up on each new rollout. */
-    annotations: z.record(z.string(), z.string()).default({}),
-  }),
-  spec: z.object({
-    template: z.object({
-      spec: z.object({ containers: z.array(z.object({ name: z.string(), image: z.string() })).min(1) }),
-    }),
-    strategy: z.object({
-      canary: z
-        .object({
-          steps: z
-            .array(
-              z.object({
-                setWeight: z.number().int().optional(),
-                /** A pause with no duration waits for someone to promote the canary. */
-                pause: z.object({ duration: z.union([z.string(), z.number()]).optional() }).optional(),
-                /** Only whether there is one: what it measures is the AnalysisTemplate's. */
-                analysis: z.object({}).optional(),
-              }),
-            )
-            .default([]),
-        })
-        .optional(),
-    }),
-  }),
-  status: z
-    .object({
-      /** The version the spec asks for: the canary while a release runs, and the stable version once it is over. */
-      currentPodHash: z.string().optional(),
-      /** The spec's generation this status was written for: Argo Rollouts keeps it as text. */
-      observedGeneration: z.union([z.string(), z.number()]).optional(),
-      /** The version that takes the traffic between releases. */
-      stableRS: z.string().optional(),
-      currentStepIndex: z.number().int().optional(),
-      /** Set by Martin's abort and by a failed analysis alike. */
-      abort: z.boolean().optional(),
-      /** When the controller first saw the abort, to the second, cut short; dropped when it is not such a time. */
-      abortedAt: z.iso.datetime({ offset: true }).optional().catch(undefined),
-      canary: z
-        .object({
-          weights: z.object({ canary: z.object({ weight: z.number().int() }) }).optional(),
-        })
-        .optional(),
-      conditions: z.array(condition).default([]),
-    })
-    .default({ conditions: [] }),
-});
-export type Rollout = z.infer<typeof rolloutSchema>;
-
-const measurement = z.object({
-  phase: z.string().optional(),
-  /** As Argo Rollouts keeps it: a Prometheus answer is a list written as text, such as `[0.0019]`. */
-  value: z.string().optional(),
-  message: z.string().optional(),
-  finishedAt: z.string().optional(),
-  /** For a Job's measure, the Job that took it: `job-name`. */
-  metadata: z.record(z.string(), z.string()).optional(),
-});
-
-type Measurement = z.infer<typeof measurement>;
-
-/** One of the release's AnalysisRuns, as far as the watch reads it. */
-export const analysisRunSchema = z.object({
-  metadata: z.object({
-    name: z.string(),
-    /** Kubernetes's own id for the run: a rollback's signals are named by it. */
-    uid: z.string(),
-    creationTimestamp: z.string(),
-    labels: z.record(z.string(), z.string()).default({}),
-    /** `rollout.argoproj.io/revision`: the Rollout's revision when it made the run. */
-    annotations: z.record(z.string(), z.string()).default({}),
-    ownerReferences: z.array(z.object({ kind: z.string(), name: z.string() })).default([]),
-  }),
-  spec: z.object({
-    args: z.array(z.object({ name: z.string(), value: z.string().optional() })).default([]),
-    /** Set when the run was stopped before its end: by an abort, or because the release went on without it. */
-    terminate: z.boolean().optional(),
-    metrics: z.array(z.object({ name: z.string(), successCondition: z.string().nullish() })).default([]),
-  }),
-  status: z
-    .object({
-      phase: z.string().optional(),
-      message: z.string().optional(),
-      startedAt: z.string().optional(),
-      completedAt: z.string().optional(),
-      metricResults: z
-        .array(
-          z.object({
-            name: z.string(),
-            phase: z.string().optional(),
-            message: z.string().optional(),
-            /** How many of its looks failed, across the run: Argo Rollouts fails the run when this passes the limit. */
-            failed: z.number().int().nonnegative().optional().catch(undefined),
-            measurements: z.array(measurement).default([]),
-          }),
-        )
-        .default([]),
-    })
-    .default({ metricResults: [] }),
-});
-export type AnalysisRun = z.infer<typeof analysisRunSchema>;
 
 const analysisRunList = z.object({ items: z.array(analysisRunSchema) });
 

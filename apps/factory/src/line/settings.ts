@@ -5,7 +5,7 @@
  * Under `ALL_LOCAL`, as on the gateway, every agent's calls go to the local model, which takes no effort.
  */
 import type { NewEvent } from '@software-factory/events';
-import type { EventWriter } from '@software-factory/store';
+import { type EventWriter, lockAppends } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { type InForce, inForce } from '../../../../policy/settings.ts';
 import { latestChosen, type SettingsReader } from '../settings.ts';
@@ -30,7 +30,7 @@ export function lineSettings(
     ...(store && {
       holdForSpend: (hold: NewEvent, spentUsd: number) =>
         store.sql.begin(async (tx) => {
-          await tx`select pg_advisory_xact_lock(hashtext('events'))`;
+          await lockAppends(tx);
           const cap = inForce(reader.profile, await latestChosen(tx)).caps.workItemUsd;
           if (spentUsd < cap) return false;
           await store.events.appendWithin(tx, hold);

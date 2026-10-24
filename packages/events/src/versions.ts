@@ -44,7 +44,7 @@ export const VERSIONS = {
   'action.refused': 2,
   'model.called': 2,
   // The line as a whole, with no work item
-  'line.started': 1,
+  'line.started': 2,
   'line.stopped': 1,
   'spend.capped': 2,
   'spend.cleared': 2,
@@ -56,7 +56,7 @@ export const VERSIONS = {
   'passkey.enrolled': 1,
   'passkey.revoked': 1,
   // Martin's controls of a release in flight (the admin service)
-  'release.controlled': 1,
+  'release.controlled': 2,
   // Martin's settings: each agent's model and effort, and the spend caps (the admin service)
   'settings.changed': 1,
 } as const;

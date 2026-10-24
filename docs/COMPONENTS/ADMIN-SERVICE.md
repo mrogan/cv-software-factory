@@ -6,7 +6,8 @@ Martin's sign-in, his sessions, and the one way a browser changes the factory (s
 - **v1:** Martin's controls of the canary: Promote, Pause, Resume, Abort and Retry, patching the app's Rollout as the one service of ours that may ([below](#the-canarys-controls)).
 - **v1:** Martin's settings: each agent's model and effort, and the spend caps, within policy ([below](#the-settings)).
 - **v1:** Martin's answers to holds, from Needs you: approve, reject, or answer in words ([below](#needs-you)).
-- **Later:** the actions of tasks 8 and 10, each a write route in the access table.
+- **v1:** Stop the line and Start the line, from the console's header, with the canary in flight aborted as the line stops ([below](#stopping-and-starting-the-line)).
+- **Later:** the rest of task 8 (the line's controls: autonomy, the switches, and what the line takes) and task 10, each a write route in the access table.
 
 ```mermaid
 flowchart LR
@@ -38,6 +39,8 @@ Every route it answers is in [`policy/access.ts`](../../policy/access.ts), and i
 | `settings.save` | `POST /admin/settings` | a write's four checks, and the passkey given within five minutes when the save raises anything (`agent.raise`, `caps.raise`) |
 | `hold.approve` | `POST /admin/holds/:workItem/approve` | a write's four checks, and the passkey given within five minutes when the stored hold's cause is a guardrail (`hold.approve-guardrail`) |
 | `hold.reject`, `hold.answer` | `POST /admin/holds/:workItem/reject`, `/answer` | a write's four checks |
+| `line.stop` | `POST /admin/line/stop` | a write's four checks |
+| `line.start` | `POST /admin/line/start` | a write's four checks, and the passkey given within five minutes |
 
 A write's four checks, in order: `Origin` exactly the console's origin in configuration, never one made from the request's `Host`; a live session; the session's token in `X-CSRF-Token`; and, for an action the table marks, the passkey given again within `STEP_UP.minutes`. Every write is a `POST` with a JSON body, which no form can send. The actions of tasks 8 and 10 plug in the same way: a route on their entry, and a handler; the guard comes from the table.
 
@@ -78,7 +81,19 @@ The Canary panel's controls (`admin/rollout.ts`), each the patch `kubectl argo r
 - **The release the panel showed.** Each control names it (`{"release": "<hash>-<revision>"}`, as the line names releases), and is refused (409) when the Rollout's is another, when the line has not recorded its start yet, or when its state does not take the control. Each patch is conditional on the Rollout as it was read for it (its `resourceVersion`), and a second patch (a resume after a promotion, an abort or a retry) is made only while the same release is in it: a Rollout that changed before the first is read again, and the control decided again, up to three times. A second patch the Rollout changed before, as the controller's writes to its status often change it, is read and tried again, up to three times too; one that still cannot be made leaves the control made, and its answer (200) carries a `warning` that Martin's pause is still set, which the Canary panel shows where he pressed.
 - **Retry while the line is stopped** is refused by the service, not only disabled on the page: a stopped line starts no canary.
 - **Recorded once made.** Its event, `release.controlled`, is checked before the patch and appended after the first, before any resume, in a transaction of its own, so a patch Kubernetes refuses leaves none (502), and no connection to the store waits on Kubernetes. A patch whose answer never came, or came as a server error, is read back, and counts as made if the Rollout shows it (a flag Argo Rollouts leaves out when false, such as `status.abort`, counts as false), or shows the controller acted on it: a promotion's canary at or past its step, whatever its pauses say now, or a full promotion's already all of the traffic. An append that fails is tried once more, and logged if that fails too. The line then records what the Rollout did: after an abort, [`release.aborted` with `by: martin`](RELEASE-AND-VERIFY.md#its-events).
+- **Read as the line reads it.** The Rollout is read through the line's own schema and `observe` (`release/rollout.ts`, which the line's release watch reads it with too), and the release in it is named as the line names it (`namedReleases`), from the line's records of every release of its pod hash, read with the line's own queries (`release/recorded.ts`): a release the line recorded under another name than the Rollout's, such as one named by its pod hash alone from before releases were named by revision, is controlled by that name.
 - **Unset,** with no `RELEASE_ROLLOUT`, every control is refused (503), and the service reaches nothing in Kubernetes.
+
+## Stopping and starting the line
+
+The console's header stops and starts the line (`admin/line.ts`), each with Martin's reason (`{"reason": "…"}`, up to 200 characters), for the audit log: visitors see it, with anything shaped like a secret left out.
+
+- **Stop the line** (`POST /admin/line/stop`) appends `line.stopped`, the same event as `make stop-the-line`, which every worker heeds: each agent stops at the end of its step, and nothing new is taken ([orchestrator](ORCHESTRATOR.md#stopping-the-line)). It never asks for the passkey: it tightens.
+- **Then it aborts the canary in flight,** recorded by the line or not, with the same patch as the panel's Abort, through the same Role. Its `release.controlled` says it came with the stop (`stop: true`), so the line records the abort `by: stop` from the event, not the time. A release the line has not recorded yet has no version to record: it is aborted all the same, with no control, and the line tells it by the stop just before. A Rollout whose status has not caught up with its spec yet, as a release starts, is read again each second for up to five, and its canary aborted once it is named. The answer says what became of the canary: `aborted` (with the release, and whether its control was `recorded`), `none` in flight, or `not-aborted`.
+- **The stop first.** The stop is appended before the abort, so the agents stop even when Kubernetes cannot be reached. If the abort fails, the line stays stopped, and the answer (200) carries a `warning` that the canary was not aborted and that `make stop-the-line` will abort it, which the dialog shows where Martin pressed. Without `RELEASE_ROLLOUT` it says the same.
+- **Start the line** (`POST /admin/line/start`) appends `line.started`, with the passkey given within five minutes (asked again as the start is taken). A release stopped with the line stays stopped until Martin retries it from the Canary panel.
+- **Only when it does something** (409 otherwise, having appended nothing): a stopped line is not stopped again, nor a running one started. Each is taken under the lock every append takes, so two presses cannot both do it.
+- **`make stop-the-line` keeps its own path,** unchanged: `factory line stop` as Martin's command line's role, then `scripts/abort-canaries.sh` with his own kubeconfig, each run whichever fails. It needs neither the console nor the admin service.
 
 ## The settings
 
@@ -100,7 +115,7 @@ Martin answers a hold from its card in Needs you (`admin/holds.ts`): `POST /admi
 
 ## What it records
 
-Every action is an event with Martin as its actor, appended in the same transaction as the action, so it is done and recorded or neither: `passkey.enrolled`, `admin.signed-in`, `admin.signed-out` (here, everywhere, or by signing in again over a live session in the same browser), `admin.stepped-up` (the passkey given again), `passkey.revoked` (from the console, or the command line) `release.controlled` (a control of the canary: which, the release, its version, the canary's weight then, and for a promotion the weight it goes to), `settings.changed` (the settings, with each change before and after), with a `hold.answered` for each `spend` hold a raised work item's cap clears, and `hold.answered` (his answer to a hold from Needs you, naming the hold). Each is one of [Martin's commands](EVENT-STORE.md#martins-commands), which no worker can append. Their public views say what he did and never with which passkey: no name, id, address or browser.
+Every action is an event with Martin as its actor, appended in the same transaction as the action, so it is done and recorded or neither: `passkey.enrolled`, `admin.signed-in`, `admin.signed-out` (here, everywhere, or by signing in again over a live session in the same browser), `admin.stepped-up` (the passkey given again), `passkey.revoked` (from the console, or the command line) `release.controlled` (a control of the canary: which, the release, its version, the canary's weight then, for a promotion the weight it goes to, and whether it was Stop the line's abort), `line.stopped` and `line.started` (with his reason), `settings.changed` (the settings, with each change before and after), with a `hold.answered` for each `spend` hold a raised work item's cap clears, and `hold.answered` (his answer to a hold from Needs you, naming the hold). Each is one of [Martin's commands](EVENT-STORE.md#martins-commands), which no worker can append. Their public views say what he did and never with which passkey: no name, id, address or browser.
 
 ## Settings
 

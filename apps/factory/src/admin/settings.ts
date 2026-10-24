@@ -18,7 +18,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { type NewEvent, VERSIONS } from '@software-factory/events';
-import { fromMartin } from '@software-factory/store';
+import { fromMartin, lockAppends } from '@software-factory/store';
 import type { TransactionSql } from 'postgres';
 import { z } from 'zod';
 import { ACCESS } from '../../../../policy/access.ts';
@@ -175,7 +175,7 @@ export async function saveSettings(store: AdminStore, profile: Profile, session:
       async (tx) => {
         // One save at a time, each against what is in force as it is taken, and under the lock every append takes, so
         // a spend hold the line appends lands wholly before this save (and is answered) or after it (and reads its cap).
-        await tx`select pg_advisory_xact_lock(hashtext('events'))`;
+        await lockAppends(tx);
         const before = inForce(profile, await latestChosen(tx));
         const outside = outsidePolicy(profile, before, save);
         if (outside.length) throw new Refused('policy', 422, `That is outside policy: ${outside.join('; ')}.`);

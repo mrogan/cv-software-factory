@@ -22,9 +22,10 @@
 import type { InboxSignal, PayloadOf, SymptomClass } from '@software-factory/events';
 import { uuidFrom } from '@software-factory/triage';
 import type { Regression } from '../gates/journeys.ts';
-import type { AnalysisRun, RoutesWorse } from './read.ts';
+import type { RoutesWorse } from './read.ts';
 import { type Recorded, short } from './recorded.ts';
-import { measuresOf, type Observed, recordOf, type Series } from './watch.ts';
+import type { AnalysisRun, Observed } from './rollout.ts';
+import { measuresOf, recordOf, type Series } from './watch.ts';
 
 type Started = PayloadOf<'release.started'>;
 type Measure = PayloadOf<'canary.stepped'>['analysis']['measures'][number];

@@ -3,7 +3,7 @@
  * then a step analysis; 50% for three minutes, then another; and a background analysis throughout. Each builder takes
  * the state a test needs and fills in the rest as the cluster has it.
  */
-import { type AnalysisRun, analysisRunSchema, type Rollout, rolloutSchema } from '../../src/release/read.ts';
+import { type AnalysisRun, analysisRunSchema, type Rollout, rolloutSchema } from '../../src/release/rollout.ts';
 
 export const STABLE = '7fc778d748';
 export const CANARY = '68ff668868';

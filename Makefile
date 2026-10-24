@@ -256,8 +256,8 @@ stop-the-line: node_modules ## Stop the line: agents stop, workers take nothing 
 	@{ $(call as-operator,node apps/factory/src/cli.ts line stop $(if $(REASON),--reason "$(REASON)")); } || failed=1; \
 		KUBECTL="$(KUBECTL)" scripts/abort-canaries.sh || failed=1; exit $${failed:-0}
 
-start-the-line: node_modules ## Start the line again; workers take what waited in the inbox
-	@$(call as-operator,node apps/factory/src/cli.ts line start)
+start-the-line: node_modules ## Start the line again; workers take what waited in the inbox (REASON="...")
+	@$(call as-operator,node apps/factory/src/cli.ts line start $(if $(REASON),--reason "$(REASON)"))
 
 enrol: node_modules ## Print a one-time code to enrol a passkey on the console (REVOKE_OTHERS=1: revoke every passkey and session first)
 	@$(call as-martin,enrol,node apps/factory/src/cli.ts admin enrol $(if $(REVOKE_OTHERS),--revoke-others))

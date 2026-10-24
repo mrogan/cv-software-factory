@@ -1001,7 +1001,7 @@ describe('triage', () => {
       ts: at,
       work_item: null,
       type: 'line.started',
-      version: 1,
+      version: VERSIONS['line.started'],
       actor: 'martin',
       summary: 'Martin started the line',
       payload: { autonomy: 'supervised' },

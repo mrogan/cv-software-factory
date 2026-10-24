@@ -9,13 +9,16 @@
  *   work item no release has carried whose fix is already in it. A commit GitHub never had (a dry run's) is in neither.
  * - for each step, each version's figures from Prometheus, and how many of the journeys' checks passed of how many ran,
  *   from the Job's termination message; for a rollback, the series of each failed measure.
- * - for an abort, who made it: Martin, when he aborted this release from the console, whose control
- *   (`release.controlled`, appended by one of his roles once its patch is made) is within the minute before the abort;
- *   otherwise Stop the line, which records the line's stop and then aborts every release in flight, when the line's
- *   last word before the abort is that it stopped, within the minute before; otherwise Martin, by hand with his own
- *   credentials, the one other way a Rollout is aborted. The admin service records a control just after its patch, so
- *   an abort less than fifteen seconds old that no control has claimed waits a pass. Argo Rollouts keeps the abort's
- *   time to the second, cut short, so a control or a stop recorded within the second after it counts as before it.
+ * - for an abort, who made it, from the control the admin service records once its patch is made
+ *   (`release.controlled`, appended by one of Martin's roles), within the minute before the abort: Stop the line, when
+ *   the control says it came with the console's stop; Martin, when he aborted this release from the Canary panel.
+ *   With no control, Stop the line when the line's last word before the abort is that it stopped, within the minute
+ *   before: `make stop-the-line` records the line's stop and then aborts every release in flight with a script that
+ *   records nothing, and the console's stop records no control for a release the line had not recorded yet. Otherwise
+ *   Martin, by hand with his own credentials, the one other way a Rollout is aborted. The admin service records a
+ *   control just after its patch, so an abort less than fifteen seconds old that no control has claimed waits a pass.
+ *   Argo Rollouts keeps the abort's time to the second, cut short, so a control or a stop recorded within the second
+ *   after it counts as before it.
  *
  * A figure or series it could not read is left out, and the step or rollback recorded without it.
  *
@@ -38,7 +41,7 @@
  */
 
 import { type Attributes, trace } from '@opentelemetry/api';
-import { type RawEvent, RELEASE_TYPES, upcast } from '@software-factory/events';
+import { type RawEvent, upcast } from '@software-factory/events';
 import { fromMartin, lastEnd, sendSignal } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
@@ -55,7 +58,8 @@ import {
   routesWorse,
   seriesOf,
 } from '../release/read.ts';
-import { type Recorded, recordedFrom, type Target } from '../release/recorded.ts';
+import { lastPromoted, type Recorded, recordedFrom, releaseRecords, type Target } from '../release/recorded.ts';
+import { namedReleases, type Observed, observe, podHashes } from '../release/rollout.ts';
 import type { RolloutRef } from '../release/rollout-ref.ts';
 import { canarySignal, type FailedMeasure, failedMeasures, keyOf, type Read } from '../release/signals.ts';
 import {
@@ -65,10 +69,6 @@ import {
   type Figures,
   measuresOf,
   type Needs,
-  namedReleases,
-  type Observed,
-  observe,
-  podHashes,
   releaseEvents,
   releaseNeeds,
   type Series,
@@ -149,9 +149,9 @@ export class Releases {
       return;
     }
     const o = observe(read.rollout, read.runs);
-    const recorded = recordedFrom(await this.#recorded(podHashes(o), true));
+    const recorded = recordedFrom(await releaseRecords(this.#o.sql, podHashes(o), true));
     // The record holds only the releases of the hashes the Rollout names; which shipped last is asked of the store.
-    const last = await this.#lastPromoted();
+    const last = await lastPromoted(this.#o.sql);
     const lastRelease = last?.release;
     const needs = releaseNeeds(o, recorded, lastRelease);
     // A pass with something to read for a release, or a failed measure to send triage, is the release's span; one with
@@ -337,7 +337,12 @@ export class Releases {
       (item) => item.number >= DRY_RUN_NUMBERS_FROM && (only === null || item.workItem === only),
     );
     if (!merged.length) return;
-    const recorded = recordedFrom(await this.#recorded(merged.map((item) => dryRunRelease(item.commit))));
+    const recorded = recordedFrom(
+      await releaseRecords(
+        this.#o.sql,
+        merged.map((item) => dryRunRelease(item.commit)),
+      ),
+    );
     let previous: string | undefined;
     const drafts = new Map<Target, Draft[]>();
     for (const item of merged) {
@@ -345,7 +350,8 @@ export class Releases {
       if (record?.ended === 'promoted' || (item.released && !record)) continue;
       // The version it would have replaced: the last that shipped, or before any, main as it is.
       previous ??=
-        (await this.#lastPromoted())?.version ?? (await this.#o.github.read('head', this.#o.repo, { branch: 'main' }));
+        (await lastPromoted(this.#o.sql))?.version ??
+        (await this.#o.github.read('head', this.#o.repo, { branch: 'main' }));
       const due = dryRunEvents(item, previous, record, now(), dryRunEveryMs);
       if (due.length) drafts.set(item.workItem, due);
     }
@@ -381,45 +387,14 @@ export class Releases {
   }
 
   /**
-   * The release events recorded for these releases, upcast, in order; or, `byHash`, for every release of these
-   * versions, whatever its revision.
-   */
-  async #recorded(names: string[], byHash = false) {
-    if (!names.length) return [];
-    const { sql } = this.#o;
-    const release = byHash ? sql`split_part(payload->>'release', '-', 1)` : sql`payload->>'release'`;
-    const rows = await sql<(RawEvent & { work_item: string | null; ts: Date })[]>`
-      select seq, work_item, ts, type, version, payload from events
-      where type in ${sql(RELEASE_TYPES as string[])} and ${release} in ${sql(names)}
-      order by seq`;
-    return rows.flatMap((row) => {
-      const read = upcast({ ...row, seq: Number(row.seq) });
-      if (!read.ok) return [];
-      const { type, payload } = read.event;
-      return [{ work_item: row.work_item, ts: new Date(row.ts).toISOString(), type, payload }];
-    });
-  }
-
-  /**
-   * The app's last release that shipped, by its name, and the version it made stable. A promotion of version 1, from
-   * before releases were named, has no name, and says nothing of which image shipped last.
-   */
-  async #lastPromoted(): Promise<{ release: string | undefined; version: string } | undefined> {
-    const [row] = await this.#o.sql<{ release: string | null; version: string }[]>`
-      select payload->>'release' as release, payload->>'version' as version from events
-      where type = 'release.promoted' and (payload->>'dryRun')::boolean is not true
-      order by seq desc limit 1`;
-    return row && { release: row.release ?? undefined, version: row.version };
-  }
-
-  /**
-   * Who aborted a release at `at`: Martin, if his control from the console aborted it; Stop the line, if the line had
-   * just stopped; or else Martin, by hand.
+   * Who aborted a release at `at`: Stop the line, if the console's stop aborted it, as its control says; Martin, if his
+   * control from the Canary panel did; Stop the line, if the line had just stopped, which is how `make stop-the-line`'s
+   * abort is told, as its script holds no role in the store and records nothing; or else Martin, by hand.
    */
   async #abortedBy(at: string, release: string): Promise<'stop' | 'martin' | undefined> {
     const { sql, now } = this.#o;
-    const [control] = await sql<{ seq: string }[]>`
-      select e.seq from events e
+    const [control] = await sql<{ stop: boolean }[]>`
+      select coalesce((e.payload->>'stop')::boolean, false) as stop from events e
       where e.type = 'release.controlled' and e.payload->>'action' = 'abort' and e.payload->>'release' = ${release}
         and e.ts < ${at}::timestamptz + interval '1 second' and e.ts >= ${at}::timestamptz - interval '1 minute'
         and ${fromMartin(sql, 'e')}
@@ -429,10 +404,12 @@ export class Releases {
           where p.type in ('release.aborted', 'release.errored') and p.payload->>'release' = ${release}
             and (p.payload->>'abortedAt')::timestamptz < ${at}::timestamptz
         ) + interval '1 second', '-infinity')
-      limit 1`;
-    if (control) return 'martin';
+      order by e.seq desc limit 1`;
+    if (control) return control.stop ? 'stop' : 'martin';
     // The admin service records its control just after its patch: an abort only seconds old waits a pass for it.
     if (now().getTime() - Date.parse(at) < CONTROL_LAG_MS) return undefined;
+    // The command line's stop, or the console's of a release the line had not recorded yet, which no control names:
+    // told by time.
     const [last] = await sql<{ type: string; ts: Date }[]>`
       select e.type, e.ts from events e
       where e.type in ('line.started', 'line.stopped') and e.ts < ${at}::timestamptz + interval '1 second'

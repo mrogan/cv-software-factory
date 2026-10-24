@@ -841,7 +841,7 @@ function verified(item: ItemState, event: PublicEvent<'verification.finished'>):
     at: Date.parse(event.ts),
     version: p.version,
     against: p.against,
-    words: next && 'reason' in next.payload ? next.payload.reason : event.summary,
+    words: (next && 'reason' in next.payload && next.payload.reason) || event.summary,
     dryRun: p.dryRun,
     pages: pages.slice(0, 4),
     marked,

@@ -15,6 +15,8 @@ export type AdminEvent =
   | 'admin.signed-in'
   | 'admin.signed-out'
   | 'admin.stepped-up'
+  | 'line.started'
+  | 'line.stopped'
   | 'passkey.enrolled'
   | 'passkey.revoked'
   | 'release.controlled'
@@ -271,6 +273,19 @@ export function adminEvent<K extends AdminEvent>(type: K, summary: string, paylo
     payload,
     artifacts: [],
   } as NewEvent;
+}
+
+/**
+ * Whether a session is live (not ended, not expired, its passkey not revoked) and its passkey was given again within
+ * `STEP_UP.minutes`, by the store's clock, as the action is taken: asked again after the lock an action takes, as the
+ * passkey given may have gone stale while it waited.
+ */
+export async function steppedUpNow(tx: TransactionSql, session: Session): Promise<boolean> {
+  const [fresh] = await tx`
+    select 1 from sessions s join passkeys p on p.id = s.passkey
+    where s.id_sha256 = ${session.hash} and s.ended_at is null and s.expires_at > now()
+      and p.revoked_at is null and s.stepped_up_at > now() - make_interval(mins => ${STEP_UP.minutes})`;
+  return fresh !== undefined;
 }
 
 /** The hash the store keeps of a session's id. */

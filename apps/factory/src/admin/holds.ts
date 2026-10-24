@@ -29,11 +29,11 @@ import {
   VERSIONS,
   WORDS_LEAVE_HELD,
 } from '@software-factory/events';
-import { fromMartin } from '@software-factory/store';
+import { fromMartin, lockAppends } from '@software-factory/store';
 import type { TransactionSql } from 'postgres';
 import { z } from 'zod';
-import { ACCESS, GUARDRAIL_HOLDS, STEP_UP } from '../../../../policy/access.ts';
-import { type AdminStore, Refused, type Session } from './store.ts';
+import { ACCESS, GUARDRAIL_HOLDS } from '../../../../policy/access.ts';
+import { type AdminStore, Refused, type Session, steppedUpNow } from './store.ts';
 
 /** A work item's number, as the store keeps it. */
 export const WORK_ITEM = /^[1-9][0-9]{0,8}$/;
@@ -181,7 +181,7 @@ export async function answerHold(
   const { report } = await store.record(
     async (tx) => {
       // One answer at a time, and none between a hold the line or triage appends and the next.
-      await tx`select pg_advisory_xact_lock(hashtext('events'))`;
+      await lockAppends(tx);
       const open = await openHold(tx, workItem);
       if (!open || open.id !== given.hold) {
         throw new Refused(
@@ -198,12 +198,7 @@ export async function answerHold(
       const guardrail = (GUARDRAIL_HOLDS as readonly HoldCause[]).includes(open.cause);
       if (decision === 'approved' && guardrail && ACCESS['hold.approve-guardrail'].stepUp) {
         // Asked again as the answer is taken, after the lock: the passkey given may have gone stale while it waited.
-        // The session still live (not ended, not expired, its passkey not revoked), as the guard reads one.
-        const [fresh] = await tx`
-          select 1 from sessions s join passkeys p on p.id = s.passkey
-          where s.id_sha256 = ${session.hash} and s.ended_at is null and s.expires_at > now()
-            and p.revoked_at is null and s.stepped_up_at > now() - make_interval(mins => ${STEP_UP.minutes})`;
-        if (!fresh) throw new Refused('step-up', 403, 'This needs your passkey again.');
+        if (!(await steppedUpNow(tx, session))) throw new Refused('step-up', 403, 'This needs your passkey again.');
       }
       return { report: await openedByReport(tx, workItem) };
     },

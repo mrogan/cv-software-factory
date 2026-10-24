@@ -2,7 +2,7 @@
  * `factory line`: stopping and starting the line (guardrail 9: stop the line always works).
  *
  *     factory line stop [--reason <why>]
- *     factory line start [--autonomy supervised|guarded|lights-out]
+ *     factory line start [--reason <why>] [--autonomy supervised|guarded|lights-out]
  *     factory line serve
  *     factory line bench [<agent> [<fixture>]] [--commit <sha>]
  *     factory line soak-check [--since <time>] [--no-spend] [--json]
@@ -64,7 +64,10 @@
  * a host it reads the cluster through KUBE_API_URL (what `kubectl proxy` serves).
  *
  * Every worker checks the line before it takes work, so a stopped line finishes what is in hand and takes nothing
- * new; signals wait in the inbox until it starts again. Connects with DATABASE_URL, or the PG* variables, as Martin's
+ * new; signals wait in the inbox until it starts again. `stop` and `start` each record Martin's reason if he gives one
+ * (`stop` has its own words if not). The console's header stops and starts the line too, through the admin service
+ * (`admin/line.ts`), with the same events; `stop`, which `make stop-the-line` runs before it aborts the canary in flight,
+ * works when neither the console nor the admin service does. Connects with DATABASE_URL, or the PG* variables, as Martin's
  * own role (`factory_operator`): only his roles may append his commands, and the workers heed them from no other.
  */
 import { parseArgs } from 'node:util';
@@ -73,7 +76,7 @@ import { connect, DiskArtifacts, EventWriter } from '@software-factory/store';
 import { rolloutRefOf } from '../release/rollout-ref.ts';
 
 export const USAGE = `  factory line stop [--reason <why>]
-  factory line start [--autonomy supervised|guarded|lights-out]
+  factory line start [--reason <why>] [--autonomy supervised|guarded|lights-out]
   factory line serve
   factory line bench [<agent> [<fixture>]] [--commit <sha>]
   factory line soak-check [--since <time>] [--no-spend] [--json]`;
@@ -85,7 +88,7 @@ export async function run(args: string[]): Promise<number> {
     args,
     allowPositionals: true,
     options: {
-      reason: { type: 'string', default: 'Martin stopped the line' },
+      reason: { type: 'string' },
       autonomy: { type: 'string', default: 'supervised' },
     },
   });
@@ -114,10 +117,14 @@ export async function run(args: string[]): Promise<number> {
     }) as NewEvent;
   try {
     if (command === 'stop') {
-      await writer.append(event('line.stopped', `The line stopped: ${values.reason}`, { reason: values.reason }));
+      const reason = values.reason?.trim() || 'Martin stopped the line';
+      await writer.append(event('line.stopped', `The line stopped: ${reason}`, { reason }));
       console.log('The line is stopped. Workers finish what they hold and take nothing new.');
     } else {
-      await writer.append(event('line.started', `The line started, ${autonomy}`, { autonomy }));
+      const reason = values.reason?.trim();
+      await writer.append(
+        event('line.started', `The line started, ${autonomy}`, { autonomy, ...(reason && { reason }) }),
+      );
       console.log(`The line is running, ${autonomy}. Workers take what waited in the inbox.`);
     }
     return 0;
