@@ -48,7 +48,7 @@ function image() {
 declare module 'vitest' {
   export interface ProvidedContext {
     databaseUrl: string;
-    /** The migrated database each test's is a copy of. */
+    /** The run's migrated template, which each test database is a copy of. */
     databaseTemplate: string;
   }
 }
@@ -203,6 +203,11 @@ async function migrated(server: string, database: string) {
       for (const [name, role] of Object.entries(UNSET))
         await owner.unsafe(`alter role ${role} password '${name}-test'`);
       await readyOperator(owner, 'operator-test');
+    } catch (error) {
+      // Half migrated, it is no use to anyone: on a server that outlives the run, it goes.
+      await owner.end();
+      await admin.unsafe(`drop database ${database}`).catch(() => {});
+      throw error;
     } finally {
       await owner.end();
     }
