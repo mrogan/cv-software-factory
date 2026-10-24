@@ -34,13 +34,13 @@ Each rule says how loudly it is told by a `level` label, and Alertmanager routes
 |---|---|---|---|
 | Page | `level: page` | Pushover, at high priority, which sounds through Martin's quiet hours | the console or the app down, the line stuck, a spend cap reached, the security events that loosen a guardrail or change who can sign in, the security events' count missing or stale, a silence in place |
 | Notify | `level: notify` | Pushover, at normal priority | a release rolled back or errored, a new hold, the security events that widen what the line does or act on a release, a security release or fixable vulnerability in a factory image |
-| Inform | `level: inform` | Pushover, at low priority, with no sound or vibration | the security events that tighten, or only record Martin's own use |
+| Inform | `level: inform` | Pushover, at low priority, with no sound or vibration | the security events that tighten, but for autonomy, or only record Martin's own use |
 | Dashboard only | none | no one: a receiver that sends nothing | everything else |
 
 - **The app's objective alerts carry no level,** and go to the intake, matched by their `objective` label: they are the senses' signals, not alerts to Martin. An alert with a level never reaches the intake, which would make a signal of it.
 - **Each message to Martin is one of its own,** never folded into another's, sent once when it fires and again every four hours while it still does, and not when it resolves.
 - **A message says what happened and when:** the rule's description or summary, as the rule writes it, and the time it began firing, in UTC. The receiver adds no label of its own choosing: only the alert's name, when a rule gives no summary.
-- **Pushover's keys are in a Secret,** `pushover` in `telemetry`, which `make up` makes from the Keychain's `pushover-app-token` and `pushover-user-key` (`make pushover-key` alone), piped through stdin. Alertmanager reads them from files each time it sends, so a key added later needs no restart. With no keys, Alertmanager still starts and still sends to the intake; each page fails to send, and its own metrics count the failures (`alertmanager_notifications_failed_total`).
+- **Pushover's keys are in a Secret,** `pushover` in `telemetry`, which `make up` makes from the Keychain's `pushover-app-token` and `pushover-user-key` (`make pushover-key` alone), piped through stdin. Alertmanager reads them from files each time it sends, so a key added later needs no restart. With no keys, Alertmanager still starts and still sends to the intake; each message to Martin fails to send, and its own metrics count the failures (`alertmanager_notifications_failed_total`).
 - **Emergency priority,** which repeats until acknowledged, is not used: every page so far is one of Martin's own actions, and it would repeat at each of them.
 
 ## Who reaches Alertmanager
@@ -77,7 +77,7 @@ Martin is alerted to each of his security events, at its kind's level, counted f
 
 Every change of the line's controls alerts him, each told from the stored change's before and after alone (`policy/line.ts`), as every change of the settings does. Auto-rollback off, which the access table marks too, has no event until Part C gives it a switch, and a test fails until it is counted.
 
-- **Each kind has its level** (`SECURITY_LEVELS` in `apps/factory/src/alerts/rules.ts`, typed so a new kind cannot go without one). What loosens a guardrail, or changes who can sign in, pages him; what widens what the line does, or acts on a release, notifies him; what tightens, or only records his own use, informs him. Every kind still reaches his phone: only how loudly differs.
+- **Each kind has its level** (`SECURITY_LEVELS` in `apps/factory/src/alerts/rules.ts`, typed so a new kind cannot go without one). What loosens a guardrail, or changes who can sign in, pages him; what widens what the line does, or acts on a release, notifies him; what tightens, or only records his own use, informs him, but for tightening autonomy, which notifies him. Every kind still reaches his phone: only how loudly differs.
 - **One rule for each kind** alerts when its count rises: the first of a kind too, as each count starts at 0. Several of a kind within five minutes are one message.
 - **Another pages when the count is missing or stale:** gone for ten minutes after being there in the six hours before, or the line unable to read the store for five. Meanwhile no security event would reach him.
 - **A silence pages,** while Alertmanager has one in place, active or pending, from its own `alertmanager_silences`. Nothing here makes one, and only Prometheus and Grafana reach Alertmanager.

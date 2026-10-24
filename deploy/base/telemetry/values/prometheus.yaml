@@ -23,7 +23,8 @@
 # Keychain (`make pushover-key`). It is mounted optional, so a cluster with no Pushover account still comes up and still
 # routes to the intake; each message to Martin then fails to send, which Alertmanager's own metrics count. Alertmanager
 # reads the files each time it sends, so a key added later is used without a restart. Until the intake is deployed,
-# deliveries to it fail and Alertmanager retries them. The sub-chart's defaults already meet the restricted Pod Security Standard.
+# deliveries to it fail and Alertmanager retries them. The sub-chart's defaults already meet the restricted Pod Security
+# Standard.
 #
 # Its first NetworkPolicy, alertmanager-fence.yaml, lets it reach the intake, DNS and the internet on 443, and lets in
 # only Prometheus and Grafana: anything that reached it could silence a page.

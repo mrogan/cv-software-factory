@@ -106,7 +106,7 @@ The console's header stops and starts the line (`admin/line.ts`), each with Mart
 - **Within policy, or refused** (422), having changed nothing: the next few are 1 to 20 work items, and just one is a work item with an open ticket (one that has not closed, and not a sample's, which the line never takes). The line checks what it reads again, with the same function (`controlsInForce`), as the console's Controls is to: an event outside policy has no effect there either.
 - **The next few count from when he chose them,** and keep that start while only their number changes. Chosen again with the same number, they start again from then, which lets the line take that many more: wider, and it asks.
 - **What each does:** the line reads the take and the switch for new work at its next pass ([orchestrator](ORCHESTRATOR.md#taking-work)). Nothing routes by the autonomy level or auto-merge until approval routing comes (Part C): every merge still waits for Martin. Auto-rollback has no route: a failing canary is always rolled back until Part C gives it a switch.
-- **Each change alerts Martin,** as a [security event](ALERTING.md#security-events) of its own kind, at its kind's level: loosening autonomy pages him, a widening notifies him, and a tightening informs him.
+- **Each change alerts Martin,** as a [security event](ALERTING.md#security-events) of its own kind, at its kind's level: loosening autonomy pages him, tightening it or a widening notifies him, and any other tightening informs him.
 
 ## The settings
 

@@ -103,7 +103,7 @@ Public profiles get their certificates from Cloudflare (milestone 10).
   |---|---|
   | Page | the console or the app down, the line stuck, a spend cap reached, a security event that loosens a guardrail or changes who can sign in |
   | Notify | a release rolled back or errored, a new hold, a security event that widens what the line does or acts on a release, a security release or fixable vulnerability in a factory image |
-  | Inform | a security event that tightens, or only records Martin's own use, such as signing in |
+  | Inform | a security event that tightens, but for autonomy, or only records Martin's own use, such as signing in |
   | Dashboard only | everything else |
 
 - **Security events come first (Part A):** a sign-in, a passkey enrolled or revoked, every action that needs the passkey again, and every change to a setting. They are counted from the stored events by a worker other than the admin service, so a compromised admin service cannot keep quiet, each count starting at zero so the first of a kind alerts too, and an alerting rule alerts on any, at its kind's level. Factory health, releases and spend follow in Part C, and its images' vulnerabilities in Part D.
