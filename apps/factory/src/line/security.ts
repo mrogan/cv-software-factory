@@ -10,11 +10,12 @@
  * - `sign-in`: `admin.signed-in`;
  * - `passkey-enrolled` and `passkey-revoked`;
  * - `setting-changed`: every `settings.changed`;
- * - the actions the access table marks as needing the passkey again: `stepped-up` (`admin.stepped-up` itself),
- *   `release-control` (a `release.controlled` that promotes or retries), `guardrail-approved` (a `hold.answered`
+ * - the actions the access table marks as needing the passkey again, each as the action it is: `release-control` (a
+ *   `release.controlled` that promotes or retries), `guardrail-approved` (a `hold.answered`
  *   approving a hold whose cause is a guardrail, read from the hold it answers: the latest on its work item before it,
  *   which is the hold the line takes it to answer, so an approval counts as what it does),
- *   and `line-started`;
+ *   and `line-started`. Giving the passkey again (`admin.stepped-up`) is not counted: each action it lets the session
+ *   take is, and the audit log keeps the event;
  * - `line-stopped`: every `line.stopped`, which tightens and so needs no passkey again, but which Martin is still told of;
  * - every change of the line's controls (`controls.changed`), as the access table's action it is, told from the
  *   stored change's before and after alone (`policy/line.ts`): `autonomy-loosened` and `autonomy-tightened`,
@@ -45,7 +46,6 @@ export const SECURITY_KINDS = [
   'passkey-enrolled',
   'passkey-revoked',
   'setting-changed',
-  'stepped-up',
   'release-control',
   'guardrail-approved',
   'line-started',
@@ -73,7 +73,6 @@ const TYPES = [
   'passkey.enrolled',
   'passkey.revoked',
   'settings.changed',
-  'admin.stepped-up',
   'release.controlled',
   'hold.answered',
   'line.started',
@@ -134,8 +133,6 @@ export function countAs(event: Stored): { kind: SecurityKind } | { hold: HoldCau
       return { kind: 'passkey-revoked' };
     case 'settings.changed':
       return { kind: 'setting-changed' };
-    case 'admin.stepped-up':
-      return { kind: 'stepped-up' };
     case 'line.started':
       return { kind: 'line-started' };
     case 'line.stopped':
@@ -220,7 +217,7 @@ export async function readOn(sql: Sql, tally: Tally): Promise<Tally> {
 
 const securityEvents = meter.createObservableCounter('line.security_events', {
   description:
-    'Martin’s security events the store holds, by kind: sign-ins, passkeys, settings, the line’s controls and stepped-up actions',
+    'Martin’s security events the store holds, by kind: sign-ins, passkeys, settings, the line’s controls and the actions that need the passkey again',
 });
 
 const holdsStored = meter.createObservableCounter('line.holds.stored', {

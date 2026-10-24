@@ -66,7 +66,6 @@ Martin is alerted to each of his security events, at its kind's level, counted f
 | `sign-in` | `admin.signed-in` | Inform |
 | `passkey-enrolled`, `passkey-revoked` | `passkey.enrolled`, `passkey.revoked` | Page |
 | `setting-changed` | every `settings.changed` | Notify |
-| `stepped-up` | `admin.stepped-up`: the passkey given again | Inform |
 | `release-control` | `release.controlled` that promotes a canary or retries a release | Notify |
 | `guardrail-approved` | `hold.answered` approving a hold whose cause is a guardrail (`GUARDRAIL_HOLDS` in `policy/access.ts`), the cause read from the hold it answers | Page |
 | `line-started` | `line.started` | Notify |
@@ -75,6 +74,8 @@ Martin is alerted to each of his security events, at its kind's level, counted f
 | `new-work-on`, `new-work-off` | `controls.changed` that lets agents take new work, or stops them | Notify, Inform |
 | `auto-merge-on`, `auto-merge-off` | `controls.changed` that turns auto-merge of low-risk changes on or off | Notify, Inform |
 | `take-widened`, `take-narrowed` | `controls.changed` that widens or narrows what the line takes | Notify, Inform |
+
+Giving the passkey again (`admin.stepped-up`) alerts no one, though the audit log keeps it: every action that needs it alerts as its own kind, and the sign-in before it informs him.
 
 Every change of the line's controls alerts him, each told from the stored change's before and after alone (`policy/line.ts`), as every change of the settings does. Auto-rollback off, which the access table marks too, has no event until Part C gives it a switch, and a test fails until it is counted.
 

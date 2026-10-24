@@ -108,7 +108,6 @@ describe('the count of Martin’s security events', () => {
       'passkey-enrolled': 1,
       'passkey-revoked': 1,
       'setting-changed': 1,
-      'stepped-up': 1,
       'release-control': STEPPED_UP_CONTROLS.length,
       'guardrail-approved': 0,
       'line-started': 1,
@@ -225,7 +224,6 @@ describe('what counts as a security event', () => {
     // Each action the access table marks, by the kind its event is counted as. Auto-rollback has no switch, and so no
     // event, until Part C gives it one: it joins the count then, and this test fails until it does.
     const counted: Record<string, string> = {
-      'step-up': 'stepped-up',
       'passkey.revoke': 'passkey-revoked',
       'hold.approve-guardrail': 'guardrail-approved',
       'line.start': 'line-started',
@@ -241,11 +239,9 @@ describe('what counts as a security event', () => {
     const marked = Object.entries(ACCESS as Record<string, { stepUp: boolean }>)
       .filter(([, access]) => access.stepUp)
       .map(([name]) => name);
-    expect(
-      Object.keys(counted)
-        .filter((name) => name !== 'step-up')
-        .sort(),
-    ).toEqual(marked.sort());
+    expect(Object.keys(counted).sort()).toEqual(marked.sort());
+    // Giving the passkey again is not counted itself: each action it allows is.
+    expect(countAs({ type: 'admin.stepped-up' })).toBeNull();
     for (const kind of Object.values(counted).filter((kind) => kind !== 'no event yet')) {
       expect(SECURITY_KINDS).toContain(kind);
     }

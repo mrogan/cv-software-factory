@@ -98,7 +98,6 @@ export const SECURITY_LEVELS: Record<SecurityKind, Level> = {
   'line-started': LEVELS.notify,
   'new-work-on': LEVELS.notify,
   'sign-in': LEVELS.inform,
-  'stepped-up': LEVELS.inform,
   'line-stopped': LEVELS.inform,
   'new-work-off': LEVELS.inform,
   'auto-merge-off': LEVELS.inform,
@@ -113,10 +112,6 @@ const SECURITY_WORDS: Record<SecurityKind, { summary: string; description: strin
   'setting-changed': {
     summary: 'A setting was changed',
     description: "An agent's model or effort, or a spend cap, was changed in the console.",
-  },
-  'stepped-up': {
-    summary: 'The passkey was given again',
-    description: 'For five minutes, the session may do what needs the passkey again.',
   },
   'release-control': {
     summary: 'A release was promoted or retried',
