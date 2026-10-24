@@ -96,11 +96,15 @@ describe('each change', () => {
     expect(change('take', next(3), next(4))).toBe('take.widen');
     expect(change('take', every, next(20))).toBe('take.narrow');
     expect(change('take', next(3), one('1290'))).toBe('take.narrow');
+    // Fewer from the same start admit no more.
     expect(change('take', next(4), next(3))).toBe('take.narrow');
-    // The same number again, counted from later, lets the line take that many more.
-    expect(change('take', next(3), { kind: 'next-few', count: 3, since: '2026-10-24T10:00:00.000Z' })).toBe(
-      'take.widen',
-    );
+    // Counted again from later, whatever the number: five with four taken, chosen again as two, admit one more, and
+    // policy cannot see how many were taken.
+    for (const count of [1, 3, 5]) {
+      expect(change('take', next(3), { kind: 'next-few', count, since: '2026-10-24T10:00:00.000Z' }), `${count}`).toBe(
+        'take.widen',
+      );
+    }
     // Even in the same millisecond, as the admin service stamps it to the microsecond.
     expect(
       change(
