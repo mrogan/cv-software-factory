@@ -778,8 +778,8 @@ function Report({ report }: { report: NonNullable<SheetData['report']> }) {
       </p>
     ) : report.quarantined ? (
       <p className="report withheld">
-        A visitor’s report from {report.page}. It gave orders to the system, so it is quarantined. Its text is kept for
-        {REPORT_KEPT_DAYS} days, and shown only to Martin and to the visitor who sent it.
+        A visitor’s report from {report.page}. It gave orders to the system, so it is quarantined. Its text is kept
+        for {REPORT_KEPT_DAYS} days, and shown only to Martin and to the visitor who sent it.
       </p>
     ) : (
       <p className="report withheld">
