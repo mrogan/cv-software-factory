@@ -1,0 +1,214 @@
+/*
+ * The audit log (`?view=audit`): the filters, then a table of every event, newest first, a `t-label` row for each day.
+ * Martin's own actions take a 2px `text` rule on the row's left; a refusal is in `attn`; what a public view left out
+ * says so in `text-muted` italic. On a phone each row is two lines: time, actor, the kind's glyph and the work item,
+ * then what happened and its detail. The page's head and its drop-down are the settings page's (`settings.css`).
+ */
+.audit-page {
+  padding: 40px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: flex-end;
+}
+.filters .filter,
+.filters fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.filters fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.filters select.field {
+  min-width: 180px;
+}
+.filters input.field {
+  width: 140px;
+  min-height: 40px;
+  font-family: var(--font-mono);
+}
+.chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.chip .glyph {
+  width: 13px;
+  height: 13px;
+}
+.chip[aria-pressed="true"] {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--on-inverse);
+}
+table.audit {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.audit caption {
+  text-align: left;
+  padding: 0 0 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.audit thead th {
+  text-align: left;
+  font: 10.5px / 1.4 var(--font-mono);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 400;
+  padding: 0 14px 8px 0;
+  border-bottom: 1px solid var(--line-strong);
+}
+/* Each column but the last as narrow as what it holds, so the columns stay put as a filter changes the rows. */
+.audit thead th:not(:last-child) {
+  width: 1%;
+  white-space: nowrap;
+}
+.audit td {
+  padding: 10px 14px 10px 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: baseline;
+}
+.audit .day th {
+  text-align: left;
+  padding: 18px 0 6px;
+  font: 10.5px / 1.4 var(--font-mono);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 400;
+  border-bottom: 1px solid var(--line-strong);
+}
+.audit .t {
+  font: 12px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.audit .who {
+  white-space: nowrap;
+  font-weight: 500;
+}
+.audit .kindw {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 11px / 1.4 var(--font-mono);
+  letter-spacing: 0.6px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.audit .kindw .glyph {
+  width: 13px;
+  height: 13px;
+}
+.audit .item {
+  font: 12px var(--font-mono);
+  white-space: nowrap;
+}
+.audit .item a {
+  color: var(--text);
+}
+.audit .what small {
+  display: block;
+  margin-top: 2px;
+  font: 11px / 1.45 var(--font-mono);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.audit tr.martin td:first-child {
+  box-shadow: inset 2px 0 0 var(--text);
+  padding-left: 10px;
+}
+.audit .what small.withheld {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-style: italic;
+}
+.audit .refused {
+  color: var(--attn);
+}
+.audit .none td {
+  padding: 18px 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.audit-page .btn.small {
+  align-self: flex-start;
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .audit-page {
+    padding-top: 24px;
+  }
+  .filters {
+    gap: 10px;
+  }
+  .filters .filter,
+  .filters select.field,
+  .filters input.field {
+    width: 100%;
+  }
+  table.audit thead {
+    display: none;
+  }
+  /* The kind's name is still the cell's, for a screen reader. */
+  .audit .kindw > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .audit tbody tr:not(.day, .none) {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    align-items: baseline;
+    gap: 2px 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .audit tbody tr:not(.day, .none) td {
+    padding: 0;
+    border: 0;
+  }
+  .audit tr.martin {
+    box-shadow: inset 2px 0 0 var(--text);
+    padding-left: 10px;
+  }
+  .audit tr.martin td:first-child {
+    box-shadow: none;
+    padding-left: 0;
+  }
+  .audit td.what {
+    grid-column: 1 / -1;
+  }
+}

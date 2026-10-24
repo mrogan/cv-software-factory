@@ -10,18 +10,11 @@
  */
 import { type ChangeEvent, useEffect, useMemo, useState } from 'react';
 import { EFFORTS, type Effort, MODEL_AGENTS, MODELS, type ModelAgent } from '../../../../../policy/models.ts';
-import {
-  CAP_NAMES,
-  CAPS,
-  type CapField,
-  type Change,
-  changesBetween,
-  inForce,
-} from '../../../../../policy/settings.ts';
+import { CAP_NAMES, CAPS, type CapField, changesBetween, inForce } from '../../../../../policy/settings.ts';
 import { CEILINGS } from '../../../../../policy/spend.ts';
 import { SETTINGS_STEP_UP } from '../access.ts';
 import { type Admin, doorHref, post, type Session, said, write } from '../admin.ts';
-import { clock, dayLabel, modelTitle, money } from '../format.ts';
+import { changeWords, clock, dayLabel, modelTitle, money } from '../format.ts';
 import type { SettingsView } from '../projection/index.ts';
 import { SpendGroup } from './Controls.tsx';
 import { Key, useStepUp } from './StepUp.tsx';
@@ -58,19 +51,6 @@ const CAP_ROWS: { cap: CapField; label: string; note: string; spent: (view: Sett
         : 'nothing spent on a work item today',
   },
 ];
-
-/** A change in words: "the coder’s effort, medium → high". */
-function changeWords(change: Change): string {
-  const usd = (figure: number | null) => (figure === null ? 'none' : money(figure));
-  switch (change.field) {
-    case 'model':
-      return `the ${change.agent}’s model, ${modelTitle(change.before)} → ${modelTitle(change.after)}`;
-    case 'effort':
-      return `the ${change.agent}’s effort, ${change.before ?? 'none'} → ${change.after ?? 'none'}`;
-    case 'cap':
-      return `the ${change.cap === 'work-item' ? 'work item' : change.cap}’s cap, ${usd(change.beforeUsd)} → ${usd(change.afterUsd)}`;
-  }
-}
 
 /** A cap as its field shows it: 20, 1.50, or nothing for none. */
 const capText = (usd: number | null) => (usd === null ? '' : Number.isInteger(usd) ? String(usd) : usd.toFixed(2));

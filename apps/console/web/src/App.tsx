@@ -2,7 +2,8 @@
  * The console: events in, the page out. Everything below is drawn from `project(events, t)`, of the full events for
  * Martin signed in and of the public ones for everyone else, Martin previewing as a visitor among them. The doors,
  * signing in and enrolling a passkey, are pages of their own on the same address (`?view=sign-in`, `?view=enrol`),
- * and so are the settings (`?view=settings`), under the console's own header.
+ * and so are the settings (`?view=settings`) and the audit log (`?view=audit`), under the console's own header. The
+ * audit log reads the public events for everyone, Martin included, so it is the same log whoever reads it.
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type Admin, type Door, stillSignedIn, useAdmin } from './admin.ts';
@@ -34,9 +35,13 @@ const Doors = lazy(() => import('./components/Doors.tsx').then((module) => ({ de
 /** The settings' code arrives only on their page. */
 const Settings = lazy(() => import('./components/Settings.tsx').then((module) => ({ default: module.Settings })));
 
+/** The audit log's code arrives only on its page. */
+const AuditLog = lazy(() => import('./components/AuditLog.tsx').then((module) => ({ default: module.AuditLog })));
+
 const asked = params.get('view');
 const door: Door | undefined = asked === 'sign-in' || asked === 'enrol' ? asked : undefined;
 const settingsPage = asked === 'settings';
+const auditPage = asked === 'audit';
 /** The profile whose policy bounds the settings, and whether every agent goes to the local model, as the server says. */
 const factory = factoryOf();
 
@@ -93,7 +98,7 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
     if (!live) setEnded(true);
     return live;
   }, [expiresAt]);
-  const source = useEvents(from, admin.kind === 'martin' ? 'full' : 'public', lost);
+  const source = useEvents(from, admin.kind === 'martin' && !auditPage ? 'full' : 'public', lost);
   const latest = source.events.length ? Date.parse(source.events.at(-1)?.ts ?? '') : undefined;
   const t = useTime(latest, from.kind === 'live');
   const view = useMemo(() => project(source.events, t), [source.events, t]);
@@ -154,7 +159,7 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
   const sheet = useMemo(() => (open ? projectSheet(source.events, open, t) : undefined), [open, source.events, t]);
   const sheetIndex = sheet ? view.cards.findIndex((card) => card.number === sheet.card.number) : -1;
 
-  if (settingsPage) {
+  if (settingsPage || auditPage) {
     return (
       <OriginContext.Provider value={from}>
         <LogoSymbols />
@@ -173,7 +178,11 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
         <main id="top">
           <div className="wrap">
             <Suspense fallback={null}>
-              <Settings view={settings} allLocal={factory.allLocal} admin={admin} />
+              {auditPage ? (
+                <AuditLog events={source.events} t={t} profile={factory.profile} settled={settled} />
+              ) : (
+                <Settings view={settings} allLocal={factory.allLocal} admin={admin} />
+              )}
             </Suspense>
           </div>
         </main>
