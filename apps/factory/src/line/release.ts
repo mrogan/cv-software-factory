@@ -310,9 +310,12 @@ export class Releases {
   /** What a release starting needs read: its image's commit and signature, and the work items it carries. */
   async #start(start: NonNullable<Needs['start']>): Promise<Start | undefined> {
     const { github, repo, log } = this.#o;
-    // The image the Rollout runs, which for one pinned before the repositories moved (ADR 0014) is under the old owner.
-    const image = start.image ?? DEPLOYS.find((t) => t.repo === repo)?.pins.find((p) => !p.what)?.images[0]?.image;
-    if (!image) return undefined;
+    const deployed = DEPLOYS.find((t) => t.repo === repo)?.pins.find((p) => !p.what)?.images[0]?.image;
+    if (!deployed) return undefined;
+    // The image the Rollout runs, when it is the deploy's under any owner: one pinned before the repositories moved
+    // (ADR 0014) is under the old one. Anything else is asked for as the deploy names it.
+    const path = (image: string) => image.split('/').slice(1).join('/');
+    const image = start.image && path(start.image) === path(deployed) ? start.image : deployed;
     const commit = await github.read('imageRevision', repo, { image, digest: start.digest });
     if (!commit) {
       log.warn({ release: start.release, digest: start.digest }, 'the release’s image names no commit: not recorded');

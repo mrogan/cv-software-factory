@@ -46,6 +46,8 @@ export const REVIEW_CHECK = 'review';
 /** The environment that holds the review App's key, and the one branch whose workflows may use it. */
 export const REVIEW_ENVIRONMENT = 'review';
 export const REVIEW_BRANCH = 'main';
+/** The review App's key, as review.yml reads it from the environment. */
+export const REVIEW_KEY = 'REVIEW_APP_PRIVATE_KEY';
 
 /**
  * The one ruleset on main (ADR 0014), which nobody bypasses: every change is a pull request, squash-merged, signed
@@ -171,14 +173,33 @@ function check(requiredChecks: string[]): string[] {
 /** Compares the live `review` environment with this script's: present, and usable from main alone. */
 function checkEnvironment(): string[] {
   const path = `/environments/${REVIEW_ENVIRONMENT}`;
-  let live: unknown;
-  try {
-    live = JSON.parse(gh('GET', path));
-  } catch {
-    return [`environment "${REVIEW_ENVIRONMENT}" is missing`];
-  }
+  const live = found(() => JSON.parse(gh('GET', path)));
+  if (live === undefined) return [`environment "${REVIEW_ENVIRONMENT}" is missing`];
   const policies = JSON.parse(gh('GET', `${path}/deployment-branch-policies`)) as { branch_policies: unknown[] };
-  return environmentProblems(live, policies.branch_policies);
+  const problems = environmentProblems(live, policies.branch_policies);
+  if (!hasKey()) problems.push(`environment "${REVIEW_ENVIRONMENT}" holds no ${REVIEW_KEY}`);
+  return problems;
+}
+
+/** What a read answers, or undefined when GitHub says there is no such thing; any other failure is thrown. */
+function found<T>(read: () => T): T | undefined {
+  try {
+    return read();
+  } catch (error) {
+    if (/HTTP 404/.test(String((error as { stderr?: unknown }).stderr ?? error))) return undefined;
+    throw error;
+  }
+}
+
+/** Whether the review environment holds the review App's key, by name: GitHub never shows a secret's value. */
+function hasKey(): boolean {
+  const secrets = found(
+    () =>
+      JSON.parse(gh('GET', `/environments/${REVIEW_ENVIRONMENT}/secrets?per_page=100`)) as {
+        secrets: { name: string }[];
+      },
+  );
+  return secrets?.secrets.some((s) => s.name === REVIEW_KEY) ?? false;
 }
 
 /** What differs between a live environment and its branch policies and this script's. */
@@ -301,6 +322,15 @@ function apply(name: string, requiredChecks: string[]): void {
       }
     }
   });
+
+  // Without the key, review.yml posts no check, and a ruleset requiring it would hold every pull request, the one that
+  // fixes it included: nobody bypasses it. So the ruleset waits for the key (ADR 0014's order: key, a posted check,
+  // then these settings).
+  if (!hasKey()) {
+    throw new Error(
+      `${repo}: environment "${REVIEW_ENVIRONMENT}" holds no ${REVIEW_KEY}, so nothing would post the review check the ruleset requires. Add the key, see a review check posted, then run this again.`,
+    );
+  }
 
   const existing = JSON.parse(gh('GET', '/rulesets')) as { id: number; name: string }[];
   const apply = (ruleset: { name: string }) => {
