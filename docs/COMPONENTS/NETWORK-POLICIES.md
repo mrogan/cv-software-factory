@@ -126,7 +126,7 @@ It starts a pod labelled like each fenced part, and shows what each reaches and 
 - a worker;
 - a runner's agent and prepare pods;
 - the analysis Job;
-- the app;
+- the app, which reaches flagd's sync and health ports and not its others, where neither a pod beside it nor a worker reaches flagd at all (flagd's own fence is seen from outside: `flagd-images` admits no other image to start there);
 - the Rollouts controller;
 - Kyverno's two controllers;
 - the pod log collector;
@@ -152,4 +152,5 @@ It has controls, which must reach what they reach:
 - Prometheus's server reaches the metrics of Kyverno, Argo Rollouts, the Postgres exporter and the pod log collector;
 - Tempo reaches Prometheus's remote-write receiver, and Argo Rollouts' controller reaches Prometheus;
 - Alertmanager reaches the intake and Pushover, and Prometheus's server reaches Alertmanager;
-- Traefik, the probes and the crawler still reach the app.
+- Traefik, the probes and the crawler still reach the app;
+- the app reaches flagd's sync and health ports.

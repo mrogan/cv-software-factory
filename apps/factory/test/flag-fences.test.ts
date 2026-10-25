@@ -240,6 +240,8 @@ describe('flags', () => {
     const flags = find('FeatureFlag', 'flags');
     expect(definition?.spec?.group).toBe(GROUP);
     expect(wave(definition)).toBeLessThan(wave(flags));
+    // Deleting the kind would delete `flags` without passing admission: Argo CD never prunes it, nor deletes it with root.
+    expect(definition?.metadata?.annotations?.['argocd.argoproj.io/sync-options']).toBe('Prune=false,Delete=false');
     for (const kind of ['ServiceAccount', 'Role', 'RoleBinding', 'Deployment']) {
       const name = kind.startsWith('Role') ? 'flagd-reads-flags' : 'flagd';
       expect(wave(flags), kind).toBeLessThan(wave(find(kind, name)));

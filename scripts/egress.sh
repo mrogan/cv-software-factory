@@ -27,9 +27,11 @@
 # namespace, a pod labelled like the admission controller reaches GHCR and Sigstore's trust root, while one without
 # that label reaches neither.
 #
-# Then the app's own pods, whose code agents write: a pod labelled like them reaches DNS and the collector, and not
-# Prometheus, Loki, Tempo, Postgres, the gateway, the Kubernetes API or the internet. The app is reached through Traefik
-# and by the probes, the crawler and the analysis, and not by another pod beside it.
+# Then the app's own pods, whose code agents write: a pod labelled like them reaches DNS, the collector and flagd's sync
+# and health ports, and not flagd's other ports, Prometheus, Loki, Tempo, Postgres, the gateway, the Kubernetes API or
+# the internet. The app is reached through Traefik and by the probes, the crawler and the analysis, and not by another
+# pod beside it, which does not reach flagd either; nor does a worker. flagd's own fence is seen from outside alone:
+# `flagd-images` admits flagd's image and nothing else, so no pod labelled like it can be started there.
 #
 # Then the pod log collector, which reads every pod's log from the node's files: a pod labelled like it reaches Loki's
 # intake, and nothing else: not Prometheus, Tempo, the collector in `telemetry`, Postgres, the app, the Kubernetes API
@@ -263,6 +265,7 @@ pod_ip() {
 rollouts_ip=$(pod_ip argo-rollouts app.kubernetes.io/name=argo-rollouts)
 exporter_ip=$(pod_ip factory app.kubernetes.io/name=postgres-exporter)
 pod_logs_ip=$(pod_ip pod-logs app.kubernetes.io/name=opentelemetry-collector controller-revision-hash)
+flagd_ip=$(pod_ip flagd app.kubernetes.io/name=flagd)
 node_ip=$(kubectl --context "$context" get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
 
 # A worker's labels, which is what a compromised one would have.
@@ -493,6 +496,12 @@ expect "the app cannot reach Postgres" website:egress-app "http://$postgres_ip:5
 expect "the app cannot reach the gateway" website:egress-app "http://$gateway_ip:8080/health" blocked
 expect "the app cannot reach the Kubernetes API" website:egress-app "https://$api_ip/version" blocked
 expect "the app cannot reach a public address" website:egress-app https://1.1.1.1 blocked
+expect "the app reaches flagd's sync port" website:egress-app http://flagd.flagd:8015/v1/flags reached
+expect "the app reaches flagd's health port" website:egress-app http://flagd.flagd:8014/healthz "reached, HTTP 200"
+expect "the app cannot reach flagd's evaluation port" website:egress-app "http://$flagd_ip:8013" blocked
+expect "the app cannot reach flagd's OFREP port" website:egress-app "http://$flagd_ip:8016" blocked
+expect "a pod beside the app cannot reach flagd" website:egress-stranger http://flagd.flagd:8015/v1/flags blocked
+expect "a worker cannot reach flagd" "$pod" http://flagd.flagd:8015/v1/flags blocked
 expect "Traefik passes a visitor to the app" egress-traffic http://traefik.kube-system/health "reached, HTTP 200" \
   website.localhost
 expect "the probes reach the app" factory:egress-probes http://website.website/health "reached, HTTP 200"
