@@ -38,7 +38,7 @@ secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) 
 	{ $(KUBECTL) -n $(1) get secret $(2) >/dev/null 2>&1 || $(KUBECTL) -n $(1) create secret generic $(2) $(3); }
 
 .DEFAULT_GOAL := help
-.PHONY: help up down gateway-key github-key pushover-key scoreboard-secrets worker-secrets check check-static check-tests status e2e zap egress admission-ready eval samples real-store stop-the-line start-the-line enrol
+.PHONY: help up down gateway-key github-key pushover-key scoreboard-secrets worker-secrets share-key check check-static check-tests status e2e zap egress admission-ready eval samples real-store stop-the-line start-the-line enrol
 
 help: ## List the targets
 	@awk 'BEGIN { FS = ":.*## " } /^[a-z0-9-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -64,6 +64,7 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 	@$(MAKE) --no-print-directory github-key
 	@$(MAKE) --no-print-directory pushover-key
 	@$(MAKE) --no-print-directory scoreboard-secrets
+	@$(MAKE) --no-print-directory share-key
 	@$(call secret,telemetry,grafana-admin,--from-literal=admin-user=admin --from-literal=admin-password="$$(openssl rand -hex 24)")
 	@$(MAKE) --no-print-directory local-tls
 	sed 's|targetRevision: main|targetRevision: $(REVISION)|' deploy/argocd/root.yaml | $(KUBECTL) apply -f -
@@ -160,6 +161,27 @@ scoreboard-secrets: node_modules ## Give the scoreboard its password, and the an
 		else $(KUBECTL) -n scoreboard delete secret answer-key --ignore-not-found >/dev/null && \
 			echo "  No private checkout at $(PRIVATE_DIR): no answer key, and the scoreboard is off."; fi
 	@$(KUBECTL) -n scoreboard delete pod -l app.kubernetes.io/name=scoreboard --ignore-not-found >/dev/null
+
+# The traffic generator's signing key, for a flag's share stage (docs/COMPONENTS/FEATURE-FLAGS.md): an Ed25519 key
+# pair, made once. The private key is the Secret share-signing-key in `factory`, which only the generator mounts; once
+# made, that Secret is the source, and the app's ConfigMap share-key in `website`, its public key and nothing else, is
+# written again from it each time. Each goes through stdin, never a file or a command line. Admission lets only this
+# user, the local kubeconfig's, write share-key (deploy/base/admission/website/share-key.yaml). The generator reads its
+# key when it starts, so a new one restarts it; the app reads share-key as its own pull request says.
+share-key: ## Give the traffic generator its signing key, made once, and the app its public half (the ConfigMap share-key)
+	@for namespace in factory website; do \
+		$(KUBECTL) create namespace $$namespace --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null || exit 1; done
+	@# Made only when the cluster says there is none: any other failure to read it stops here, and keeps the key.
+	@made="$$($(KUBECTL) -n factory get secret share-signing-key -o name --ignore-not-found)" || exit 1; \
+	if [ -z "$$made" ]; then \
+		key="$$(node scripts/share-key.ts new)" && printf '%s\n' "$$key" | \
+			$(KUBECTL) -n factory create secret generic share-signing-key --from-file=private-key=/dev/stdin >/dev/null && \
+		$(KUBECTL) -n factory delete pod -l app.kubernetes.io/name=traffic --ignore-not-found >/dev/null && \
+		echo "  The traffic generator has a new signing key, so it signs an id on each request."; fi
+	@public="$$($(KUBECTL) -n factory get secret share-signing-key -o jsonpath='{.data.private-key}' | base64 -d | \
+			node scripts/share-key.ts public)" && printf '%s\n' "$$public" | \
+		$(KUBECTL) -n website create configmap share-key --from-file=public-key=/dev/stdin --dry-run=client -o yaml | \
+		$(KUBECTL) apply -f - >/dev/null && echo "  The app has the generator's public key, in share-key."
 
 # A password for each worker's own role in the store, in a Secret of its own, made once: the migrate Job sets each role's
 # password from it as Argo CD syncs. Each goes through stdin, never on a command line. On a cluster made before the

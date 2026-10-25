@@ -1,6 +1,8 @@
 # The traffic generator: a steady walk through the app's public pages and its search, at the rate policy/release.ts
 # sets, so a canary always has enough requests to judge. It goes in through Traefik, the app's front door, so the
 # canary's traffic split applies to it as to any visitor. It only GETs: it never sends a report or the contact form.
+# With its signing key, the Secret share-signing-key that `make share-key` makes and no other pod mounts, it signs an
+# id on each request, for a flag's share stage; without it, it sends no id.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -29,6 +31,7 @@ spec:
         runAsNonRoot: true
         runAsUser: 65532
         runAsGroup: 65532
+        fsGroup: 65532 # the key's file is the group's to read, and no one else's
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -54,6 +57,9 @@ spec:
               value: http://website.localhost
             - name: INGRESS_URL
               value: http://traefik.kube-system
+            # Read once, when it starts: `make share-key` restarts it when it makes the key.
+            - name: SHARE_KEY_FILE
+              value: /var/run/share-key/private-key
           resources:
             requests:
               cpu: 20m
@@ -65,3 +71,17 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
+          volumeMounts:
+            - name: share-key
+              mountPath: /var/run/share-key
+              readOnly: true
+      volumes:
+        # Optional: a cluster made before the key has none, and the generator sends no id.
+        - name: share-key
+          secret:
+            secretName: share-signing-key
+            optional: true
+            defaultMode: 288 # 0440: read by its owner and the group only
+            items:
+              - key: private-key
+                path: private-key
