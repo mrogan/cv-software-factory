@@ -36,7 +36,7 @@ function accepts(key: KeyObject, headers: RequestHeaders, request: Omit<Signed, 
   }
   const age = now - Number(time);
   if (age < 0 || age >= 60) return false;
-  const signed = message({ id, time: Number(time), ...request, host: request.host.toLowerCase() });
+  const signed = message({ ...request, id, time: Number(time), host: request.host.toLowerCase() });
   return verify(null, signed, key, Buffer.from(signature, 'base64url'));
 }
 
