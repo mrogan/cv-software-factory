@@ -110,7 +110,7 @@ Alertmanager pages Martin, and anything that reached it could silence a page ([a
 
 ## `website`
 
-The policy comes from this repository, since the app's AppProject cannot make one ([GitOps](GITOPS.md)).
+The policies come from this repository, since the app's AppProject cannot make one ([GitOps](GITOPS.md)). Everything in `website` is denied, in and out, and each pod below is let through by its own policy. The app's repository gives the app's pods their labels, so a pod it labelled otherwise would match neither, and reaches nothing and is reached by nothing.
 
 | Pod | Reaches | Reached by |
 |---|---|---|
@@ -128,7 +128,8 @@ It starts a pod labelled like each fenced part, and shows what each reaches and 
 - a worker;
 - a runner's agent and prepare pods;
 - the analysis Job;
-- the app, which reaches flagd's sync and health ports and not its others, where neither a pod beside it nor a worker reaches flagd at all (flagd's own fence is seen from outside: `flagd-images` admits no other image to start there);
+- the app, which reaches flagd's sync and health ports and not its others, where a worker does not reach flagd at all (flagd's own fence is seen from outside: `flagd-images` admits no other image to start there);
+- a pod beside the app that neither `website` policy selects, as one the app's repository relabelled would be, which reaches nothing: not DNS, the collector, flagd, the app or the internet;
 - the Rollouts controller;
 - Kyverno's two controllers;
 - the pod log collector;
