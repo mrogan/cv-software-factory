@@ -30,7 +30,8 @@
 # Then the app's own pods, whose code agents write: a pod labelled like them reaches DNS, the collector and flagd's sync
 # and health ports, and not flagd's other ports, Prometheus, Loki, Tempo, Postgres, the gateway, the Kubernetes API or
 # the internet. The app is reached through Traefik and by the probes, the crawler and the analysis, and not by another
-# pod beside it, which does not reach flagd either; nor does a worker. flagd's own fence is seen from outside alone:
+# pod beside it, which neither of `website`'s policies selects and so reaches nothing at all, not even DNS; nor does a
+# worker reach flagd. flagd's own fence is seen from outside alone:
 # `flagd-images` admits flagd's image and nothing else, so no pod labelled like it can be started there.
 #
 # Then the pod log collector, which reads every pod's log from the node's files: a pod labelled like it reaches Loki's
@@ -251,7 +252,7 @@ start_probe() {
 ip() { kubectl --context "$context" -n "$1" get service "$2" -o jsonpath='{.spec.clusterIP}'; }
 gateway_ip=$(ip factory gateway) line_ip=$(ip factory line) github_ip=$(ip factory github)
 api_ip=$(ip default kubernetes) postgres_ip=$(ip factory postgres) console_ip=$(ip factory console)
-website_ip=$(ip website website) admin_ip=$(ip factory admin)
+website_ip=$(ip website website) admin_ip=$(ip factory admin) collector_ip=$(ip telemetry otel-collector)
 # Argo Rollouts' controller, the Postgres exporter and the pod log collector have no Service: their pods are scraped
 # where they are. A pod a ReplicaSet made has its template's hash ($3, by default), one a DaemonSet made its revision's,
 # and the pods this starts have neither; one shutting down is passed over, and a ready one is taken before one that is
@@ -500,15 +501,20 @@ expect "the app reaches flagd's sync port" website:egress-app http://flagd.flagd
 expect "the app reaches flagd's health port" website:egress-app http://flagd.flagd:8014/healthz "reached, HTTP 200"
 expect "the app cannot reach flagd's evaluation port" website:egress-app "http://$flagd_ip:8013" blocked
 expect "the app cannot reach flagd's OFREP port" website:egress-app "http://$flagd_ip:8016" blocked
-expect "a pod beside the app cannot reach flagd" website:egress-stranger http://flagd.flagd:8015/v1/flags blocked
+expect "a pod beside the app cannot reach flagd" website:egress-stranger "http://$flagd_ip:8015/v1/flags" blocked
 expect "a worker cannot reach flagd" "$pod" http://flagd.flagd:8015/v1/flags blocked
 expect "Traefik passes a visitor to the app" egress-traffic http://traefik.kube-system/health "reached, HTTP 200" \
   website.localhost
 expect "the probes reach the app" factory:egress-probes http://website.website/health "reached, HTTP 200"
 expect "the probes reach the canary, for its pictures" factory:egress-probes http://website-canary.website/health "reached, HTTP 200"
 expect "the crawler reaches the app" factory:egress-crawler http://website.website/health "reached, HTTP 200"
-expect "a pod beside the app reaches the collector" website:egress-stranger http://otel-collector.telemetry:4318 reached
-expect "a pod beside the app cannot reach it" website:egress-stranger http://website.website blocked
+# A pod beside the app that neither the app's policy nor the journeys' selects, as one the app's repository relabelled
+# would be: `website`'s default deny leaves it nothing, not even DNS.
+expect "a pod beside the app cannot look up a name" website:egress-stranger http://otel-collector.telemetry:4318 "no name"
+expect "a pod beside the app cannot reach the collector" website:egress-stranger "http://$collector_ip:4318" blocked
+expect "a pod beside the app cannot reach flagd's health port" website:egress-stranger "http://$flagd_ip:8014/healthz" blocked
+expect "a pod beside the app cannot reach it" website:egress-stranger "http://$website_ip" blocked
+expect "a pod beside the app cannot reach a public address" website:egress-stranger https://1.1.1.1 blocked
 
 echo "A pod labelled like the Argo Rollouts controller (egress-rollouts):"
 expect "the controller reaches the Kubernetes API" argo-rollouts:egress-rollouts "https://$api_ip/version" reached
