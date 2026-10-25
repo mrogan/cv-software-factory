@@ -243,7 +243,7 @@ const STEPS = [
     body: `
 <p><b>A share is a percentage of the fake visitors.</b> At "share 50%", half of the traffic generator's fake visitors see dark mode and half don't. Real visitors still see the old look.</p>
 <div class="ids"><span class="lit">#101 signed</span><span>#102 signed</span><span class="lit">#103 signed</span><span>#104 signed</span><span class="none">a visitor, unsigned: off</span></div>
-<p><b>Why.</b> It is a fair test: two groups alike in everything but dark mode. Verify compares them on errors and speed, and a fault in the feature shows before any real person meets it.</p>
+<p><b>Why.</b> It is a fair test: two groups alike in everything but dark mode. Verify compares them on errors and speed, as the generator measured them, and a fault in the feature shows before any real person meets it.</p>
 <p><b>Why only fake visitors.</b> Keeping a real person on one side would mean keeping an id on their device. The fake visitors send their id with every request.</p>
 <p><b>Why signed.</b> If any id would do, anyone could send one and walk into the test. The generator signs each id with a key only it holds; the app holds only the key that checks a signature, which cannot make one.</p>
 <details><summary>In the plan</summary><p>Stage 3: Ed25519, the private key in the generator's Secret and the public one in <code>share-key</code>. flagd's <code>fractional</code> rule splits on the signed id. The app's flag context is code-owned, so an agent cannot quietly skip the check (tasks 14 and 17).</p></details>`,
@@ -289,7 +289,7 @@ const STEPS = [
     tags: { flags: 'dark-mode: off', console: 'off' },
     who: { visitors: 'unlit', preview: 'unlit', gen: 'unlit', checks: 'unlit' },
     body: `
-<p>At any stage Martin can turn a flag off. The admin service changes the switchboard, flagd sees it within seconds and tells the app, and everyone, previewers included, is back on the old look: no new version, no deploy, no rollback.</p>
+<p>At any stage Martin can turn a flag off. The admin service changes the switchboard, flagd sees it within seconds and tells the app, and everyone, previewers included, is back on the old look: no new version, no deploy, no rollback. Then the admin service asks the app which switchboard it holds, and tells Martin if the change has not arrived within a minute.</p>
 <p><b>If flagd itself fails,</b> the app carries on with its own copy of the switchboard. But then an "off" could not reach it, so once its copy has gone a minute without word from flagd, the app treats every flag as off.</p>
 <p>A flag turned off closes its work item as turned off, with Martin's reason. It is not a rollback: no code moved.</p>`,
   },
@@ -303,11 +303,11 @@ const STEPS = [
 <p>The switches are production state kept outside Git, so each is guarded:</p>
 <ul>
 <li><b>Only the admin service writes <code>flags</code>,</b> and only in the four stages' fixed shapes. The cluster refuses anything else, and refuses deleting it.</li>
-<li><b>flagd only reads it.</b></li>
+<li><b>flagd only reads it,</b> and lives in a namespace of its own, which nothing the app's repository deploys can reach.</li>
 <li><b>Argo CD makes the switchboard empty and leaves its switches alone,</b> or every merge would turn every flag off.</li>
-<li><b>Only Martin can stage a flag or ask for an improvement:</b> both are admin events, which no worker's role may append.</li>
+<li><b>Only Martin can stage a flag or ask for an improvement:</b> both are admin events, which no worker's role may append. Asking for an improvement and approving its spec take his passkey again and reach his phone.</li>
 <li><b>Widening needs his passkey again;</b> narrowing and off never do, so the safe way is always one click.</li>
-<li><b>The app's code cannot cheat.</b> Agents write the app, so the part that decides who is a check, a previewer or in a share changes only with Martin's approval.</li>
+<li><b>The app's code cannot cheat.</b> Agents write the app, so the part that decides who is a check, a previewer or in a share changes only with Martin's approval, and no other part of the app may ask flagd anything. Verify judges a share from what the traffic generator measured, not from what the app says about itself.</li>
 </ul>
 <p>Every switch is an event, so the audit log is each flag's history.</p>`,
   },
