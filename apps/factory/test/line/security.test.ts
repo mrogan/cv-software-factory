@@ -4,7 +4,7 @@
  * is before the line's.
  */
 import { metrics as api } from '@opentelemetry/api';
-import { metrics } from '@opentelemetry/sdk-node';
+import * as metrics from '@opentelemetry/sdk-metrics';
 import { HOLD_CAUSES, RELEASE_CONTROLS, VERSIONS } from '@software-factory/events';
 import pino from 'pino';
 import type { Sql } from 'postgres';

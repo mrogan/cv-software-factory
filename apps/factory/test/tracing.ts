@@ -3,15 +3,17 @@
  * the workers' instrumentation of requests out, and returns what it records. Vitest gives each file its own globals.
  */
 import { context, propagation, trace } from '@opentelemetry/api';
+import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
+import { CompositePropagator, W3CBaggagePropagator, W3CTraceContextPropagator } from '@opentelemetry/core';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { UndiciInstrumentation } from '@opentelemetry/instrumentation-undici';
-import { node, tracing } from '@opentelemetry/sdk-node';
+import * as tracing from '@opentelemetry/sdk-trace';
 import { afterAll, beforeAll, beforeEach } from 'vitest';
 import { instrumentations } from '../src/instrumentations.ts';
 
 export function recordSpans() {
   const exporter = new tracing.InMemorySpanExporter();
-  const provider = new node.NodeTracerProvider({ spanProcessors: [new tracing.SimpleSpanProcessor(exporter)] });
+  const provider = new tracing.TracerProvider({ spanProcessors: [new tracing.SimpleSpanProcessor({ exporter })] });
   const all = instrumentations();
   // Every one enables itself as it is made; only `fetch`'s, which needs no module patched, is kept on.
   for (const each of all) each.disable();
@@ -19,7 +21,12 @@ export function recordSpans() {
   if (!undici) throw new Error('The workers do not instrument fetch.');
   if (!all.some((each) => each instanceof HttpInstrumentation)) throw new Error('The workers do not instrument http.');
   beforeAll(() => {
-    provider.register();
+    // What NodeSDK registers in the workers by default: context kept across awaits, and W3C headers on requests out.
+    context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
+    propagation.setGlobalPropagator(
+      new CompositePropagator({ propagators: [new W3CTraceContextPropagator(), new W3CBaggagePropagator()] }),
+    );
+    trace.setGlobalTracerProvider(provider);
     undici.setTracerProvider(provider);
     undici.enable();
   });

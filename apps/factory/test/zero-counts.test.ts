@@ -5,7 +5,7 @@
  * modules are loaded, as `telemetry.ts` is before a worker's, and nothing here counts anything but the zeros.
  */
 import { metrics as api } from '@opentelemetry/api';
-import { metrics } from '@opentelemetry/sdk-node';
+import * as metrics from '@opentelemetry/sdk-metrics';
 import { HOLD_CAUSES, SENSES, SIGNAL_SOURCES } from '@software-factory/events';
 import type { Sql } from 'postgres';
 import { afterAll, describe, expect, it } from 'vitest';
