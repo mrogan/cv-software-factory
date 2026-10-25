@@ -7,7 +7,7 @@ Kyverno, installed by Argo CD before anything it guards, admits a pod in `factor
 - ours, on GHCR, from a repository its namespace runs, signed by `build.yml` on `main` of the repository that builds it; or
 - one of the few third-party images its namespace's policy names by exact digest, each with its reason. Today those are Postgres and its exporter, in `factory`, flagd, in `flagd`, and nothing in `website` or `scoreboard`.
 
-The signer is compared whole: the issuer is GitHub Actions' OIDC issuer, and the identity is `https://github.com/<repository>/.github/workflows/build.yml@refs/heads/main`, never a pattern. The factory's images must carry the factory's signature, the app's the app's.
+The signer is compared whole: the issuer is GitHub Actions' OIDC issuer, and the identity is `https://github.com/<repository>/.github/workflows/build.yml@refs/heads/main`, never a pattern. The factory's images must carry the factory's signature, the app's the app's. While the repositories move from `mrogan` to `the-roganator` (ADR 0014), ours is either owner's: an image under either name, signed by `build.yml` on `main` of the repository under either owner, each identity still compared whole.
 
 The rule is one `ImageValidatingPolicy` (`deploy/base/admission/images`), in four copies, each admitting only the images its namespaces run:
 

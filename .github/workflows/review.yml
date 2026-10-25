@@ -1,0 +1,67 @@
+# The review gate (ADR 0014): posts the `review` check, as the review App, on a pull request's head and on the merge
+# queue's commit for it. It passes when Martin opened the pull request, or approved its head after the last push
+# (scripts/review-gate.ts). The ruleset requires the check from the review App alone, so no workflow, this one's own
+# job included, can stand in for it.
+#
+# Only main's copy runs with the App's key. `pull_request_target` and `workflow_run` run the workflow as main has it,
+# and the key is in the `review` environment, which only main may use: a pull request into another branch runs that
+# branch's copy, which the environment refuses. It reads the pull request's metadata through the API and never checks
+# out, builds or runs its code. A review, and the merge queue, run review-requested.yml, which holds nothing; its run
+# starts this one, here, from main.
+#
+# Until the review App, its Client ID and its key are in the environment, it says its verdict and posts nothing.
+#
+# Shared: cv-worlds-worst-website calls this workflow at a pinned commit from its own, with the same triggers and a
+# `review` environment of its own, so both repositories keep one rule.
+name: review
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review, edited]
+  workflow_run:
+    workflows: [review requested]
+    types: [completed]
+  workflow_call:
+
+permissions: {}
+
+# One verdict at a time for a pull request, each read afresh, so an older one is never posted after a newer one.
+concurrency:
+  group: review-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.run_id }}
+
+jobs:
+  review:
+    name: review gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: review
+    permissions:
+      pull-requests: read
+    steps:
+      # This workflow's own repository and commit, main's, which is not the caller's when it is called from elsewhere.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          sparse-checkout: |
+            mise.toml
+            scripts/review-gate.ts
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          install_args: node
+      # Checks alone: the App can post a check run and do nothing else.
+      - id: app
+        if: vars.REVIEW_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.REVIEW_APP_CLIENT_ID }}
+          private-key: ${{ secrets.REVIEW_APP_PRIVATE_KEY }}
+          permission-checks: write
+      - name: Judge the pull request, and post the check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHECKS_TOKEN: ${{ steps.app.outputs.token }}
+        run: node scripts/review-gate.ts

@@ -11,7 +11,8 @@
  * reading the same state again appends nothing. The gates are done when every check the ruleset requires has
  * finished on the commit, and every other check that started there, or at a merge, on the checks that have finished;
  * they pass when every required one that finished passed. The factory's own check runs (the reviewer's) are not
- * gates, and are left out.
+ * gates, and are left out; nor is the review gate's (ADR 0014), which is Martin's say, not a gate a change can pass:
+ * it waits for his approval, which comes after the gates.
  */
 import { type EventType, type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
 import { APP_LOGIN } from '../github/current.ts';
@@ -20,6 +21,12 @@ import { whatClearedOnLook } from './verify.ts';
 
 /** The App, as GitHub names the app behind a check run: the factory's own runs (the reviewer's) are not gates. */
 export const APP_SLUG = 'mrogan-software-factory';
+
+/** The review gate's check (ADR 0014, scripts/review-gate.ts): Martin's say on a pull request, not one of its gates. */
+export const REVIEW_CHECK = 'review';
+
+/** The checks the rulesets require that are gates: all but the review gate's. */
+const gatesIn = (required: readonly string[]) => required.filter((name) => name !== REVIEW_CHECK);
 
 /** What a work item has recorded about its pull request's gates and merge. */
 export interface GateRecord {
@@ -135,6 +142,7 @@ function gateRun(
   record: GateRecord,
   merged = false,
 ): Draft[] {
+  required = gatesIn(required);
   const commit = pr.head.sha;
   const latest = latestRuns(runs);
   if (latest.size === 0) return [];
@@ -192,10 +200,15 @@ function gateRun(
   return drafts;
 }
 
-/** The latest run of each check on a commit, by name: a check run again replaces the run before. The factory's own are left out. */
+/**
+ * The latest run of each check on a commit, by name: a check run again replaces the run before. The factory's own are
+ * left out, and so is the review gate's.
+ */
 export function latestRuns(runs: readonly CheckRun[]): Map<string, CheckRun> {
   const latest = new Map<string, CheckRun>();
-  for (const run of [...runs].sort((a, b) => a.id - b.id)) if (run.app !== APP_SLUG) latest.set(run.name, run);
+  for (const run of [...runs].sort((a, b) => a.id - b.id)) {
+    if (run.app !== APP_SLUG && run.name !== REVIEW_CHECK) latest.set(run.name, run);
+  }
   return latest;
 }
 
@@ -205,7 +218,8 @@ export function latestRuns(runs: readonly CheckRun[]): Map<string, CheckRun> {
  * failed fails the round, and one skipped does not. `passed` counts every finished check that succeeded. At a merge
  * nothing waits (`merged`), and a required check that never finished is `unfinished`.
  */
-export function judge(latest: ReadonlyMap<string, CheckRun>, required: readonly string[], merged = false) {
+export function judge(latest: ReadonlyMap<string, CheckRun>, everyRequired: readonly string[], merged = false) {
+  const required = gatesIn(everyRequired);
   const all = [...latest.values()];
   const finished = all.filter((run) => run.status === 'completed');
   // At a merge nothing waits: no read comes after it, so a round left open then would stay open for good.

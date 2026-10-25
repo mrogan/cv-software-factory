@@ -30,7 +30,8 @@ patches:
             'the Deployment postgres-exporter image'
           ]
       # The factory's images, which build.yml builds and the profile pins: the workers, the console and its
-      # migrations, the probes' browser and the runner. None of the app's: it runs only in `website`.
+      # migrations, the probes' browser and the runner, under either owner while the repositories move (ADR 0014).
+      # None of the app's: it runs only in `website`.
       - op: replace
         path: /spec/variables/1/expression
         value: >-
@@ -38,5 +39,9 @@ patches:
             'ghcr.io/mrogan/cv-software-factory/factory',
             'ghcr.io/mrogan/cv-software-factory/factory-browser',
             'ghcr.io/mrogan/cv-software-factory/factory-runner',
-            'ghcr.io/mrogan/cv-software-factory/console'
+            'ghcr.io/mrogan/cv-software-factory/console',
+            'ghcr.io/the-roganator/cv-software-factory/factory',
+            'ghcr.io/the-roganator/cv-software-factory/factory-browser',
+            'ghcr.io/the-roganator/cv-software-factory/factory-runner',
+            'ghcr.io/the-roganator/cv-software-factory/console'
           ]
