@@ -48,7 +48,9 @@ subjects:
 # never ready, and a first flag set its evaluator refuses leaves it unready. Once ready, it stays ready: the sync
 # marks itself ready once and never again unready, its informer retries a broken watch (its binding gone, the API out
 # of reach) for ever, and a later flag set its evaluator refuses is logged and dropped, while flagd serves the last
-# flags it took.
+# flags it took. A watch broken after start is caught from outside, not by readiness: the admin service compares the
+# revision in `flags` with the one the app reports, every 60 seconds, and Martin is alerted when they have differed
+# for more than 5 minutes (milestone 7, task 16).
 #
 # Telemetry: its logs are its container's, as JSON, which the pod log collector reads; its traces and metrics go to the
 # collector over OTLP, which flagd's exporters take from the standard variables.

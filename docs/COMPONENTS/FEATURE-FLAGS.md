@@ -14,4 +14,4 @@ Ship improvements switched off; a kill switch without a rollback. Part of the [r
 
 ## Readiness
 
-flagd reads `flags` before it serves anything, and exits if it cannot: with the resource missing, its Role or binding missing, or the API out of reach, it restarts until it can, and is never ready. A first flag set it refuses leaves it unready. Once ready it stays ready: at 0.17 its readiness does not follow its watch, which retries a broken watch for ever while flagd serves the last flags it took.
+flagd reads `flags` before it serves anything, and exits if it cannot: with the resource missing, its Role or binding missing, or the API out of reach, it restarts until it can, and is never ready. A first flag set it refuses leaves it unready. Once ready it stays ready: at 0.17 its readiness follows its first read, not its watch, which it retries for ever when broken, while it serves the last flags it took. A watch broken after start is caught from outside instead: the admin service compares the revision in `flags` with the one the app reports, every 60 seconds, and Martin is alerted when they have differed for more than 5 minutes (milestone 7, task 16, not built yet).
