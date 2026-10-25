@@ -2,7 +2,7 @@
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
   "files": {
-    "includes": ["**", "!docs", "!.release-please-manifest.json"]
+    "includes": ["**", "!docs", "!.release-please-manifest.json", "!**/*.md", "!**/*.yaml", "!**/*.yml"]
   },
   "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 120 },
   "javascript": { "formatter": { "quoteStyle": "single" } },
@@ -10,6 +10,7 @@
     "domains": { "react": "recommended" },
     "rules": {
       "preset": "recommended",
+      "performance": { "useDomNodeTextContent": "off" },
       "style": {
         "noRestrictedImports": {
           "level": "error",
