@@ -188,16 +188,18 @@ describe('admission control', () => {
   });
 
   it('admits in each namespace only the images of ours that run there', async () => {
-    // The factory's namespaces: every image the profile pins from build.yml, and none of the app's.
+    // The factory's namespaces: every image the profile pins from build.yml, under whichever owner it is pinned
+    // (ADR 0014), and none of the app's.
     const pinned = [...named(parse(await read('overlays/local/factory-image/kustomization.yaml')), new Set())];
     pinned.push(...named(parse(await read('overlays/local/console-image/kustomization.yaml')), new Set()));
-    const factory = await copy('factory');
-    expect(factory.factory.sort()).toEqual(
-      pinned
-        .filter((i) => i.startsWith('ghcr.io/mrogan/cv-software-factory/'))
-        .flatMap((i) => underEach(i.slice('ghcr.io/mrogan/'.length)))
-        .sort(),
+    const ours = pinned.flatMap((i) =>
+      OWNERS.filter((o) => i.startsWith(`ghcr.io/${o}/cv-software-factory/`)).map((o) =>
+        i.slice(`ghcr.io/${o}/`.length),
+      ),
     );
+    expect(pinned.filter((i) => !OWNERS.some((o) => i.startsWith(`ghcr.io/${o}/cv-software-factory/`)))).toEqual([]);
+    const factory = await copy('factory');
+    expect(factory.factory.sort()).toEqual(ours.flatMap(underEach).sort());
     expect(factory.website).toEqual([]);
     // The app's namespace: the app, and the factory's browser for the analysis Job that walks a canary's journeys.
     const website = await copy('website');
