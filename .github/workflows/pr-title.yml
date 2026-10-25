@@ -49,7 +49,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = merge_group ]; then
-            [[ "$QUEUE_BRANCH" =~ ^(refs/heads/)?gh-readonly-queue/main/pr-([0-9]+)-[0-9a-f]{40}$ ]] \
+            [[ "$QUEUE_BRANCH" =~ ^(refs/heads/)?gh-readonly-queue/main/pr-([0-9]+)-[0-9a-f]{7,40}$ ]] \
               || { echo "::error::$QUEUE_BRANCH is not a merge queue branch of main"; exit 1; }
             pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/${BASH_REMATCH[2]}")
             TITLE=$(jq -r .title <<< "$pr")

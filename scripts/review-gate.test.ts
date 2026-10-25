@@ -77,6 +77,9 @@ describe('the review gate (ADR 0014)', () => {
       number: 7,
       commit: HEAD,
     });
+    // However long the base commit's suffix.
+    const short = { ...run, event: 'merge_group', head_branch: 'gh-readonly-queue/main/pr-7-1a2b3c4' };
+    expect(target('workflow_run', { workflow_run: short })).toMatchObject({ kind: 'queue', number: 7 });
   });
 
   it('judges nothing a run cannot name: another event, or a branch that is not the queue’s into main', () => {
@@ -108,6 +111,8 @@ describe("the review gate's workflows", () => {
     // The key is in an environment only main may use: a pull request into another branch runs that branch's copy.
     expect(gate).toMatch(/^ {4}environment: review$/m);
     expect(gate).toMatch(/^permissions: \{\}$/m);
+    // Its job reads this repository, to check out the gate, and pull requests; it writes nothing with its own token.
+    expect(gate).toMatch(/^ {4}permissions:\n {6}contents: read\n {6}pull-requests: read\n {4}steps:/m);
     // The one checkout is this workflow's own commit, main's, and never the pull request's.
     expect(gate.match(/uses: actions\/checkout@/g)).toHaveLength(1);
     expect(gate).toMatch(/ref: \$\{\{ job\.workflow_sha \}\}\n/);

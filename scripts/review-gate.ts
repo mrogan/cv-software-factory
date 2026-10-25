@@ -32,7 +32,7 @@ export const MARTIN = 6206459;
 export const CHECK = 'review';
 
 /** The branch the merge queue makes for a pull request: `gh-readonly-queue/<base>/pr-<number>-<base commit>`. */
-const QUEUE_BRANCH = /^(?:refs\/heads\/)?gh-readonly-queue\/main\/pr-(\d+)-[0-9a-f]{40}$/;
+const QUEUE_BRANCH = /^(?:refs\/heads\/)?gh-readonly-queue\/main\/pr-(\d+)-[0-9a-f]{7,40}$/;
 
 export interface PullRequest {
   number: number;
