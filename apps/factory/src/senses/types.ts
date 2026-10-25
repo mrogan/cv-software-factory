@@ -50,10 +50,14 @@ export interface Observation {
   device?: Device;
 }
 
-/** What was on the device, as `<kind> <name>`, and the other origins asked, on the check's own route. */
+/**
+ * What was on the device, as `<kind> <name>`, and the other origins asked, on the check's own route. `allowed` is the
+ * app's preview cookie, kept to its contract after the pass asked for a preview; everything else is `kept`.
+ */
 export interface Device {
   route: string;
   kept: string[];
+  allowed: string[];
   asked: string[];
   /** Why what was on the device could not be read, when it could not. */
   trouble?: string;

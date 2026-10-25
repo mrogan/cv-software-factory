@@ -50,9 +50,12 @@ test('the footer leads to the privacy page, which says what is kept and for how 
   await expect(page.locator('.privacy-page li').filter({ hasText: 'But Martin’s sign-in.' })).toContainText(
     '__Host-session, for 30 minutes',
   );
+  await expect(page.locator('.privacy-page li').filter({ hasText: 'A preview of the app.' })).toContainText(
+    'Then it keeps preview, for 24 hours from the last time you asked',
+  );
   const kept = page.locator('table.privacy-kept tbody tr');
   await expect(kept).toHaveText([/^Logs.*7 days$/, /^Traces.*3 days$/, /^Metrics.*Up to 7 days$/]);
-  await expect(page.locator('.privacy-page li').filter({ hasText: 'Your browser' })).toContainText(
+  await expect(page.locator('.privacy-page li').filter({ hasText: 'Your browser is recorded' })).toContainText(
     'Never your address.',
   );
   // The header and the footer are the console's, and the way back is the crumb.
