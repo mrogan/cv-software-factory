@@ -10,7 +10,7 @@ Agents keep these current, in the same PR as the change that affects them.
 | [`SPECIFICATION.md`](SPECIFICATION.md) | What we are building. The source of truth. |
 | [`TERMS.md`](TERMS.md) | Agreed words. Use them. |
 | [`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md) | Unsettled decisions. Don't assume an answer; ask. |
-| [`PLAN/`](PLAN/README.md) | Delivery milestones; only the current one is detailed. Follow-ups are [issues](https://github.com/mrogan/cv-software-factory/issues), each on the GitHub milestone of the same number when it has one. |
+| [`PLAN/`](PLAN/README.md) | Delivery milestones; only the current one is detailed. Follow-ups are [issues](https://github.com/the-roganator/cv-software-factory/issues), each on the GitHub milestone of the same number when it has one. |
 | [`COMPONENTS/`](COMPONENTS/README.md) | Which part does what, and what it is built with in v1: a page per component. |
 | [`TYPESAFE.md`](TYPESAFE.md) | How the factory uses TypeSafe's Jev for typed judgements. |
 

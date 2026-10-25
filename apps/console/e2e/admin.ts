@@ -204,7 +204,9 @@ export class Rollout implements KubeWriter {
     spec: {
       template: {
         spec: {
-          containers: [{ name: 'website', image: `ghcr.io/mrogan/cv-worlds-worst-website@sha256:${'9'.repeat(64)}` }],
+          containers: [
+            { name: 'website', image: `ghcr.io/the-roganator/cv-worlds-worst-website@sha256:${'9'.repeat(64)}` },
+          ],
         },
       },
       strategy: {

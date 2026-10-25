@@ -5,7 +5,7 @@ import { Mark } from './Mark.tsx';
 
 declare const __BUILD__: string;
 
-const REPO = 'https://github.com/mrogan/cv-software-factory';
+const REPO = 'https://github.com/the-roganator/cv-software-factory';
 
 /**
  * The foot of every page: the copyright and the licence, the source and Martin on LinkedIn, and the way to the audit

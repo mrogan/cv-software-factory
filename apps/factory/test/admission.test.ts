@@ -12,7 +12,7 @@ import { GITHUB_ACTIONS, pipeline } from '../src/github/signatures.ts';
 
 /**
  * The owners whose GHCR images, signed by build.yml on main of the repository under them, are ours: Martin's account
- * and the organisation the repositories move to, while images built before the move still run (ADR 0014).
+ * and the organisation the repositories moved to, while images built before the move still run (ADR 0014).
  */
 const OWNERS = ['mrogan', 'the-roganator'];
 /** An image name of ours under each owner: `cv-software-factory/factory` becomes both owners' `ghcr.io/…`. */
@@ -119,13 +119,13 @@ const REFUSED_BY: Record<string, string> = {
 describe('admission control', () => {
   it("trusts each repository's build.yml on main, under either owner, by its whole identity", async () => {
     const { spec } = await policy();
-    // The deploy watch's identity first, then the same repository's under the organisation it moves to.
+    // The same repository's under Martin's account, for images built before the move, then the deploy watch's own.
     expect(spec.attestors.map((a) => a.cosign.keyless.identities)).toEqual(
       REPOSITORIES.map((repo) =>
         ownersOf(repo).map((under) => ({ issuer: GITHUB_ACTIONS, subject: pipeline(under).identity })),
       ),
     );
-    expect(REPOSITORIES.map((repo) => ownersOf(repo)[0])).toEqual([...REPOSITORIES]);
+    expect(REPOSITORIES.map((repo) => ownersOf(repo).at(-1))).toEqual([...REPOSITORIES]);
     expect(spec.attestors.map((a) => a.name)).toEqual(['factory', 'website']);
     // The copies set the first three variables by position.
     expect(spec.variables.slice(0, 3).map((v) => v.name)).toEqual([

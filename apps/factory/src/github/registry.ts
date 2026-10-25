@@ -2,7 +2,7 @@
  * GHCR, read through the registry's own API (the OCI distribution API), anonymously: the factory's and the app's
  * images are public, and a GitHub App cannot read a user's packages through GitHub's REST API.
  *
- *     tags(image)            every tag of an image, such as `mrogan/cv-software-factory/console`
+ *     tags(image)            every tag of an image, such as `the-roganator/cv-software-factory/console`
  *     digest(image, tag)     the digest the tag points at: the image index, for a multi-platform build
  *     revision(image, ref)   the commit the image was built from, from its `org.opencontainers.image.revision` label
  *     referrers(image, d)    what refers to a digest, such as its signatures and attestations

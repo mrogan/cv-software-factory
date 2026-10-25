@@ -20,7 +20,7 @@ kubectl=(kubectl --context "$context")
 command -v cosign >/dev/null || { echo "cosign isn't installed: run 'mise install'."; exit 1; }
 
 issuer=https://token.actions.githubusercontent.com
-# While the repositories move (ADR 0014), ours is either owner's, as in the policy.
+# Until only images built since the repositories moved run (ADR 0014), ours is either owner's, as in the policy.
 owners=(mrogan the-roganator)
 identity() { echo "https://github.com/$1/$2/.github/workflows/build.yml@refs/heads/main"; }
 

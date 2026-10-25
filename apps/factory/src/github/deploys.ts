@@ -55,7 +55,7 @@ import type { Actions } from './actions.ts';
 import type { GitHub } from './client.ts';
 import type { Watch } from './poller.ts';
 import type { Registry } from './registry.ts';
-import { pipeline, type Signatures, UnsignedError } from './signatures.ts';
+import { pipeline, type Signatures, type Signer, UnsignedError } from './signatures.ts';
 
 /** One pin file of a deploy and the images it pins, which are built together from one commit. */
 export interface Pin {
@@ -78,35 +78,35 @@ export interface DeployTarget {
 
 export const DEPLOYS: DeployTarget[] = [
   {
-    repo: 'mrogan/cv-software-factory',
+    repo: 'the-roganator/cv-software-factory',
     profile: 'local',
     branch: 'deploy/local',
     pins: [
       {
         what: 'console',
         file: 'deploy/overlays/local/console-image/kustomization.yaml',
-        images: [{ name: 'console', image: 'mrogan/cv-software-factory/console' }],
+        images: [{ name: 'console', image: 'the-roganator/cv-software-factory/console' }],
       },
       {
         what: 'the factory',
         file: 'deploy/overlays/local/factory-image/kustomization.yaml',
         images: [
-          { name: 'factory', image: 'mrogan/cv-software-factory/factory' },
-          { name: 'factory-browser', image: 'mrogan/cv-software-factory/factory-browser' },
-          { name: 'factory-runner', image: 'mrogan/cv-software-factory/factory-runner' },
+          { name: 'factory', image: 'the-roganator/cv-software-factory/factory' },
+          { name: 'factory-browser', image: 'the-roganator/cv-software-factory/factory-browser' },
+          { name: 'factory-runner', image: 'the-roganator/cv-software-factory/factory-runner' },
         ],
       },
     ],
   },
   {
-    repo: 'mrogan/cv-worlds-worst-website',
+    repo: 'the-roganator/cv-worlds-worst-website',
     profile: 'local',
     branch: 'deploy/local',
     pins: [
       {
         what: '',
         file: 'deploy/overlays/local/image/kustomization.yaml',
-        images: [{ name: 'website', image: 'mrogan/cv-worlds-worst-website' }],
+        images: [{ name: 'website', image: 'the-roganator/cv-worlds-worst-website' }],
       },
     ],
   },
@@ -124,12 +124,35 @@ export function deployTarget(repo: string, branch: string): DeployTarget {
   return target;
 }
 
-/** An image one of a repository's deploys pins, as GHCR names it; any other is refused. */
+/**
+ * The owner the repositories had before they moved to `the-roganator` (ADR 0014). GitHub redirects the repositories,
+ * but GHCR keeps each image under the owner that built it, so an image pinned before the move is still under this
+ * one, signed by `build.yml` on main of the repository under it, until only images built since run.
+ */
+export const FORMER_OWNER = 'mrogan';
+
+/** An image as GHCR names it, under the owner it was built under before the move. */
+const formerly = (image: string) => `${FORMER_OWNER}/${image.split('/').slice(1).join('/')}`;
+
+/**
+ * An image one of a repository's deploys pins, as GHCR names it, under the repository's owner or its former one; any
+ * other is refused.
+ */
 export function deployedImage(repo: string, image: string): string {
-  if (!DEPLOYS.some((t) => t.repo === repo && t.pins.some((p) => p.images.some((i) => i.image === image)))) {
+  const deployed = DEPLOYS.filter((t) => t.repo === repo).flatMap((t) => t.pins.flatMap((p) => p.images));
+  if (!deployed.some((i) => i.image === image || formerly(i.image) === image)) {
     throw new DeployRefused(`${image} is not an image ${repo} deploys.`);
   }
   return image;
+}
+
+/**
+ * Whose signature an image a repository deploys must carry: `build.yml` on main of the repository, under the owner the
+ * image is under in GHCR, which for one built before the move is the former owner.
+ */
+export function signerOf(repo: string, image: string): Signer {
+  const [owner] = deployedImage(repo, image).split('/');
+  return pipeline(`${owner}/${repo.split('/')[1]}`);
 }
 
 /** How long after it first sees a build with no signature the watch warns of it: longer than the signing job takes. */
@@ -293,7 +316,7 @@ export function withCarries(body: string, section: string): string {
 const PIN_FILE = z
   .object({
     images: z
-      .array(z.object({ name: z.string(), digest: z.string().optional() }))
+      .array(z.object({ name: z.string(), digest: z.string().optional(), newName: z.string().optional() }))
       .nullable()
       .optional(),
   })
@@ -304,28 +327,55 @@ export class PinFileError extends Error {
   override name = 'PinFileError';
 }
 
-/** The digests a pin file holds, by kustomize name. */
-export function pinned(file: string): Map<string, string> {
+/** Where GHCR's images are, as a pin file names them before the image's name in GHCR. */
+const REGISTRY = 'ghcr.io/';
+
+/**
+ * Each image a pin file pins by digest, by kustomize name: the digest, and the image as GHCR names it (`newName`
+ * without `ghcr.io/`), or undefined when the file names none in GHCR.
+ */
+export function pinnedImages(file: string): Map<string, { digest: string; image: string | undefined }> {
   const parsed = PIN_FILE.safeParse(parse(file));
   if (!parsed.success) throw new PinFileError('The pin file is not a kustomization with images.');
-  return new Map((parsed.data?.images ?? []).flatMap((i) => (i.digest ? [[i.name, i.digest] as const] : [])));
+  return new Map(
+    (parsed.data?.images ?? []).flatMap(({ name, digest, newName }) =>
+      digest
+        ? [[name, { digest, image: newName?.startsWith(REGISTRY) ? newName.slice(REGISTRY.length) : undefined }]]
+        : [],
+    ),
+  );
+}
+
+/** The digests a pin file holds, by kustomize name. */
+export function pinned(file: string): Map<string, string> {
+  return new Map([...pinnedImages(file)].map(([name, { digest }]) => [name, digest]));
 }
 
 /**
- * The pin file with each image moved to its new digest. Only the digests change, as text: the file keeps the layout
- * `kustomize edit` gave it, so the diff is the digests and nothing else.
+ * The pin file with each image moved to its new digest, and to where it is in GHCR when the file names it elsewhere
+ * (an image pinned before the repositories moved to `the-roganator`, ADR 0014). Only those values change, as text:
+ * the file keeps the layout `kustomize edit` gave it, so the diff is the digests and names and nothing else.
  */
 export function repin(file: string, proposal: Proposal): string {
-  const current = pinned(file);
+  const current = pinnedImages(file);
   let next = file;
-  for (const { name, digest } of proposal.digests) {
+  for (const { name, image, digest } of proposal.digests) {
     const old = current.get(name);
     if (!old) throw new PinFileError(`The pin file has no digest for ${name}.`);
     // A function, so nothing in the digest is read as a replacement pattern.
-    next = next.replace(old, () => digest);
+    next = next.replace(old.digest, () => digest);
+    if (old.image !== undefined && old.image !== image) {
+      // The whole line, so one image's name is never taken for the start of another's (factory, factory-browser).
+      const line = new RegExp(`^(\\s*(?:- )?newName: )${literally(REGISTRY + old.image)}$`, 'm');
+      if (!line.test(next)) throw new PinFileError(`The pin file names ${name}'s image in a way it cannot move.`);
+      next = next.replace(line, (_, start: string) => `${start}${REGISTRY}${image}`);
+    }
   }
   return next;
 }
+
+/** A string as a regular expression that matches it alone. */
+const literally = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * What a deploy pull request says: the commit each pin file runs, linked, with the changes since the one pinned now;
@@ -405,7 +455,7 @@ export async function newerBuild(
   pinFile: string,
   commits: readonly { sha: string }[],
 ): Promise<Proposal | undefined> {
-  const pins = pinned(pinFile);
+  const pins = pinnedImages(pinFile);
   const images = pin.images.filter((i) => pins.has(i.name));
   if (!images.length) return undefined;
   const tags = await Promise.all(images.map(async (i) => new Set(await registry.tags(i.image))));
@@ -413,9 +463,11 @@ export async function newerBuild(
   if (newest === -1) return undefined;
   const commit = commits[newest]?.sha as string;
 
+  // The pinned digest is looked up where the pin file says it is, which is not where new builds go for an image
+  // pinned before the repositories moved (ADR 0014).
   const [first] = images;
-  const pinnedDigest = first && pins.get(first.name);
-  const pinnedCommit = first && pinnedDigest ? await registry.revision(first.image, pinnedDigest) : undefined;
+  const current = first && pins.get(first.name);
+  const pinnedCommit = current ? await registry.revision(current.image ?? first.image, current.digest) : undefined;
   if (pinnedCommit) {
     const at = commits.findIndex((c) => c.sha === pinnedCommit);
     // The pin is this build, or a newer one than any this pin has a full set of images for.

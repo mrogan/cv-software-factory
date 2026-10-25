@@ -15,7 +15,7 @@ metadata:
 spec:
   project: website
   source:
-    repoURL: https://github.com/mrogan/cv-worlds-worst-website.git
+    repoURL: https://github.com/the-roganator/cv-worlds-worst-website.git
     targetRevision: main
     path: deploy/overlays/local
   destination:

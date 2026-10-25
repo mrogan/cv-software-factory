@@ -18,8 +18,8 @@ patches:
       - op: replace
         path: /spec/variables/0/expression
         value: "[]"
-      # The factory's image, signed by the factory's build.yml, under either owner while the repositories move
-      # (ADR 0014).
+      # The factory's image, signed by the factory's build.yml, under either owner until only images built since the
+      # move run (ADR 0014).
       - op: replace
         path: /spec/variables/1/expression
         value: >-

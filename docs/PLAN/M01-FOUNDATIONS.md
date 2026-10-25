@@ -113,7 +113,7 @@ What the milestone taught, and where each lesson now lives.
 - `SECURITY.md` links straight to the private report form, the one thing Scorecard's Security-Policy check found missing.
 - Git hooks print nothing when they pass.
 
-**Left open:** see the [issues](https://github.com/mrogan/cv-software-factory/issues).
+**Left open:** see the [issues](https://github.com/the-roganator/cv-software-factory/issues).
 
 ## Out of scope
 

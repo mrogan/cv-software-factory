@@ -16,7 +16,7 @@ spec:
         releaseName: otel-collector
         valueFiles:
           - $values/deploy/base/telemetry/values/otel-collector.yaml
-    - repoURL: https://github.com/mrogan/cv-software-factory.git
+    - repoURL: https://github.com/the-roganator/cv-software-factory.git
       targetRevision: main
       ref: values
   syncPolicy:

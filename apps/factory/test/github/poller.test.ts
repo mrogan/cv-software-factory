@@ -161,7 +161,7 @@ describe('the poller', () => {
 });
 
 describe('GHCR', () => {
-  const image = 'mrogan/cv-worlds-worst-website';
+  const image = 'the-roganator/cv-worlds-worst-website';
   function registry(requests: string[] = []) {
     const answer = (body: unknown, headers: Record<string, string> = {}) =>
       new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json', ...headers } });

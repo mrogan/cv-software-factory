@@ -204,7 +204,7 @@ describe('a dry run’s reads', () => {
     const { reads, commit } = await dryRun(asked);
     expect(await reads.commits(REPO, SHA, commit)).toEqual({ status: 'ahead', total: 1, commits: [commit] });
     expect(asked).toContain(`commits ${SHA}...${commit}`);
-    const image = 'mrogan/cv-worlds-worst-website';
+    const image = 'the-roganator/cv-worlds-worst-website';
     expect(await reads.imageRevision(REPO, image, `sha256:${'1'.repeat(64)}`)).toBe(SHA);
     expect(await reads.imageSigned(REPO, image, `sha256:${'1'.repeat(64)}`)).toEqual({ signed: true, reason: null });
     expect(await reads.deployProposal(REPO, 'deploy/local')).toMatchObject({ number: 30 });

@@ -16,10 +16,10 @@
  */
 import { z } from 'zod';
 import { type GitHub, GitHubError } from './client.ts';
-import { type DeployProposal, type DeployProposals, deployedImage } from './deploys.ts';
+import { type DeployProposal, type DeployProposals, deployedImage, signerOf } from './deploys.ts';
 import { CODEOWNERS_PATHS, protectedFrom } from './paths.ts';
 import type { Registry } from './registry.ts';
-import { pipeline, type Signatures, UnsignedError } from './signatures.ts';
+import { type Signatures, UnsignedError } from './signatures.ts';
 
 export interface PullRequestState {
   number: number;
@@ -324,7 +324,7 @@ export class LiveReads implements Reads {
 
   async imageSigned(repo: string, image: string, digest: string): Promise<Signed> {
     try {
-      await this.#release().signatures.verify(deployedImage(repo, image), digest, pipeline(repo));
+      await this.#release().signatures.verify(deployedImage(repo, image), digest, signerOf(repo, image));
       return { signed: true, reason: null };
     } catch (error) {
       if (error instanceof UnsignedError) return { signed: false, reason: error.message };

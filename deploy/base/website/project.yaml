@@ -11,7 +11,7 @@ metadata:
 spec:
   description: The World's Worst Website, deployed from its own repository.
   sourceRepos:
-    - https://github.com/mrogan/cv-worlds-worst-website.git
+    - https://github.com/the-roganator/cv-worlds-worst-website.git
   destinations:
     - server: https://kubernetes.default.svc
       namespace: website

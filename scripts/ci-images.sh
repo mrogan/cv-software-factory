@@ -25,7 +25,10 @@ set -uo pipefail
 # Microsoft's registry, which the repository pins Playwright's image from, by its whole name.
 MCR=mcr.microsoft.com/
 # GHCR's names are lowercase.
-MIRROR=ghcr.io/$(tr '[:upper:]' '[:lower:]' <<< "${GITHUB_REPOSITORY:-mrogan/cv-software-factory}")/mirror/
+MIRROR=ghcr.io/$(tr '[:upper:]' '[:lower:]' <<< "${GITHUB_REPOSITORY:-the-roganator/cv-software-factory}")/mirror/
+# The copies made before the repository moved to the-roganator (ADR 0014), under its former owner, where GHCR keeps them:
+# read when this repository's own GHCR has no copy yet, and never written.
+FORMER=ghcr.io/mrogan/${MIRROR#ghcr.io/*/}
 # A pin, as a Dockerfile's FROM or a manifest's image names it: a name with no registry (Docker Hub's official images)
 # or Playwright's on Microsoft's registry, an optional tag, and a digest. The pin is its last word.
 PIN='(^FROM|image:) +([a-z0-9._-]+|mcr\.microsoft\.com/playwright)(:[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}'
@@ -47,10 +50,13 @@ mirror_of() {
 pullable() { skopeo inspect --raw --no-creds "docker://$1" > /dev/null 2>&1; }
 
 resolve() {
-  local ref=$1 copy
+  local ref=$1 copy former
   copy=$(mirror_of "$ref")
+  former=$FORMER${copy#"$MIRROR"}
   if pullable "$copy"; then
     echo "$copy"
+  elif pullable "$former"; then
+    echo "$former"
   else
     echo "::warning::$ref is not in GHCR yet, so it comes from its own registry (mirror.yml copies it daily)" >&2
     echo "$ref"

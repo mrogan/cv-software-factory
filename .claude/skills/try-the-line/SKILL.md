@@ -48,9 +48,9 @@ The line runs in the cluster only: its agent pods may reach only the gateway and
 1. **Build** `factory` and `factory-runner` from one commit, in a worktree, and import them:
    ```sh
    T=local-$(git rev-parse --short HEAD)
-   docker build -f apps/factory/Dockerfile -t ghcr.io/mrogan/cv-software-factory/factory:$T .
-   docker build -f apps/runner/Dockerfile -t ghcr.io/mrogan/cv-software-factory/factory-runner:$T .
-   k3d image import -c software-factory ghcr.io/mrogan/cv-software-factory/factory:$T ghcr.io/mrogan/cv-software-factory/factory-runner:$T
+   docker build -f apps/factory/Dockerfile -t ghcr.io/the-roganator/cv-software-factory/factory:$T .
+   docker build -f apps/runner/Dockerfile -t ghcr.io/the-roganator/cv-software-factory/factory-runner:$T .
+   k3d image import -c software-factory ghcr.io/the-roganator/cv-software-factory/factory:$T ghcr.io/the-roganator/cv-software-factory/factory-runner:$T
    ```
    Build `console` too if its code changed.
 2. **Pause Argo CD** on `root` only, which owns every factory deployment: `bin/k -n argocd patch application root --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}'`.

@@ -19,7 +19,7 @@ spec:
         releaseName: argo-rollouts
         valueFiles:
           - $values/deploy/base/rollouts/values.yaml
-    - repoURL: https://github.com/mrogan/cv-software-factory.git
+    - repoURL: https://github.com/the-roganator/cv-software-factory.git
       targetRevision: main
       ref: values
   syncPolicy:

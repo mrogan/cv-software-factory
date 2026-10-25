@@ -2,20 +2,25 @@
 
 A single path for change. Part of the [GitHub plane](README.md#github-plane).
 
-- **v1:** two rulesets on `main` (ADR 0009), applied to both public repositories by `scripts/github-settings.ts`.
+- **v1:** one ruleset on `main`, the merge queue and the review gate (ADR 0014), and a `review` environment, applied to both public repositories by `scripts/github-settings.ts`.
 
-## The rulesets
+## Where they live
+
+Both public repositories are the organisation `the-roganator`'s, since GitHub offers the merge queue only to an organisation's repositories. `cv-software-factory-private` stays with Martin's account, `mrogan`: the Apps installed across the organisation, the review App on every repository there, must never reach the answer key, which only the scoreboard reads.
+
+## The ruleset
 
 | Ruleset | Requires | Bypass |
 |---|---|---|
-| `main` | Pull requests only, squash merges, required checks, linear and signed history | Nobody |
-| `main: review` | A code owner's approval after the last push | The repository's admin, only to merge a pull request |
+| `main` | Pull requests only, squash merges, required checks, `review` among them, linear and signed history, the merge queue | Nobody |
 
-The bypass means Martin's own changes still go through a pull request and its checks, and the merge records the bypass, while every pull request the App opens waits for him.
+There is no rule that a branch be up to date with `main`: the queue tests each pull request on `main` as it will be, with those ahead of it, on a commit of its own, and every required check runs there too. Each is squashed, every one of a group must pass, up to five are tested at once, and a group whose checks say nothing within the hour leaves the queue. GitHub's own review rule is not used: the queue admits only a pull request that meets every rule, so review is a check it can wait for.
 
 ## The review gate
 
-Both repositories are moving to the organisation `the-roganator` for GitHub's merge queue, which cannot sit beside `main: review` (ADR 0014). Its replacement is built and runs, and nothing requires it yet: `review.yml` judges each pull request, `scripts/review-gate.ts`, and posts the `review` check as the review App once that App is set up. It passes when Martin opened the pull request, by his account's id, or approved its head after the last push. `review-requested.yml` asks for it again on a review and in the merge queue, and every other required check runs in the queue too: `check.yml` and `pr-title.yml`, and the app's gates (`app-gates.yml`), which the app's repository calls from its queue, read-only and with no secret. The rulesets above change after the transfer: the queue on `main`, `review` required from the review App alone, no rule that a branch be up to date, and `main: review` gone.
+`review` is required from the review App alone (App ID `5470762`), so no workflow's job of that name stands in for it. `review.yml` judges each pull request with `scripts/review-gate.ts`, and posts the check as the review App: it passes when Martin opened the pull request, by his account's id, or approved its head after the last push. `review-requested.yml` asks for it again on a review and in the merge queue, and every other required check runs in the queue too: `check.yml` and `pr-title.yml`, and the app's gates (`app-gates.yml`), which the app's repository calls from its queue, read-only and with no secret.
+
+The review App's key is kept only in each repository's `review` environment, as `REVIEW_APP_PRIVATE_KEY`, which only workflows on `main` may use. `github-settings.ts --check` reports the environment as drift if it is missing or any other branch may use it.
 
 ## Also
 

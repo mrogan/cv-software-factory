@@ -13,7 +13,7 @@ You are the orchestrator. Keep your context lean: sub-agents do the work, each f
 
 ## Before starting
 
-1. **Key each work item.** An issue's key is its number. Something from the conversation is a brief, and its key is a short slug (`station-order`). An issue's second pull request is `<n>-2`. A work item whose pull request is in the app's repository (`mrogan/cv-worlds-worst-website`, checked out beside this one) has a key that begins `app-` (`app-flag-context`, or `app-<n>` for this repository's issue `<n>`): the scripts read the repository from the key, and the prefix keeps its worktree apart from this repository's under `scratch/worktrees/`.
+1. **Key each work item.** An issue's key is its number. Something from the conversation is a brief, and its key is a short slug (`station-order`). An issue's second pull request is `<n>-2`. A work item whose pull request is in the app's repository (`the-roganator/cv-worlds-worst-website`, checked out beside this one) has a key that begins `app-` (`app-flag-context`, or `app-<n>` for this repository's issue `<n>`): the scripts read the repository from the key, and the prefix keeps its worktree apart from this repository's under `scratch/worktrees/`.
 2. **Make the run directory**: `run.sh <key>...` makes `scratch/implement/<date>-<keys>/` and prints its path. Notes, briefs, PR notes and the summary go there. A run that spans sessions (a milestone's part, with Martin merging between them) keeps two files there as well, which each session reads first and updates last, so that the run's state lives in files a later session can take up. A later session takes up the same run directory, named in its handover, rather than making a new one:
    - `LEDGER.md`: a row per work item, with its state, pull requests, what it waits on, and the next action;
    - `FOLLOWUPS.md`: each loose end the moment it is found (a `found`, a workflow problem, something only Martin can do), with where it goes, emptied at the end of each work item.
@@ -42,11 +42,11 @@ You are the orchestrator. Keep your context lean: sub-agents do the work, each f
 
 Never run two sub-agents at once, and never give a worktree to a second agent while the first can still run.
 
-When Martin merges one pull request, bring up to date only what that merge forces: a pull request that now conflicts with `main`, and in a stack each one built directly on the one that merged. Send a sub-agent to fetch and merge `origin/main` into it and resolve, briefed with what merged: it owns the worktree for that, as the first did. Where the merge conflicts on the merged pull request's own changes, it starts from `main`'s side, which carries that pull request as reviewed, and carries its own pull request's changes over onto it. Once its checks pass and `verify.sh` passes again, tell Martin it is ready to merge.
+Pull requests merge through GitHub's merge queue, which tests each on `main` as it will be, so one that falls behind `main` needs nothing. When Martin merges one, move only what that merge forces: a pull request that now conflicts with `main`, which the queue cannot take, and in a stack each one built directly on the one that merged. Send a sub-agent to fetch and merge `origin/main` into it and resolve, briefed with what merged: it owns the worktree for that, as the first did. Where the merge conflicts on the merged pull request's own changes, it starts from `main`'s side, which carries that pull request as reviewed, and carries its own pull request's changes over onto it. Once its checks pass and `verify.sh` passes again, tell Martin it is ready to merge.
 
 A pull request marked `Part of #<n>` closes nothing, so an issue whose pull requests all say so stays open after the last one merges. Keep it in its `LEDGER.md` row until then, and when it does, close the issue yourself, with a comment naming its pull requests and how it was proved.
 
-In a stack, Martin merges each pull request the moment it is green, and each merge squashes the branch the next one is built on. Leave the ones further up until their turn: a whole stack brought up to date at once has to be done again after every merge.
+In a stack, Martin merges each pull request the moment it is green, and each merge squashes the branch the next one is built on. Leave the ones further up until their turn: a whole stack moved onto `main` at once has to be moved again after every merge.
 
 ## Finishing the work, not filing it
 

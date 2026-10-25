@@ -1,13 +1,13 @@
 /**
  * Applies the public repositories' GitHub settings, so they are reviewable like code and reproducible. Both get
- * the same rulesets and security settings; only the checks each requires differ. Safe to run again.
+ * the same ruleset, review environment and security settings; only the checks each requires differ. Safe to run again.
  *
  *     node scripts/github-settings.ts                  # every repository below
  *     node scripts/github-settings.ts <owner/repo>     # one of them
- *     node scripts/github-settings.ts --check          # change nothing: say where the live rulesets differ
+ *     node scripts/github-settings.ts --check          # change nothing: say where the live settings differ
  *
- * `--check` reads each repository's rulesets and compares them with the ones here, and names any it does not know,
- * such as one added in the browser. It exits 1 if anything differs.
+ * `--check` reads each repository's rulesets and its `review` environment and compares them with the ones here, and
+ * names any ruleset it does not know, such as one added in the browser. It exits 1 if anything differs.
  *
  * Needs the GitHub CLI, signed in as an admin of the repository.
  */
@@ -18,9 +18,9 @@ import { execFileSync } from 'node:child_process';
  * reports as "<calling job> / <job>".
  */
 export const REPOSITORIES: Record<string, string[]> = {
-  'mrogan/cv-software-factory': ['lint, types, tests', 'browser tests', 'image builds', 'pull request title'],
+  'the-roganator/cv-software-factory': ['lint, types, tests', 'browser tests', 'image builds', 'pull request title'],
   // The app's gates come from this repository (app-gates.yml); tests first is a signal, not a requirement.
-  'mrogan/cv-worlds-worst-website': [
+  'the-roganator/cv-worlds-worst-website': [
     'lint, types, tests',
     'image builds',
     'title / pull request title',
@@ -34,12 +34,26 @@ export const REPOSITORIES: Record<string, string[]> = {
 /** GitHub Actions, as the app that reports check runs. */
 const GITHUB_ACTIONS = 15368;
 
-/** Repository roles, as a ruleset's bypass list names them. */
-const ADMIN_ROLE = 5;
+/**
+ * The review App (ADR 0014), as the app that reports the `review` check: Martin opened the pull request, or approved
+ * its head. Required from this App alone, so a workflow's job of the same name never stands in for it.
+ */
+export const REVIEW_APP = 5470762;
+
+/** The check the review App posts, `scripts/review-gate.ts`. */
+export const REVIEW_CHECK = 'review';
+
+/** The environment that holds the review App's key, and the one branch whose workflows may use it. */
+export const REVIEW_ENVIRONMENT = 'review';
+export const REVIEW_BRANCH = 'main';
 
 /**
- * Two rulesets on main (ADR 0009). The first holds everything but review, and nobody bypasses it: every change is a
- * pull request, squash-merged, signed and linear, once its required checks pass.
+ * The one ruleset on main (ADR 0014), which nobody bypasses: every change is a pull request, squash-merged, signed
+ * and linear, through the merge queue, once its required checks pass, `review` among them. GitHub's own review rule
+ * is not here: the queue admits only a pull request that meets every rule, so review is a check it can wait for.
+ *
+ * No rule that a branch be up to date with main: the queue tests each pull request on main as it will be, with the
+ * pull requests ahead of it, so one behind main merges without being brought up to date first.
  */
 export const rules = (requiredChecks: string[]) => ({
   name: 'main',
@@ -67,40 +81,46 @@ export const rules = (requiredChecks: string[]) => ({
     {
       type: 'required_status_checks',
       parameters: {
-        strict_required_status_checks_policy: true,
+        strict_required_status_checks_policy: false,
         do_not_enforce_on_create: false,
-        required_status_checks: requiredChecks.map((context) => ({ context, integration_id: GITHUB_ACTIONS })),
+        required_status_checks: [
+          ...requiredChecks.map((context) => ({ context, integration_id: GITHUB_ACTIONS })),
+          { context: REVIEW_CHECK, integration_id: REVIEW_APP },
+        ],
       },
     },
+    { type: 'merge_queue', parameters: MERGE_QUEUE },
   ],
 });
 
 /**
- * The second holds review: a code owner's approval, after the last push, on every pull request. Martin is the code
- * owner and the author of every human pull request, and GitHub never counts an author's own approval, so the
- * repository's admin may bypass this one, and only when merging a pull request. The merge records the bypass. The
- * factory's App may not bypass it, so each of its pull requests waits for Martin.
+ * The merge queue: each pull request squashed, as the repository merges, and every one of a group must pass, so each
+ * commit on main is one whose checks passed. A run of the checks takes about five minutes, and a chain of their jobs
+ * at most about forty, so a group whose checks say nothing within the hour is taken out of the queue. Up to five are
+ * tested at once, each on main with the ones ahead of it, and a pull request merges as soon as its checks pass, with
+ * no wait for others to group with: there are seldom more than a few, and each run is a full one.
  */
-export const review = {
-  name: 'main: review',
-  target: 'branch',
-  enforcement: 'active',
-  conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
-  bypass_actors: [{ actor_id: ADMIN_ROLE, actor_type: 'RepositoryRole', bypass_mode: 'pull_request' }],
-  rules: [
-    {
-      type: 'pull_request',
-      parameters: {
-        required_approving_review_count: 1,
-        require_code_owner_review: true,
-        dismiss_stale_reviews_on_push: true,
-        require_last_push_approval: true,
-        required_review_thread_resolution: false,
-        allowed_merge_methods: ['squash'],
-      },
-    },
-  ],
+export const MERGE_QUEUE = {
+  merge_method: 'SQUASH',
+  grouping_strategy: 'ALLGREEN',
+  max_entries_to_build: 5,
+  min_entries_to_merge: 1,
+  max_entries_to_merge: 5,
+  min_entries_to_merge_wait_minutes: 0,
+  check_response_timeout_minutes: 60,
 };
+
+/** Rulesets that were here once, and are deleted where they are found: GitHub's review rule (ADR 0009), now `review`. */
+export const RETIRED = ['main: review'];
+
+/**
+ * The `review` environment, which holds the review App's key: only workflows on main may use it, so a pull request
+ * into another branch, which runs that branch's copy of the gate, never reads the key (ADR 0014).
+ */
+export const environment = {
+  deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
+};
+export const branchPolicies = [{ name: REVIEW_BRANCH, type: 'branch' }];
 
 let repo = '';
 
@@ -131,9 +151,9 @@ export function matches(live: unknown, wanted: unknown): boolean {
   return live === wanted;
 }
 
-/** Compares a repository's live rulesets with these, and says what differs. */
+/** Compares a repository's live rulesets and review environment with these, and says what differs. */
 function check(requiredChecks: string[]): string[] {
-  const wanted = [rules(requiredChecks), review];
+  const wanted = [rules(requiredChecks)];
   const live = JSON.parse(gh('GET', '/rulesets')) as { id: number; name: string }[];
   const problems = live
     .filter((r) => !wanted.some((w) => w.name === r.name))
@@ -144,6 +164,31 @@ function check(requiredChecks: string[]): string[] {
     else if (!matches(JSON.parse(gh('GET', `/rulesets/${found.id}`)), ruleset)) {
       problems.push(`ruleset "${ruleset.name}" differs from this script's`);
     }
+  }
+  return [...problems, ...checkEnvironment()];
+}
+
+/** Compares the live `review` environment with this script's: present, and usable from main alone. */
+function checkEnvironment(): string[] {
+  const path = `/environments/${REVIEW_ENVIRONMENT}`;
+  let live: unknown;
+  try {
+    live = JSON.parse(gh('GET', path));
+  } catch {
+    return [`environment "${REVIEW_ENVIRONMENT}" is missing`];
+  }
+  const policies = JSON.parse(gh('GET', `${path}/deployment-branch-policies`)) as { branch_policies: unknown[] };
+  return environmentProblems(live, policies.branch_policies);
+}
+
+/** What differs between a live environment and its branch policies and this script's. */
+export function environmentProblems(live: unknown, policies: unknown[]): string[] {
+  const problems: string[] = [];
+  if (!matches(live, environment)) {
+    problems.push(`environment "${REVIEW_ENVIRONMENT}" is not limited to the branches it names`);
+  }
+  if (!matches(policies, branchPolicies)) {
+    problems.push(`environment "${REVIEW_ENVIRONMENT}" may be used from other branches than ${REVIEW_BRANCH} alone`);
   }
   return problems;
 }
@@ -238,18 +283,39 @@ function apply(name: string, requiredChecks: string[]): void {
     else gh('POST', '/labels', deployLabel);
   });
 
+  // The environment first: the ruleset requires the check the key in it posts.
+  step(`environment "${REVIEW_ENVIRONMENT}": used only from ${REVIEW_BRANCH}`, () => {
+    const path = `/environments/${REVIEW_ENVIRONMENT}`;
+    gh('PUT', path, environment);
+    const live = JSON.parse(gh('GET', `${path}/deployment-branch-policies`)) as {
+      branch_policies: { id: number; name: string; type?: string }[];
+    };
+    for (const policy of live.branch_policies) {
+      if (!branchPolicies.some((p) => p.name === policy.name && p.type === (policy.type ?? 'branch'))) {
+        gh('DELETE', `${path}/deployment-branch-policies/${policy.id}`);
+      }
+    }
+    for (const policy of branchPolicies) {
+      if (!live.branch_policies.some((p) => p.name === policy.name && (p.type ?? 'branch') === policy.type)) {
+        gh('POST', `${path}/deployment-branch-policies`, policy);
+      }
+    }
+  });
+
   const existing = JSON.parse(gh('GET', '/rulesets')) as { id: number; name: string }[];
   const apply = (ruleset: { name: string }) => {
     const id = existing.find((r) => r.name === ruleset.name)?.id;
     if (id) gh('PUT', `/rulesets/${id}`, ruleset);
     else gh('POST', '/rulesets', ruleset);
   };
-  step(`ruleset "main": pull requests only, linear and signed; requires ${requiredChecks.join('; ')}`, () =>
-    apply(rules(requiredChecks)),
+  step(
+    `ruleset "main": pull requests only, linear and signed, through the merge queue; requires ${[...requiredChecks, REVIEW_CHECK].join('; ')}`,
+    () => apply(rules(requiredChecks)),
   );
-  step('ruleset "main: review": a code owner approves after the last push; the admin may bypass it to merge', () =>
-    apply(review),
-  );
+  for (const name of RETIRED) {
+    const id = existing.find((r) => r.name === name)?.id;
+    if (id) step(`ruleset "${name}" deleted`, () => gh('DELETE', `/rulesets/${id}`));
+  }
 }
 
 if (import.meta.main) process.exitCode = main(process.argv.slice(2));

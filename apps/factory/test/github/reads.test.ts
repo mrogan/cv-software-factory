@@ -10,7 +10,7 @@ import { DEPLOYS, DeployProposals, DeployRefused } from '../../src/github/deploy
 import { LiveReads, type ReleaseSources } from '../../src/github/reads.ts';
 import type { Registry } from '../../src/github/registry.ts';
 import { createWorkerServer } from '../../src/github/server.ts';
-import { pipeline, UnsignedError } from '../../src/github/signatures.ts';
+import { pipeline, type Signer, UnsignedError } from '../../src/github/signatures.ts';
 import { GitHubWorker, GitHubWorkerError } from '../../src/github/worker-client.ts';
 import { calls, client, OTHER_SHA, quiet, REPO, SHA } from './fake.ts';
 
@@ -152,7 +152,7 @@ describe('reading GitHub for the line', () => {
 });
 
 describe('reading what a release is made of', () => {
-  const IMAGE = 'mrogan/cv-worlds-worst-website';
+  const IMAGE = 'the-roganator/cv-worlds-worst-website';
   const DIGEST = `sha256:${'1'.repeat(64)}`;
   const UNSIGNED = `sha256:${'2'.repeat(64)}`;
   const sha = (n: number) => n.toString(16).padStart(40, '0');
@@ -240,7 +240,7 @@ describe('reading what a release is made of', () => {
     const { github } = client([]);
     const given = sources();
     const reads = new LiveReads(github, given);
-    for (const image of ['mrogan/cv-software-factory/factory', 'someone/else']) {
+    for (const image of ['the-roganator/cv-software-factory/factory', 'someone/else']) {
       await expect(reads.imageRevision(REPO, image, DIGEST)).rejects.toBeInstanceOf(DeployRefused);
       await expect(reads.imageSigned(REPO, image, DIGEST)).rejects.toBeInstanceOf(DeployRefused);
     }
@@ -351,20 +351,31 @@ describe('the worker over HTTP, for the line', () => {
   it('answers the release reads, and refuses an image the repository does not deploy', async () => {
     const proposals = new DeployProposals();
     const registry = { revision: async () => SHA } as unknown as Registry;
-    const { worker } = await serve(ROUTES, { registry, signatures: { verify: async () => {} }, proposals });
+    const signers: string[] = [];
+    const signatures = { verify: async (_: string, __: string, signer: Signer) => void signers.push(signer.identity) };
+    const { worker } = await serve(ROUTES, { registry, signatures, proposals });
     const digest = `sha256:${'1'.repeat(64)}`;
-    expect(await worker.read('imageRevision', REPO, { image: 'mrogan/cv-worlds-worst-website', digest })).toBe(SHA);
-    expect(await worker.read('imageSigned', REPO, { image: 'mrogan/cv-worlds-worst-website', digest })).toEqual({
+    expect(await worker.read('imageRevision', REPO, { image: 'the-roganator/cv-worlds-worst-website', digest })).toBe(
+      SHA,
+    );
+    expect(await worker.read('imageSigned', REPO, { image: 'the-roganator/cv-worlds-worst-website', digest })).toEqual({
       signed: true,
       reason: null,
     });
+    // An image built before the repositories moved (ADR 0014), signed by the repository under its former owner.
+    expect(await worker.read('imageRevision', REPO, { image: 'mrogan/cv-worlds-worst-website', digest })).toBe(SHA);
+    await worker.read('imageSigned', REPO, { image: 'mrogan/cv-worlds-worst-website', digest });
+    expect(signers).toEqual([
+      'https://github.com/the-roganator/cv-worlds-worst-website/.github/workflows/build.yml@refs/heads/main',
+      'https://github.com/mrogan/cv-worlds-worst-website/.github/workflows/build.yml@refs/heads/main',
+    ]);
     expect(await worker.read('deployProposal', REPO, { branch: 'deploy/local' })).toBeNull();
     await expect(
-      worker.read('imageRevision', REPO, { image: 'mrogan/cv-software-factory/factory', digest }),
+      worker.read('imageRevision', REPO, { image: 'the-roganator/cv-software-factory/factory', digest }),
     ).rejects.toMatchObject({ status: 422, kind: 'deploy-refused' });
     for (const args of [
       { image: 'ghcr.io/../x', digest },
-      { image: 'mrogan/cv-worlds-worst-website', digest: 'latest' },
+      { image: 'the-roganator/cv-worlds-worst-website', digest: 'latest' },
     ]) {
       await expect(worker.read('imageRevision', REPO, args)).rejects.toMatchObject({ status: 400 });
     }

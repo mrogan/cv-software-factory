@@ -30,7 +30,7 @@ patches:
             'the Deployment postgres-exporter image'
           ]
       # The factory's images, which build.yml builds and the profile pins: the workers, the console and its
-      # migrations, the probes' browser and the runner, under either owner while the repositories move (ADR 0014).
+      # migrations, the probes' browser and the runner, under either owner until only images built since the move run (ADR 0014).
       # None of the app's: it runs only in `website`.
       - op: replace
         path: /spec/variables/1/expression

@@ -240,7 +240,7 @@ describe('the line', () => {
       attempt: 1,
       commit: MAIN,
       result: true,
-      repository: 'https://github.com/mrogan/cv-worlds-worst-website.git',
+      repository: 'https://github.com/the-roganator/cv-worlds-worst-website.git',
     });
     expect(steps.requests[0]?.prompt).toContain('Category errors, severity broken');
 

@@ -11,7 +11,7 @@ metadata:
 spec:
   description: Kyverno, which admits a pod in a guarded namespace only if its images were signed by their pipeline.
   sourceRepos:
-    - https://github.com/mrogan/cv-software-factory.git
+    - https://github.com/the-roganator/cv-software-factory.git
     - https://kyverno.github.io/kyverno
   destinations:
     - server: https://kubernetes.default.svc

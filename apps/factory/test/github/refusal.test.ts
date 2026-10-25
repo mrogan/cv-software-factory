@@ -74,7 +74,9 @@ describe("the App's workflow refusal", () => {
 
   it("kept GitHub's refusal in both public repositories (factory github workflow-refusal)", async () => {
     const kept = JSON.parse(await readFile(new URL('workflow-refusals.json', import.meta.url), 'utf-8')) as Refusal[];
-    expect(kept.map((r) => r.repo).sort()).toEqual([...REPOSITORIES].sort());
+    // Taken on 4 October 2026, before the repositories moved to the-roganator (ADR 0014): the same repositories, by name.
+    const name = (repo: string) => repo.split('/')[1];
+    expect(kept.map((r) => name(r.repo)).sort()).toEqual(REPOSITORIES.map(name).sort());
     for (const refusal of kept) {
       expect(refusal.outcome).toBe('refused');
       expect(refusal.control.commit).toMatch(/^[0-9a-f]{40}$/);

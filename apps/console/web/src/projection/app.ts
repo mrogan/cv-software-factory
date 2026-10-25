@@ -5,7 +5,7 @@
  */
 
 /**
- * The app's rules for reviewing, as its `docs/REVIEWERS.md` words them (mrogan/cv-worlds-worst-website at d854a4b),
+ * The app's rules for reviewing, as its `docs/REVIEWERS.md` words them (the-roganator/cv-worlds-worst-website at d854a4b),
  * except that they name it the app where it names itself the shop.
  * A finding cites a rule by number; the console prints the rule beside it, because "rule 3" alone means nothing to
  * someone who has not read them. The events carry the number only.
