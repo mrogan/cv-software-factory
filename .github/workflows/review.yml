@@ -46,7 +46,8 @@ permissions: {}
 
 # One verdict at a time for a branch, each read afresh, so an older one is never posted after a newer one. By the
 # branch, which every run names, a fork's included; the merge queue's runs each have a branch of their own. A deleted
-# fork names no repository, so its runs go by the pull request, or the run, rather than share one group.
+# fork names no repository: its pull request's runs go by its number, and a review's run, which then finds no pull
+# request to judge, by its own id, so none shares a group with another branch's.
 concurrency:
   group: >-
     review-${{ github.event.pull_request.head.repo.full_name || github.event.workflow_run.head_repository.full_name ||
@@ -63,7 +64,8 @@ jobs:
       contents: read
       pull-requests: read
     env:
-      # Whether the environment holds the App's key: a step's condition cannot read a secret, only this.
+      # Whether the App's key is here, from the environment or a caller: a step's condition cannot read a secret, only
+      # this.
       HAS_KEY: ${{ secrets.REVIEW_APP_PRIVATE_KEY != '' }}
     steps:
       # This workflow's own repository and commit, main's, which is not the caller's when it is called from elsewhere.

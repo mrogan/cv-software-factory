@@ -15,7 +15,8 @@
 # - dependency review and image scan: fail only on a vulnerability the change brings in.
 #
 # Every job is skipped for a deploy or release pull request the factory's App opened (`skip`), which changes nothing
-# they judge. In the merge queue every job runs: a merge group names no author to tell them apart by.
+# they judge. In the merge queue every required job runs, since a merge group names no author to tell them apart by;
+# tests first, which the line reads from the pull request, does not.
 name: app-gates
 
 on:
@@ -30,8 +31,8 @@ permissions:
   contents: read
 
 env:
-  # The commit the change is compared with: the pull request's base, or in the merge queue the group's, main as it is
-  # before the queue's commit.
+  # The commit the change is compared with: the pull request's base, or in the merge queue the group's, which is main
+  # with the pull requests ahead of it in the queue, so each is judged on its own change.
   BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
   # The vulnerability scanner, by digest: 0.74.0.
   TRIVY: ghcr.io/aquasecurity/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
@@ -148,7 +149,7 @@ jobs:
 
   tests-first:
     name: tests first
-    if: ${{ !inputs.skip }}
+    if: ${{ !inputs.skip && github.event_name != 'merge_group' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

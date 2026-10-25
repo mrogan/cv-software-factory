@@ -116,7 +116,7 @@ describe("the review gate's workflows", () => {
     expect(requested).toMatch(/^name: review requested$/m);
     // The key is in an environment only main may use: a pull request into another branch runs that branch's copy.
     expect(gate).toMatch(/^ {4}environment: review$/m);
-    // The review App's Client ID, and its key from that environment alone; nothing posts without the key.
+    // The review App's Client ID, and its key from that environment or a caller; nothing posts without the key.
     expect(gate).toMatch(
       /client-id: Iv23liFNqAvApddT27zU\n {10}private-key: \$\{\{ secrets\.REVIEW_APP_PRIVATE_KEY \}\}\n/,
     );
