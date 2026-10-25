@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Waits for Copilot's one review of a pull request, then lists the unresolved threads: copilot.sh <pr>
+# Waits for Copilot's one review of a pull request, then lists the unresolved threads: copilot.sh <pr> [key]
+# The key names the repository, as in repo.sh: an app- key's pull request is in the app's; without one, this one's,
+# and it refuses to run in another repository's checkout, where a bare number would name the wrong pull request.
 # Copilot may review up to an hour after the pull request opens (window.sh), longer than one command may run, so each
 # run waits at most eight minutes. Exit 0 once Copilot has reviewed; 5 if it has not yet, so run it again; 4 if the hour
 # is over without a review. The threads are listed either way, one block each: thread id, path:line, author, url, the
@@ -9,9 +11,14 @@
 # rather than parsed.
 set -euo pipefail
 . "$(dirname "$0")/window.sh"
-pr=${1:?usage: copilot.sh <pr>}
-repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-opened=$(gh pr view "$pr" --json createdAt -q '.createdAt | fromdateiso8601')
+pr=${1:?usage: copilot.sh <pr> [key]}
+. "$(dirname "$0")/repo.sh"
+for_key "${2:-}"
+here=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+if [[ -z ${2:-} && -n $here && $(cd "$here/.." && pwd) != "$root" ]]; then
+  echo "copilot.sh: in another repository's checkout; give the work item's key: copilot.sh $pr <key>" >&2; exit 2
+fi
+opened=$(gh pr view "$pr" -R "$repo" --json createdAt -q '.createdAt | fromdateiso8601')
 window_ends=$(( opened + copilot_window )) run_ends=$(( $(date +%s) + 8 * 60 ))
 # Every page of reviews, read as one list: --paginate runs a -q filter on each page alone.
 reviews() { gh api "repos/$repo/pulls/$pr/reviews" --paginate | jq -s 'add // []
@@ -20,7 +27,7 @@ status=0
 until (( $(reviews | jq length) > 0 )); do
   now=$(date +%s)
   if (( now >= window_ends )); then echo "copilot: no review within $(( copilot_window / 60 )) minutes of opening"; status=4; break; fi
-  if (( now >= run_ends )); then echo "copilot: not reviewed yet; run copilot.sh $pr again"; status=5; break; fi
+  if (( now >= run_ends )); then echo "copilot: not reviewed yet; run copilot.sh $pr${2:+ $2} again"; status=5; break; fi
   sleep $(( run_ends - now < 30 ? run_ends - now : 30 ))
 done
 (( status )) || echo "copilot: reviewed"

@@ -31,7 +31,7 @@ The part's session orchestrates with the `/implement` skill (`.claude/skills/imp
 
   Each is in the run's summary until it is done.
 - **Console designs come first.** Each new view is drawn in the mockup and the design system's README, and agreed with him before it is built. Snapshots are updated in the pinned image.
-- **Work in the app's repository** (Part B's OpenFeature and flagd) goes through `/implement` too, once Part B's first step lets it take a work item there.
+- **Work in the app's repository** (Part B's OpenFeature and flagd) goes through `/implement` too, each work item's key beginning `app-`.
 
 ## Decisions
 
