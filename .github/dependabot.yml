@@ -57,6 +57,8 @@ updates:
         patterns: ['@fontsource/*', '@fontsource-variable/*']
       tooling:
         dependency-type: development
+        # A development dependency of OpenTelemetry's moves with the SDK it tests, which needs the same API.
+        exclude-patterns: ['@opentelemetry/*']
 
   - package-ecosystem: github-actions
     directory: /
