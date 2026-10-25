@@ -11,7 +11,7 @@
     "migrate": "node src/migrate.ts"
   },
   "dependencies": {
-    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/api": "^1.10.0",
     "@software-factory/events": "workspace:*",
     "postgres": "^3.4.9"
   },
