@@ -75,6 +75,12 @@ spec:
       labels: *labels
     spec:
       serviceAccountName: flagd
+      # No Docker-style service links. flagd reads every flag of its own from a `FLAGD_<FLAG>` variable too, and the
+      # links of the Service named `flagd` give the pod `FLAGD_PORT=tcp://<address>:8015`, which flagd takes for its
+      # `--port` and reads as 0, so its evaluation service would listen on a random port rather than 8013. With them off,
+      # no `FLAGD_` variable reaches it: its own are its arguments, and the rest of its environment is `OTEL_`'s and
+      # Kubernetes's (`KUBERNETES_SERVICE_HOST`, which its client needs, is given whatever this says).
+      enableServiceLinks: false
       # Its token, for the watch: the only pod in `flagd`, and the only one that holds one.
       automountServiceAccountToken: true
       securityContext:

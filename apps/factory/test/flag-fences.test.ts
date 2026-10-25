@@ -29,6 +29,7 @@ interface NetworkRule {
 }
 interface Container {
   image: string;
+  env?: { name: string; value?: string }[];
   args?: string[];
   ports?: { name: string; containerPort: number }[];
   readinessProbe?: { httpGet?: { path: string; port: string } };
@@ -41,6 +42,7 @@ interface Spec {
     spec: {
       serviceAccountName?: string;
       automountServiceAccountToken?: boolean;
+      enableServiceLinks?: boolean;
       initContainers?: Container[];
       containers: Container[];
     };
@@ -150,10 +152,14 @@ describe('flagd’s rights', () => {
     expect(pod?.serviceAccountName).toBe('flagd');
     expect(pod?.automountServiceAccountToken).toBe(true);
     expect(pod?.initContainers).toBeUndefined();
+    // flagd reads its flags from `FLAGD_*` variables, and the Service `flagd`'s links would set `FLAGD_PORT`.
+    expect(pod?.enableServiceLinks).toBe(false);
     const [container, ...others] = pod?.containers ?? [];
     expect(others).toEqual([]);
     expect(container?.image).toMatch(/^ghcr\.io\/open-feature\/flagd:v[\d.]+@sha256:[0-9a-f]{64}$/);
     expect(container?.args).toEqual(['start', '--uri=core.openfeature.dev/flagd/flags', '--log-format=json']);
+    // And none of its own settings comes from its environment, where flagd would read `FLAGD_<FLAG>`.
+    expect((container?.env ?? []).filter((e) => e.name.startsWith('FLAGD_'))).toEqual([]);
     // Ready only once it has read flags and started its watch.
     expect(container?.readinessProbe?.httpGet).toEqual({ path: '/readyz', port: 'management' });
   });
