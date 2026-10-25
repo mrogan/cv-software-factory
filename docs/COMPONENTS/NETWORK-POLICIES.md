@@ -117,6 +117,8 @@ The policy comes from this repository, since the app's AppProject cannot make on
 | The app's pods, whose code agents write | DNS, the collector's OTLP port, and flagd's sync and health ports | Traefik, the probes, the crawler and the canary's journeys Job, on 8080 only |
 | The journeys Job | DNS and the app's pods, and nothing else | |
 
+What reaches the app through Traefik has had `x-unmeasured` removed ([the mark](ADMISSION-CONTROL.md#the-mark)), so only the pods this policy lets in beside Traefik can send it.
+
 The scoreboard's own policy is on [its page](SCOREBOARD.md#where-it-runs).
 
 ## `make egress`

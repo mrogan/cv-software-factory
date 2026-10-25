@@ -8,6 +8,7 @@ namePrefix: website-
 resources:
   - ../images
   - routes.yaml
+  - mark.yaml
   - rollout-controls.yaml
 patches:
   - target:

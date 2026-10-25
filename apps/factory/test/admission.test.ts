@@ -199,14 +199,16 @@ describe('admission control', () => {
 
   it('refuses in every guarded namespace: nothing in deploy/ switches a copy to Audit', async () => {
     expect((await policy()).spec.validationActions).toEqual(['Deny']);
-    // Only each policy sets its own mode: the images policy, the app's routes' (admin-fences.test.ts), the admin
-    // service's hold on the app's Rollout (release-fences.test.ts) and the hold on `flags` (flag-fences.test.ts),
-    // which deny too. The `try-the-line` skill switches `factory-images` to Audit on the cluster for a run, and Argo
-    // CD puts it back; no manifest here does. Nothing switches `website-images`, `scoreboard-images`, `flagd-images`,
-    // `website-routes`, `website-rollout-controls` or `flagd-flags`.
+    // Only each policy sets its own mode: the images policy, the app's routes' (admin-fences.test.ts), the mark's
+    // (mark-fences.test.ts), the admin service's hold on the app's Rollout (release-fences.test.ts) and the hold on
+    // `flags` (flag-fences.test.ts), which deny too. The `try-the-line` skill switches `factory-images` to Audit on the
+    // cluster for a run, and Argo CD puts it back; no manifest here does. Nothing switches `website-images`,
+    // `scoreboard-images`, `flagd-images`, `website-routes`, `website-mark`, `website-rollout-controls` or
+    // `flagd-flags`.
     const policies = [
       join('base', 'admission', 'images', 'policy.yaml'),
       join('base', 'admission', 'website', 'routes.yaml'),
+      join('base', 'admission', 'website', 'mark.yaml'),
       join('base', 'admission', 'website', 'rollout-controls.yaml'),
       join('base', 'admission', 'flagd', 'flags.yaml'),
     ];
