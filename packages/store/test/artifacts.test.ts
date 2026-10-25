@@ -1,6 +1,7 @@
-import { mkdtempSync, readdirSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { fstatSync, mkdtempSync, readdirSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Readable } from 'node:stream';
 import { text } from 'node:stream/consumers';
 import { describe, expect, it } from 'vitest';
 import { DiskArtifacts, sha256 } from '../src/artifacts.ts';
@@ -44,10 +45,13 @@ describe('the artifact store on disk', () => {
   it('closes the file when its stream is closed unread', async () => {
     const artifacts = store();
     const opened = await artifacts.open(await artifacts.put(bytes('a picture')));
-    const closed = new Promise((resolve) => opened?.body.on('close', resolve));
-    opened?.body.destroy();
-    // A stream made from a file handle says it has closed only once the handle has.
+    // A file stream's descriptor, which Node's types leave out.
+    const body = opened?.body as Readable & { fd: number };
+    const { fd } = body;
+    const closed = new Promise<void>((resolve) => body.on('close', resolve));
+    body.destroy();
     await closed;
+    expect(() => fstatSync(fd)).toThrow(expect.objectContaining({ code: 'EBADF' }));
   });
 
   it('stores the same contents once', async () => {

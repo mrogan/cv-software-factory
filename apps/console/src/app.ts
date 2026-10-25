@@ -155,13 +155,19 @@ async function artifact(req: IncomingMessage, res: ServerResponse, feed: Feed, s
   }
   if (!type || !opened) return send(req, res, 404, 'text/plain; charset=utf-8', 'No such artifact.\n');
   const { body, size } = opened;
-  res.writeHead(200, {
-    'content-type': type.startsWith('text/') ? `${type}; charset=utf-8` : type,
-    'content-length': size,
-    'cache-control': YEAR,
-    // Opened on its own, an artifact is inert: no script, no styles, no requests.
-    'content-security-policy': "default-src 'none'; sandbox",
-  });
+  try {
+    res.writeHead(200, {
+      'content-type': type.startsWith('text/') ? `${type}; charset=utf-8` : type,
+      'content-length': size,
+      'cache-control': YEAR,
+      // Opened on its own, an artifact is inert: no script, no styles, no requests.
+      'content-security-policy': "default-src 'none'; sandbox",
+    });
+  } catch (error) {
+    // A header it refuses (a recorded type no header may carry) leaves the file open unless it is closed here.
+    body.destroy();
+    throw error;
+  }
   if (req.method === 'HEAD') {
     body.destroy();
     res.end();

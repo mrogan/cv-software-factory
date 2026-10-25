@@ -71,10 +71,9 @@ export class DiskArtifacts implements ArtifactStore {
     let handle: FileHandle;
     try {
       handle = await openFile(this.path(hash), 'r');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT' || (error as NodeJS.ErrnoException).code === 'ENOTDIR')
-        return null;
-      throw error;
+    } catch {
+      // As `size` has it: a file this store cannot open is none it can give.
+      return null;
     }
     // Measured through the handle, not the path: a `put` renaming over the name, or a `remove` taking it away, leaves
     // this file as it was, and the stream reads it. The stream owns the handle, and closes it when it ends or is closed.
@@ -82,7 +81,7 @@ export class DiskArtifacts implements ArtifactStore {
       const { size } = await handle.stat();
       return { body: handle.createReadStream(), size };
     } catch (error) {
-      await handle.close();
+      await handle.close().catch(() => {});
       throw error;
     }
   }

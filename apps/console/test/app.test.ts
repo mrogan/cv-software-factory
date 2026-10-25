@@ -286,7 +286,8 @@ describe('an artifact that goes wrong partway', () => {
   ): Promise<{ url: string; app: Server; close: () => Promise<void> }> {
     const store: ArtifactStore = {
       put: () => Promise.reject(new Error('read-only')),
-      size: async () => 1_000_000,
+      // The console takes the size from `open`, never apart from it.
+      size: () => Promise.reject(new Error('asked for the size apart from opening the file')),
       open: async () => ({ body, size: 1_000_000 }),
       ...overrides,
     };
@@ -367,8 +368,8 @@ describe('an artifact that goes wrong partway', () => {
   });
 
   /**
-   * A stream that fails, with ENOENT, when `fail` is called and not before, as a store that opens its file lazily might,
-   * so a test says when the failure comes rather than racing a timer. It fails once, however often asked.
+   * A stream that fails, with ENOENT, when `fail` is called and not before, so a test says when the failure comes rather
+   * than racing a timer. It fails once, however often asked.
    */
   function failingStream(): { body: Readable; fail: () => void } {
     let failing = false;
@@ -395,8 +396,9 @@ describe('an artifact that goes wrong partway', () => {
   }
 
   it('keeps answering when a stream it closes unread then fails', async () => {
-    // The latest a stream can fail: once the console has closed it unread. Node's own `destroy` option waits for
-    // the open, so it would never run here and the test would hang: the instance's `destroy` is wrapped instead.
+    // A stream can fail as it closes, after the console has closed it unread: the listener the console adds is all that
+    // keeps that from ending the server. Node's own `destroy` option waits for `construct`, so it would never run here
+    // and the test would hang: the instance's `destroy` is wrapped instead.
     const { body, fail } = failingStream();
     const destroy = body.destroy.bind(body);
     body.destroy = (error) => {
