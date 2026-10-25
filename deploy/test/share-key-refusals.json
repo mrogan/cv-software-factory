@@ -1,0 +1,56 @@
+{
+  "cases": [
+    {
+      "case": "admin-change",
+      "at": "2026-10-25T16:51:03Z",
+      "outcome": "admitted",
+      "message": "configmap/share-key"
+    },
+    {
+      "case": "admin-delete",
+      "at": "2026-10-25T16:51:03Z",
+      "outcome": "admitted",
+      "message": "configmap \"share-key\" deleted from website namespace (server dry run)"
+    },
+    {
+      "case": "argocd-create",
+      "at": "2026-10-25T16:51:03Z",
+      "outcome": "refused",
+      "message": "The configmaps \"share-key\" is invalid: : ValidatingAdmissionPolicy 'website-share-key' with binding 'website-share-key' denied request: share-key holds the traffic generator's public key, and only make share-key writes it, as the cluster's administrator (system:admin)"
+    },
+    {
+      "case": "argocd-change",
+      "at": "2026-10-25T16:51:03Z",
+      "outcome": "refused",
+      "message": "The configmaps \"share-key\" is invalid: : ValidatingAdmissionPolicy 'website-share-key' with binding 'website-share-key' denied request: share-key holds the traffic generator's public key, and only make share-key writes it, as the cluster's administrator (system:admin)"
+    },
+    {
+      "case": "argocd-delete",
+      "at": "2026-10-25T16:51:03Z",
+      "outcome": "refused",
+      "message": "The configmaps \"share-key\" is invalid: : ValidatingAdmissionPolicy 'website-share-key' with binding 'website-share-key' denied request: share-key holds the traffic generator's public key, and only make share-key writes it, as the cluster's administrator (system:admin)"
+    },
+    {
+      "case": "argocd-other",
+      "at": "2026-10-25T16:51:03Z",
+      "outcome": "admitted",
+      "message": "configmap/share-key-refusal"
+    },
+    {
+      "case": "master-change",
+      "at": "2026-10-25T16:51:03Z",
+      "outcome": "refused",
+      "message": "The configmaps \"share-key\" is invalid: : ValidatingAdmissionPolicy 'website-share-key' with binding 'website-share-key' denied request: share-key holds the traffic generator's public key, and only make share-key writes it, as the cluster's administrator (system:admin)"
+    },
+    {
+      "case": "master-delete",
+      "at": "2026-10-25T16:51:03Z",
+      "outcome": "refused",
+      "message": "The configmaps \"share-key\" is invalid: : ValidatingAdmissionPolicy 'website-share-key' with binding 'website-share-key' denied request: share-key holds the traffic generator's public key, and only make share-key writes it, as the cluster's administrator (system:admin)"
+    }
+  ],
+  "live": {
+    "keys": ["public-key"],
+    "matchesSecret": true
+  }
+}

@@ -10,6 +10,7 @@ resources:
   - routes.yaml
   - mark.yaml
   - rollout-controls.yaml
+  - share-key.yaml
 patches:
   - target:
       kind: ImageValidatingPolicy
