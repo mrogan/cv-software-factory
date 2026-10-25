@@ -12,8 +12,12 @@ for_key() {
   checkout=$root
   if [[ $key == app-* ]]; then
     checkout=${APP_DIR:-$root/../cv-worlds-worst-website}
-    [[ -d $checkout/.git ]] || { echo "no checkout of the app at $checkout: set APP_DIR" >&2; exit 2; }
+    [[ -e $checkout/.git ]] || { echo "no checkout of the app at $checkout: set APP_DIR" >&2; exit 2; }
     checkout=$(cd "$checkout" && pwd)
   fi
-  repo=$(cd "$checkout" && gh repo view --json nameWithOwner -q .nameWithOwner)
+  repo=$(repo_of "$checkout")
+}
+# repo_of <checkout>: owner/name of its origin on GitHub, read from git rather than asked of GitHub.
+repo_of() {
+  git -C "$1" remote get-url origin | sed -E 's#^(git@github\.com:|ssh://git@github\.com/|https://github\.com/)##; s#\.git$##'
 }

@@ -48,7 +48,7 @@ say pr "#$pr $state $branch ${head:0:8}"
 if [[ $key =~ ^(app-)?([0-9]+)(-[0-9]+)?$ ]]; then
   # An issue is always this repository's, so a pull request in the app's names it with its repository.
   issue=${BASH_REMATCH[2]} ref=''
-  [[ -z ${BASH_REMATCH[1]} ]] || ref=$(cd "$root" && gh repo view --json nameWithOwner -q .nameWithOwner)
+  [[ -z ${BASH_REMATCH[1]} ]] || ref=$(repo_of "$root")
   grep -qiE "(closes|part of) $ref#$issue\b" <<<"$body" || bad body "no 'Closes $ref#$issue' or 'Part of $ref#$issue'"
 fi
 
