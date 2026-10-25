@@ -72,3 +72,14 @@ metadata:
     argocd.argoproj.io/sync-wave: "-1"
   labels:
     pod-security.kubernetes.io/enforce: restricted
+---
+# flagd, which answers for the app's feature flags, and `flags`, the one FeatureFlag it reads (flagd/). Apart from the
+# app, so that nothing the app's repository may write in `website` can touch flagd, its service account or its state.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: flagd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  labels:
+    pod-security.kubernetes.io/enforce: restricted

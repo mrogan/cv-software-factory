@@ -2,18 +2,19 @@
 
 ## Decision
 
-Kyverno, installed by Argo CD before anything it guards, admits a pod in `factory`, `runners`, `website` or `scoreboard` only if each of its images, its init and debug containers' and its image volumes' included, is referenced by digest and is either
+Kyverno, installed by Argo CD before anything it guards, admits a pod in `factory`, `runners`, `website`, `scoreboard` or `flagd` only if each of its images, its init and debug containers' and its image volumes' included, is referenced by digest and is either
 
 - ours, on GHCR, from a repository its namespace runs, signed by `build.yml` on `main` of the repository that builds it; or
-- one of the few third-party images its namespace's policy names by exact digest, each with its reason. Today those are Postgres and its exporter, in `factory`, and nothing in `website` or `scoreboard`.
+- one of the few third-party images its namespace's policy names by exact digest, each with its reason. Today those are Postgres and its exporter, in `factory`, flagd, in `flagd`, and nothing in `website` or `scoreboard`.
 
 The signer is compared whole: the issuer is GitHub Actions' OIDC issuer, and the identity is `https://github.com/<repository>/.github/workflows/build.yml@refs/heads/main`, never a pattern. The factory's images must carry the factory's signature, the app's the app's.
 
-The rule is one `ImageValidatingPolicy` (`deploy/base/admission/images`), in three copies, each admitting only the images its namespaces run:
+The rule is one `ImageValidatingPolicy` (`deploy/base/admission/images`), in four copies, each admitting only the images its namespaces run:
 
 - `factory-images`, for `factory` and `runners`: the factory's four images (`factory`, `factory-browser`, `factory-runner` and `console`), signed by the factory's `build.yml`, and Postgres and its exporter by digest. None of the app's.
 - `website-images`, for `website`: the app's image, signed by the app's `build.yml`, and of the factory's only `factory-browser`, for the analysis Job that walks a canary's journeys. No other registry.
 - `scoreboard-images`, for `scoreboard`, where the answer key is: the factory's own image, which the scoreboard runs, and nothing else.
+- `flagd-images`, for `flagd`: flagd's image, by digest, and none of ours. A copy of its own, so `website-images` still admits no image from another registry, and apart from `factory-images`, which is switched to Audit.
 
 An image of ours that its namespace does not run is refused before its signature is looked at, with a check of its own.
 
@@ -34,10 +35,10 @@ Signing (milestone 6, task 1) says which workflow made an image; admission is wh
 ## Consequences
 
 - Every copy enforces: a pod in a guarded namespace whose images its copy would not admit is refused. `make admission-ready` checks every image the guarded namespaces run or will start (in `website`, the canary analysis's journeys Job too), as the policy does. A copy switched to Audit (below) reports what it would refuse (`kubectl get policyreports -A`) and admits it, though a Kyverno that is down still refuses; `make admission-ready` lists those reports too.
-- An outage of GHCR stops new pods in the guarded namespaces until it passes, Postgres's and its exporter's excepted. Kyverno keeps its verdicts for an hour, in memory, so a Kyverno that restarts verifies everything again; and it still reads each image's manifest from GHCR as it admits a pod, so even a pod restarting on an image it has verified waits. Kyverno refreshes Sigstore's trust root from its TUF repository whenever it verifies, so an outage there stops a pod whose images it has not verified in the last hour.
+- An outage of GHCR stops new pods in the guarded namespaces until it passes, Postgres's, its exporter's and flagd's excepted. Kyverno keeps its verdicts for an hour, in memory, so a Kyverno that restarts verifies everything again; and it still reads each image's manifest from GHCR as it admits a pod, so even a pod restarting on an image it has verified waits. Kyverno refreshes Sigstore's trust root from its TUF repository whenever it verifies, so an outage there stops a pod whose images it has not verified in the last hour.
 - Kyverno's admission controller has a 1 Gi memory limit. To verify a signature, cosign's bundle discovery fetches and parses every bundle attached to the image, its attestations' included, so its memory grows with the largest: `factory-browser`'s SBOM attestations are about 23 MB per platform, and admitting it takes the controller to about 600 Mi.
 - Kyverno's admission controller may reach GHCR and Sigstore's TUF repository; nothing else in its namespace may leave the cluster. A NetworkPolicy cannot name a host, and those hosts' addresses are many and change, so the rule is the nearest it gets, as for the GitHub worker: the internet on 443, outside the cluster's, the local network's and the host's addresses. `make egress` shows the admission controller reaching both, and the reports controller reaching neither. Egress by host name waits for milestone 10 (#176). The signatures carry their own proof of inclusion in Rekor, so Kyverno never asks Rekor or Fulcio.
-- An image built on the Mac runs on the local cluster only while the factory's policy is in Audit, which `try-the-line` sets and Argo CD's self-heal undoes. Nothing built on the Mac can run in `website` or `scoreboard`.
+- An image built on the Mac runs on the local cluster only while the factory's policy is in Audit, which `try-the-line` sets and Argo CD's self-heal undoes. Nothing built on the Mac can run in `website`, `scoreboard` or `flagd`.
 - A new guarded namespace joins a copy's namespace list, or has a copy of its own when it must never be switched, and a test fails until every namespace the factory or the app runs in is guarded.
 - Kyverno's refusals are kept, as the cluster gave them, in `deploy/test/admission-refusals.json` (`scripts/admission-refusals.sh`), for milestone 7's red-team harness.
 - No `PolicyException` can excuse a pod: the feature is off.

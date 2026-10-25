@@ -1,0 +1,21 @@
+# The state of every feature flag: the one FeatureFlag flagd reads (`--uri core.openfeature.dev/flagd/flags`, in
+# flagd.yaml). In Git with no flags. Argo CD makes it, before flagd starts (flagd exits at start when it cannot read
+# it), and never touches its flags: root ignores `spec.flagSpec.flags` (deploy/argocd/root.yaml), so a merge never puts
+# a flag back to how Git has it. The flags are Martin's, set from the console; until the admin service may write them,
+# nothing of ours may. A flag the resource does not name is off, by its default in the app.
+#
+# It is the only FeatureFlag in `flagd`, and is never deleted: the `flagd-flags` admission policy
+# (deploy/base/admission/flagd/flags.yaml) refuses both, since flagd keeps serving the last flags it read when its
+# resource goes. Off is a change to a flag here, never a deletion. Argo CD neither prunes it nor deletes it with root.
+apiVersion: core.openfeature.dev/v1beta1
+kind: FeatureFlag
+metadata:
+  name: flags
+  annotations:
+    # After its kind's definition (wave -1), before flagd (wave 2).
+    argocd.argoproj.io/sync-wave: "0"
+    # On a new cluster the kind is not yet defined when Argo CD first dry-runs the sync.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true,Prune=false,Delete=false
+spec:
+  flagSpec:
+    flags: {}

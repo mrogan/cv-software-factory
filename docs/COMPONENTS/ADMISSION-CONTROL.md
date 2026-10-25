@@ -6,18 +6,19 @@ Refuses unsigned images. Part of the [runtime plane](README.md#runtime-plane).
 
 ## The policy
 
-One `ImageValidatingPolicy` (`deploy/base/admission/images`), in three copies, each admitting only the images its namespaces run:
+One `ImageValidatingPolicy` (`deploy/base/admission/images`), in four copies, each admitting only the images its namespaces run:
 
 | Copy | Namespaces | Admits |
 |---|---|---|
 | `factory-images` | `factory`, `runners` | The factory's images, Postgres and its exporter |
 | `website-images` | `website` | The app's image, and the factory's browser for the canary's analysis |
 | `scoreboard-images` | `scoreboard` | The factory's own image, which the [scoreboard](SCOREBOARD.md) runs |
+| `flagd-images` | `flagd` | [flagd](FEATURE-FLAGS.md)'s image, by digest, and none of ours |
 
 A pod's images, its init and debug containers' and its image volumes' included, must be by digest, and either:
 
 - **ours on GHCR,** from a repository its copy admits, signed keyless by `build.yml` on `main` of the repository that builds them (the identity compared whole; [supply chain](SUPPLY-CHAIN.md)); or
-- **named by digest in the policy, with a reason** (Postgres and its exporter, in `factory`).
+- **named by digest in the policy, with a reason** (Postgres and its exporter, in `factory`; flagd, in `flagd`).
 
 It checks the signature, not the SBOM: the deploy pull requests' checks verify that, where parsing it is cheap.
 
@@ -40,7 +41,7 @@ It has a 1 Gi memory limit. cosign's bundle discovery fetches and parses every b
 ## Trying unmerged images
 
 - The `try-the-line` skill switches `factory-images` to audit for a run on images built on the Mac. Audit reports what it would refuse (`kubectl get policyreports -A`), and admits it.
-- `website-images` and `scoreboard-images` are never switched.
+- `website-images`, `scoreboard-images` and `flagd-images` are never switched.
 
 ## The admin service's hold on the Rollout
 
@@ -53,9 +54,14 @@ The [admin service](ADMIN-SERVICE.md#the-canarys-controls) may get and patch the
 
 Everything else in the spec and the status, and the Rollout's labels, annotations, finalizers and owners, must be as they were, and nothing may be made or deleted, so nothing the admin service does can change the image, the steps, the analysis or the routing. Within those fields the service holds itself: the Rollout's status does not tell a rollback from an abort, so the policy admits `status.abort` cleared after either, and only the service refuses to retry a release the analysis rolled back. It is a ValidatingAdmissionPolicy, Kubernetes's own, rather than Kyverno's: the API server evaluates it in process, so it holds whether or not Kyverno is up. It matches the admin service's service account alone (`system:serviceaccount:factory:admin`), denies, and fails closed. Argo Rollouts' controller, Argo CD and the line are not held by it.
 
+## `flags`
+
+`flags` in `flagd` holds the state of every [feature flag](FEATURE-FLAGS.md). flagd's watch lists the whole namespace, so its Role may read every FeatureFlag there, and flagd keeps serving the last flags it read when its resource goes. So `flagd-flags` (`deploy/base/admission/flagd/flags.yaml`) refuses any FeatureFlag in `flagd` but `flags`, and refuses the deletion of `flags`, but as its namespace is deleted, which takes flagd with it: off is a change to a flag, never a deletion. It holds every request, Argo CD's and an administrator's included. Like the hold on the Rollout, it is a ValidatingAdmissionPolicy, which holds whether or not Kyverno is up; it denies, and fails closed.
+
 ## Checks
 
 - `make admission-ready` says whether every image the guarded namespaces run or will start would be admitted.
 - Kyverno's refusals are kept in `deploy/test/admission-refusals.json` (`scripts/admission-refusals.sh`).
 - `scripts/rollout-refusals.sh` asks the cluster, as the admin service's account, for the controls' patches and for the changes the policy and the Role must refuse, each a server-side dry run, and keeps the answers in `deploy/test/rollout-refusals.json`, which `release-fences.test.ts` reads.
 - `release-fences.test.ts` fails if the Role or the policy grows.
+- `scripts/flags-refusals.sh` asks the cluster for a second FeatureFlag in `flagd`, the deletion of `flags` and a change to its flags, each a server-side dry run, and keeps the answers in `deploy/test/flags-refusals.json`, which `flag-fences.test.ts` reads.

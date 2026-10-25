@@ -1,0 +1,20 @@
+[
+  {
+    "case": "second",
+    "at": "2026-10-25T13:54:47Z",
+    "outcome": "refused",
+    "message": "The featureflags \"flags-refusal\" is invalid: : ValidatingAdmissionPolicy 'flagd-flags' with binding 'flagd-flags' denied request: flags is the only FeatureFlag in flagd"
+  },
+  {
+    "case": "delete",
+    "at": "2026-10-25T13:54:47Z",
+    "outcome": "refused",
+    "message": "The featureflags \"flags\" is invalid: : ValidatingAdmissionPolicy 'flagd-flags' with binding 'flagd-flags' denied request: flags is never deleted: flagd would keep serving the last flags it read. To turn a flag off, change it in flags"
+  },
+  {
+    "case": "change",
+    "at": "2026-10-25T13:54:47Z",
+    "outcome": "admitted",
+    "message": "featureflag.core.openfeature.dev/flags"
+  }
+]

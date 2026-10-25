@@ -22,7 +22,8 @@ const listed = (expression: unknown) => [...String(expression ?? '[]').matchAll(
 
 /**
  * The third-party images a copy of the policy admits, as kustomize renders it: deploy/base/kustomization.yaml copies
- * Postgres's one pin, its StatefulSet's, and the Postgres exporter's, its Deployment's, into the factory's.
+ * Postgres's one pin, its StatefulSet's, and the Postgres exporter's, its Deployment's, into the factory's, and flagd's,
+ * its Deployment's, into flagd's.
  */
 let rendered: {
   kind: string;
@@ -41,7 +42,7 @@ function admitted(policy: string) {
  * One copy of the image policy: the namespaces it guards, the repositories of ours it admits, by which identity, and
  * the images it names from other registries.
  */
-async function copy(name: 'factory' | 'website' | 'scoreboard') {
+async function copy(name: 'factory' | 'website' | 'scoreboard' | 'flagd') {
   const kustomization = parse(await read(`base/admission/${name}/kustomization.yaml`)) as {
     namePrefix: string;
     patches: { patch: string }[];
@@ -98,6 +99,7 @@ const REFUSED_BY: Record<string, string> = {
   unsigned: 'images must be signed by build.yml on main of the repository that builds them: ',
   'other-identity': "images must come from this project's GHCR, or be named by digest in the policy: ",
   misplaced: "images from this project's GHCR must be ones this namespace runs: ",
+  'other-digest': "images must come from this project's GHCR, or be named by digest in the policy: ",
 };
 
 describe('admission control', () => {
@@ -139,6 +141,7 @@ describe('admission control', () => {
       ...(await copy('factory')).namespaces,
       ...(await copy('website')).namespaces,
       ...(await copy('scoreboard')).namespaces,
+      ...(await copy('flagd')).namespaces,
     ];
     const charts = ['telemetry', 'pod-logs', 'argo-rollouts'];
     expect(guarded.sort()).toEqual(namespaces.filter((n) => !charts.includes(n)).sort());
@@ -167,6 +170,11 @@ describe('admission control', () => {
     };
     expect(deployment.spec.template.spec.containers.map((c) => c.image)).toEqual(['factory']);
     expect(deployment.spec.template.spec.initContainers).toBeUndefined();
+    // flagd's namespace: none of ours, since flagd is all that runs there.
+    const flagd = await copy('flagd');
+    expect(flagd.namespaces).toEqual(['flagd']);
+    expect(flagd.factory).toEqual([]);
+    expect(flagd.website).toEqual([]);
   });
 
   it('admits from another registry only the images the factory runs, each by digest', async () => {
@@ -181,18 +189,26 @@ describe('admission control', () => {
     expect((await copy('website')).allowed).toEqual([]);
     expect((await copy('scoreboard')).allowed).toEqual([]);
     expect(await thirdParty(['base/scoreboard'], [])).toEqual([]);
+    // flagd's, alone, and only in its own namespace's copy: `website-images` admits no third-party image.
+    const flagd = await copy('flagd');
+    expect(flagd.allowed).toEqual(await thirdParty(['base/flagd'], []));
+    expect(flagd.allowed).toEqual([
+      expect.stringMatching(/^ghcr\.io\/open-feature\/flagd:v[\d.]+@sha256:[0-9a-f]{64}$/),
+    ]);
   });
 
   it('refuses in every guarded namespace: nothing in deploy/ switches a copy to Audit', async () => {
     expect((await policy()).spec.validationActions).toEqual(['Deny']);
-    // Only each policy sets its own mode: the images policy, the app's routes' (admin-fences.test.ts) and the
-    // admin service's hold on the app's Rollout (release-fences.test.ts), which deny too. The `try-the-line` skill
-    // switches `factory-images` to Audit on the cluster for a run, and Argo CD puts it back; no manifest here does.
-    // Nothing switches `website-images`, `scoreboard-images`, `website-routes` or `website-rollout-controls`.
+    // Only each policy sets its own mode: the images policy, the app's routes' (admin-fences.test.ts), the admin
+    // service's hold on the app's Rollout (release-fences.test.ts) and the hold on `flags` (flag-fences.test.ts),
+    // which deny too. The `try-the-line` skill switches `factory-images` to Audit on the cluster for a run, and Argo
+    // CD puts it back; no manifest here does. Nothing switches `website-images`, `scoreboard-images`, `flagd-images`,
+    // `website-routes`, `website-rollout-controls` or `flagd-flags`.
     const policies = [
       join('base', 'admission', 'images', 'policy.yaml'),
       join('base', 'admission', 'website', 'routes.yaml'),
       join('base', 'admission', 'website', 'rollout-controls.yaml'),
+      join('base', 'admission', 'flagd', 'flags.yaml'),
     ];
     const files = (await readdir(DEPLOY, { recursive: true })).filter(
       (f) => /\.ya?ml$/.test(f) && !policies.includes(f),
@@ -212,10 +228,17 @@ describe('admission control', () => {
       await copy('factory'),
       await copy('website'),
       await copy('scoreboard'),
+      await copy('flagd'),
     ]) {
       for (const namespace of namespaces) {
         const refusals = kept.filter((r) => r.namespace === namespace);
-        expect(refusals.map((r) => r.case).sort()).toEqual(['misplaced', 'other-identity', 'unsigned']);
+        // No image of ours runs in `flagd`, so one unsigned would be refused as misplaced: flagd's own image at
+        // another digest is refused there instead.
+        expect(refusals.map((r) => r.case).sort()).toEqual(
+          namespace === 'flagd'
+            ? ['misplaced', 'other-digest', 'other-identity']
+            : ['misplaced', 'other-identity', 'unsigned'],
+        );
         for (const refusal of refusals) {
           expect(refusal.outcome).toBe('refused');
           // A refusal names the policy, the check that refused it and the image.
