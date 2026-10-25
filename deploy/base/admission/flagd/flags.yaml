@@ -1,0 +1,48 @@
+# `flags` is the only FeatureFlag in `flagd`, and is never deleted. flagd's watch lists the whole namespace, so its
+# Role (deploy/base/flagd/flagd.yaml) may read every FeatureFlag there, with no names; this keeps there nothing to read
+# but `flags`. And flagd keeps serving the last flags it read when its resource goes (at v0.17.0 it only logs the
+# deletion), so a deletion would leave every flag as it was, a kill switch included: off is a change to a flag in
+# `flags`, never a deletion of it.
+#
+# It holds every request, Argo CD's, an administrator's and, once it may write `flags`, the admin service's: nothing
+# may make another FeatureFlag in `flagd` or delete `flags`. The one deletion it lets through is of the namespace's
+# contents as the namespace itself is deleted, which takes flagd with it.
+#
+# A ValidatingAdmissionPolicy, Kubernetes's own, as the admin service's hold on the Rollout is
+# (../website/rollout-controls.yaml): the API server evaluates it in process, so it holds whether or not Kyverno is up.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: flags
+  annotations:
+    # With the other admission policies, before anything they guard.
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values: [flagd]
+    resourceRules:
+      - apiGroups: [core.openfeature.dev]
+        apiVersions: ["*"]
+        operations: [CREATE, DELETE]
+        resources: [featureflags]
+  validations:
+    - expression: request.operation != 'CREATE' || object.metadata.name == 'flags'
+      message: flags is the only FeatureFlag in flagd
+    - expression: request.operation != 'DELETE' || has(namespaceObject.metadata.deletionTimestamp)
+      message: >-
+        flags is never deleted: flagd would keep serving the last flags it read. To turn a flag off, change it in flags
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: flags
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  policyName: flags
+  validationActions: [Deny]

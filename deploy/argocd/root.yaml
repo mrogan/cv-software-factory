@@ -13,7 +13,19 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
+  # The flags in `flags` are Martin's, set from the console (deploy/base/flagd/flags.yaml): Argo CD makes the resource
+  # from Git, with no flags, and neither reports its flags as drift nor puts them back, even when it syncs something
+  # else. Its other fields are Git's. A change here reaches the cluster at the next `make up`, which applies this file.
+  ignoreDifferences:
+    - group: core.openfeature.dev
+      kind: FeatureFlag
+      namespace: flagd
+      name: flags
+      jsonPointers:
+        - /spec/flagSpec/flags
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
+    syncOptions:
+      - RespectIgnoreDifferences=true

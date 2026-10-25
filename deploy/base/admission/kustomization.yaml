@@ -11,3 +11,4 @@ resources:
   - factory
   - website
   - scoreboard
+  - flagd

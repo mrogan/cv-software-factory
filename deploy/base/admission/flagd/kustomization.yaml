@@ -1,0 +1,31 @@
+# `flagd-images`: flagd's namespace. It admits flagd's image, by digest, and nothing else: none of ours, and no other
+# third-party image. A copy of its own rather than a line in `website-images`, so the app's namespace still admits no
+# image from another registry, and rather than in `factory-images`, which the `try-the-line` skill switches to Audit.
+# Like `website-images`, it enforces always.
+#
+# With it, `flagd-flags` (flags.yaml), which keeps `flags` the only FeatureFlag in `flagd` and refuses its deletion.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namePrefix: flagd-
+resources:
+  - ../images
+  - flags.yaml
+patches:
+  - target:
+      kind: ImageValidatingPolicy
+    patch: |
+      - op: replace
+        path: /spec/matchConstraints/namespaceSelector/matchExpressions/0/values
+        value: [flagd]
+      # flagd's own build, from OpenFeature's GHCR, which no pipeline of ours could sign. Its one pin is its
+      # Deployment's (deploy/base/flagd/flagd.yaml), which deploy/base/kustomization.yaml copies in here.
+      - op: replace
+        path: /spec/variables/0/expression
+        value: "['the Deployment flagd image']"
+      # None of ours: flagd is all that runs here.
+      - op: replace
+        path: /spec/variables/1/expression
+        value: "[]"
+      - op: replace
+        path: /spec/variables/2/expression
+        value: "[]"

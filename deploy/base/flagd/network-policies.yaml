@@ -1,0 +1,71 @@
+# flagd's fences. Everything in `flagd` is denied, in and out, and then:
+#
+# - the app's pods may reach flagd's sync port (8015), which their in-process provider streams the flag set from, and
+#   its management port (8014), for its health, and nothing else of it: not its evaluation (8013) or OFREP (8016)
+#   ports, which listen in the pod. The app's own policy lets them out to those two ports (deploy/base/website);
+# - flagd may reach the API server (6443 on a private address, as for the line: deploy/base/factory), for its watch of
+#   `flags`; DNS, for the collector's name; and the collector's OTLP port, for its traces and metrics.
+#
+# Nothing on the internet. The kubelet's health checks come from the node, which k3s's policy controller always lets
+# through.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1" # with the namespace, before flagd starts
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: flagd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: flagd
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: website
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: website
+      ports:
+        - { protocol: TCP, port: 8015 }
+        - { protocol: TCP, port: 8014 }
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+        - ipBlock:
+            cidr: 172.16.0.0/12
+        - ipBlock:
+            cidr: 192.168.0.0/16
+      ports:
+        - { protocol: TCP, port: 6443 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: telemetry
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+      ports:
+        - { protocol: TCP, port: 4318 }
