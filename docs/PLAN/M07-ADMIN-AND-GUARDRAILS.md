@@ -15,9 +15,9 @@ The milestone is built in four parts, each by its own orchestrating session:
 - **Part A, admin:** sign-in, the access policy, the admin service and its write path, every control in spec 5.4 but the improvements and flags, alerts to Martin, and the local cluster served over HTTPS.
 - **Part B, improvements and feature flags:** the "+" end to end, OpenFeature and flagd in the app, flags switched from the console in stages, and Verify comparing a flag's two sides.
 - **Part C, guardrails:** every guardrail proved repeatably, the red-team harness, blocked actions in the console, approval routing by autonomy level and risk tag, and the factory run Guarded.
-- **Part D, patching:** everything scanned every day with a deadline for each finding, which starts now, beside Part B; then dependency updates for the app down the line, and an issue and a notification for the factory's own.
+- **Part D, patching:** everything scanned every day with a deadline for each finding, then dependency updates for the app down the line, and an issue and a notification for the factory's own.
 
-Each part starts when the one before has met its criteria and its pull requests are merged, but for Part D's scanning (tasks 28 to 30), which needs nothing from Parts B or C and leaves what is already vulnerable unwatched until it lands. Each leaves `COMPONENTS/` and `AGENTS.md` describing what it built, so the next session starts from this file, those two and the code, and needs nothing from the session before.
+Each part starts when the one before has met its criteria and its pull requests are merged. Each leaves `COMPONENTS/` and `AGENTS.md` describing what it built, so the next session starts from this file, those two and the code, and needs nothing from the session before.
 
 ## How each part is built
 
@@ -398,14 +398,15 @@ Outlined here, and detailed when Part B is done.
 
 ## Part D: patching
 
-Tasks 28 to 30 are detailed here and built now, beside Part B, by an orchestrating session of their own. Tasks 31 to 35 are outlined, and detailed when Part C is done.
+Part D starts when Part C is done. Tasks 28 to 30 are detailed here already, and checked again then against what Parts B and C built; tasks 31 to 35 are outlined, and detailed then.
 
 Each of tasks 28 to 30 is a few pull requests in order, each demonstrable. Those in the app's repository go through `/implement` with keys beginning `app-`, and nothing they write there, in code, commits, pull requests or replies, mentions or hints at seeded defects: they describe the scan, and nothing it might find. Every pull request that changes a workflow, the scan's scripts or the exceptions has `/security-review` as well as `/code-review`. A required check is added to `scripts/github-settings.ts` in the pull request that brings the job, or after the app's pull request that first calls it; Martin applies the settings once it merges.
 
 ### 0. Settled before the start
 
 - Martin has agreed ADR 0013 and the Patching (Part D) decisions above (#596). The calls made in detailing these tasks are his to review in the pull request that adds them.
-- **One digest of Trivy.** The `TRIVY` digest `app-gates.yml` pins (0.74.0) is the scanner everywhere, and a test holds every reference to it in the workflows to that one digest, so the gates, the daily scan and the routing check cannot drift apart.
+- **One digest of Trivy, kept current.** The scanner everywhere is one image, pinned by version and digest in `.github/images/trivy/Dockerfile` (`FROM ghcr.io/aquasecurity/trivy:<version>@sha256:<digest>`), which the workflows read in place of the `TRIVY` digest `app-gates.yml` holds today (0.74.0). Dependabot reads no workflow's `env`, but its `docker` updates read that directory, so a new Trivy release reaches a pull request with its cooldown, as every other image does. A test holds every use of Trivy in the workflows to that file, so the gates, the daily scan and the routing check cannot drift apart.
+- **What Parts B and C add is found from its source.** flagd's image (task 14) is a third-party image pinned by digest in `deploy/`, and OpenFeature's packages and flagd's provider are in the app's lockfile, so the list takes them in with no change of its own; whatever else Parts B and C pin, it takes in the same way, and the coverage tests fail for anything it does not.
 - **The scan's code is this repository's, at the commit the caller pins.** Its scripts are in `apps/factory/src/vulnerabilities/`, beside the gates' (`apps/factory/src/gates/`), so task 31's sense can use the same deadlines and exceptions in the cluster. They are Node with no dependencies, from a sparse checkout, as the app's gates are, reading YAML through `yq` (on the runners, and in `mise.toml` for the tests). The scanned repository is data: no job whose output reaches the scan runs its code, its pnpmfile, its `.npmrc` or its mise configuration, and `helm` and `kustomize` come from this repository's `mise.toml`.
 - **Tokens reach GHCR alone.** The scan logs in to `ghcr.io` alone, with `docker/login-action` as `build.yml` does, and Trivy is given that Docker configuration, never the token in its environment or on its command line, so no other registry it pulls from is offered it.
 - **What a log says.** Both repositories are public, so a workflow's log and its artifacts are anyone's to read. The daily scan's findings are open vulnerabilities in what runs, so no package or advisory of one is printed to its log or step summary, or kept as an artifact: Trivy writes JSON to the runner's disk with `--quiet`, and only counts, item names and failures to read reach the log. A gate on a pull request names what the change brings in, as `image-scan.ts` does, since the change is public and has not merged.
@@ -475,7 +476,7 @@ Then each finding open when task 30 lands is fixed or excepted: Dependabot's pul
 
 ### Tasks 28 to 30 are done when
 
-- [ ] Every lockfile, image of ours, third-party image, platform image, Dockerfile stage and image CI runs is on the list, and a pin in either repository that is not fails its scan, and `make check` here.
+- [ ] Every lockfile, image of ours, third-party image (flagd's among them), platform image, Dockerfile stage and image CI runs is on the list, and a pin in either repository that is not fails its scan, and `make check` here.
 - [ ] Both repositories are scanned daily and on each push to `main`, each finding an alert in the repository that owns it, at the line that pins it; the scanner reads every package `pnpm list` gives.
 - [ ] A run that cannot read an item or fetch the day's advisories fails, names it, and closes no alert.
 - [ ] An image on Node 24.22.0 shows CVE-2026-111497, and every run proves it still does.
