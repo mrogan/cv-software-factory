@@ -4,7 +4,7 @@
 
 Both public repositories move from Martin's account, `mrogan`, to the organisation `the-roganator`, on GitHub's Free plan, so that `main` can use GitHub's merge queue. The queue replaces the rule that a pull request be up to date with `main` before it merges.
 
-GitHub's review rule, the `main: review` ruleset and its admin bypass (ADR 0009), goes, and a required check takes its place: `review`, posted by a GitHub App of its own, the review App, and required from that App alone. It passes when
+GitHub's review rule, the `main: review` ruleset and its admin bypass (ADR 0009), goes, and a required check takes its place: `review`, posted by a GitHub App of its own, the review App, and required from that App alone, by its integration id, `5470762`. It passes when
 
 - Martin opened the pull request from a branch in the repository, known by his account's id, `6206459`, never by his login; or
 - Martin's latest verdict on the pull request approves the commit at its head: an approval given before the last push, dismissed, or followed by his asking for changes does not count, and nobody else's approval counts at all.
@@ -21,7 +21,7 @@ The `main` ruleset, which nobody bypasses, keeps everything else: pull requests 
 ### The order of the move
 
 1. Before the transfer: the gate, the triggers above, and an admission policy that admits images under either owner, signed by `build.yml` on `main` of the repository under either. The gate runs, and posts nothing until its App is set up; nothing requires it. The app's repository gets the same, calling this repository's `review.yml` at a pinned commit, as it calls the title check.
-2. Martin makes the review App in the organisation, with permission to write checks and nothing else, installs it on both repositories, and puts its Client ID and key in each repository's `review` environment; transfers both repositories; and installs the factory's App on the organisation.
+2. Martin makes the review App in the organisation (App ID `5470762`, Client ID `Iv23liFNqAvApddT27zU`), able to write checks and read pull requests, with no webhook, installed on every repository there; transfers both repositories; gives each a `review` environment that only `main` may use, holding the App's key as `REVIEW_APP_PRIVATE_KEY`; and installs the factory's App on the organisation.
 3. After the transfer, in a pull request of its own: the repositories' names wherever they are written, the settings (`scripts/github-settings.ts`: the queue, `review` required from the review App, no up-to-date rule, `main: review` gone), Kyverno's refusals taken again under the new policy, and the line's and the `implement` skill's ways of keeping a branch up to date, which the queue makes needless.
 4. Once only images built after the move run, the old owner's names and identities leave the admission policy.
 

@@ -110,9 +110,14 @@ describe("the review gate's workflows", () => {
     expect(requested).toMatch(/^name: review requested$/m);
     // The key is in an environment only main may use: a pull request into another branch runs that branch's copy.
     expect(gate).toMatch(/^ {4}environment: review$/m);
+    // The review App's Client ID, and its key from that environment alone; nothing posts without the key.
+    expect(gate).toMatch(
+      /client-id: Iv23liFNqAvApddT27zU\n {10}private-key: \$\{\{ secrets\.REVIEW_APP_PRIVATE_KEY \}\}\n/,
+    );
+    expect(gate).toMatch(/- id: app\n {8}if: env\.HAS_KEY == 'true'\n/);
     expect(gate).toMatch(/^permissions: \{\}$/m);
     // Its job reads this repository, to check out the gate, and pull requests; it writes nothing with its own token.
-    expect(gate).toMatch(/^ {4}permissions:\n {6}contents: read\n {6}pull-requests: read\n {4}steps:/m);
+    expect(gate).toMatch(/^ {4}permissions:\n {6}contents: read\n {6}pull-requests: read\n {4}env:/m);
     // The one checkout is this workflow's own commit, main's, and never the pull request's.
     expect(gate.match(/uses: actions\/checkout@/g)).toHaveLength(1);
     expect(gate).toMatch(/ref: \$\{\{ job\.workflow_sha \}\}\n/);
