@@ -25,6 +25,9 @@ import { FLAG_NAME, onDevice } from './device.ts';
 import { evidenceOf, pathOf, type RequestHeaders } from './http.ts';
 import { type Device, type Finding, Found, type Observation, type Sense } from './types.ts';
 
+/** The previews a pass's checks have asked for, and when the latest was answered (`senses/device.ts`, `Allowance`). */
+type Asks = { previewed: Set<string>; askedAt: number };
+
 /** What a check is given: the app, the page to use, and what the sense shares between checks in one pass. */
 export interface CheckContext<Shared> {
   /** The app's address, with no path. */
@@ -102,13 +105,13 @@ export class BrowserSense<Shared> implements Sense {
   async pass(version: string, skip: ReadonlySet<string> = new Set()): Promise<Observation[]> {
     const context = await this.newContext(this.options.headers);
     const shared = this.options.shared();
-    // The flags the pass's checks have asked to preview: the context is the pass's, and so is its preview cookie.
-    const previewed = new Set<string>();
+    // The flags the pass's checks have asked to preview, and when: the context is the pass's, and so is its cookie.
+    const asks: Asks = { previewed: new Set<string>(), askedAt: 0 };
     const observations: Observation[] = [];
     try {
       for (const check of this.options.checks) {
         if (skip.has(check.id)) continue;
-        observations.push(...(await this.look(check, context, version, shared, previewed)));
+        observations.push(...(await this.look(check, context, version, shared, asks)));
       }
     } finally {
       await context.close();
@@ -134,15 +137,19 @@ export class BrowserSense<Shared> implements Sense {
     context: BrowserContext,
     version: string,
     shared: Shared,
-    previewed: Set<string>,
+    asks: Asks,
   ): Promise<Observation[]> {
     const { app, headers } = this.options;
     const preview = async (flag: string, path = '/') => {
       if (!FLAG_NAME.test(flag)) throw new Error(`${flag} is not a flag's name`);
-      previewed.add(flag);
       const url = new URL(path, app);
+      if (!path.startsWith('/') || url.origin !== new URL(app).origin)
+        throw new Error(`${path} is not a path on the app`);
       url.searchParams.set('preview', flag);
       await page.goto(url.href);
+      // Counted once the app has answered, so an ask that never arrived allows nothing.
+      asks.previewed.add(flag);
+      asks.askedAt = Date.now() / 1000;
     };
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
@@ -164,7 +171,7 @@ export class BrowserSense<Shared> implements Sense {
     // a page whose script never yields would hold an evaluation for ever.
     let device: Device | undefined;
     if (this.options.device) {
-      const read = await within(10_000, onDevice(context, page, { app, previewed })).catch(
+      const read = await within(10_000, onDevice(context, page, { app, ...asks })).catch(
         (error) =>
           `could not read what the pages left on the device: ${error instanceof Error ? error.message : error}`,
       );

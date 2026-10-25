@@ -308,11 +308,15 @@ describe('what the pages leave on the device, for the gates', () => {
     }, 60_000);
 
     it('is kept, with what is wrong, when it breaks its contract or names a flag nobody asked for', async () => {
-      expect(onDevice(await observe(['preview-loose'], [], true, [asking('dark-mode')])).at(0)).toEqual([
-        'previews-dark-mode',
-        ['cookie preview (readable by a script; lasting 8760 hours, longer than a day)'],
-        [],
+      const [loose] = onDevice(await observe(['preview-loose'], [], true, [asking('dark-mode')]));
+      expect(loose?.slice(0, 1)).toEqual(['previews-dark-mode']);
+      // Its year, from the latest ask, which was answered a moment after it was set.
+      expect(loose?.[1]).toEqual([
+        expect.stringMatching(
+          /^cookie preview \(readable by a script; lasting 3153(5999|6000) seconds from the latest ask, more than 86400\)$/,
+        ),
       ]);
+      expect(loose?.[2]).toEqual([]);
       expect(onDevice(await observe(['preview-unasked'], HOME, true, [asking('dark-mode')]))).toEqual([
         ['previews-dark-mode', [], ['cookie preview']],
         ['home-leads-to-the-catalogue', ['cookie preview (naming big-buttons, which was not asked for)'], []],

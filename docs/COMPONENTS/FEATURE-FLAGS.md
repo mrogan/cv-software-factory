@@ -24,7 +24,7 @@ The [probes' `/device` check](PROBES-AND-CRAWLER.md#the-probes) allows it only f
 
 ### Its contract
 
-The app sets the cookie exactly as this says, and the `/device` check holds every attribute to it, not the name alone:
+The app sets the cookie exactly as this says, and the `/device` check holds every attribute to it, not the name alone, as the browser kept them: a cookie set with no `SameSite` reads as `Lax`, as Chromium treats it, and one set with `Expires` as one set with the same `Max-Age`, so the lifetime is checked, from the latest ask, rather than which of the two set it. That a name is one flagd knows is the app's own tests' to check:
 
 | | |
 |---|---|
@@ -42,7 +42,7 @@ The cookie names flags and decides nothing: flagd does, so a flag turned off is 
 
 ### How a probe asks
 
-A check asks for a preview with its context's `preview(flag)`, which opens `?preview=<flag>` on its page (`senses/browser.ts`). It is the one way to ask, so the pass knows. A pass's checks share a browser context, so from the ask on, every check's `/device` check in that pass allows a `preview` cookie that keeps to the contract and names only flags the pass asked for, and lists it as `allowed`. Anything beside it still fails the check. Without an ask, the cookie fails it like any other; with one, a cookie that breaks the contract fails it with what is wrong (`readable by a script`, `naming big-buttons, which was not asked for`). No probe asks yet: the opt-in stage's check adds the one that does (milestone 7, task 17).
+A check asks for a preview with its context's `preview(flag)`, which opens `?preview=<flag>` on a path of the app, on its page (`senses/browser.ts`). It is the one way to ask, so the pass knows, and it counts once the app has answered. A pass's checks share a browser context, so from the ask on, every check's `/device` check in that pass allows a `preview` cookie that keeps to the contract and names only flags the pass asked for, in the order asked, and lists it as `allowed`. Anything beside it still fails the check. Without an ask, the cookie fails it like any other; with one, a cookie that breaks the contract fails it with what is wrong (`readable by a script`, `naming big-buttons, which was not asked for`). No probe asks yet: the opt-in stage's check adds the one that does (milestone 7, task 17).
 
 ## The share's signed ids
 

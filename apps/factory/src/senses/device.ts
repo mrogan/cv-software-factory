@@ -26,8 +26,13 @@ export const FLAG_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export interface Allowance {
   /** The app's address. */
   app: string;
-  /** The flags asked for, by `?preview=`, by the pass so far. None, and the preview cookie is kept like any other. */
+  /**
+   * The flags asked for, by `?preview=`, by the pass so far, in the order first asked. None, and the preview cookie is
+   * kept like any other.
+   */
   previewed: ReadonlySet<string>;
+  /** When the latest ask was answered, in seconds since the epoch: the cookie's day runs from then. */
+  askedAt: number;
 }
 
 /**
@@ -51,12 +56,11 @@ export async function onDevice(
   const { cookies, origins } = await context.storageState();
   const kept: string[] = [];
   const allowed: string[] = [];
-  const now = Date.now() / 1000;
   for (const cookie of cookies) {
     const thing = `cookie ${cookie.name}`;
     if (!allowance?.previewed.size || cookie.name !== PREVIEW_COOKIE.name) kept.push(thing);
     else {
-      const faults = previewCookieFaults(cookie, allowance, now);
+      const faults = previewCookieFaults(cookie, allowance);
       if (faults.length) kept.push(`${thing} (${faults.join('; ')})`);
       else allowed.push(thing);
     }
@@ -79,31 +83,41 @@ export async function onDevice(
 }
 
 /**
- * How a preview cookie breaks its contract, read at `now` (seconds since the epoch), or nothing when it keeps to it: on
- * the app's own host alone, at `/`, `HttpOnly`, `SameSite=Lax`, `Secure` exactly when the app is served over HTTPS,
- * lasting no more than a day, and naming only flags that were asked for, each once.
+ * How a preview cookie breaks its contract, or nothing when it keeps to it: on the app's own host alone, at `/`,
+ * `HttpOnly`, `SameSite=Lax`, `Secure` exactly when the app is served over HTTPS, lasting no more than a day from the
+ * latest ask, and naming only flags that were asked for, each once, in the order asked.
+ *
+ * It reads what the browser kept, not the `Set-Cookie` header: a cookie set with no `SameSite` reads as `Lax`, which
+ * is how Chromium treats it, and one set with `Expires` reads as one set with the same `Max-Age`. Whether a name is
+ * one flagd knows is the app's to check, in its own tests.
  */
-export function previewCookieFaults(cookie: Cookie, { app, previewed }: Allowance, now: number): string[] {
+export function previewCookieFaults(cookie: Cookie, { app, previewed, askedAt }: Allowance): string[] {
   const url = new URL(app);
   const https = url.protocol === 'https:';
+  // Playwright gives a host-only cookie its host, bare, and one set with `Domain` a leading dot.
+  const host = url.hostname.replace(/^\[(.*)\]$/, '$1').replace(/\.$/, '');
   const names = cookie.value.split('.');
+  const asked = [...previewed];
+  const lasts = Math.round(cookie.expires - askedAt);
   const faults = [
-    // Playwright gives a host-only cookie its host, and one set with `Domain` a leading dot.
-    cookie.domain !== url.hostname && `for ${cookie.domain}, not ${url.hostname} alone`,
+    cookie.domain !== host && `for ${cookie.domain}, not ${host} alone`,
     cookie.path !== PREVIEW_COOKIE.path && `on the path ${cookie.path}, not ${PREVIEW_COOKIE.path}`,
     !cookie.httpOnly && 'readable by a script',
     cookie.sameSite !== PREVIEW_COOKIE.sameSite && `SameSite=${cookie.sameSite}, not ${PREVIEW_COOKIE.sameSite}`,
     cookie.secure !== https && (https ? 'not Secure on HTTPS' : 'Secure on plain HTTP'),
     cookie.expires < 0
-      ? 'with no Max-Age'
+      ? 'with no expiry, kept as long as the browser keeps its session'
       : // A second's grace, for the expiry's rounding.
-        cookie.expires - now > PREVIEW_COOKIE.maxAgeSeconds + 1 &&
-        `lasting ${Math.round((cookie.expires - now) / 3600)} hours, longer than a day`,
+        lasts > PREVIEW_COOKIE.maxAgeSeconds + 1 &&
+        `lasting ${lasts} seconds from the latest ask, more than ${PREVIEW_COOKIE.maxAgeSeconds}`,
     !names.every((name) => FLAG_NAME.test(name)) && 'not a list of flag names',
     new Set(names).size !== names.length && 'naming a flag twice',
     ...names
       .filter((name) => FLAG_NAME.test(name) && !previewed.has(name))
       .map((name) => `naming ${name}, which was not asked for`),
+    names.every((name) => previewed.has(name)) &&
+      names.some((name, i) => i > 0 && asked.indexOf(name) < asked.indexOf(names[i - 1] ?? '')) &&
+      'naming its flags out of the order asked',
   ];
   return faults.filter((fault): fault is string => typeof fault === 'string');
 }
