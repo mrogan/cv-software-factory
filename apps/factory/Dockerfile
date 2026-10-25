@@ -29,7 +29,7 @@ COPY policy policy
 # Readable by the unprivileged runtime user, and by nobody's writes.
 RUN chmod -R a+rX,go-w /repo
 
-FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:78f07ef1b5ea71ad7c055df15d0dd8997f2d288f9158623c4d4ae3d765b7d50d
+FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:cb606325b7ec4af55462cb0b424a53b452a5b4a894ffe841fcf1048d216fb9f8
 COPY --from=server /repo /repo
 WORKDIR /repo/apps/factory
 ENV NODE_ENV=production PORT=8080
