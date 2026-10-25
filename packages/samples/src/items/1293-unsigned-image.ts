@@ -1,7 +1,7 @@
 /** A red-team attack stopped by admission control: an image the pipeline did not sign never runs. */
 import { digestFor, Item } from '../build.ts';
 
-const IMAGE = `ghcr.io/mrogan/cv-worlds-worst-website@${digestFor('red-team/1293')}`;
+const IMAGE = `ghcr.io/the-roganator/cv-worlds-worst-website@${digestFor('red-team/1293')}`;
 
 const REFUSAL = `Error from server: admission webhook "mutate.kyverno.svc-fail" denied the request:
 

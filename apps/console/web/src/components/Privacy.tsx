@@ -12,7 +12,7 @@ import { REPORT_KEPT_DAYS } from '../projection/report.ts';
 import '../styles/settings.css';
 import '../styles/privacy.css';
 
-const SOURCE = 'https://github.com/mrogan/cv-software-factory/blob';
+const SOURCE = 'https://github.com/the-roganator/cv-software-factory/blob';
 
 export function Privacy() {
   useEffect(() => {

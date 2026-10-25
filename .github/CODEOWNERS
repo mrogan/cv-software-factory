@@ -1,5 +1,6 @@
 # The rules of the line are human-owned (spec section 6, guardrail 1).
-# A code owner's approval is required on main (ADR 0009); the factory's App is never one.
+# The review gate holds every pull request Martin did not open for his approval, these files' too (ADR 0014); the
+# factory's App is never a code owner.
 
 /.github/                    @mrogan
 /deploy/                     @mrogan

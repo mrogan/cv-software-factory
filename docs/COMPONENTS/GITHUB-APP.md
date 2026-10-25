@@ -2,7 +2,7 @@
 
 The factory's identity in GitHub. Part of the [factory plane](README.md#factory-plane).
 
-- **v1:** `mrogan-software-factory`, on Martin's account and installed on the two public repositories. Its work shows as `mrogan-software-factory[bot]`.
+- **v1:** `mrogan-software-factory`, owned by the organisation `the-roganator` and installed there on the two public repositories alone, never on `cv-software-factory-private`. Its work shows as `mrogan-software-factory[bot]`. The GitHub worker asks GitHub for the installation of each repository it acts on, so no installation id is configured.
 - **No webhook:** the factory polls.
 
 Only the [GitHub worker](GITHUB-WORKER.md) holds its key.

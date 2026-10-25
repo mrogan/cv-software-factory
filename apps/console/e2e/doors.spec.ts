@@ -105,11 +105,11 @@ test('takes anyone home from the brand, and names the footer’s icons', async (
   await expect(footer).toContainText('© 2026 Martin Rogan · MIT');
   await expect(footer.getByRole('link', { name: 'MIT' })).toHaveAttribute(
     'href',
-    'https://github.com/mrogan/cv-software-factory/blob/main/LICENSE',
+    'https://github.com/the-roganator/cv-software-factory/blob/main/LICENSE',
   );
   await expect(footer.getByRole('link', { name: 'The source on GitHub' })).toHaveAttribute(
     'href',
-    'https://github.com/mrogan/cv-software-factory',
+    'https://github.com/the-roganator/cv-software-factory',
   );
   await expect(footer.getByRole('link', { name: 'Martin Rogan on LinkedIn' })).toHaveAttribute(
     'href',

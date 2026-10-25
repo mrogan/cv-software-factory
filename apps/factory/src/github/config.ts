@@ -24,7 +24,7 @@ import type { DryRunTimes } from './dry-run-reads.ts';
 import { GHCR } from './registry.ts';
 
 /** The two public repositories: the factory's own, and the app it looks after. */
-export const REPOSITORIES = ['mrogan/cv-software-factory', 'mrogan/cv-worlds-worst-website'] as const;
+export const REPOSITORIES = ['the-roganator/cv-software-factory', 'the-roganator/cv-worlds-worst-website'] as const;
 
 export interface GitHubConfig {
   credentials: AppCredentials | undefined;

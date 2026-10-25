@@ -8,13 +8,14 @@
 #                          its review and beginning "Copilot's review summary:", answers the review's summary; until
 #                          Copilot has reviewed, or the hour window.sh gives it has passed, the pull request is not
 #                          ready. Shows checks and threads. A pull request Martin has merged passes on
-#                          what is left to check (its description, checks, threads and summary): its worktree may be
-#                          gone, and its branch may have moved under his own update.
+#                          what is left to check (its description, checks, threads and summary): its worktree and
+#                          branch may be gone. Whether a branch is behind main is never checked: the merge queue
+#                          tests it on main as it will be.
 #   verify.sh <key>        skipped: nothing was left behind, no branch pushed and no pull request opened.
 # A key of 278-2 is issue 278's second pull request. A key that begins app- is a work item in the app's repository
 # (repo.sh): its pull request, CODEOWNERS, branch and origin/main are the app's, and its worktree is still under this
 # checkout's scratch/worktrees/; app-278 is this repository's issue 278, which its description names in full
-# (Part of mrogan/cv-software-factory#278). Exit 1 on any mismatch.
+# (Part of the-roganator/cv-software-factory#278). Exit 1 on any mismatch.
 set -euo pipefail
 . "$(dirname "$0")/window.sh"
 pr=${2:-}

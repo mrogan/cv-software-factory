@@ -148,7 +148,7 @@ function fakeKube(agent: (env: Record<string, string>) => Promise<void>): Kube {
 
 const STEP: Step = {
   agent: 'coder',
-  repository: 'https://github.com/mrogan/cv-worlds-worst-website.git',
+  repository: 'https://github.com/the-roganator/cv-worlds-worst-website.git',
   commit: 'a'.repeat(40),
   prompt: 'Fix it.',
   maxTurns: 10,

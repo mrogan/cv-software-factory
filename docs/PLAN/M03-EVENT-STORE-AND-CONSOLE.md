@@ -186,7 +186,7 @@ What the milestone taught, and where each lesson now lives.
 - A statement-level trigger that takes an advisory lock makes commit order equal `seq` order, so a reader following `seq` never skips an event that committed late: `packages/store/migrations/0001_events.sql`.
 - macOS's `tar` adds AppleDouble files unless `COPYFILE_DISABLE` is set, and `make samples` runs on the host, so it needs the dependencies installed: the `Makefile`.
 
-**Left open:** see the [issues](https://github.com/mrogan/cv-software-factory/issues).
+**Left open:** see the [issues](https://github.com/the-roganator/cv-software-factory/issues).
 
 ## Out of scope
 

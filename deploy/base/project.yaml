@@ -9,7 +9,7 @@ metadata:
 spec:
   description: The factory, its telemetry, its database and the controller that releases the app.
   sourceRepos:
-    - https://github.com/mrogan/cv-software-factory.git
+    - https://github.com/the-roganator/cv-software-factory.git
     - https://open-telemetry.github.io/opentelemetry-helm-charts
     - https://prometheus-community.github.io/helm-charts
     - https://grafana-community.github.io/helm-charts

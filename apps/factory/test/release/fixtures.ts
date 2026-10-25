@@ -58,7 +58,9 @@ export function rollout(state: RolloutState): Rollout {
       strategy: { canary: { canaryService: 'website-canary', stableService: 'website', steps: STEPS } },
       template: {
         spec: {
-          containers: [{ name: 'website', image: `ghcr.io/mrogan/cv-worlds-worst-website@${digestOf(state.current)}` }],
+          containers: [
+            { name: 'website', image: `ghcr.io/the-roganator/cv-worlds-worst-website@${digestOf(state.current)}` },
+          ],
         },
       },
     },

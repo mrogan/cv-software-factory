@@ -16,7 +16,7 @@ import type { GitHubWorker } from '../github/worker-client.ts';
 import { type Fenced, fence } from './scope.ts';
 import type { Runners, StepOutcome } from './steps.ts';
 
-export const SMOKE_REPOSITORY = 'mrogan/cv-worlds-worst-website';
+export const SMOKE_REPOSITORY = 'the-roganator/cv-worlds-worst-website';
 export const SMOKE_BRANCH = 'factory/smoke';
 
 /** A new module with an off-by-one in it, as a patch. */

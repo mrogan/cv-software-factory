@@ -15,7 +15,7 @@ export const { privateKey: PRIVATE_KEY } = generateKeyPairSync('rsa', {
   publicKeyEncoding: { type: 'spki', format: 'pem' },
 });
 export const CLIENT_ID = 'Iv23testclientid';
-export const REPO = 'mrogan/cv-worlds-worst-website';
+export const REPO = 'the-roganator/cv-worlds-worst-website';
 export const SHA = 'a'.repeat(40);
 export const OTHER_SHA = 'b'.repeat(40);
 

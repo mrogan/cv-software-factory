@@ -3,7 +3,7 @@ import { DryRunActions, LiveActions } from '../../src/github/actions.ts';
 import { APP_LOGIN, currentWatch } from '../../src/github/current.ts';
 import { calls, client, quiet, type Sent } from './fake.ts';
 
-const REPO = 'mrogan/cv-software-factory';
+const REPO = 'the-roganator/cv-software-factory';
 const sha = (n: number) => String(n).repeat(40).slice(0, 40);
 
 /** Open pull requests, each with how far behind main it is, its reviews, and whether updating it conflicts. */

@@ -104,7 +104,7 @@ test.describe('sensing and triage', () => {
     const commit = sheet.locator('.facts-dl').getByRole('link', { name: '4f9c2e1', exact: true });
     await expect(commit).toHaveAttribute(
       'href',
-      'https://github.com/mrogan/cv-worlds-worst-website/commit/4f9c2e1b7d3a6058e9b1c4d2a7f3e6b9c0d1e2f3',
+      'https://github.com/the-roganator/cv-worlds-worst-website/commit/4f9c2e1b7d3a6058e9b1c4d2a7f3e6b9c0d1e2f3',
     );
     await expect(commit).toHaveAttribute('title', '4f9c2e1b7d3a6058e9b1c4d2a7f3e6b9c0d1e2f3');
   });

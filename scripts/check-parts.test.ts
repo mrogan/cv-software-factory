@@ -87,7 +87,7 @@ function required(
   const result = spawnSync('bash', ['-eo', 'pipefail', '-c', script], {
     env: {
       PATH: `${bin}:${process.env.PATH}`,
-      GITHUB_REPOSITORY: 'mrogan/cv-software-factory',
+      GITHUB_REPOSITORY: 'the-roganator/cv-software-factory',
       BASE: 'abc123',
       MAIN_RUN: main.run ?? '',
       MAIN_STATE: main.state ?? '',

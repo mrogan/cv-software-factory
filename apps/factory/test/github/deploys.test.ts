@@ -10,12 +10,17 @@ import {
   carriesSection,
   DEPLOYS,
   DeployProposals,
+  DeployRefused,
   type DeployTarget,
   deployBody,
+  deployedImage,
   deployWatch,
+  newerBuild,
   type Pin,
+  repin,
   SIGNING_GRACE_MS,
   scratchBranch,
+  signerOf,
   withCarries,
 } from '../../src/github/deploys.ts';
 import { type Registry, RegistryError } from '../../src/github/registry.ts';
@@ -39,11 +44,11 @@ images:
 ${images.map(([name, d, image]) => `- digest: ${d}\n  name: ${name}\n  newName: ghcr.io/${image}`).join('\n')}
 `;
 const FACTORY_PIN = pinFile([
-  ['factory', digest('1'), 'mrogan/cv-software-factory/factory'],
-  ['factory-browser', digest('2'), 'mrogan/cv-software-factory/factory-browser'],
+  ['factory', digest('1'), 'the-roganator/cv-software-factory/factory'],
+  ['factory-browser', digest('2'), 'the-roganator/cv-software-factory/factory-browser'],
 ]);
-const CONSOLE_PIN_FILE = pinFile([['console', digest('3'), 'mrogan/cv-software-factory/console']]);
-const APP_PIN_FILE = pinFile([['website', digest('1'), 'mrogan/cv-worlds-worst-website']]);
+const CONSOLE_PIN_FILE = pinFile([['console', digest('3'), 'the-roganator/cv-software-factory/console']]);
+const APP_PIN_FILE = pinFile([['website', digest('1'), 'the-roganator/cv-worlds-worst-website']]);
 const BOTH = { [CONSOLE_PIN.file]: CONSOLE_PIN_FILE, [FACTORY_PINS.file]: FACTORY_PIN };
 const CONSOLE_TITLE = 'chore(deploy): run console ccccccc on the local cluster';
 const BOTH_TITLE = 'chore(deploy): run console ccccccc and the factory bbbbbbb on the local cluster';
@@ -195,11 +200,11 @@ function github(
 /** GHCR: the factory built from c and b, its browser image not yet from c, the console from c, and every pin from a. */
 function ghcr(revision: string | ((image: string) => string) = commit('a')): Registry {
   const built: Record<string, string[]> = {
-    'mrogan/cv-software-factory/factory': ['a', 'b', 'c'].map(commit),
-    'mrogan/cv-software-factory/factory-browser': ['a', 'b'].map(commit),
-    'mrogan/cv-software-factory/factory-runner': ['a', 'b', 'c'].map(commit),
-    'mrogan/cv-software-factory/console': ['a', 'c'].map(commit),
-    'mrogan/cv-worlds-worst-website': ['a', 'b'].map(commit),
+    'the-roganator/cv-software-factory/factory': ['a', 'b', 'c'].map(commit),
+    'the-roganator/cv-software-factory/factory-browser': ['a', 'b'].map(commit),
+    'the-roganator/cv-software-factory/factory-runner': ['a', 'b', 'c'].map(commit),
+    'the-roganator/cv-software-factory/console': ['a', 'c'].map(commit),
+    'the-roganator/cv-worlds-worst-website': ['a', 'b'].map(commit),
   };
   return {
     tags: async (image: string) => built[image] ?? [],
@@ -292,7 +297,7 @@ describe('the deploy watch', () => {
       base: 'main',
       title: message.headline,
     });
-    const url = 'https://github.com/mrogan/cv-software-factory';
+    const url = 'https://github.com/the-roganator/cv-software-factory';
     expect((writes(gh.sent)[4] as { body: { body: string } }).body.body).toBe(
       `Runs [\`bbbbbbb\`](${url}/commit/${commit('b')}) on the local cluster: [the changes since \`aaaaaaa\`](${url}/compare/${commit('a')}...${commit('b')}).
 
@@ -314,7 +319,7 @@ Argo CD deploys them from \`deploy/overlays/local\` once this merges. A newer bu
       },
     ]);
     expect(body).toBe(
-      `Runs [\`ccccccc\`](https://github.com/mrogan/cv-worlds-worst-website/commit/${commit('c')}) on the local cluster.
+      `Runs [\`ccccccc\`](https://github.com/the-roganator/cv-worlds-worst-website/commit/${commit('c')}) on the local cluster.
 
 | Image | Digest |
 |---|---|
@@ -337,7 +342,7 @@ Argo CD deploys it from \`deploy/overlays/local\` once this merges. A newer buil
   it('leaves out an image the pin file does not pin yet: the change that brings it in pins it', async () => {
     const later = {
       ...FACTORY_PINS,
-      images: [...FACTORY_PINS.images, { name: 'later', image: 'mrogan/cv-software-factory/later' }],
+      images: [...FACTORY_PINS.images, { name: 'later', image: 'the-roganator/cv-software-factory/later' }],
     };
     const target = { ...FACTORY, pins: [CONSOLE_PIN, later] };
     const gh = github(target);
@@ -362,7 +367,7 @@ Argo CD deploys it from \`deploy/overlays/local\` once this merges. A newer buil
       [CONSOLE_PIN.file]: CONSOLE_PIN_FILE.replace(digest('3'), digest('7')),
       [FACTORY_PINS.file]: FACTORY_PIN.replace(digest('1'), digest('7')).replace(digest('2'), digest('8')),
     });
-    const url = 'https://github.com/mrogan/cv-software-factory';
+    const url = 'https://github.com/the-roganator/cv-software-factory';
     expect((writes(gh.sent)[4] as { body: { body: string } }).body.body).toBe(
       `Runs on the local cluster:
 
@@ -586,13 +591,13 @@ describe('the deploy watch and signatures', () => {
     const gh = github(FACTORY);
     await watch(gh, FACTORY, ghcr(), undefined, signed)();
     expect(signed.asked).toEqual([
-      ['mrogan/cv-software-factory/factory', digest('7'), pipeline('mrogan/cv-software-factory')],
-      ['mrogan/cv-software-factory/factory-browser', digest('8'), pipeline('mrogan/cv-software-factory')],
+      ['the-roganator/cv-software-factory/factory', digest('7'), pipeline('the-roganator/cv-software-factory')],
+      ['the-roganator/cv-software-factory/factory-browser', digest('8'), pipeline('the-roganator/cv-software-factory')],
     ]);
     expect(steps(gh.sent)).toContain('POST pulls');
     const app = github(APP, { pins: { [APP_PIN.file]: APP_PIN_FILE } });
     await watch(app, APP, ghcr(), undefined, signed)();
-    expect(signed.asked.at(-1)?.[2]).toEqual(pipeline('mrogan/cv-worlds-worst-website'));
+    expect(signed.asked.at(-1)?.[2]).toEqual(pipeline('the-roganator/cv-worlds-worst-website'));
   });
 
   /** A log that keeps what it was told, at info and above. */
@@ -614,7 +619,7 @@ describe('the deploy watch and signatures', () => {
         level: 30,
         msg: 'waiting for a build to be signed before proposing it',
         digest: digest('8'),
-        reason: `mrogan/cv-software-factory/factory-browser@${digest('8')} has no signature`,
+        reason: `the-roganator/cv-software-factory/factory-browser@${digest('8')} has no signature`,
       }),
     ]);
     signed.unsigned.length = 0;
@@ -679,7 +684,7 @@ describe('the deploy watch and signatures', () => {
         level: 40,
         msg: 'did not propose a build its pipeline did not sign',
         digest: digest('7'),
-        reason: `mrogan/cv-software-factory/factory@${digest('7')} has no signature by them`,
+        reason: `the-roganator/cv-software-factory/factory@${digest('7')} has no signature by them`,
       }),
     ]);
     expect(writes(gh.sent)).toEqual([]);
@@ -698,7 +703,7 @@ describe('the deploy watch and signatures', () => {
 });
 
 describe('the release watch', () => {
-  const REPO = 'mrogan/cv-software-factory';
+  const REPO = 'the-roganator/cv-software-factory';
   function main() {
     let head = 'a';
     const { github: gh } = client([
@@ -822,7 +827,7 @@ describe('what a deploy carries', () => {
       number: 70,
       commit: commit('b'),
       pinned: commit('a'),
-      digests: [{ name: 'website', image: 'mrogan/cv-worlds-worst-website', digest: digest('7') }],
+      digests: [{ name: 'website', image: 'the-roganator/cv-worlds-worst-website', digest: digest('7') }],
     });
     expect(proposals.get(FACTORY.repo, APP.branch)).toBeNull();
     // A worker started again learns of the open one on its first pass.
@@ -843,5 +848,67 @@ describe('what a deploy carries', () => {
     const proposals = new DeployProposals();
     await watch(github(FACTORY), FACTORY, ghcr(), undefined, signatures(), quiet, Date.now, proposals)();
     expect(proposals.get(FACTORY.repo, FACTORY.branch)).toBeNull();
+  });
+});
+
+describe('pins made before the repositories moved (ADR 0014)', () => {
+  const OLD_FACTORY_PIN = pinFile([
+    ['factory', digest('1'), 'mrogan/cv-software-factory/factory'],
+    ['factory-browser', digest('2'), 'mrogan/cv-software-factory/factory-browser'],
+  ]);
+
+  it("reads the pinned digest's commit where the pin file says it is, and new builds under the new owner", async () => {
+    const asked: string[] = [];
+    const registry = ghcr((image) => {
+      asked.push(image);
+      return commit('a');
+    });
+    const proposal = await newerBuild(
+      { registry },
+      FACTORY_PINS,
+      OLD_FACTORY_PIN,
+      ['c', 'b', 'a'].map((c) => ({ sha: commit(c) })),
+    );
+    expect(asked).toEqual(['mrogan/cv-software-factory/factory']);
+    expect(proposal).toMatchObject({ commit: commit('b'), pinned: commit('a') });
+    expect(proposal?.digests.map((d) => d.image)).toEqual([
+      'the-roganator/cv-software-factory/factory',
+      'the-roganator/cv-software-factory/factory-browser',
+    ]);
+  });
+
+  it('moves each pin to the new owner with its digest, the whole line, and nothing else', () => {
+    const moved = repin(OLD_FACTORY_PIN, {
+      commit: commit('b'),
+      digests: [
+        { name: 'factory', image: 'the-roganator/cv-software-factory/factory', digest: digest('7') },
+        { name: 'factory-browser', image: 'the-roganator/cv-software-factory/factory-browser', digest: digest('8') },
+      ],
+    });
+    expect(moved).toBe(
+      pinFile([
+        ['factory', digest('7'), 'the-roganator/cv-software-factory/factory'],
+        ['factory-browser', digest('8'), 'the-roganator/cv-software-factory/factory-browser'],
+      ]),
+    );
+    // A pin already under the new owner moves its digest alone.
+    expect(
+      repin(CONSOLE_PIN_FILE, {
+        commit: commit('c'),
+        digests: [{ name: 'console', image: 'the-roganator/cv-software-factory/console', digest: digest('9') }],
+      }),
+    ).toBe(pinFile([['console', digest('9'), 'the-roganator/cv-software-factory/console']]));
+  });
+
+  it("knows a deployed image under either owner, signed by build.yml of the repository under the image's owner", () => {
+    const repo = 'the-roganator/cv-worlds-worst-website';
+    expect(signerOf(repo, 'the-roganator/cv-worlds-worst-website')).toEqual(pipeline(repo));
+    expect(signerOf(repo, 'mrogan/cv-worlds-worst-website')).toEqual(pipeline('mrogan/cv-worlds-worst-website'));
+    for (const image of ['someone/cv-worlds-worst-website', 'mrogan/cv-software-factory/factory', 'mrogan/other']) {
+      expect(() => deployedImage(repo, image)).toThrow(DeployRefused);
+    }
+    expect(deployedImage('the-roganator/cv-software-factory', 'mrogan/cv-software-factory/factory-runner')).toBe(
+      'mrogan/cv-software-factory/factory-runner',
+    );
   });
 });

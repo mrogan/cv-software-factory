@@ -258,7 +258,7 @@ export interface LineSettings {
   holdForSpend?(hold: NewEvent, spentUsd: number): Promise<boolean>;
 }
 
-export const APP_REPOSITORY = 'mrogan/cv-worlds-worst-website';
+export const APP_REPOSITORY = 'the-roganator/cv-worlds-worst-website';
 
 /** What GitHub says of an issue that is gone (deleted or moved) or that the App may not change: asking again won't help. */
 const ISSUE_GONE = [403, 404, 410];

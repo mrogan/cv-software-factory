@@ -1,8 +1,8 @@
 # Software Factory
 
-[![check](https://github.com/mrogan/cv-software-factory/actions/workflows/check.yml/badge.svg?branch=main)](https://github.com/mrogan/cv-software-factory/actions/workflows/check.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/mrogan/cv-software-factory/badge)](https://scorecard.dev/viewer/?uri=github.com/mrogan/cv-software-factory)
-[![release](https://img.shields.io/github/v/release/mrogan/cv-software-factory)](https://github.com/mrogan/cv-software-factory/releases)
+[![check](https://github.com/the-roganator/cv-software-factory/actions/workflows/check.yml/badge.svg?branch=main)](https://github.com/the-roganator/cv-software-factory/actions/workflows/check.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/the-roganator/cv-software-factory/badge)](https://scorecard.dev/viewer/?uri=github.com/the-roganator/cv-software-factory)
+[![release](https://img.shields.io/github/v/release/the-roganator/cv-software-factory)](https://github.com/the-roganator/cv-software-factory/releases)
 
 AI agents and deterministic gates that look after a live web app. They notice problems, write fixes, prove the fixes are safe, ship them as canaries and check that they worked. No person writes the fixes; people own the rules.
 
@@ -13,7 +13,7 @@ I'm Martin Rogan. This is my portfolio: a working system you can open and judge 
 
 ## What it will do
 
-The factory looks after [The World's Worst Website](https://github.com/mrogan/cv-worlds-worst-website), a small shop that is broken on purpose: its first commit already holds more than twenty defects, and nothing public says where they are. Its line has eight stages:
+The factory looks after [The World's Worst Website](https://github.com/the-roganator/cv-worlds-worst-website), a small shop that is broken on purpose: its first commit already holds more than twenty defects, and nothing public says where they are. Its line has eight stages:
 
 **Sense → Triage → Plan → Build → Gates → Review → Release → Verify**
 
@@ -48,7 +48,7 @@ The factory's workers run in the cluster too: the model gateway, triage, the int
 
 Every change is a pull request, squash-merged into `main` once the required checks pass: lint, type-check, tests and an image build. A release or deploy pull request that the factory's GitHub App opened, unchanged, skips the browser tests, and so does anyone's that changes only manifests under `deploy/`; a release skips the other tests too, and passes only once `main` has passed them on the commit it is made on; a deploy or manifests pull request checks that each image it pins was built from `main` instead of building one. Actions are pinned to full commit SHAs, workflows get minimal permissions, and outside pull requests never run with secrets. The settings of this repository and the app's are applied by [one script](scripts/github-settings.ts), so they can be reviewed like code, and the app's repository calls this one's title check, CodeQL and Scorecard workflows at a pinned commit, so nothing written there can loosen them.
 
-**Review:** a code owner's approval, given after the last push, is required on `main`, and `CODEOWNERS` names me for workflows, deployment, policy and the gates' configuration. The factory opens its own pull requests as its GitHub App, so each waits for my approval. GitHub never counts an author's own approval, and every other pull request is mine, so the repository's admin may bypass review, and only to merge a pull request: it still goes through the checks, and the merge records the bypass ([ADR 0009](docs/architecture/adr/0009-review-with-an-admin-bypass.md)).
+**Review:** a required check, `review`, posted by a GitHub App of its own, passes a pull request I opened, or one whose latest commit I approved; `CODEOWNERS` names me for workflows, deployment, policy and the gates' configuration. The factory opens its own pull requests as its GitHub App, so each waits for my approval. Pull requests merge through GitHub's merge queue, which tests each on `main` as it will be, so none has to be brought up to date first ([ADR 0014](docs/architecture/adr/0014-merge-queue-and-review-gate.md)).
 
 ## Read more
 

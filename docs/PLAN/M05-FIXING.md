@@ -343,11 +343,11 @@ Written as Part A's pull requests (#62 to #73, and the app's #9 to #11) merged, 
 
 - Each pull request had one reviewer, then a review across the whole stack lined up the findings that span pull requests. That found four major problems in the runners and one in the gateway. In each, a side with privileges trusted what the sandbox handed it. Every finding was answered on its pull request.
 - In a stack of squash-merged pull requests, every fix low in the stack means rebasing everything above it. Whether Part B tries GitHub's stacked pull requests is still open.
-- No test runs the real Agent SDK against the gateway's allow-lists: an [issue](https://github.com/mrogan/cv-software-factory/issues).
+- No test runs the real Agent SDK against the gateway's allow-lists: an [issue](https://github.com/the-roganator/cv-software-factory/issues).
 
 **Still to run:** nothing; the runs are in the results.
 
-**Left open:** see the [issues](https://github.com/mrogan/cv-software-factory/issues), and the Part B tasks that gained items from review (9 and 15).
+**Left open:** see the [issues](https://github.com/the-roganator/cv-software-factory/issues), and the Part B tasks that gained items from review (9 and 15).
 
 ### Part B
 
@@ -401,4 +401,4 @@ The line took 1001 at 23:45 UTC on 6 October and held it nine minutes later. Twe
 - A review that blocks and returns to the coder, and a patch the scope fence refuses, on a real work item. Tests cover both; no run has met either.
 - A night-long soak, for the GitHub worker's memory and leases over many hours, and one on Qwen at the tuned settings over a ticket like 1007.
 
-**Left open:** see the [issues](https://github.com/mrogan/cv-software-factory/issues).
+**Left open:** see the [issues](https://github.com/the-roganator/cv-software-factory/issues).

@@ -20,7 +20,7 @@ import { ARTIFACTS, CAPTURES, type Captures } from './captures.ts';
 
 /** The app as it was published, which every sample's change is made to. */
 const APP = {
-  repository: 'https://github.com/mrogan/cv-worlds-worst-website.git',
+  repository: 'https://github.com/the-roganator/cv-worlds-worst-website.git',
   commit: '7d3353a10f3847284a24ab09cc5db9781f338ecc',
 };
 

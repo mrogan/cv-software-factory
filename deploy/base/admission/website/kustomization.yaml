@@ -19,8 +19,8 @@ patches:
         path: /spec/matchConstraints/namespaceSelector/matchExpressions/0/values
         value: [website]
       # Of the factory's images, only its browser, for the analysis Job that walks the canary's journeys. The
-      # workers, the console and the runner have no business here. Each under either owner while the repositories
-      # move (ADR 0014).
+      # workers, the console and the runner have no business here. Each under either owner until only images built
+      # since the move run (ADR 0014).
       - op: replace
         path: /spec/variables/1/expression
         value: >-

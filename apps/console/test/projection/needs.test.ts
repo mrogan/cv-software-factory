@@ -245,7 +245,7 @@ describe('Needs you', () => {
         String((need?.evidence as { text?: string } | undefined)?.text).replace(/^Merged at \d\d:\d\d\. /, ''),
       ).toBe(text);
       expect(need?.link).toEqual({
-        href: `https://github.com/mrogan/cv-worlds-worst-website/pull/${change.pullRequest}`,
+        href: `https://github.com/the-roganator/cv-worlds-worst-website/pull/${change.pullRequest}`,
         label: `Deploy #${change.pullRequest} on GitHub`,
       });
       // Only once its checks pass is it Martin's: then its card says Needs you, flashing, and Needs you counts it.

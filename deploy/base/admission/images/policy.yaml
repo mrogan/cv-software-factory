@@ -6,7 +6,7 @@
 # 3. and, if ours, signed by `build.yml` on `main` of the repository that builds it, keyless, with GitHub's OIDC
 #    identity compared whole, never as a pattern.
 #
-# The repositories are moving from `mrogan` to the organisation `the-roganator` (ADR 0014). GitHub redirects their
+# The repositories moved from `mrogan` to the organisation `the-roganator` (ADR 0014). GitHub redirects their
 # URLs, but not GHCR's image names or the identity cosign certifies, so while images built before the move still run,
 # "ours" is either owner's: an image under either name, signed by `build.yml` on `main` of the repository under either
 # owner. Martin alone can make a repository under either.

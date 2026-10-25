@@ -327,10 +327,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # An image pinned before the repository moved to the-roganator is under its former owner (ADR 0014).
+          former="mrogan/${GITHUB_REPOSITORY#*/}"
           for file in deploy/overlays/local/*-image/kustomization.yaml; do
             for ref in $(yq '.images[] | .newName + "@" + .digest' "$file"); do
               case "$ref" in
-                "ghcr.io/$GITHUB_REPOSITORY/"*@sha256:*) ;;
+                "ghcr.io/$GITHUB_REPOSITORY/"*@sha256:* | "ghcr.io/$former/"*@sha256:*) ;;
                 *) echo "::error file=$file::$ref is not one of this repository's images, pinned by digest"; exit 1 ;;
               esac
               revisions=$(docker buildx imagetools inspect "$ref" --format '{{ json .Image }}' \
@@ -352,11 +354,11 @@ jobs:
       # Each image carries the signature of build.yml on this repository's main, made with the workflow's own identity,
       # and an SBOM it attested. Every change to a pin file, the App's or anyone's, and only the pins it moves: one
       # made before images were signed stays as it is until its own deploy moves it. HEAD^1 is the base a pull request
-      # merges into, or main before the commit pushed to it.
+      # merges into, or main before the commit pushed to it. An image built before the repository moved to the-roganator
+      # is under its former owner, and signed by build.yml of the repository under that owner (ADR 0014).
       - name: Check the images it moves to were signed by build.yml on main
         run: |
-          identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/build.yml@refs/heads/main"
-          trust=(--certificate-identity "$identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com)
+          former="mrogan/${GITHUB_REPOSITORY#*/}"
           # A pin is the image an entry names, so two entries that swap digests both move.
           pins='.images[] | .name + "=" + .newName + "@" + .digest'
           # Each read is its own assignment, so one that fails fails the step rather than checking nothing.
@@ -374,6 +376,10 @@ jobs:
             [ -n "$moved" ] || echo "$file: moves no pin, nothing to check"
             for pin in $moved; do
               ref=${pin#*=}
+              repository=$GITHUB_REPOSITORY
+              [[ "$ref" == "ghcr.io/$former/"* ]] && repository=$former
+              identity="https://github.com/$repository/.github/workflows/build.yml@refs/heads/main"
+              trust=(--certificate-identity "$identity" --certificate-oidc-issuer https://token.actions.githubusercontent.com)
               if ! cosign verify "${trust[@]}" "$ref" > /dev/null; then
                 echo "::error file=$file::$ref is not signed by $identity"; exit 1
               fi
