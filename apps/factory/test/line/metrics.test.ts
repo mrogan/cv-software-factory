@@ -7,7 +7,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { metrics as api } from '@opentelemetry/api';
-import { metrics } from '@opentelemetry/sdk-node';
+import * as metrics from '@opentelemetry/sdk-metrics';
 import { type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
 import { DiskArtifacts, EventWriter, nextWorkItem } from '@software-factory/store';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';

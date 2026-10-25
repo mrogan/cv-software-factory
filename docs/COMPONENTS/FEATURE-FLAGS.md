@@ -16,6 +16,34 @@ Ship improvements switched off; a kill switch without a rollback. Part of the [r
 
 flagd reads `flags` before it serves anything, and exits if it cannot: with the resource missing, its Role or binding missing, or the API out of reach, it restarts until it can, and is never ready. A first flag set it refuses leaves it unready. Once ready it stays ready: at 0.17 its readiness follows its first read, not its watch, which it retries for ever when broken, while it serves the last flags it took. A watch broken after start is caught from outside instead: the admin service compares the revision in `flags` with the one the app reports, every 60 seconds, and Martin is alerted when they have differed for more than 5 minutes (milestone 7, task 16, not built yet).
 
+## The preview cookie
+
+A flag's opt-in stage is on for browsers that ask to preview it, with `?preview=<flag>` on any page of the app, and the app remembers the ask in its preview cookie. The app keeps nothing else on a visitor's device, and has no cookie banner: the cookie is set only for someone who asks for the preview, to give them what they asked for, so it is strictly necessary (PECR regulation 6, as the Data (Use and Access) Act 2025 amends it, and the ICO's guidance on storage and access). It is the one thing flags keep on a device. No id for a share of visitors is kept, and none is worked out from an address or a user agent.
+
+The [probes' `/device` check](PROBES-AND-CRAWLER.md#the-probes) allows it only for a browser that asked (`apps/factory/src/senses/device.ts`), and the console's [privacy page](CONSOLE.md#what-it-draws) names it, as the app's own `/privacy` does.
+
+### Its contract
+
+The app sets the cookie exactly as this says, and the `/device` check holds every attribute to it, not the name alone, as the browser kept them: a cookie set with no `SameSite` reads as `Lax`, as Chromium treats it, and one set with `Expires` as one set with the same `Max-Age`, so the lifetime is checked, from the answer to the latest ask, rather than which of the two set it. The check bounds what is kept: a cookie that lasts less than a day, or names fewer flags than were asked for, keeps less, and passes it. That the app sets exactly a day, and that a name is one flagd knows, are the app's own tests' to check:
+
+| | |
+|---|---|
+| When | Only on a request whose `?preview=` names a flag flagd knows. One that names any other changes nothing, and the app never echoes the parameter. |
+| Name | `preview` |
+| Value | The flags asked for, each once, in the order asked, joined by `.`: `dark-mode.big-buttons`. Each ask adds its flag to those the cookie already names that flagd still knows. A flag's name is lower-case letters and digits, in words joined by hyphens; a flag named otherwise cannot be previewed. |
+| `Path` | `/` |
+| `Domain` | None, so it is the app's host's alone |
+| `Max-Age` | `86400`: a day from the latest ask. No ask, no renewal. |
+| `HttpOnly` | Always: only the app's server reads it |
+| `SameSite` | `Lax`, so following a link to the app, as from the console, carries it |
+| `Secure` | Exactly when the request reached the app over HTTPS: its own scheme, or `X-Forwarded-Proto: https` from Traefik. The app is served over plain HTTP on every profile today (`website.localhost:8080` through Traefik, `http://website.website` for the probes), so it sets none. A browser drops a `Secure` cookie set over plain HTTP but on a `localhost` name, so one set always would reach a browser through Traefik and never the probes' Chromium, which could not then see it. |
+
+The cookie names flags and decides nothing: flagd does, so a flag turned off is off for a browser whose cookie names it. Nothing removes it but its `Max-Age` or the browser's own settings.
+
+### How a probe asks
+
+A check asks for a preview with its context's `preview(flag)`, which opens `?preview=<flag>` on a path of the app, on its page (`senses/browser.ts`). It is the one way to ask, so the pass knows, and it counts once the app has answered. A pass's checks share a browser context, so from the ask on, every check's `/device` check in that pass allows a `preview` cookie that keeps to the contract and names only flags the pass asked for, in the order asked, and lists it as `allowed`. Anything beside it still fails the check. Without an ask, the cookie fails it like any other; with one, a cookie that breaks the contract fails it with what is wrong (`readable by a script`, `naming big-buttons, which was not asked for`). No probe asks yet: the opt-in stage's check adds the one that does (milestone 7, task 17).
+
 ## The share's signed ids
 
 A flag's share stage is on for a share of the [traffic generator](TRAFFIC-GENERATOR.md#its-ids)'s requests, chosen by flagd's `fractional` rule over the id each one carries. The id is signed, so that nobody else can walk into the share by sending one.
