@@ -24,6 +24,7 @@ Change these only when Martin asks, or propose the change in a PR.
 | [`design/mockups/console.html`](design/mockups/console.html) | The console mockup: layout, content and behaviour, built on the design system. Open it in a browser. |
 | [`architecture/wiring.html`](architecture/wiring.html) | Diagram of how the parts connect, with journeys through them. |
 | [`architecture/hosting.html`](architecture/hosting.html) | Where each profile runs, what it costs and why. |
+| [`architecture/flags.html`](architecture/flags.html) | How an improvement goes out behind a feature flag, stage by stage. |
 | [`architecture/adr/`](architecture/adr/) | Major decisions and why. The exception to the rule above: agents add an ADR when they make a major decision (spec section 1). |
 
 ## Naming
