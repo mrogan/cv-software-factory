@@ -27,7 +27,7 @@ Each source gives its own part of the list: the rendered manifests, the k3s rele
 
 ### When it is scanned
 
-- **On every pull request, in both repositories:** the base's lockfile against the change's, failing on any known vulnerability the change brings in, as dependency review does today on the app's pull requests. The factory's pull requests have no such check today; this is a new required check there, added to the rulesets. It runs as the app's gates do: on `pull_request`, with a read-only token, executing nothing from the change. The app's image gate stays as it is.
+- **On every pull request, in both repositories:** the base's lockfile against the change's, failing on any known vulnerability the change brings in, as dependency review does on the app's pull requests. It is required in both repositories' rulesets. It runs as the app's gates do: on `pull_request`, with a read-only token, executing nothing from the change. The app's image gate stays as it is.
 - **Every day, and on each push to `main`:** everything on the list, against that day's advisories. The results go to code scanning in the repository that owns each item, one alert for each package and advisory, located in its lockfile or naming its image. The app calls the workflow from this repository at a pinned commit, as it calls Scorecard, so it scans its own lockfile and images.
 
 ### The dependency graph
@@ -36,7 +36,7 @@ On each push to `main`, a job submits Syft's SBOM of the lockfile to GitHub's de
 
 ### Deadlines
 
-A finding's severity is the higher of the scanner's rating and that of the project that published the fix, as milestone 7's Patching decisions set. The publisher's rating counts wherever a machine can read one; where it cannot, as with Node's security releases today, the scanner's stands alone. Its deadline counts from the day its fix can be installed: the first fixed version's publish time in its registry, plus pnpm's day for a package, or the patched image's release. No first finding counts from before the day it is first scanned. Both are worked out from the registry and the code-scanning alert on each run, so the scan keeps no state of its own:
+A finding's severity is the higher of the scanner's rating and that of the project that published the fix, as milestone 7's Patching decisions set. The publisher's rating counts wherever a machine can read one; where it cannot, as with Node's security releases, the scanner's stands alone. Its deadline counts from the day its fix can be installed: the first fixed version's publish time in its registry, plus pnpm's day for a package, or the patched image's release. No first finding counts from before the day it is first scanned. Both are worked out from the registry and the code-scanning alert on each run, so the scan keeps no state of its own:
 
 | Severity | Fixed within |
 |---|---|
