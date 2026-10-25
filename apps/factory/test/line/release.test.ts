@@ -261,22 +261,6 @@ const [FIX_1, FIX_2, FIX_3, FIX_4] = ['1', '2', '3', '4'].map((c) => c.repeat(40
 const HISTORY = ['0'.repeat(40), FIX_1, FIX_2, commitOf(STABLE), FIX_3, FIX_4, commitOf(CANARY)];
 
 describe('the line’s watch of the app’s release', () => {
-  it.each([
-    ['mrogan', 'mrogan/cv-worlds-worst-website'],
-    ['the-roganator', 'the-roganator/cv-worlds-worst-website'],
-    ['someone', 'the-roganator/cv-worlds-worst-website'],
-  ])('asks about the image the Rollout runs under %s as %s (ADR 0014)', async (owner, image) => {
-    const { line: it, github, kube } = line();
-    github.history = HISTORY;
-    github.revisions.set(digestOf(STABLE), commitOf(STABLE));
-    const r = rollout({ current: STABLE, stable: STABLE });
-    (r.spec.template.spec.containers[0] as { image: string }).image =
-      `ghcr.io/${owner}/cv-worlds-worst-website@${digestOf(STABLE)}`;
-    kube.rollout = r;
-    await it.tick();
-    expect(github.imagesAsked).toEqual([image]);
-  });
-
   it('records the fixes already live as found, and sends them on to Verify (work items 1001 and 1006)', async () => {
     const first = await merged(17, FIX_1);
     const second = await merged(25, FIX_2);

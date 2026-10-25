@@ -680,21 +680,6 @@ describe('a release, from the Rollout and its runs', () => {
     ]);
   });
 
-  it('reads where in GHCR the image it runs is, under the owner it was built under (ADR 0014)', () => {
-    const at = (image: string) => {
-      const r = rollout({ current: CANARY, stable: CANARY });
-      (r.spec.template.spec.containers[0] as { image: string }).image = image;
-      return observe(r, []);
-    };
-    const pinned = `@${digestOf(CANARY)}`;
-    expect(at(`ghcr.io/mrogan/cv-worlds-worst-website${pinned}`).image).toBe('mrogan/cv-worlds-worst-website');
-    expect(at(`ghcr.io/the-roganator/cv-worlds-worst-website:v1${pinned}`).image).toBe(
-      'the-roganator/cv-worlds-worst-website',
-    );
-    expect(at(`docker.io/library/website${pinned}`).image).toBeUndefined();
-    expect(at('ghcr.io/the-roganator/cv-worlds-worst-website:latest').image).toBeUndefined();
-  });
-
   it('records a stable version it has no record of as found live, by the factory, and not watched', () => {
     const s = store();
     const settled = rollout({ current: CANARY, stable: CANARY });
@@ -702,7 +687,6 @@ describe('a release, from the Rollout and its runs', () => {
     expect(s.pass(settled, runs).needs.start).toEqual({
       release: releaseOf(CANARY),
       digest: digestOf(CANARY),
-      image: 'the-roganator/cv-worlds-worst-website',
       found: true,
       previous: undefined,
     });

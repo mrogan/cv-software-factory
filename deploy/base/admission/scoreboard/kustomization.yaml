@@ -18,15 +18,10 @@ patches:
       - op: replace
         path: /spec/variables/0/expression
         value: "[]"
-      # The factory's image, signed by the factory's build.yml, under either owner until only images built since the
-      # move run (ADR 0014).
+      # The factory's image, signed by the factory's build.yml.
       - op: replace
         path: /spec/variables/1/expression
-        value: >-
-          [
-            'ghcr.io/mrogan/cv-software-factory/factory',
-            'ghcr.io/the-roganator/cv-software-factory/factory'
-          ]
+        value: "['ghcr.io/the-roganator/cv-software-factory/factory']"
       # None of the app's.
       - op: replace
         path: /spec/variables/2/expression

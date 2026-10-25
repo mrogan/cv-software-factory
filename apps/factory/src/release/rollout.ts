@@ -138,8 +138,6 @@ export interface Observed {
   revision: string | undefined;
   /** The image of the current version, by digest. */
   digest: string | undefined;
-  /** Where that image is in GHCR, as GHCR names it (`owner/name`), or undefined when it is not there. */
-  image: string | undefined;
   aborted: boolean;
   /** When Argo Rollouts acted on the abort, to the second; undefined until it has. */
   abortedAt: string | undefined;
@@ -155,8 +153,6 @@ export interface Observed {
 }
 
 const DIGEST = /@(sha256:[0-9a-f]{64})$/;
-/** An image in GHCR, by its name there, with or without a tag. */
-const IN_GHCR = /^ghcr\.io\/([a-z0-9._-]+(?:\/[a-z0-9._-]+)*)(?::[\w.-]+)?@sha256:[0-9a-f]{64}$/;
 
 export function observe(rollout: Rollout, runs: readonly AnalysisRun[]): Observed {
   const { metadata, status, spec } = rollout;
@@ -181,7 +177,6 @@ export function observe(rollout: Rollout, runs: readonly AnalysisRun[]): Observe
     stable: status.stableRS,
     revision: revision && /^\d{1,12}$/.test(revision) ? revision : undefined,
     digest: spec.template.spec.containers[0]?.image.match(DIGEST)?.[1],
-    image: spec.template.spec.containers[0]?.image.match(IN_GHCR)?.[1],
     aborted: status.abort === true,
     abortedAt: status.abort === true ? status.abortedAt : undefined,
     admitted: available ? true : failedToCreate ? false : undefined,
