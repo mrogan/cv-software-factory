@@ -112,8 +112,9 @@ updates:
         patterns: [node]
         group-by: dependency-name
 
-  # flagd (deploy/base/flagd), from OpenFeature's GHCR, at a release at least two weeks old: its pin is its Deployment's
-  # alone, which `flagd-images` admits (deploy/base/admission/flagd). The FeatureFlag kind's definition beside it is
+  # flagd (deploy/base/flagd), from OpenFeature's GHCR, at a release at least two weeks old. GHCR gives Dependabot no
+  # publication date, so the cooldown below does not apply (its pull request says so) and Martin holds a bump until its
+  # release is two weeks old; it is kept so that it applies if GHCR ever gives one. Its pin is its Deployment's alone, which `flagd-images` admits (deploy/base/admission/flagd). The FeatureFlag kind's definition beside it is
   # vendored at the version of OpenFeature's operator API that flagd builds against, so a release that moves that moves
   # the definition too, by hand.
   - package-ecosystem: docker
