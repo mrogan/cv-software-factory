@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.9.0](https://github.com/mrogan/cv-software-factory/compare/v0.8.0...v0.9.0) (2026-10-24)
+
+
+### Features
+
+* **admin:** a session lasts 30 minutes from sign-in ([#555](https://github.com/mrogan/cv-software-factory/issues/555)) ([655034c](https://github.com/mrogan/cv-software-factory/commit/655034cbe92b8ee6e5270fee22287715b0f6d48b))
+* **admin:** answer a hold from Needs you, through the admin service ([#544](https://github.com/mrogan/cv-software-factory/issues/544)) ([1d784c9](https://github.com/mrogan/cv-software-factory/commit/1d784c9a3d257f50c113ae4c5a6767354b2010e2))
+* **admin:** control the app's canary from the admin service, held by admission to its fields ([#531](https://github.com/mrogan/cv-software-factory/issues/531)) ([56d8f7e](https://github.com/mrogan/cv-software-factory/commit/56d8f7e03b46d6570c2781085da126ce9e828f7d))
+* **admin:** serve Martin's sign-in, sessions and writes from factory admin ([#512](https://github.com/mrogan/cv-software-factory/issues/512)) ([268401c](https://github.com/mrogan/cv-software-factory/commit/268401c476631389429dc9ed5ffdc458efde85b7))
+* **admin:** stop and start the line through the admin service, aborting the canary in flight ([#551](https://github.com/mrogan/cv-software-factory/issues/551)) ([2e9fbd5](https://github.com/mrogan/cv-software-factory/commit/2e9fbd522a14070eb6e71a71a2f7e78547364550))
+* **admin:** the line's controls through the admin service: autonomy, new work, auto-merge, the take ([#552](https://github.com/mrogan/cv-software-factory/issues/552)) ([95f9db4](https://github.com/mrogan/cv-software-factory/commit/95f9db4f75bf14683b016829cd50c07701a8622d))
+* **alerts:** alert each hold that waits for Martin once, with its links ([#576](https://github.com/mrogan/cv-software-factory/issues/576)) ([b3dc81b](https://github.com/mrogan/cv-software-factory/commit/b3dc81b18a6cbbdde58cc432184270e85bd2c449))
+* **alerts:** each security event at its own level, and a silent one for Martin's own use ([#563](https://github.com/mrogan/cv-software-factory/issues/563)) ([b4b069f](https://github.com/mrogan/cv-software-factory/commit/b4b069f3944b5aa19a795bee4f5177095b66f761))
+* **alerts:** inform Martin when the line is stopped, and not when the passkey is given again ([#575](https://github.com/mrogan/cv-software-factory/issues/575)) ([f5f684c](https://github.com/mrogan/cv-software-factory/commit/f5f684cb7d1926f6ee92e8df3cb358d6f920504a))
+* **alerts:** notify Martin when the shop's pod is 25 days old ([#569](https://github.com/mrogan/cv-software-factory/issues/569)) ([edd38d8](https://github.com/mrogan/cv-software-factory/commit/edd38d88b64e0f7c3bb3c659cf5406da20fb2a7a))
+* **console:** a lighter header, a footer of icons, and Martin's tools in his menu ([#579](https://github.com/mrogan/cv-software-factory/issues/579)) ([2ac5e1f](https://github.com/mrogan/cv-software-factory/commit/2ac5e1f309ad8d147a5a5958e528b55ce11adfc0))
+* **console:** a privacy page, and gates that keep visitors' devices empty ([#560](https://github.com/mrogan/cv-software-factory/issues/560)) ([cb406ea](https://github.com/mrogan/cv-software-factory/commit/cb406ea777674b4e5263459953b4baac68f9ef77))
+* **console:** Martin's controls on the Canary panel, with the passkey asked again ([#532](https://github.com/mrogan/cv-software-factory/issues/532)) ([0749b0d](https://github.com/mrogan/cv-software-factory/commit/0749b0df2be06ff61d352129091d6d49e5e70196))
+* **console:** Martin's view, a visitor's report text, and Preview as visitor ([#530](https://github.com/mrogan/cv-software-factory/issues/530)) ([de19d92](https://github.com/mrogan/cv-software-factory/commit/de19d92f28235de3adc99d040c908aaec5d57230))
+* **console:** Needs you, answered from the console, and Waiting on Martin for visitors ([#547](https://github.com/mrogan/cv-software-factory/issues/547)) ([9c45175](https://github.com/mrogan/cv-software-factory/commit/9c45175f204c093a1b998e61a2fdb52dcc9571dd))
+* **console:** show the tools behind the evidence, as restrained marks ([#583](https://github.com/mrogan/cv-software-factory/issues/583)) ([fafe589](https://github.com/mrogan/cv-software-factory/commit/fafe589fb79319ac4c06ac983023d8187c2e8956))
+* **console:** sign in and enrol a passkey from the console, scanned by ZAP signed in ([#519](https://github.com/mrogan/cv-software-factory/issues/519)) ([e1bbb3e](https://github.com/mrogan/cv-software-factory/commit/e1bbb3e481306ec6ab4fed6dcd1c1c9a6ce31386))
+* **console:** Stop and Start the line in the header, and the line's controls in Controls ([#557](https://github.com/mrogan/cv-software-factory/issues/557)) ([8c4eae0](https://github.com/mrogan/cv-software-factory/commit/8c4eae0707a8f0dcf5ff29db9c94d1a690e151ef))
+* **console:** the audit log, the same for everyone from the public events ([#553](https://github.com/mrogan/cv-software-factory/issues/553)) ([ec03aa1](https://github.com/mrogan/cv-software-factory/commit/ec03aa1fe868a2dcc3a6dc381b22ec9f329c4aef))
+* **console:** the settings page, and the spend against today's caps in Controls ([#534](https://github.com/mrogan/cv-software-factory/issues/534)) ([13334b3](https://github.com/mrogan/cv-software-factory/commit/13334b31b2c003cb1b0f7918d00536a4bdacfe8a))
+* **deploy:** connect each worker to the store as its own role ([#502](https://github.com/mrogan/cv-software-factory/issues/502)) ([8b359fa](https://github.com/mrogan/cv-software-factory/commit/8b359facb46220a3b919e3f40a1d9d30d6c26d14))
+* **deploy:** page Martin through Pushover by an alert's level, and fence Alertmanager ([#545](https://github.com/mrogan/cv-software-factory/issues/545)) ([b2cd74d](https://github.com/mrogan/cv-software-factory/commit/b2cd74d988d214d2077925ad4c3de51d9fc998b3))
+* **deploy:** run the admin service, under /admin/ on the console's host ([#517](https://github.com/mrogan/cv-software-factory/issues/517)) ([739769d](https://github.com/mrogan/cv-software-factory/commit/739769da24d9c47b1103441f3ba33b654a8d88e2))
+* **deploy:** serve the local console over HTTPS from a name-constrained local CA ([#501](https://github.com/mrogan/cv-software-factory/issues/501)) ([5f46751](https://github.com/mrogan/cv-software-factory/commit/5f4675111915a98ee0f1eb1e6db0a74eec041bf3))
+* **gateway:** offer Claude Haiku 5.5 in place of Haiku 4.5 ([#578](https://github.com/mrogan/cv-software-factory/issues/578)) ([416813d](https://github.com/mrogan/cv-software-factory/commit/416813d71847f0b0f1a1929b0b0ebf8e40223ce4))
+* **github:** open one deploy pull request for the console and the factory together ([#515](https://github.com/mrogan/cv-software-factory/issues/515)) ([455cb7a](https://github.com/mrogan/cv-software-factory/commit/455cb7af41155a78700780514cd6a1eed24a73b9))
+* **line:** count Martin's security events from the store, and page him on each ([#546](https://github.com/mrogan/cv-software-factory/issues/546)) ([fcd4aad](https://github.com/mrogan/cv-software-factory/commit/fcd4aada82eece2129ad0f571231c06bdf681895))
+* **line:** record the deploy pull request a held fix waits for, and link it ([#574](https://github.com/mrogan/cv-software-factory/issues/574)) ([8eafa24](https://github.com/mrogan/cv-software-factory/commit/8eafa242391ef8b1e2b5fd970739ec9897ed9dbd))
+* **settings:** hold Martin's models, efforts and spend caps within policy, read at each step ([#533](https://github.com/mrogan/cv-software-factory/issues/533)) ([5152428](https://github.com/mrogan/cv-software-factory/commit/51524282ec014b1cff686feca487046872bbb9ce))
+* **store:** give each worker that uses the store a role of its own ([#498](https://github.com/mrogan/cv-software-factory/issues/498)) ([5690b40](https://github.com/mrogan/cv-software-factory/commit/5690b40563887e974ab934a095f7b39a7c831562))
+* **store:** guard Martin's commands, and the access table they answer to ([#510](https://github.com/mrogan/cv-software-factory/issues/510)) ([a1bf133](https://github.com/mrogan/cv-software-factory/commit/a1bf13353dc501731aa26015d3024cb13306e109))
+* **telemetry:** keep no visitor's address or user agent, and count browsers ([#559](https://github.com/mrogan/cv-software-factory/issues/559)) ([150694f](https://github.com/mrogan/cv-software-factory/commit/150694f7a2306958fc7267fbc913e9156b78b920))
+* **triage:** forget a visitor's report 30 days after it was received ([#567](https://github.com/mrogan/cv-software-factory/issues/567)) ([c189106](https://github.com/mrogan/cv-software-factory/commit/c1891064134d619239c64c142e7f7112982c9698))
+
+
+### Bug Fixes
+
+* **admin:** count the next few from now whenever Martin chooses a number ([#581](https://github.com/mrogan/cv-software-factory/issues/581)) ([cee40a4](https://github.com/mrogan/cv-software-factory/commit/cee40a443b7155dcd70939f8c1f58c240bce3ad7))
+* **admin:** record every sign-out and step-up, and spend no try at two passkeys ([#520](https://github.com/mrogan/cv-software-factory/issues/520)) ([be6b776](https://github.com/mrogan/cv-software-factory/commit/be6b776556fe9dbdc5d8d8c8cfd830c917bf9e59))
+* **console:** a browser that leaves before an artifact is sent no longer stops the server ([#540](https://github.com/mrogan/cv-software-factory/issues/540)) ([01bb9cd](https://github.com/mrogan/cv-software-factory/commit/01bb9cdc0297da075d1e2d80f8acbd1468461f4e))
+* **console:** steady Controls, and the line's controls in the settings ([#564](https://github.com/mrogan/cv-software-factory/issues/564)) ([576c82b](https://github.com/mrogan/cv-software-factory/commit/576c82b51fe1b19701fa783da2773850a5e54693))
+* **egress:** prove the admin service's own fence ([#522](https://github.com/mrogan/cv-software-factory/issues/522)) ([482a3a3](https://github.com/mrogan/cv-software-factory/commit/482a3a31da0e1ebe9764c0707e7352a1e8f37716))
+* **line:** count the next few from when Martin chose them, to the microsecond ([#572](https://github.com/mrogan/cv-software-factory/issues/572)) ([619ecf4](https://github.com/mrogan/cv-software-factory/commit/619ecf41bda18bda7197954d4b4e29085cd7c5d9))
+
 ## [0.8.0](https://github.com/mrogan/cv-software-factory/compare/v0.7.0...v0.8.0) (2026-10-20)
 
 
