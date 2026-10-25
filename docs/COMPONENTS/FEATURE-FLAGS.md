@@ -24,7 +24,7 @@ The [probes' `/device` check](PROBES-AND-CRAWLER.md#the-probes) allows it only f
 
 ### Its contract
 
-The app sets the cookie exactly as this says, and the `/device` check holds every attribute to it, not the name alone, as the browser kept them: a cookie set with no `SameSite` reads as `Lax`, as Chromium treats it, and one set with `Expires` as one set with the same `Max-Age`, so the lifetime is checked, from the latest ask, rather than which of the two set it. That a name is one flagd knows is the app's own tests' to check:
+The app sets the cookie exactly as this says, and the `/device` check holds every attribute to it, not the name alone, as the browser kept them: a cookie set with no `SameSite` reads as `Lax`, as Chromium treats it, and one set with `Expires` as one set with the same `Max-Age`, so the lifetime is checked, from the answer to the latest ask, rather than which of the two set it. The check bounds what is kept: a cookie that lasts less than a day, or names fewer flags than were asked for, keeps less, and passes it. That the app sets exactly a day, and that a name is one flagd knows, are the app's own tests' to check:
 
 | | |
 |---|---|

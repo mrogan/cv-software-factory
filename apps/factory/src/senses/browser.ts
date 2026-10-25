@@ -146,10 +146,12 @@ export class BrowserSense<Shared> implements Sense {
       if (!path.startsWith('/') || url.origin !== new URL(app).origin)
         throw new Error(`${path} is not a path on the app`);
       url.searchParams.set('preview', flag);
-      await page.goto(url.href);
-      // Counted once the app has answered, so an ask that never arrived allows nothing.
+      // Counted once the app has answered, so an ask that never arrived allows nothing, and timed by the answer, which
+      // set the cookie, not by the page's load.
+      await page.goto(url.href, { waitUntil: 'commit' });
       asks.previewed.add(flag);
       asks.askedAt = Date.now() / 1000;
+      await page.waitForLoadState('load');
     };
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
