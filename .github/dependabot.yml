@@ -50,6 +50,8 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    # A dependency goes to the first group it matches; the last two take whatever the first two leave, so each week's
+    # updates arrive as a few pull requests rather than one each, and each merge leaves fewer behind main.
     groups:
       opentelemetry:
         patterns: ['@opentelemetry/*']
@@ -57,6 +59,8 @@ updates:
         patterns: ['@fontsource/*', '@fontsource-variable/*']
       tooling:
         dependency-type: development
+      production:
+        dependency-type: production
 
   - package-ecosystem: github-actions
     directory: /
@@ -105,12 +109,13 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    # Every image here moves in one pull request a week, across every directory: a digest that moves in two
+    # Dockerfiles (distroless's, in the console's and the factory's) moves in both at once, and Node, pinned in three,
+    # moves in all of them, as scripts/image-pins.test.ts requires. A new major of Node is ignored above. One that
+    # touches a Dockerfile or Postgres's pin runs every check, as each of them alone would.
     groups:
-      # Node is pinned in three Dockerfiles, so one pull request moves it in all of them: scripts/image-pins.test.ts
-      # fails when they disagree. A new major is ignored above.
-      node:
-        patterns: [node]
-        group-by: dependency-name
+      images:
+        patterns: ['*']
 
   # flagd (deploy/base/flagd), from OpenFeature's GHCR. The cooldown below does not apply: GHCR gives Dependabot no
   # publication date for flagd's image (its pull request says so), so Martin holds a bump until its release is two weeks
