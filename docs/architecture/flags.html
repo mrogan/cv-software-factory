@@ -12,13 +12,6 @@
 <link rel="stylesheet" href="../design/system/tokens.css">
 <link rel="stylesheet" href="architecture.css">
 <style>
-/* ---- Steps --------------------------------------------------------------------------- */
-.steps { display: flex; flex-wrap: wrap; gap: 6px; }
-.steps button { min-height: 36px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-pill); background: transparent; color: var(--text-2); font-size: 13px; cursor: pointer; }
-.steps button:hover { border-color: var(--text-muted); }
-.steps button[aria-selected="true"] { background: var(--text); color: var(--on-inverse); border-color: var(--text); }
-.steps small { font: 10.5px var(--font-mono); letter-spacing: 0.6px; margin-right: 6px; opacity: 0.7; }
-
 /* ---- Diagram and card ---------------------------------------------------------------- */
 .main { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 20px; align-items: start; }
 @media (max-width: 1150px) { .main { grid-template-columns: 1fr; } }
@@ -77,13 +70,13 @@ details p { font-size: 13.5px; margin-top: 8px; }
 <body>
 
 <div class="wrap">
-  <header class="top"><div>
-    <div class="eyebrow"><a href="../AGENTS.md">Software Factory</a> · architecture · planned in milestone 7 Part B</div>
-    <h1>Feature flags <em>· an improvement, stage by stage</em></h1>
-    <p class="lede">An improvement ships switched off, and Martin switches it on in stages: the factory's own checks, then a preview, then a share of the traffic generator's visitors, then everyone. The example is dark mode. Step through it, and watch who sees it.</p>
-  </div></header>
-
-  <div class="steps" role="tablist" aria-label="Step" id="steps"></div>
+  <header class="top">
+    <div>
+      <div class="eyebrow"><a href="../AGENTS.md">Software Factory</a> · architecture · planned in milestone 7 Part B</div>
+      <h1>Feature flags <em>· an improvement, stage by stage</em></h1>
+    </div>
+    <div class="seg" role="tablist" aria-label="Step" id="steps"></div>
+  </header>
 
   <div class="main">
     <section class="stage" aria-label="Diagram">
@@ -183,6 +176,7 @@ const SET = { cf: 'set', ff: 'set', fs: 'set' };
 const STEPS = [
   {
     title: 'The parts',
+    tab: 'Parts',
     nodes: Object.keys(NODES),
     edges: { vis: 'req', gen: 'req', pre: 'req', ts: 'req', tc: 'req', cs: 'req', fs: 'set', fc: 'set', ff: 'set', cf: 'set' },
     who: { visitors: 'unlit', preview: 'unlit', gen: 'unlit', checks: 'unlit' },
@@ -201,6 +195,7 @@ const STEPS = [
   },
   {
     title: 'The code arrives, switched off',
+    tab: 'Shipped',
     nodes: ['visitors', 'gen', 'traefik', 'argo', 'stable', 'canary', 'verify', 'flagd', 'flags'],
     edges: { vis: 'unlit', gen: 'unlit', argo: 'req', ts: 'unlit', tc: 'unlit', canv: 'req', sv: 'req', fs: 'set', fc: 'set', ff: 'set' },
     tags: { traefik: '75% · 25%', flags: 'dark-mode: off', canary: 'dark mode inside' },
@@ -213,6 +208,7 @@ const STEPS = [
   },
   {
     title: "Stage 1: the factory's checks",
+    tab: 'Checks',
     nodes: ['visitors', 'checks', 'traefik', 'stable', 'verify', 'flagd', 'flags', 'console'],
     edges: { vis: 'denied', ts: 'unlit', cs: 'lit', cv: 'req', ...SET },
     tags: { flags: 'dark-mode: stage 1', traefik: 'strips the mark' },
@@ -225,6 +221,7 @@ const STEPS = [
   },
   {
     title: 'Stage 2: a preview',
+    tab: 'Preview',
     nodes: ['visitors', 'preview', 'traefik', 'stable', 'flagd', 'flags', 'console'],
     edges: { vis: 'unlit', pre: 'lit', ts: 'req', ...SET },
     tags: { flags: 'dark-mode: stage 2', preview: '?preview=dark-mode' },
@@ -236,6 +233,7 @@ const STEPS = [
   },
   {
     title: 'Stage 3: a share',
+    tab: 'Share',
     nodes: ['visitors', 'gen', 'traefik', 'stable', 'verify', 'flagd', 'flags', 'console'],
     edges: { vis: 'unlit', gen: 'half', ts: 'half', sv: 'req', ...SET },
     tags: { flags: 'dark-mode: share 50%', gen: 'signed ids' },
@@ -250,6 +248,7 @@ const STEPS = [
   },
   {
     title: 'A canary and a share take turns',
+    tab: 'Canary + share',
     nodes: ['gen', 'traefik', 'argo', 'stable', 'canary', 'verify', 'flagd', 'flags'],
     edges: { gen: 'half', argo: 'req', ts: 'half', tc: 'half', canv: 'req', sv: 'req', fs: 'set', fc: 'set', ff: 'set' },
     tags: { traefik: 'split two ways', flags: 'dark-mode: share 50%', canary: 'another fix' },
@@ -273,6 +272,7 @@ const STEPS = [
   },
   {
     title: 'Stage 4: everyone',
+    tab: 'Everyone',
     nodes: ['visitors', 'preview', 'gen', 'checks', 'traefik', 'stable', 'flagd', 'flags', 'console'],
     edges: { vis: 'lit', gen: 'lit', pre: 'lit', ts: 'lit', cs: 'lit', ...SET },
     tags: { flags: 'dark-mode: everyone' },
@@ -284,6 +284,7 @@ const STEPS = [
   },
   {
     title: 'The kill switch',
+    tab: 'Off',
     nodes: ['visitors', 'traefik', 'stable', 'flagd', 'flags', 'console'],
     edges: { vis: 'unlit', ts: 'unlit', ...SET },
     tags: { flags: 'dark-mode: off', console: 'off' },
@@ -295,6 +296,7 @@ const STEPS = [
   },
   {
     title: 'Who may touch the switches',
+    tab: 'Guards',
     nodes: ['console', 'flags', 'flagd', 'argo', 'stable', 'traefik'],
     edges: { ...SET },
     tags: { argo: 'leaves them alone', flagd: 'reads only' },
@@ -351,8 +353,9 @@ function paint() {
     if (tag) {
       const tg = el('g', { class: 'ntag' }, $('tags'));
       const t = el('text', { x: 0, y: 0 }, tg); t.textContent = tag.toUpperCase();
-      const w = t.getComputedTextLength() + 16, x = n.x + n.w - w + 8, y = n.y - 11;
-      t.setAttribute('x', x + 8); t.setAttribute('y', y + 15);
+      // The box's width comes from the text as drawn, letter-spacing and all.
+      const w = t.getBBox().width + 20, x = n.x + n.w - w + 8, y = n.y - 11;
+      t.setAttribute('x', x + 10); t.setAttribute('y', y + 15);
       tg.insertBefore(el('rect', { x, y, width: w, height: 21, rx: 3 }, tg), t);
     }
   }
@@ -375,7 +378,8 @@ function show(i) {
 STEPS.forEach((s, i) => {
   const b = document.createElement('button');
   b.type = 'button'; b.setAttribute('role', 'tab');
-  b.innerHTML = `<small>${i + 1}</small>${s.title}`;
+  b.textContent = s.tab;
+  b.title = s.title;
   b.onclick = () => show(i);
   $('steps').appendChild(b);
 });
