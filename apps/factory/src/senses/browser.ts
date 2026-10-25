@@ -13,13 +13,15 @@
  * Asked to (`device`), it also says, on each check's observation, what the pass's pages have left on the device by the
  * end of the check (a cookie, local or session storage, IndexedDB, Cache Storage or a service worker) and which other
  * origins the check's pages asked. The gates ask, to fail a change that starts to keep anything on a visitor's
- * device or to send them elsewhere (`senses/observe.ts`); the senses that look after the live app do not.
+ * device or to send them elsewhere (`senses/observe.ts`); the senses that look after the live app do not. The one
+ * thing allowed is the app's preview cookie, once a check of the pass has asked for a preview (`preview`), and only as
+ * its contract says (`senses/device.ts`).
  */
 import type { ArtifactRef, Evidence } from '@software-factory/events';
 import type { ArtifactStore } from '@software-factory/store';
 import { type Browser, type BrowserContext, chromium, type Page, type Request, type Response } from 'playwright';
 import { capture } from '../capture.ts';
-import { keptOnDevice } from './device.ts';
+import { FLAG_NAME, onDevice } from './device.ts';
 import { evidenceOf, pathOf, type RequestHeaders } from './http.ts';
 import { type Device, type Finding, Found, type Observation, type Sense } from './types.ts';
 
@@ -32,6 +34,11 @@ export interface CheckContext<Shared> {
   shared: Shared;
   /** What the check's own requests to the app send besides the usual, as the page's do. */
   headers?: RequestHeaders | undefined;
+  /**
+   * Asks the app to preview `flag`, as the console's "Preview it" link does: opens `path` with `?preview=<flag>` on
+   * the check's page. The one way a check asks, so the pass knows to allow the preview cookie from then on.
+   */
+  preview(flag: string, path?: string): Promise<void>;
 }
 
 export interface BrowserCheck<Shared> {
@@ -95,11 +102,13 @@ export class BrowserSense<Shared> implements Sense {
   async pass(version: string, skip: ReadonlySet<string> = new Set()): Promise<Observation[]> {
     const context = await this.newContext(this.options.headers);
     const shared = this.options.shared();
+    // The flags the pass's checks have asked to preview: the context is the pass's, and so is its preview cookie.
+    const previewed = new Set<string>();
     const observations: Observation[] = [];
     try {
       for (const check of this.options.checks) {
         if (skip.has(check.id)) continue;
-        observations.push(...(await this.look(check, context, version, shared)));
+        observations.push(...(await this.look(check, context, version, shared, previewed)));
       }
     } finally {
       await context.close();
@@ -125,15 +134,26 @@ export class BrowserSense<Shared> implements Sense {
     context: BrowserContext,
     version: string,
     shared: Shared,
+    previewed: Set<string>,
   ): Promise<Observation[]> {
     const { app, headers } = this.options;
+    const preview = async (flag: string, path = '/') => {
+      if (!FLAG_NAME.test(flag)) throw new Error(`${flag} is not a flag's name`);
+      previewed.add(flag);
+      const url = new URL(path, app);
+      url.searchParams.set('preview', flag);
+      await page.goto(url.href);
+    };
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
     const watch = watching(page, new URL(app).origin);
     let finding: Finding | null = null;
     let trouble: string | undefined;
     try {
-      finding = await within(this.options.timeout ?? 120_000, check.run({ app, version, page, shared, headers }));
+      finding = await within(
+        this.options.timeout ?? 120_000,
+        check.run({ app, version, page, shared, headers, preview }),
+      );
     } catch (error) {
       if (error instanceof Found) finding = error.finding;
       else trouble = (error instanceof Error ? error.message : String(error)).split('\n')[0];
@@ -144,14 +164,14 @@ export class BrowserSense<Shared> implements Sense {
     // a page whose script never yields would hold an evaluation for ever.
     let device: Device | undefined;
     if (this.options.device) {
-      const onDevice = await within(10_000, keptOnDevice(context, page)).catch(
+      const read = await within(10_000, onDevice(context, page, { app, previewed })).catch(
         (error) =>
           `could not read what the pages left on the device: ${error instanceof Error ? error.message : error}`,
       );
       device =
-        typeof onDevice === 'string'
-          ? { route: check.route, kept: [], asked, trouble: onDevice }
-          : { route: check.route, kept: onDevice, asked };
+        typeof read === 'string'
+          ? { route: check.route, kept: [], allowed: [], asked, trouble: read }
+          : { route: check.route, ...read, asked };
     }
     const route = check.route;
     const [error] = serverErrors;

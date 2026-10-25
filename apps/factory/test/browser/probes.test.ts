@@ -14,7 +14,7 @@ import { type Browser, chromium } from 'playwright';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PROBES } from '../../src/probes/index.ts';
 import { Shop } from '../../src/probes/site.ts';
-import { BrowserSense } from '../../src/senses/browser.ts';
+import { type BrowserCheck, BrowserSense } from '../../src/senses/browser.ts';
 import { observeApp } from '../../src/senses/observe.ts';
 import type { Observation } from '../../src/senses/types.ts';
 import { type Fault, startShop } from './shop.ts';
@@ -37,10 +37,15 @@ afterAll(() => browser?.close());
  * Runs the probes whose names are given (all of them if none are) against a shop with these faults, saying what each
  * left on the device when asked to.
  */
-async function observe(faults: Fault[], only: string[] = [], device = false): Promise<Observation[]> {
+async function observe(
+  faults: Fault[],
+  only: string[] = [],
+  device = false,
+  before: BrowserCheck<Shop>[] = [],
+): Promise<Observation[]> {
   const shop = await startShop(...faults);
   try {
-    const checks = PROBES.filter((check) => !only.length || only.includes(check.id));
+    const checks = [...before, ...PROBES.filter((check) => !only.length || only.includes(check.id))];
     const sense = new BrowserSense({
       name: 'probe',
       app: shop.url,
@@ -266,4 +271,52 @@ describe('what the pages leave on the device, for the gates', () => {
       }
     }
   }, 120_000);
+
+  describe('the preview cookie', () => {
+    /** A check that asks for a preview, as the opt-in stage's probe will, and finds nothing wrong. */
+    const asking = (flag: string): BrowserCheck<Shop> => ({
+      id: `previews-${flag}`,
+      route: '/',
+      run: async ({ preview }) => {
+        await preview(flag);
+        return null;
+      },
+    });
+    const HOME = ['home-leads-to-the-catalogue'];
+    const onDevice = (observations: Observation[]) =>
+      observations.filter((o) => o.device).map((o) => [o.check, o.device?.kept, o.device?.allowed]);
+
+    it('is allowed, and nothing beside it, once a check asks for a preview, for every check after', async () => {
+      expect(onDevice(await observe([], HOME, true, [asking('dark-mode')]))).toEqual([
+        ['previews-dark-mode', [], ['cookie preview']],
+        ['home-leads-to-the-catalogue', [], ['cookie preview']],
+      ]);
+    }, 60_000);
+
+    it('is kept like any cookie when nobody asked for a preview', async () => {
+      expect(onDevice(await observe(['preview-unasked'], HOME, true))).toEqual([
+        ['home-leads-to-the-catalogue', ['cookie preview'], []],
+      ]);
+    }, 60_000);
+
+    it('allows nothing else beside it', async () => {
+      // The preview opens the home page, which keeps its own cookie too.
+      expect(onDevice(await observe(['keeps-cookie'], HOME, true, [asking('dark-mode')]))).toEqual([
+        ['previews-dark-mode', ['cookie visit'], ['cookie preview']],
+        ['home-leads-to-the-catalogue', ['cookie visit'], ['cookie preview']],
+      ]);
+    }, 60_000);
+
+    it('is kept, with what is wrong, when it breaks its contract or names a flag nobody asked for', async () => {
+      expect(onDevice(await observe(['preview-loose'], [], true, [asking('dark-mode')])).at(0)).toEqual([
+        'previews-dark-mode',
+        ['cookie preview (readable by a script; lasting 8760 hours, longer than a day)'],
+        [],
+      ]);
+      expect(onDevice(await observe(['preview-unasked'], HOME, true, [asking('dark-mode')]))).toEqual([
+        ['previews-dark-mode', [], ['cookie preview']],
+        ['home-leads-to-the-catalogue', ['cookie preview (naming big-buttons, which was not asked for)'], []],
+      ]);
+    }, 60_000);
+  });
 });

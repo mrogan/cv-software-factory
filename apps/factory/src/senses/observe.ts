@@ -7,7 +7,9 @@
  * Asked to (`device`, the gates), each probe also answers `<probe>/device`: whether anything is on the device by the end
  * of it, a cookie or anything a script stores, or its pages asked another origin. The app keeps nothing on a visitor's
  * device and loads nothing from anywhere else, so the gate fails a change that starts to, as it fails any check that
- * passes on the base and fails on the change. Verify and the probes that look after the live app do not ask.
+ * passes on the base and fails on the change. The one exception is the app's preview cookie, kept to its contract,
+ * once a check of the pass asked for a preview (`senses/device.ts`): without the ask, it fails like any other. Verify
+ * and the probes that look after the live app do not ask.
  */
 import type { ArtifactStore } from '@software-factory/store';
 import { Crawler } from '../crawler/index.ts';

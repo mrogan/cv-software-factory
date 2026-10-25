@@ -27,7 +27,7 @@ Each is made of generic checks, compared with the app's own API where it has one
 
 They look at the stable Service, `website`, so a canary is judged by its analysis, not by the senses ([progressive delivery](PROGRESSIVE-DELIVERY.md)).
 
-Run by the gates (the [journeys gate](CI-PIPELINE.md#journeys) and a canary's journeys), each probe also says what is on the device by its end and which other origins its pages asked, as `<probe>/device`; Verify and the sense runner's probes, which look after the live app, do not.
+Run by the gates (the [journeys gate](CI-PIPELINE.md#journeys) and a canary's journeys), each probe also says what is on the device by its end and which other origins its pages asked, as `<probe>/device`; Verify and the sense runner's probes, which look after the live app, do not. The check fails on anything kept, but the app's preview cookie once a check of the pass has asked for a preview, and then only as its [contract](FEATURE-FLAGS.md#the-preview-cookie) says (`senses/device.ts`); without the ask, the cookie fails it like any other.
 
 ### Not counted
 

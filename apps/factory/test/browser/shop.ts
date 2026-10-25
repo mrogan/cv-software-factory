@@ -38,7 +38,12 @@ export type Fault =
   | 'broken-image'
   | 'keeps-cookie'
   | 'keeps-storage'
-  | 'asks-elsewhere';
+  | 'asks-elsewhere'
+  | 'preview-unasked'
+  | 'preview-loose';
+
+/** The flags the shop knows, which `?preview=` may name, as the app's flags are those flagd knows. */
+const FLAGS = new Set(['dark-mode', 'big-buttons']);
 
 interface Item {
   slug: string;
@@ -126,6 +131,23 @@ export async function startShop(...faults: Fault[]): Promise<Shop> {
     const url = new URL(req.url ?? '/', 'http://shop.test');
     const path = url.pathname;
     const requested = Math.max(1, Number(url.searchParams.get('page')) || 1);
+
+    // `?preview=<flag>` on any page adds a flag the shop knows to its preview cookie, as the app's contract says
+    // (docs/COMPONENTS/FEATURE-FLAGS.md); `preview-loose` sets it readable by a script, for a year, and
+    // `preview-unasked` sets it on the home page for a flag nobody asked for.
+    const asked = url.searchParams.get('preview');
+    const unasked = has('preview-unasked') && path === '/' && 'big-buttons';
+    const flag = (asked !== null && FLAGS.has(asked) && asked) || unasked;
+    if (flag) {
+      const had = /(?:^|;\s*)preview=([^;]*)/.exec(req.headers.cookie ?? '')?.[1]?.split('.') ?? [];
+      const names = [...new Set([...had.filter((name) => FLAGS.has(name)), flag])].join('.');
+      res.setHeader(
+        'set-cookie',
+        has('preview-loose')
+          ? `preview=${names}; Path=/; Max-Age=31536000; SameSite=Lax`
+          : `preview=${names}; Path=/; Max-Age=86400; HttpOnly; SameSite=Lax`,
+      );
+    }
 
     if (path === '/version') return send(res, 200, JSON.stringify({ commit: COMMIT }), 'application/json');
     if (path === '/assets/item.svg') {
