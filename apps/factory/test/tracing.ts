@@ -21,7 +21,7 @@ export function recordSpans() {
   if (!undici) throw new Error('The workers do not instrument fetch.');
   if (!all.some((each) => each instanceof HttpInstrumentation)) throw new Error('The workers do not instrument http.');
   beforeAll(() => {
-    // What NodeSDK registers in the workers: context kept across awaits, and W3C headers on requests out.
+    // What NodeSDK registers in the workers by default: context kept across awaits, and W3C headers on requests out.
     context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
     propagation.setGlobalPropagator(
       new CompositePropagator({ propagators: [new W3CTraceContextPropagator(), new W3CBaggagePropagator()] }),
