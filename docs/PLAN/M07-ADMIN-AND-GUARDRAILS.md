@@ -8,7 +8,7 @@ He asks for an improvement with the "+" on Plan. It goes down the same line as a
 
 Every guardrail is proved by a test or by a drill that runs from one command, and its refusals are shown as prominently as successes. Autonomy does what the spec says: under Guarded, an untagged change merges and ships with nobody touching it, and a risk-tagged one waits for Martin. The tags come from deterministic checks on the diff, and the decision to merge is a required check, never a model's word.
 
-The app is kept patched. A security release or a fixable vulnerability in what the app runs, and each routine update, becomes a work item of kind dependency update and goes down the same line, a security one ahead of all other waiting work. A fix its own scans show removes a Critical vulnerability merges and ships with nobody touching it. Everything the factory and the app build or run, lockfiles, images and the platform alike, is scanned every day, and each finding has a deadline by its severity (ADR 0013). A finding in the factory's own opens an issue and notifies Martin.
+The app is kept patched. A security release or a fixable vulnerability in what the app runs, and each routine update, becomes a work item of kind dependency update and goes down the same line, a security one ahead of all other waiting work. A fix its own scans show removes a Critical vulnerability merges and ships with nobody touching it. Everything the factory and the app build or run, lockfiles, images and the platform alike, is scanned every day, and each finding has a deadline by its severity (ADR 0013). A finding in the factory's lockfile or images, or in the platform's, opens an issue and notifies Martin.
 
 The milestone is built in four parts, each by its own orchestrating session:
 
