@@ -26,6 +26,7 @@ The app deploys from its own repository through its own Argo CD project, which a
 ## Syncing
 
 - **Weights.** Argo CD leaves the traffic split's weights to Argo Rollouts ([progressive delivery](PROGRESSIVE-DELIVERY.md)).
+- **Flags.** Root makes `flags`, the one FeatureFlag, from Git with no flags, before flagd starts, and leaves its flags to Martin: it neither reports them as drift nor puts them back ([feature flags](FEATURE-FLAGS.md)). It never prunes `flags`, nor deletes it with root. Root's own definition (`deploy/argocd/root.yaml`), which says so, is the one Application `make up` applies, so a change to it reaches the cluster at the next `make up`, not when it merges.
 - **Replacements.** Argo CD removes what a change replaces only once its replacement is healthy.
 - **Waves.** Root rolls each child Application's health into its own, so a later sync wave waits for an earlier one.
 - **The website is in the last wave,** so a canary (Suspended) or a rollback (Degraded) holds back no change to the factory.

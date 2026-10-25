@@ -15,7 +15,13 @@
 #                   verified, against their own repository's identity
 #   misplaced       ours, on GHCR, but not an image the namespace runs, so refused before its signature is looked
 #                   at: in `website` the factory's own image (only its browser runs there), in `scoreboard` the
-#                   factory's browser (only the factory's own image runs there), elsewhere the app's
+#                   factory's browser (only the factory's own image runs there), in `flagd` the factory's own (no
+#                   image of ours runs there), elsewhere the app's
+#   other-digest    in `flagd` alone, flagd's own image at an earlier release, by its digest: its copy admits the one
+#                   digest it names, and no other from flagd's repository
+#
+# `flagd` has no `unsigned` case: no image of ours runs there, so one is refused as misplaced before its signature is
+# looked at.
 set -euo pipefail
 
 context="${KUBE_CONTEXT:-k3d-software-factory}"
@@ -25,6 +31,7 @@ factory=ghcr.io/mrogan/cv-software-factory/factory@sha256:96ab7beb79ac69cc54e1cb
 website=ghcr.io/mrogan/cv-worlds-worst-website@sha256:8bc00e120b41cd55fe69e9a8c91d31882e57a3cfb01fc3e3a3060b34439dfe97
 browser=ghcr.io/mrogan/cv-software-factory/factory-browser@sha256:92e361d5acc472f26afd99d4b55fd78586284cdfc1e6cbeb1253db420838f2f9
 other=ghcr.io/sigstore/timestamp-server@sha256:8637f0482ed1ecb229b44ebd0afc760f6f57114a4d53c6953cf65c00218896b2
+flagd=ghcr.io/open-feature/flagd:v0.16.3@sha256:a11ae82ec6e40e89edae4327392a1e4ffc03e211f1b724879bb35b2e4f271bb3
 
 try() { # namespace case image: one JSON line, what was asked and what the cluster answered
   local ns=$1 kind=$2 image=$3 answer outcome
@@ -56,11 +63,15 @@ EOF
 }
 
 {
-  for ns in factory runners website scoreboard; do
-    if [ "$ns" = website ]; then try "$ns" unsigned "$website"; else try "$ns" unsigned "$factory"; fi
+  for ns in factory runners website scoreboard flagd; do
+    case "$ns" in
+      website) try "$ns" unsigned "$website" ;;
+      flagd) try "$ns" other-digest "$flagd" ;;
+      *) try "$ns" unsigned "$factory" ;;
+    esac
     try "$ns" other-identity "$other"
     case "$ns" in
-      website) try "$ns" misplaced "$factory" ;;
+      website | flagd) try "$ns" misplaced "$factory" ;;
       scoreboard) try "$ns" misplaced "$browser" ;;
       *) try "$ns" misplaced "$website" ;;
     esac

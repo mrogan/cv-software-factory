@@ -1,0 +1,155 @@
+# flagd, which answers for the app's feature flags. It watches one FeatureFlag, `flags` (flags.yaml), through the
+# Kubernetes API, and serves the flag set on its sync port to the app, whose OpenFeature provider keeps a copy in
+# process and evaluates each request itself, so no request waits on flagd. In a namespace of its own, not in or beside
+# the app, so the app's pods hold no token and no route to the API, and nothing the app's repository may write in
+# `website` can touch flagd, its account or its state.
+#
+# What it reads, at v0.17.0 (core/pkg/sync/kubernetes/kubernetes_sync.go): an informer on `featureflags` in its own
+# namespace, which lists and watches the whole namespace with no selector, and a `get` of `flags` by name when the
+# informer's cache misses. So its Role grants get, list and watch on `featureflags` in `flagd`, with no names, and
+# writes nothing; admission keeps `flags` the only one there (deploy/base/admission/flagd/flags.yaml).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flagd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flagd-reads-flags
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+rules:
+  - apiGroups: [core.openfeature.dev]
+    resources: [featureflags]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flagd-reads-flags
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: flagd-reads-flags
+subjects:
+  - kind: ServiceAccount
+    name: flagd
+    namespace: flagd
+---
+# Its readiness, as v0.17.0 has it (flagd/pkg/runtime/runtime.go and the kubernetes sync above): `/readyz` on the
+# management port answers 200 once the first flag set it read is in its evaluator and its watch has started, and 412
+# before. flagd reads `flags` before it serves anything, and exits if it cannot: the resource missing, its Role or
+# binding missing, or the API out of reach. So a flagd that starts without its watch restarts until it has one, and is
+# never ready, and a first flag set its evaluator refuses leaves it unready. Once ready, it stays ready: the sync
+# marks itself ready once and never again unready, its informer retries a broken watch (its binding gone, the API out
+# of reach) for ever, and a later flag set its evaluator refuses is logged and dropped, while flagd serves the last
+# flags it took.
+#
+# Telemetry: its logs are its container's, as JSON, which the pod log collector reads; its traces and metrics go to the
+# collector over OTLP, which flagd's exporters take from the standard variables.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flagd
+  labels: &labels
+    app.kubernetes.io/name: flagd
+    app.kubernetes.io/part-of: software-factory
+  annotations:
+    # After `flags` (wave 0), which it reads as it starts, and with the factory's workers, so a flagd that is not ready
+    # holds back only the app (wave 3), whose flags it serves.
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: flagd
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      serviceAccountName: flagd
+      # Its token, for the watch: the only pod in `flagd`, and the only one that holds one.
+      automountServiceAccountToken: true
+      securityContext:
+        # `nonroot`, the distroless image's user.
+        runAsUser: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: flagd
+          # Named by digest in `flagd-images` (deploy/base/admission/flagd), which deploy/base/kustomization.yaml copies
+          # from here: this is its one pin.
+          image: ghcr.io/open-feature/flagd:v0.17.0@sha256:c9f21380dfe51d3ad662a116bc350c7692dead7a8d1e640aa0f6b40cd3d966df
+          args:
+            - start
+            - --uri=core.openfeature.dev/flagd/flags
+            - --log-format=json
+          ports:
+            # The flag sync service, which the app's in-process provider streams the flag set from.
+            - name: sync
+              containerPort: 8015
+            # Its health and readiness, and its metrics.
+            - name: management
+              containerPort: 8014
+          env:
+            - name: OTEL_TRACES_EXPORTER
+              value: otlp
+            - name: OTEL_METRICS_EXPORTER
+              value: otlp
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector.telemetry:4318
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: http/protobuf
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.namespace=software-factory
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: management
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: management
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+# The two ports the app may reach (network-policies.yaml), and no other of flagd's: not its evaluation or OFREP ports,
+# which listen in the pod and are fenced.
+apiVersion: v1
+kind: Service
+metadata:
+  name: flagd
+  labels:
+    app.kubernetes.io/name: flagd
+    app.kubernetes.io/part-of: software-factory
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  selector:
+    app.kubernetes.io/name: flagd
+  ports:
+    - name: sync
+      port: 8015
+      targetPort: sync
+      appProtocol: grpc
+    - name: management
+      port: 8014
+      targetPort: management

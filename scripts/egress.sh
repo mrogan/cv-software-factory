@@ -611,8 +611,8 @@ expect "the scoreboard cannot reach a public address" scoreboard:egress-scoreboa
 # Who may read the scoreboard's Secrets, or reach them another way: start a pod or a workload beside them that would
 # mount them, change one that runs there, run a command in the scoreboard's pod or add a debug container to it, or
 # give itself any of these rights (a role or binding there or cluster-wide, `bind` or `escalate`, impersonation). Every
-# service account in the namespaces the factory, the app, the telemetry, the pod log collector, Argo Rollouts and Kyverno
-# run in is asked of the API server, the scoreboard's own included.
+# service account in the namespaces the factory, the app, flagd, the telemetry, the pod log collector, Argo Rollouts and
+# Kyverno run in is asked of the API server, the scoreboard's own included.
 #
 # Argo Rollouts' controller runs the app's canaries from a cluster-wide install, whose role reads Secrets everywhere,
 # for its analyses' credentials, and makes and changes ReplicaSets, Jobs and pods' templates wherever a Rollout is. It
@@ -639,7 +639,7 @@ rollouts_needs=" get secrets | list secrets | watch secrets | update pods | crea
   update jobs.batch "
 echo "The scoreboard's Secrets:"
 asks=()
-for ns in factory runners website scoreboard telemetry pod-logs argo-rollouts kyverno; do
+for ns in factory runners website scoreboard flagd telemetry pod-logs argo-rollouts kyverno; do
   for account in $(kubectl --context "$context" -n "$ns" get serviceaccounts -o jsonpath='{.items[*].metadata.name}'); do
     for right in "${rights[@]}"; do
       if [ "$ns/$account" = argo-rollouts/argo-rollouts ] && [[ "$rollouts_needs" == *" $right "* ]]; then continue; fi

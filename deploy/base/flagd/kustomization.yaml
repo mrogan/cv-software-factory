@@ -1,0 +1,14 @@
+# Feature flags' platform: flagd, alone in `flagd`, and the one FeatureFlag it reads, `flags`, which holds the state
+# of every flag. Only the FeatureFlag kind's definition is installed, not OpenFeature's operator. flagd's image is
+# admitted by digest in a copy of admission of its own, `flagd-images` (deploy/base/admission/flagd), which admits
+# nothing else, so `website-images` still admits no third-party image.
+#
+# In order: the definition and the fences with the namespace (wave -1), `flags` (wave 0), then flagd (wave 2).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: flagd
+resources:
+  - featureflag-definition.yaml
+  - network-policies.yaml
+  - flags.yaml
+  - flagd.yaml

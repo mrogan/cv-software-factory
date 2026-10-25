@@ -1,0 +1,103 @@
+# The FeatureFlag kind's definition, and nothing else of OpenFeature's operator: flagd reads the one FeatureFlag,
+# `flags` (flags.yaml), through the Kubernetes API, and no controller acts on it. Vendored from
+# open-feature/open-feature-operator at api/v0.2.47 (3d77eda), the API module flagd v0.17.0 builds against, from
+# config/crd/bases/core.openfeature.dev_featureflags.yaml. A new flagd that builds against a newer module brings this
+# file with it. Unchanged but for its sync wave: with the namespaces (wave -1), so the kind exists before `flags` is
+# made (wave 0).
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: featureflags.core.openfeature.dev
+spec:
+  group: core.openfeature.dev
+  names:
+    kind: FeatureFlag
+    listKind: FeatureFlagList
+    plural: featureflags
+    shortNames:
+    - ff
+    singular: featureflag
+  scope: Namespaced
+  versions:
+  - name: v1beta1
+    schema:
+      openAPIV3Schema:
+        description: FeatureFlag is the Schema for the featureflags API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: FeatureFlagSpec defines the desired state of FeatureFlag
+            properties:
+              flagSpec:
+                description: FlagSpec is the structured representation of the feature
+                  flag specification
+                properties:
+                  $evaluators:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+                  flags:
+                    additionalProperties:
+                      properties:
+                        defaultVariant:
+                          type: string
+                        metadata:
+                          description: |-
+                            Metadata holds optional per-flag metadata.
+                            Additional metadata keys are preserved to support flagd metadata inheritance.
+                          type: object
+                          x-kubernetes-preserve-unknown-fields: true
+                        state:
+                          enum:
+                          - ENABLED
+                          - DISABLED
+                          type: string
+                        targeting:
+                          description: Targeting is the json targeting rule
+                          type: object
+                          x-kubernetes-preserve-unknown-fields: true
+                        variants:
+                          type: object
+                          x-kubernetes-preserve-unknown-fields: true
+                      required:
+                      - defaultVariant
+                      - state
+                      - variants
+                      type: object
+                    type: object
+                  metadata:
+                    description: |-
+                      Metadata holds optional flag-set level metadata.
+                      Additional metadata keys are preserved to support flagd metadata inheritance.
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+                required:
+                - flags
+                type: object
+            type: object
+          status:
+            description: FeatureFlagStatus defines the observed state of FeatureFlag
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

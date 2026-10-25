@@ -112,6 +112,20 @@ updates:
         patterns: [node]
         group-by: dependency-name
 
+  # flagd (deploy/base/flagd), from OpenFeature's GHCR, at a release at least two weeks old: its pin is its Deployment's
+  # alone, which `flagd-images` admits (deploy/base/admission/flagd). The FeatureFlag kind's definition beside it is
+  # vendored at the version of OpenFeature's operator API that flagd builds against, so a release that moves that moves
+  # the definition too, by hand.
+  - package-ecosystem: docker
+    directory: /deploy/base/flagd
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    commit-message:
+      prefix: chore
+      include: scope
+
   - package-ecosystem: devcontainers
     directory: /
     schedule:

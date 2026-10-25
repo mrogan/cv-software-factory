@@ -2,18 +2,19 @@
 
 ## Decision
 
-Kyverno, installed by Argo CD before anything it guards, admits a pod in `factory`, `runners`, `website` or `scoreboard` only if each of its images, its init and debug containers' and its image volumes' included, is referenced by digest and is either
+Kyverno, installed by Argo CD before anything it guards, admits a pod in `factory`, `runners`, `website`, `scoreboard` or `flagd` only if each of its images, its init and debug containers' and its image volumes' included, is referenced by digest and is either
 
 - ours, on GHCR, from a repository its namespace runs, signed by `build.yml` on `main` of the repository that builds it; or
-- one of the few third-party images its namespace's policy names by exact digest, each with its reason. Today those are Postgres and its exporter, in `factory`, and nothing in `website` or `scoreboard`.
+- one of the few third-party images its namespace's policy names by exact digest, each with its reason. Today those are Postgres and its exporter, in `factory`, flagd, in `flagd`, and nothing in `website` or `scoreboard`.
 
 The signer is compared whole: the issuer is GitHub Actions' OIDC issuer, and the identity is `https://github.com/<repository>/.github/workflows/build.yml@refs/heads/main`, never a pattern. The factory's images must carry the factory's signature, the app's the app's.
 
-The rule is one `ImageValidatingPolicy` (`deploy/base/admission/images`), in three copies, each admitting only the images its namespaces run:
+The rule is one `ImageValidatingPolicy` (`deploy/base/admission/images`), in four copies, each admitting only the images its namespaces run:
 
 - `factory-images`, for `factory` and `runners`: the factory's four images (`factory`, `factory-browser`, `factory-runner` and `console`), signed by the factory's `build.yml`, and Postgres and its exporter by digest. None of the app's.
 - `website-images`, for `website`: the app's image, signed by the app's `build.yml`, and of the factory's only `factory-browser`, for the analysis Job that walks a canary's journeys. No other registry.
 - `scoreboard-images`, for `scoreboard`, where the answer key is: the factory's own image, which the scoreboard runs, and nothing else.
+- `flagd-images`, for `flagd`: flagd's image, by digest, and none of ours. A copy of its own, so `website-images` still admits no image from another registry, and apart from `factory-images`, which is switched to Audit.
 
 An image of ours that its namespace does not run is refused before its signature is looked at, with a check of its own.
 

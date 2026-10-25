@@ -23,6 +23,9 @@ flowchart LR
   subgraph website
     app[The app]
   end
+  subgraph flagd
+    flagdpod[flagd]
+  end
   subgraph telemetry
     alertmanager[Alertmanager]
   end
@@ -37,6 +40,7 @@ flowchart LR
   line -- verify port --> probes
   triage -- page reader --> probes
   probes --> app
+  app -- sync and health ports --> flagdpod
 ```
 
 ## `factory`
@@ -78,6 +82,13 @@ Everything is denied, then:
 
 The controller reaches DNS, the Kubernetes API and Prometheus, and only Prometheus calls it, to scrape its metrics on 8090 ([telemetry](TELEMETRY.md#the-platforms-own-metrics)).
 
+## `flagd`
+
+Everything is denied, then:
+
+- the app's pods may reach flagd's sync port (8015), from which their in-process provider streams the flag set, and its health port (8014), and nothing else of it: not its evaluation or OFREP ports, which listen in the pod;
+- flagd may reach the Kubernetes API, for its watch of `flags`, DNS, and the collector's OTLP port ([feature flags](FEATURE-FLAGS.md)).
+
 ## `pod-logs`
 
 The pod log collector reaches Loki's intake and DNS, and only Prometheus calls it, to scrape its metrics on 8888 ([telemetry](TELEMETRY.md#the-platforms-own-metrics)). It reads the runners' logs from the node's files, so their fence stays shut.
@@ -103,7 +114,7 @@ The policy comes from this repository, since the app's AppProject cannot make on
 
 | Pod | Reaches | Reached by |
 |---|---|---|
-| The app's pods, whose code agents write | DNS and the collector's OTLP port | Traefik, the probes, the crawler and the canary's journeys Job, on 8080 only |
+| The app's pods, whose code agents write | DNS, the collector's OTLP port, and flagd's sync and health ports | Traefik, the probes, the crawler and the canary's journeys Job, on 8080 only |
 | The journeys Job | DNS and the app's pods, and nothing else | |
 
 The scoreboard's own policy is on [its page](SCOREBOARD.md#where-it-runs).
