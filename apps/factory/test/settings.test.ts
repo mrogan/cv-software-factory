@@ -4,6 +4,7 @@
  * (`src/settings.ts`), which takes only what his roles appended, and only what policy allows of it.
  */
 import { issueJobToken } from '@software-factory/store';
+import type { Sql } from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../packages/store/test/database.ts';
 import { EFFORTS, MODEL_AGENTS, MODELS } from '../../../policy/models.ts';
@@ -24,6 +25,21 @@ const cost = (model: string) => {
   if (!price) throw new Error(`${model} has no price`);
   return (price.longPrompt?.times ?? 1) * (price.outputPerMillion * 1_000_000 + price.inputPerMillion);
 };
+
+/**
+ * The store's own clock now, to the millisecond a `Date` holds, rounded so it cannot race an event's time: down for an
+ * instant before every event appended after it, up for one after every event appended before it. The host's clock will
+ * not do: the store's container can run a few milliseconds ahead of it, and a `Date` drops the store's microseconds.
+ */
+async function storeClock(sql: Sql, round: 'down' | 'up'): Promise<Date> {
+  const [row] = await sql<{ at: Date }[]>`
+    select date_trunc('milliseconds', t)
+           + case when ${round === 'up'} and t > date_trunc('milliseconds', t) then interval '1 millisecond'
+                  else interval '0' end as at
+    from (select clock_timestamp() as t) c`;
+  if (!row) throw new Error('The store has no clock');
+  return row.at;
+}
 
 describe('the bounds', () => {
   it('offer Claude Haiku, Sonnet and Opus on every profile, and Qwen where the profile has a local model', () => {
@@ -332,13 +348,14 @@ describe('the factory reading the settings', () => {
       );
       expect((await reader.now()).agents.coder.model).toBe('claude-opus-5-5');
       expect(await reader.forJob('no-such-job')).toBeUndefined();
-      // A soak's spend is judged against the highest cap on a work item in force since it began.
-      const since = new Date();
+      // A soak's spend is judged against the highest cap on a work item in force since it began. Each instant is the
+      // store's, which stamped the events, so none can fall on the wrong side of one.
+      const since = await storeClock(db.as.line, 'down');
       expect(await highestWorkItemCap(db.as.line, 'local', since)).toBe(1);
       await appendSettings(db.admin, settingsPayload({ caps: { workItemUsd: 4 } }));
       await appendSettings(db.admin, settingsPayload({ caps: { workItemUsd: 2 } }));
       expect(await highestWorkItemCap(db.as.line, 'local', since)).toBe(4);
-      expect(await highestWorkItemCap(db.as.line, 'local', new Date())).toBe(2);
+      expect(await highestWorkItemCap(db.as.line, 'local', await storeClock(db.as.line, 'up'))).toBe(2);
       expect(await latestChosen(db.as.line, new Date(0))).toBeUndefined();
 
       // The line records the effort the gateway sent, read the same way; none for a local model, or under ALL_LOCAL.
