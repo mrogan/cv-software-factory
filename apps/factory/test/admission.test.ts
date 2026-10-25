@@ -121,6 +121,8 @@ describe('admission control', () => {
       REPOSITORIES.map((repo) => ({ issuer: GITHUB_ACTIONS, subject: pipeline(repo).identity })),
     );
     expect(spec.attestors.map((a) => a.name)).toEqual(['factory', 'website']);
+    // One owner holds both repositories, whose GHCR the policy takes for ours.
+    expect(REPOSITORIES.map((repo) => `ghcr.io/${repo.split('/')[0]}/`)).toEqual([OURS, OURS]);
     // The copies set the first three variables by position.
     expect(spec.variables.slice(0, 3).map((v) => v.name)).toEqual([
       'allowed',

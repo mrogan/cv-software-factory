@@ -15,7 +15,10 @@ import {
   deployBody,
   deployedImage,
   deployWatch,
+  newerBuild,
   type Pin,
+  PinFileError,
+  repin,
   SIGNING_GRACE_MS,
   scratchBranch,
   withCarries,
@@ -860,5 +863,35 @@ describe('the images a repository deploys', () => {
     ]) {
       expect(() => deployedImage(repo, image)).toThrow(DeployRefused);
     }
+  });
+
+  it('moves only the digests of a pin file, the layout kept', () => {
+    expect(
+      repin(FACTORY_PIN, {
+        commit: commit('b'),
+        digests: [
+          { name: 'factory', image: 'the-roganator/cv-software-factory/factory', digest: digest('7') },
+          { name: 'factory-browser', image: 'the-roganator/cv-software-factory/factory-browser', digest: digest('8') },
+        ],
+      }),
+    ).toBe(
+      pinFile([
+        ['factory', digest('7'), 'the-roganator/cv-software-factory/factory'],
+        ['factory-browser', digest('8'), 'the-roganator/cv-software-factory/factory-browser'],
+      ]),
+    );
+  });
+
+  it('refuses a pin file that names an image under another owner, rather than look it up or move it there', async () => {
+    const elsewhere = pinFile([['console', digest('3'), 'mrogan/cv-software-factory/console']]);
+    expect(() =>
+      repin(elsewhere, {
+        commit: commit('c'),
+        digests: [{ name: 'console', image: 'the-roganator/cv-software-factory/console', digest: digest('9') }],
+      }),
+    ).toThrow(PinFileError);
+    await expect(newerBuild({ registry: ghcr() }, CONSOLE_PIN, elsewhere, [{ sha: commit('c') }])).rejects.toThrow(
+      PinFileError,
+    );
   });
 });

@@ -293,7 +293,7 @@ export function withCarries(body: string, section: string): string {
 const PIN_FILE = z
   .object({
     images: z
-      .array(z.object({ name: z.string(), digest: z.string().optional() }))
+      .array(z.object({ name: z.string(), digest: z.string().optional(), newName: z.string().optional() }))
       .nullable()
       .optional(),
   })
@@ -304,11 +304,29 @@ export class PinFileError extends Error {
   override name = 'PinFileError';
 }
 
-/** The digests a pin file holds, by kustomize name. */
-export function pinned(file: string): Map<string, string> {
+function pinEntries(file: string) {
   const parsed = PIN_FILE.safeParse(parse(file));
   if (!parsed.success) throw new PinFileError('The pin file is not a kustomization with images.');
-  return new Map((parsed.data?.images ?? []).flatMap((i) => (i.digest ? [[i.name, i.digest] as const] : [])));
+  return parsed.data?.images ?? [];
+}
+
+/** The digests a pin file holds, by kustomize name. */
+export function pinned(file: string): Map<string, string> {
+  return new Map(pinEntries(file).flatMap((i) => (i.digest ? [[i.name, i.digest] as const] : [])));
+}
+
+/**
+ * Refuses a pin file that names any of these images anywhere but where the deploy has it in GHCR: a digest looked up
+ * or written under another name would be another image's, or none.
+ */
+export function expectNames(file: string, images: readonly { name: string; image: string }[]): void {
+  const entries = pinEntries(file);
+  for (const { name, image } of images) {
+    const entry = entries.find((e) => e.name === name);
+    if (entry && entry.newName !== `ghcr.io/${image}`) {
+      throw new PinFileError(`The pin file names ${name}'s image ${entry.newName ?? 'nowhere'}, not ghcr.io/${image}.`);
+    }
+  }
 }
 
 /**
@@ -316,6 +334,7 @@ export function pinned(file: string): Map<string, string> {
  * `kustomize edit` gave it, so the diff is the digests and nothing else.
  */
 export function repin(file: string, proposal: Proposal): string {
+  expectNames(file, proposal.digests);
   const current = pinned(file);
   let next = file;
   for (const { name, digest } of proposal.digests) {
@@ -405,6 +424,7 @@ export async function newerBuild(
   pinFile: string,
   commits: readonly { sha: string }[],
 ): Promise<Proposal | undefined> {
+  expectNames(pinFile, pin.images);
   const pins = pinned(pinFile);
   const images = pin.images.filter((i) => pins.has(i.name));
   if (!images.length) return undefined;
