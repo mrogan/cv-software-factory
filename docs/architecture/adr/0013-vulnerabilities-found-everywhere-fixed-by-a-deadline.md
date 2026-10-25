@@ -13,15 +13,15 @@ The list of what is scanned is worked out from each repository, never kept by ha
 - **Each third-party image the manifests pin by digest:** Postgres, its exporter, the proxy's nginx, and flagd once it is deployed, from CI's copy in GHCR where `mirror.yml` keeps one, since Docker Hub limits anonymous pulls by address.
 - **The platform:**
   - each image the platform's charts run at the versions `deploy/` pins, rendered with our values: Argo CD, Argo Rollouts, Kyverno, Prometheus and Alertmanager, Grafana, Loki, Tempo and the collector;
-  - the k3s node image `deploy/k3d/cluster.yaml` pins, and the images that k3s release starts (Traefik and CoreDNS among them), from the release's own list of images.
+  - the k3s node image `deploy/k3d/cluster.yaml` pins, and the images that k3s release starts (Traefik and CoreDNS among them), from the release's own list of images, and the load balancer and tools images k3d starts beside it, at the version `mise.toml` pins.
 - **What CI runs beside its tokens:** each Dockerfile's build stages, and the images the workflows start (`scripts/ci-images.sh`'s, Playwright's among them).
 - **The Node binary** in each image, not only its packages. Task 28 proves the scan of an SBOM finds it; where an SBOM does not carry it, the image itself is scanned.
 
-Each source gives its own part of the list: the rendered manifests, the k3s release's list, the Dockerfiles and the workflows. Tests hold each part to its source. The list cannot see what it was not built from, so the check that is not circular is Part D's sense, which compares every image the cluster is running with the list. An item the scan cannot read is a finding in itself, reported apart from vulnerabilities, so nothing is left out quietly and a failed pull is not mistaken for one. The workflows' actions stay with Dependabot, which already sees them.
+Each source gives its own part of the list: the rendered manifests, the k3s release's list, k3d's version in `mise.toml`, the Dockerfiles and the workflows. Tests hold each part to its source. The list cannot see what it was not built from, so the check that is not circular is Part D's sense, which compares every image the cluster is running with the list. An item the scan cannot read is a finding in itself, reported apart from vulnerabilities, so nothing is left out quietly and a failed pull is not mistaken for one. The workflows' actions stay with Dependabot, which already sees them.
 
 ### How it is scanned
 
-- **One scanner, Trivy, pinned by digest,** as the app's image gate already pins it, so the gates, the daily scan and Part D's routing check agree on what a finding is and how severe it is.
+- **One scanner, Trivy, pinned by digest,** as the app's image gate already pins it, so the gates, the daily scan and Part D's routing check agree on what a finding is and how severe it is. The pin is kept in a file of this repository's that Dependabot's `docker` updates read, since it reads no workflow's `env`, so a new release of Trivy reaches a pull request as other images' do; it is always read from this repository at the commit the workflow runs from, never from a change or the app, so no pull request chooses its scanner; and a bump is held to Aqua's signature, its signer named whole.
 - **It reads the lockfiles itself.** GitHub's dependency graph does not read these pnpm lockfiles: it lists each `package.json`'s ranges and none of the packages they resolve to, so Dependabot's alerts and dependency review see direct dependencies alone. A test compares the packages the scanner reads with the ones `pnpm list` gives, and fails when they differ.
 - **A scan fails closed.** One that cannot read a lockfile or an SBOM, reach an image, or fetch the day's advisories fails, and is never read as clean. It pulls with the workflow's token, Trivy's advisory database included, and retries before it gives up.
 
@@ -36,7 +36,7 @@ On each push to `main`, a job submits Syft's SBOM of the lockfile to GitHub's de
 
 ### Deadlines
 
-A finding's severity is the higher of the scanner's rating and that of the project that published the fix, as milestone 7's Patching decisions set. Its deadline counts from the day its fix can be installed: the first fixed version's publish time in its registry, plus pnpm's day for a package, or the patched image's release. No first finding counts from before the day it is first scanned. Both are worked out from the registry and the code-scanning alert on each run, so the scan keeps no state of its own:
+A finding's severity is the higher of the scanner's rating and that of the project that published the fix, as milestone 7's Patching decisions set. The publisher's rating counts wherever a machine can read one; where it cannot, as with Node's security releases today, the scanner's stands alone. Its deadline counts from the day its fix can be installed: the first fixed version's publish time in its registry, plus pnpm's day for a package, or the patched image's release. No first finding counts from before the day it is first scanned. Both are worked out from the registry and the code-scanning alert on each run, so the scan keeps no state of its own:
 
 | Severity | Fixed within |
 |---|---|
