@@ -50,8 +50,9 @@ updates:
     commit-message:
       prefix: chore
       include: scope
-    # A dependency goes to the first group it matches; the last two take whatever the first two leave, so each week's
-    # updates arrive as a few pull requests rather than one each, and each merge leaves fewer behind main.
+    # A dependency goes to the first group it matches, and the last two take what the first two leave, so a week's updates
+    # arrive as a few pull requests rather than one each, and fewer are left to bring up to date after each merge. A
+    # major of a production dependency comes alone.
     groups:
       opentelemetry:
         patterns: ['@opentelemetry/*']
@@ -61,6 +62,7 @@ updates:
         dependency-type: development
       production:
         dependency-type: production
+        update-types: [minor, patch]
 
   - package-ecosystem: github-actions
     directory: /
@@ -102,6 +104,9 @@ updates:
       # The build image's Node matches mise.toml's; a new major is a deliberate change, not a weekly bump.
       - dependency-name: node
         update-types: [version-update:semver-major]
+      # A new major of Postgres needs its data directory upgraded, which is a change of its own.
+      - dependency-name: postgres
+        update-types: [version-update:semver-major]
       # In the playwright group, above.
       - dependency-name: playwright
     cooldown:
@@ -109,11 +114,14 @@ updates:
     commit-message:
       prefix: chore
       include: scope
-    # Every image here moves in one pull request a week, across every directory: a digest that moves in two
-    # Dockerfiles (distroless's, in the console's and the factory's) moves in both at once, and Node, pinned in three,
-    # moves in all of them, as scripts/image-pins.test.ts requires. A new major of Node is ignored above. One that
-    # touches a Dockerfile or Postgres's pin runs every check, as each of them alone would.
     groups:
+      # Node is pinned in three Dockerfiles, so one pull request moves it in all of them: scripts/image-pins.test.ts
+      # fails when they disagree, and until mise.toml follows by hand, so Node waits on its own.
+      node:
+        patterns: [node]
+        group-by: dependency-name
+      # Every other image, in one pull request a week across every directory: distroless's digest, pinned in the
+      # console's and the factory's Dockerfiles, moves in both at once.
       images:
         patterns: ['*']
 
