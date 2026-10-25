@@ -85,14 +85,15 @@ check() { # namespace policy allowed factory-repositories website-repositories i
     esac
   fi
   # Signed by build.yml on main of the repository under either owner, as the policy's attestors say.
-  local owner trust
+  local owner trust errors=""
   for owner in "${owners[@]}"; do
     trust=(--certificate-identity "$(identity "$owner" "$repo")" --certificate-oidc-issuer "$issuer")
     if error=$(cosign verify "${trust[@]}" "$image" 2>&1 >/dev/null); then
       echo "  signed   $ns  $image"; return
     fi
+    errors="$errors${errors:+; }$owner: $(tail -1 <<<"$error")"
   done
-  echo "  refused  $ns  $image: not signed by build.yml on main of $repo ($(tail -1 <<<"$error"))"; failed=1
+  echo "  refused  $ns  $image: not signed by build.yml on main of $repo ($errors)"; failed=1
 }
 
 notready="" # the policies with an image refused in their namespaces

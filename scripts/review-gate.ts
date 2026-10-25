@@ -1,6 +1,7 @@
 /**
  * The review gate (ADR 0014): whether a pull request has Martin's say, posted as the `review` check by the review App.
- * It passes when Martin opened the pull request, or when his latest verdict on it approves the commit at its head.
+ * It passes when Martin opened the pull request from a branch here, or when his latest verdict on it approves the commit
+ * at its head.
  *
  *     node scripts/review-gate.ts      # in review.yml, which GitHub runs from main's copy only
  *
@@ -37,8 +38,8 @@ export interface PullRequest {
   number: number;
   state: string;
   user: { id: number } | null;
-  head: { sha: string };
-  base: { ref: string };
+  head: { sha: string; repo: { full_name: string } | null };
+  base: { ref: string; repo: { full_name: string } };
 }
 
 export interface Review {
@@ -61,7 +62,10 @@ const short = (sha: string) => sha.slice(0, 7);
  * oldest first.
  */
 export function verdict(pr: PullRequest, reviews: readonly Review[]): Verdict {
-  if (pr.user?.id === MARTIN) return { pass: true, title: 'Martin opened it' };
+  // From a branch in this repository: one Martin opens from someone else's fork would carry their pushes.
+  if (pr.user?.id === MARTIN && pr.head.repo?.full_name === pr.base.repo.full_name) {
+    return { pass: true, title: 'Martin opened it' };
+  }
   const latest = reviews
     .filter((r) => r.user?.id === MARTIN && ['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(r.state))
     .at(-1);
@@ -69,7 +73,7 @@ export function verdict(pr: PullRequest, reviews: readonly Review[]): Verdict {
   if (!latest) return { pass: false, title: `Waits for Martin to approve ${head}` };
   if (latest.state === 'CHANGES_REQUESTED') return { pass: false, title: 'Martin asked for changes' };
   if (latest.state === 'DISMISSED')
-    return { pass: false, title: `His approval was dismissed: waits for him to approve ${head}` };
+    return { pass: false, title: `His last review was dismissed: waits for him to approve ${head}` };
   if (latest.commit_id !== pr.head.sha) {
     return {
       pass: false,
@@ -93,7 +97,7 @@ interface Event {
     head_branch: string | null;
     head_sha: string;
     head_repository?: { owner: { login: string } } | null;
-    pull_requests?: { number: number }[];
+    pull_requests?: { number: number; base: { ref: string } }[];
   };
 }
 
@@ -111,7 +115,7 @@ export function target(name: string, event: Event): Target {
   }
   if (run.event === 'pull_request_review') {
     // GitHub names the pull request only when its branch is in this repository; a fork's is found by its branch.
-    const number = run.pull_requests?.[0]?.number;
+    const number = run.pull_requests?.find((p) => p.base.ref === 'main')?.number;
     if (number) return { kind: 'pull-request', number };
     const owner = run.head_repository?.owner.login;
     if (!owner || !run.head_branch) return { kind: 'none', reason: 'the review names no pull request' };

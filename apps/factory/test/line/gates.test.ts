@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CheckRun, PullRequestState } from '../../src/github/reads.ts';
-import { APP_SLUG, gateEvents, gateRecord, REVIEW_CHECK } from '../../src/line/gates.ts';
+import { APP_SLUG, gateEvents, gateRecord, REVIEW_GATE_CHECK } from '../../src/line/gates.ts';
 
 const SHA = 'a'.repeat(40);
 const MERGED = 'c'.repeat(40);
@@ -87,16 +87,20 @@ describe('the gates, as events', () => {
   });
 
   it('leave out the review gate’s check, required or not: it waits for Martin, who looks once the gates are done', () => {
-    const runs = [run(1, 'test', 'success'), run(2, REVIEW_CHECK, 'failure', 'review-app')];
-    const drafts = gateEvents(pr(), runs, ['test', REVIEW_CHECK], nothing);
+    const runs = [run(1, 'test', 'success'), run(2, REVIEW_GATE_CHECK, 'failure', 'review-app')];
+    const drafts = gateEvents(pr(), runs, ['test', REVIEW_GATE_CHECK], nothing);
     expect(drafts[0]?.payload).toMatchObject({ checks: ['test'] });
     expect(drafts.map((d) => d.type)).toEqual(['gates.started', 'gate.finished', 'gates.finished']);
     expect(drafts.at(-1)).toMatchObject({ payload: { conclusion: 'passed', failed: [], passed: 1 } });
     // Not posted yet, as before the review App is set up: nothing waits for it either.
-    expect(gateEvents(pr(), [runs[0] as CheckRun], ['test', REVIEW_CHECK], nothing).at(-1)).toMatchObject({
+    expect(gateEvents(pr(), [runs[0] as CheckRun], ['test', REVIEW_GATE_CHECK], nothing).at(-1)).toMatchObject({
       type: 'gates.finished',
       payload: { conclusion: 'passed' },
     });
+    // A job of GitHub Actions' by that name is not the review App's, and counts as any check does.
+    const job = gateEvents(pr(), [run(1, 'test', 'success'), run(2, REVIEW_GATE_CHECK, 'failure')], ['test'], nothing);
+    expect(job.at(-1)).toMatchObject({ payload: { conclusion: 'passed', passed: 1 } });
+    expect(job.filter((d) => d.type === 'gate.finished').map((d) => d.payload.check)).toContain(REVIEW_GATE_CHECK);
   });
 
   it('append nothing they have already said, and nothing before a check has started', () => {

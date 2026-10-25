@@ -6,7 +6,7 @@ Both public repositories move from Martin's account, `mrogan`, to the organisati
 
 GitHub's review rule, the `main: review` ruleset and its admin bypass (ADR 0009), goes, and a required check takes its place: `review`, posted by a GitHub App of its own, the review App, and required from that App alone. It passes when
 
-- Martin opened the pull request, known by his account's id, `6206459`, never by his login; or
+- Martin opened the pull request from a branch in the repository, known by his account's id, `6206459`, never by his login; or
 - Martin's latest verdict on the pull request approves the commit at its head: an approval given before the last push, dismissed, or followed by his asking for changes does not count, and nobody else's approval counts at all.
 
 The `main` ruleset, which nobody bypasses, keeps everything else: pull requests only, squash merges, signed and linear history, the required checks, now with `review` among them, and the merge queue.

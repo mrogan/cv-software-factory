@@ -10,14 +10,19 @@ const pr = (author: number | null): PullRequest => ({
   number: 7,
   state: 'open',
   user: author === null ? null : { id: author },
-  head: { sha: HEAD },
-  base: { ref: 'main' },
+  head: { sha: HEAD, repo: { full_name: 'o/r' } },
+  base: { ref: 'main', repo: { full_name: 'o/r' } },
 });
 const review = (id: number, state: string, commit = HEAD): Review => ({ user: { id }, state, commit_id: commit });
 
 describe('the review gate (ADR 0014)', () => {
   it('passes a pull request Martin opened, by his id', () => {
     expect(verdict(pr(MARTIN), [])).toMatchObject({ pass: true });
+    // From someone else's fork, his own pull request waits for his approval like any other.
+    const fork = { ...pr(MARTIN), head: { sha: HEAD, repo: { full_name: 'someone/r' } } };
+    expect(verdict(fork, [])).toMatchObject({ pass: false });
+    expect(verdict({ ...fork, head: { sha: HEAD, repo: null } }, [])).toMatchObject({ pass: false });
+    expect(verdict(fork, [review(MARTIN, 'APPROVED')])).toMatchObject({ pass: true });
   });
 
   it("holds anyone else's until Martin approves its head", () => {
@@ -52,7 +57,14 @@ describe('the review gate (ADR 0014)', () => {
     const run = { head_sha: HEAD, head_branch: 'fix/x', head_repository: { owner: { login: 'someone' } } };
     expect(
       target('workflow_run', {
-        workflow_run: { ...run, event: 'pull_request_review', pull_requests: [{ number: 7 }] },
+        workflow_run: {
+          ...run,
+          event: 'pull_request_review',
+          pull_requests: [
+            { number: 8, base: { ref: 'other' } },
+            { number: 7, base: { ref: 'main' } },
+          ],
+        },
       }),
     ).toEqual({ kind: 'pull-request', number: 7 });
     // A fork's: GitHub names no pull request, so it is found by its branch and commit.
@@ -99,7 +111,9 @@ describe("the review gate's workflows", () => {
     // The one checkout is this workflow's own commit, main's, and never the pull request's.
     expect(gate.match(/uses: actions\/checkout@/g)).toHaveLength(1);
     expect(gate).toMatch(/ref: \$\{\{ job\.workflow_sha \}\}\n/);
-    expect(gate).not.toMatch(/github\.event\.pull_request\.(head|title|body|user)|github\.head_ref/);
+    // Nothing the pull request's author writes reaches a step: its branch names only the concurrency group.
+    const steps = gate.slice(gate.indexOf('\njobs:\n'));
+    expect(steps).not.toMatch(/github\.event\.(pull_request|workflow_run)\.(head|title|body|user)|github\.head_ref/);
   });
 
   it('ask for it again on a review and in the merge queue, holding nothing and running nothing', () => {

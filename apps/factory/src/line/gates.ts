@@ -22,11 +22,14 @@ import { whatClearedOnLook } from './verify.ts';
 /** The App, as GitHub names the app behind a check run: the factory's own runs (the reviewer's) are not gates. */
 export const APP_SLUG = 'mrogan-software-factory';
 
-/** The review gate's check (ADR 0014, scripts/review-gate.ts): Martin's say on a pull request, not one of its gates. */
-export const REVIEW_CHECK = 'review';
+/**
+ * The review gate's check (ADR 0014, scripts/review-gate.ts): Martin's say on a pull request, not one of its gates. The
+ * review App posts it; a job of GitHub Actions' by that name would be a gate like any other.
+ */
+export const REVIEW_GATE_CHECK = 'review';
 
 /** The checks the rulesets require that are gates: all but the review gate's. */
-const gatesIn = (required: readonly string[]) => required.filter((name) => name !== REVIEW_CHECK);
+const gatesIn = (required: readonly string[]) => required.filter((name) => name !== REVIEW_GATE_CHECK);
 
 /** What a work item has recorded about its pull request's gates and merge. */
 export interface GateRecord {
@@ -207,7 +210,8 @@ function gateRun(
 export function latestRuns(runs: readonly CheckRun[]): Map<string, CheckRun> {
   const latest = new Map<string, CheckRun>();
   for (const run of [...runs].sort((a, b) => a.id - b.id)) {
-    if (run.app !== APP_SLUG && run.name !== REVIEW_CHECK) latest.set(run.name, run);
+    const reviewGate = run.name === REVIEW_GATE_CHECK && run.app !== 'github-actions';
+    if (run.app !== APP_SLUG && !reviewGate) latest.set(run.name, run);
   }
   return latest;
 }
