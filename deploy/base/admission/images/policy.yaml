@@ -87,23 +87,34 @@ spec:
     mutateDigest: false
     verifyDigest: false
     required: false
+  # One identity each: Kyverno verifies no attestor that has several ("multiple identities are not supported at this
+  # time"), and refuses every image it checks against one. Each repository has one attestor per owner instead, and an
+  # image is signed if either verifies it.
   attestors:
     - name: factory
       cosign:
         keyless:
           identities:
             - issuer: https://token.actions.githubusercontent.com
-              subject: https://github.com/mrogan/cv-software-factory/.github/workflows/build.yml@refs/heads/main
-            - issuer: https://token.actions.githubusercontent.com
               subject: https://github.com/the-roganator/cv-software-factory/.github/workflows/build.yml@refs/heads/main
+    - name: factoryFormer
+      cosign:
+        keyless:
+          identities:
+            - issuer: https://token.actions.githubusercontent.com
+              subject: https://github.com/mrogan/cv-software-factory/.github/workflows/build.yml@refs/heads/main
     - name: website
       cosign:
         keyless:
           identities:
             - issuer: https://token.actions.githubusercontent.com
-              subject: https://github.com/mrogan/cv-worlds-worst-website/.github/workflows/build.yml@refs/heads/main
-            - issuer: https://token.actions.githubusercontent.com
               subject: https://github.com/the-roganator/cv-worlds-worst-website/.github/workflows/build.yml@refs/heads/main
+    - name: websiteFormer
+      cosign:
+        keyless:
+          identities:
+            - issuer: https://token.actions.githubusercontent.com
+              subject: https://github.com/mrogan/cv-worlds-worst-website/.github/workflows/build.yml@refs/heads/main
   variables:
     # Third-party images this copy admits, each by its exact reference, digest and all. Set by each copy.
     - name: allowed
@@ -149,13 +160,14 @@ spec:
     - name: misplaced
       expression: >-
         variables.ours.filter(i, !(i in variables.factoryImages) && !(i in variables.websiteImages))
-    # Each image is checked against its own repository's identity, and only once it is known to be by digest.
+    # Each image is checked against its own repository's identities, under either owner, and only once it is known to
+    # be by digest. verifyImageSignatures counts the attestors that verified it: one is enough.
     - name: unsigned
       expression: >-
         variables.factoryImages.filter(i, !(i in variables.undigested) &&
-        verifyImageSignatures(i, [attestors.factory]) == 0) +
+        verifyImageSignatures(i, [attestors.factory, attestors.factoryFormer]) == 0) +
         variables.websiteImages.filter(i, !(i in variables.undigested) &&
-        verifyImageSignatures(i, [attestors.website]) == 0)
+        verifyImageSignatures(i, [attestors.website, attestors.websiteFormer]) == 0)
   validations:
     - expression: size(variables.undigested) == 0
       messageExpression: >-
