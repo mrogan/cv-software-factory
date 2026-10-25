@@ -6,6 +6,11 @@
 # 3. and, if ours, signed by `build.yml` on `main` of the repository that builds it, keyless, with GitHub's OIDC
 #    identity compared whole, never as a pattern.
 #
+# The repositories are moving from `mrogan` to the organisation `the-roganator` (ADR 0014). GitHub redirects their
+# URLs, but not GHCR's image names or the identity cosign certifies, so while images built before the move still run,
+# "ours" is either owner's: an image under either name, signed by `build.yml` on `main` of the repository under either
+# owner. Martin alone can make a repository under either.
+#
 # The SBOM that workflow attests is not checked here: the deploy pull requests' checks require it of every pin, and
 # verifying it here would mean parsing the whole SPDX document as pods start (ADR 0010).
 #
@@ -74,6 +79,9 @@ spec:
     - glob: ghcr.io/mrogan/cv-software-factory/*@*
     - glob: ghcr.io/mrogan/cv-worlds-worst-website@*
     - glob: ghcr.io/mrogan/cv-worlds-worst-website:*@*
+    - glob: ghcr.io/the-roganator/cv-software-factory/*@*
+    - glob: ghcr.io/the-roganator/cv-worlds-worst-website@*
+    - glob: ghcr.io/the-roganator/cv-worlds-worst-website:*@*
   validationConfigurations:
     # The policy itself checks for digests, with its own words, and changes nothing.
     mutateDigest: false
@@ -86,12 +94,16 @@ spec:
           identities:
             - issuer: https://token.actions.githubusercontent.com
               subject: https://github.com/mrogan/cv-software-factory/.github/workflows/build.yml@refs/heads/main
+            - issuer: https://token.actions.githubusercontent.com
+              subject: https://github.com/the-roganator/cv-software-factory/.github/workflows/build.yml@refs/heads/main
     - name: website
       cosign:
         keyless:
           identities:
             - issuer: https://token.actions.githubusercontent.com
               subject: https://github.com/mrogan/cv-worlds-worst-website/.github/workflows/build.yml@refs/heads/main
+            - issuer: https://token.actions.githubusercontent.com
+              subject: https://github.com/the-roganator/cv-worlds-worst-website/.github/workflows/build.yml@refs/heads/main
   variables:
     # Third-party images this copy admits, each by its exact reference, digest and all. Set by each copy.
     - name: allowed
@@ -122,12 +134,16 @@ spec:
       expression: >-
         variables.images.filter(i, variables.websiteRepositories.exists(r,
         i == r || i.startsWith(r + ':') || i.startsWith(r + '@')))
-    # Images from our GHCR: the factory's repositories, and the app's one.
+    # Images from our GHCR, under either owner: the factory's repositories, and the app's one.
     - name: ours
       expression: >-
         variables.images.filter(i, i.startsWith('ghcr.io/mrogan/cv-software-factory/') ||
         i == 'ghcr.io/mrogan/cv-worlds-worst-website' || i.startsWith('ghcr.io/mrogan/cv-worlds-worst-website:') ||
-        i.startsWith('ghcr.io/mrogan/cv-worlds-worst-website@'))
+        i.startsWith('ghcr.io/mrogan/cv-worlds-worst-website@') ||
+        i.startsWith('ghcr.io/the-roganator/cv-software-factory/') ||
+        i == 'ghcr.io/the-roganator/cv-worlds-worst-website' ||
+        i.startsWith('ghcr.io/the-roganator/cv-worlds-worst-website:') ||
+        i.startsWith('ghcr.io/the-roganator/cv-worlds-worst-website@'))
     - name: foreign
       expression: variables.images.filter(i, !(i in variables.ours) && !(i in variables.allowed))
     - name: misplaced

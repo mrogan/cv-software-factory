@@ -4,6 +4,7 @@
 /.github/                    @mrogan
 /deploy/                     @mrogan
 /scripts/github-settings.ts  @mrogan
+/scripts/review-gate.ts      @mrogan
 /AGENTS.md                   @mrogan
 
 # What ships, and what may be installed

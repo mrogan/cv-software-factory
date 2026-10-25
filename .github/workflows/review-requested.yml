@@ -1,0 +1,23 @@
+# Asks main's review gate (review.yml) to judge a pull request again: when someone reviews it, which
+# `pull_request_target` does not see, and when the merge queue tests it, whose commit needs the `review` check too.
+#
+# It runs as the pull request or the queue's commit has it, so it holds no token that can write and no secret, and does
+# nothing but finish: its run is what starts review.yml, from main, through `workflow_run`. A copy changed by a pull
+# request, or another workflow given its name, can only make the honest gate look again.
+name: review requested
+
+on:
+  pull_request_review:
+    types: [submitted, dismissed]
+  merge_group:
+    types: [checks_requested]
+
+permissions: {}
+
+jobs:
+  requested:
+    name: review requested
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - run: echo "review.yml on main judges this $GITHUB_EVENT_NAME next."

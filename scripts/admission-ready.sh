@@ -20,7 +20,9 @@ kubectl=(kubectl --context "$context")
 command -v cosign >/dev/null || { echo "cosign isn't installed: run 'mise install'."; exit 1; }
 
 issuer=https://token.actions.githubusercontent.com
-identity() { echo "https://github.com/mrogan/$1/.github/workflows/build.yml@refs/heads/main"; }
+# While the repositories move (ADR 0014), ours is either owner's, as in the policy.
+owners=(mrogan the-roganator)
+identity() { echo "https://github.com/$1/$2/.github/workflows/build.yml@refs/heads/main"; }
 
 # The strings a policy's variable lists: `allowed`, the images it admits from another registry, and
 # `factoryRepositories` and `websiteRepositories`, the repositories of ours it admits.
@@ -76,16 +78,22 @@ check() { # namespace policy allowed factory-repositories website-repositories i
   elif grep -qxF "$repository" <<<"$website"; then repo=cv-worlds-worst-website
   else
     case "$repository" in
-      ghcr.io/mrogan/cv-software-factory/* | ghcr.io/mrogan/cv-worlds-worst-website)
+      ghcr.io/mrogan/cv-software-factory/* | ghcr.io/mrogan/cv-worlds-worst-website | \
+        ghcr.io/the-roganator/cv-software-factory/* | ghcr.io/the-roganator/cv-worlds-worst-website)
         echo "  refused  $ns  $image: ours, but not one $policy admits"; failed=1; return ;;
       *) echo "  refused  $ns  $image: from another registry"; failed=1; return ;;
     esac
   fi
-  local trust=(--certificate-identity "$(identity "$repo")" --certificate-oidc-issuer "$issuer")
-  if ! error=$(cosign verify "${trust[@]}" "$image" 2>&1 >/dev/null); then
-    echo "  refused  $ns  $image: not signed by build.yml on main of $repo ($(tail -1 <<<"$error"))"; failed=1; return
-  fi
-  echo "  signed   $ns  $image"
+  # Signed by build.yml on main of the repository under either owner, as the policy's attestors say.
+  local owner trust errors=""
+  for owner in "${owners[@]}"; do
+    trust=(--certificate-identity "$(identity "$owner" "$repo")" --certificate-oidc-issuer "$issuer")
+    if error=$(cosign verify "${trust[@]}" "$image" 2>&1 >/dev/null); then
+      echo "  signed   $ns  $image"; return
+    fi
+    errors="$errors${errors:+; }$owner: $(tail -1 <<<"$error")"
+  done
+  echo "  refused  $ns  $image: not signed by build.yml on main of $repo ($errors)"; failed=1
 }
 
 notready="" # the policies with an image refused in their namespaces

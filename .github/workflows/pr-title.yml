@@ -7,6 +7,10 @@ name: pr-title
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize]
+  # The merge queue's commit needs the required checks too: the title is read again from the pull request it was made
+  # for, which the queue names in its branch.
+  merge_group:
+    types: [checks_requested]
   workflow_call:
 
 permissions:
@@ -17,6 +21,9 @@ jobs:
     name: pull request title
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -37,5 +44,17 @@ jobs:
       - name: Check the title
         env:
           TITLE: ${{ github.event.pull_request.title }}
-          ANY_LENGTH: ${{ github.event.pull_request.user.login == 'dependabot[bot]' && '--any-length' || '' }}
-        run: node scripts/commit-msg.ts --title "$TITLE" $ANY_LENGTH
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          QUEUE_BRANCH: ${{ github.event.merge_group.head_ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = merge_group ]; then
+            [[ "$QUEUE_BRANCH" =~ ^(refs/heads/)?gh-readonly-queue/main/pr-([0-9]+)-[0-9a-f]{7,40}$ ]] \
+              || { echo "::error::$QUEUE_BRANCH is not a merge queue branch of main"; exit 1; }
+            pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/${BASH_REMATCH[2]}")
+            TITLE=$(jq -r .title <<< "$pr")
+            AUTHOR=$(jq -r '.user.login // ""' <<< "$pr")
+          fi
+          any_length=()
+          if [ "$AUTHOR" = 'dependabot[bot]' ]; then any_length=(--any-length); fi
+          node scripts/commit-msg.ts --title "$TITLE" "${any_length[@]}"

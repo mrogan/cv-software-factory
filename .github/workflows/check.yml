@@ -4,9 +4,12 @@ name: check
 # Pull requests the factory's App opens (deploy, release) run these too, at once: no workflow opens pull requests.
 # Some are lighter (the `kind` job): the App's release and deploy pull requests, and anyone's that changes only
 # manifests, run no browser tests, and a deploy or manifests pull request's images are checked rather than built. They
-# also run on main after each merge, which is what the README's badge reports.
+# also run on main after each merge, which is what the README's badge reports, and on the merge queue's commit for a
+# pull request, which holds the change on main as it will merge: everything runs there, whatever the pull request is.
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
 
@@ -26,7 +29,8 @@ jobs:
   # - `manifests`: anyone's, changing only files under deploy/. No image copies anything from there
   #   (scripts/dockerfiles.test.ts), and nothing the browser tests run reads it (scripts/browser-tests.test.ts), but
   #   for the Postgres the console's run beside: a change to its pin is `code`.
-  # Anything else, or this job failing, is `code` and runs everything.
+  # Anything else, or this job failing, is `code` and runs everything; so is every run that is not a pull request's,
+  # the merge queue's included.
   kind:
     name: which checks apply
     runs-on: ubuntu-24.04
