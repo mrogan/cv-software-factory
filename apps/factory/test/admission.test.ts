@@ -40,13 +40,19 @@ const listed = (expression: unknown) => [...String(expression ?? '[]').matchAll(
 let rendered: {
   kind: string;
   metadata: { name: string };
-  spec: { variables: { name: string; expression: string }[] };
+  spec: {
+    variables: { name: string; expression: string }[];
+    attestors?: { name: string; cosign?: { keyless?: { identities?: unknown[] } } }[];
+  };
 }[];
-function admitted(policy: string) {
+function render() {
   rendered ??= parseAllDocuments(
     execFileSync('kustomize', ['build', join(DEPLOY, 'base')], { encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 }),
   ).map((doc) => doc.toJS());
-  const found = rendered.find((r) => r.kind === 'ImageValidatingPolicy' && r.metadata.name === policy);
+  return rendered;
+}
+function admitted(policy: string) {
+  const found = render().find((r) => r.kind === 'ImageValidatingPolicy' && r.metadata.name === policy);
   return listed(found?.spec.variables.find((v) => v.name === 'allowed')?.expression);
 }
 
@@ -119,14 +125,20 @@ const REFUSED_BY: Record<string, string> = {
 describe('admission control', () => {
   it("trusts each repository's build.yml on main, under either owner, by its whole identity", async () => {
     const { spec } = await policy();
-    // The same repository's under Martin's account, for images built before the move, then the deploy watch's own.
-    expect(spec.attestors.map((a) => a.cosign.keyless.identities)).toEqual(
-      REPOSITORIES.map((repo) =>
-        ownersOf(repo).map((under) => ({ issuer: GITHUB_ACTIONS, subject: pipeline(under).identity })),
-      ),
+    // Each repository's under the organisation, then the same repository's under Martin's account, for images built
+    // before the move: one attestor each.
+    expect(spec.attestors.map((a) => [a.name, a.cosign.keyless.identities])).toEqual(
+      REPOSITORIES.flatMap((repo) => {
+        const name = repo === REPOSITORIES[0] ? 'factory' : 'website';
+        return ownersOf(repo)
+          .reverse()
+          .map((under, i) => [
+            i === 0 ? name : `${name}Former`,
+            [{ issuer: GITHUB_ACTIONS, subject: pipeline(under).identity }],
+          ]);
+      }),
     );
     expect(REPOSITORIES.map((repo) => ownersOf(repo).at(-1))).toEqual([...REPOSITORIES]);
-    expect(spec.attestors.map((a) => a.name)).toEqual(['factory', 'website']);
     // The copies set the first three variables by position.
     expect(spec.variables.slice(0, 3).map((v) => v.name)).toEqual([
       'allowed',
@@ -138,9 +150,31 @@ describe('admission control', () => {
     expect(variable('factoryImages')).toContain('variables.factoryRepositories.exists(');
     expect(variable('websiteImages')).toContain('variables.websiteRepositories.exists(');
     const expression = variable('unsigned')?.replace(/\s+/g, ' ') ?? '';
-    expect(expression).toMatch(/variables\.factoryImages\.filter\([^+]*\[attestors\.factory\]\)/);
-    expect(expression).toMatch(/variables\.websiteImages\.filter\([^+]*\[attestors\.website\]\)/);
+    expect(expression).toMatch(
+      /variables\.factoryImages\.filter\([^+]*verifyImageSignatures\(i, \[attestors\.factory, attestors\.factoryFormer\]\) == 0\)/,
+    );
+    expect(expression).toMatch(
+      /variables\.websiteImages\.filter\([^+]*verifyImageSignatures\(i, \[attestors\.website, attestors\.websiteFormer\]\) == 0\)/,
+    );
     expect(expression).not.toMatch(/factoryImages[^+]*attestors\.website|websiteImages[^+]*attestors\.factory/);
+  });
+
+  it('gives every keyless attestor in every copy one identity, as Kyverno verifies no other', async () => {
+    // With two, Kyverno refuses every image it checks against that attestor: "failed to verify cosign signatures: no
+    // matching attestations: unsupported: multiple identities are not supported at this time".
+    const copies = render().filter((r) => r.kind === 'ImageValidatingPolicy');
+    expect(copies.map((c) => c.metadata.name).sort()).toEqual([
+      'factory-images',
+      'flagd-images',
+      'scoreboard-images',
+      'website-images',
+    ]);
+    const several = copies.flatMap((c) =>
+      (c.spec.attestors ?? [])
+        .filter((a) => a.cosign?.keyless && a.cosign.keyless.identities?.length !== 1)
+        .map((a) => `${c.metadata.name}: ${a.name}`),
+    );
+    expect(several, 'Kyverno: "multiple identities are not supported at this time"').toEqual([]);
   });
 
   it('takes the same images for ours in its globs, its `ours` and make admission-ready, under either owner', async () => {

@@ -22,10 +22,10 @@ The `main` ruleset, which nobody bypasses, keeps everything else: pull requests 
 
 ### The order of the move
 
-1. Before the transfer: the gate, the triggers above, and an admission policy that admits images under either owner, signed by `build.yml` on `main` of the repository under either. The gate runs, and posts nothing until its App is set up; nothing requires it. The app's repository gets the same, calling this repository's `review.yml` at a pinned commit, as it calls the title check.
+1. Before the transfer: the gate, the triggers above, and an admission policy that admits images under either owner, signed by `build.yml` on `main` of the repository under either, through one attestor per owner, as Kyverno supports only one identity in each (ADR 0010). The gate runs, and posts nothing until its App is set up; nothing requires it. The app's repository gets the same, calling this repository's `review.yml` at a pinned commit, as it calls the title check.
 2. Martin makes the review App in the organisation (App ID `5470762`, Client ID `Iv23liFNqAvApddT27zU`), able to write checks and read pull requests, with no webhook, installed on every repository there; transfers both repositories; gives each a `review` environment that only `main` may use, holding the App's key as `REVIEW_APP_PRIVATE_KEY`; and installs the factory's App on the organisation.
 3. After the transfer, in a pull request of its own: the repositories' names wherever they are written, the settings (`scripts/github-settings.ts`: the queue, `review` required from the review App, no up-to-date rule, `main: review` gone), Kyverno's refusals taken again under the new policy, and the line's and the `implement` skill's ways of keeping a branch up to date, which the queue makes needless.
-4. Once only images built after the move run, the old owner's names and identities leave the admission policy.
+4. Once only images built after the move run, the old owner's names and attestors leave the admission policy.
 
 The transfer happens before the app's next pull request opens, or after that pull request's pin has synced, never between: its pin and the journeys image its canary analysis runs would be caught between two signer identities.
 
