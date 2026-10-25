@@ -24,7 +24,7 @@ The scripts read the repository from the key: `worktree.sh` makes the worktree f
 - The new worktree has no dependencies, and sits inside this checkout, whose `node_modules` and `mise.toml` a command there would otherwise find: set it up first as the app's `AGENTS.md` says (`mise install && pnpm install`), in the worktree.
 - Follow the app's `AGENTS.md` and `docs/REVIEWERS.md`, not this repository's, and run the app's `make check` (and anything else its `AGENTS.md` asks of a change like yours) in your worktree.
 - Its `.github/CODEOWNERS` is the one that names the files that are Martin's.
-- Name the repository in every `gh` command you run yourself (`-R mrogan/cv-worlds-worst-website`); the scripts take it from the key.
+- Name the repository in every `gh` command you run yourself (`-R mrogan/cv-worlds-worst-website`); the scripts take it from the key. The one exception is an issue (`app-<n>`), which is this repository's: read it with `gh issue view <n> -R mrogan/cv-software-factory`.
 - The reviewer works in your worktree: give it the absolute path, and have it review `git -C <worktree> diff origin/main...HEAD` against the app's `docs/REVIEWERS.md`.
 - The note's first line names your worktree as the checkout the branch is in, so `/visual-pr` reads the app's pull request template and recent descriptions. Run `gh pr create` in your worktree, and `.claude/skills/visual-pr/bin/check.ts --pr <pr>` there too, by this checkout's absolute path to it: it reads the pull request from the repository it runs in.
 - For an issue (`app-<n>`), the issue is this repository's: the body says `Closes mrogan/cv-software-factory#<n>` or `Part of mrogan/cv-software-factory#<n>`.

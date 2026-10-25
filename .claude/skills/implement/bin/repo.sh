@@ -16,6 +16,9 @@ for_key() {
     checkout=$(cd "$checkout" && pwd)
   fi
   repo=$(repo_of "$checkout")
+  if [[ $key == app-* && $repo != */cv-worlds-worst-website ]]; then
+    echo "$checkout is a checkout of $repo, not the app's: set APP_DIR" >&2; exit 2
+  fi
 }
 # repo_of <checkout>: owner/name of its origin on GitHub, read from git rather than asked of GitHub.
 repo_of() {
