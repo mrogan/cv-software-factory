@@ -1,0 +1,217 @@
+{
+  "k3s": "v1.37.1+k3s1",
+  "helmChartConfigs": [],
+  "traefik": {
+    "image": "rancher/mirrored-library-traefik:3.7.13",
+    "providers": [
+      "--providers.kubernetescrd",
+      "--providers.kubernetescrd.allowEmptyServices=true",
+      "--providers.kubernetesingress",
+      "--providers.kubernetesingress.allowEmptyServices=true",
+      "--providers.kubernetesingress.ingressendpoint.publishedservice=kube-system/traefik"
+    ],
+    "args": [
+      "--entryPoints.metrics.address=:9100/tcp",
+      "--entryPoints.traefik.address=:8080/tcp",
+      "--entryPoints.web.address=:8000/tcp",
+      "--entryPoints.websecure.address=:8443/tcp",
+      "--api.dashboard=true",
+      "--ping=true",
+      "--metrics.prometheus=true",
+      "--metrics.prometheus.entrypoint=metrics",
+      "--providers.kubernetescrd",
+      "--providers.kubernetescrd.allowEmptyServices=true",
+      "--providers.kubernetesingress",
+      "--providers.kubernetesingress.allowEmptyServices=true",
+      "--providers.kubernetesingress.ingressendpoint.publishedservice=kube-system/traefik",
+      "--entryPoints.websecure.http.tls=true",
+      "--log.level=INFO"
+    ],
+    "env": ["POD_NAME", "POD_NAMESPACE", "USER"],
+    "envFrom": []
+  },
+  "cases": [
+    {
+      "case": "route-app",
+      "at": "2026-10-25T15:44:33Z",
+      "outcome": "admitted",
+      "message": "ingressroute.traefik.io/mark-refusal"
+    },
+    {
+      "case": "route-namespaced",
+      "at": "2026-10-25T15:44:33Z",
+      "outcome": "admitted",
+      "message": "ingressroute.traefik.io/mark-refusal"
+    },
+    {
+      "case": "route-bare",
+      "at": "2026-10-25T15:44:33Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: each route of an IngressRoute in website must have one middleware, visitors in website, which removes x-unmeasured, and no other"
+    },
+    {
+      "case": "route-second",
+      "at": "2026-10-25T15:44:33Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: each route of an IngressRoute in website must have one middleware, visitors in website, which removes x-unmeasured, and no other"
+    },
+    {
+      "case": "route-other",
+      "at": "2026-10-25T15:44:33Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: each route of an IngressRoute in website must have one middleware, visitors in website, which removes x-unmeasured, and no other"
+    },
+    {
+      "case": "route-elsewhere",
+      "at": "2026-10-25T15:44:33Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: each route of an IngressRoute in website must have one middleware, visitors in website, which removes x-unmeasured, and no other"
+    },
+    {
+      "case": "route-provider",
+      "at": "2026-10-25T15:44:33Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: each route of an IngressRoute in website must have one middleware, visitors in website, which removes x-unmeasured, and no other"
+    },
+    {
+      "case": "route-service-mw",
+      "at": "2026-10-25T15:44:33Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: the services of an IngressRoute in website may have no middlewares of their own, and name nothing in another namespace or provider"
+    },
+    {
+      "case": "route-internal",
+      "at": "2026-10-25T15:44:33Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: the services of an IngressRoute in website may have no middlewares of their own, and name nothing in another namespace or provider"
+    },
+    {
+      "case": "route-service-ns",
+      "at": "2026-10-25T15:44:33Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: the services of an IngressRoute in website may have no middlewares of their own, and name nothing in another namespace or provider"
+    },
+    {
+      "case": "route-dropped",
+      "at": "2026-10-25T15:44:33Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: each route of an IngressRoute in website must have one middleware, visitors in website, which removes x-unmeasured, and no other"
+    },
+    {
+      "case": "split-app",
+      "at": "2026-10-25T15:44:33Z",
+      "outcome": "admitted",
+      "message": "traefikservice.traefik.io/mark-refusal"
+    },
+    {
+      "case": "split-mw",
+      "at": "2026-10-25T15:44:33Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: a TraefikService in website must be a weighted split whose services have no middlewares of their own, and name nothing in another namespace or provider"
+    },
+    {
+      "case": "split-internal",
+      "at": "2026-10-25T15:44:34Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: a TraefikService in website must be a weighted split whose services have no middlewares of their own, and name nothing in another namespace or provider"
+    },
+    {
+      "case": "split-mirror",
+      "at": "2026-10-25T15:44:34Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: a TraefikService in website must be a weighted split whose services have no middlewares of their own, and name nothing in another namespace or provider"
+    },
+    {
+      "case": "strip",
+      "at": "2026-10-25T15:44:34Z",
+      "outcome": "admitted",
+      "message": "middleware.traefik.io/mark-refusal"
+    },
+    {
+      "case": "set",
+      "at": "2026-10-25T15:44:34Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: a Middleware in website may only remove x-unmeasured (headers, customRequestHeaders x-unmeasured: \"\"), and do nothing else: no other header, no chain, no plugin, no forwardAuth, basicAuth or digestAuth, no other kind"
+    },
+    {
+      "case": "set-cased",
+      "at": "2026-10-25T15:44:34Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: a Middleware in website may only remove x-unmeasured (headers, customRequestHeaders x-unmeasured: \"\"), and do nothing else: no other header, no chain, no plugin, no forwardAuth, basicAuth or digestAuth, no other kind"
+    },
+    {
+      "case": "strip-and-set",
+      "at": "2026-10-25T15:44:34Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: a Middleware in website may only remove x-unmeasured (headers, customRequestHeaders x-unmeasured: \"\"), and do nothing else: no other header, no chain, no plugin, no forwardAuth, basicAuth or digestAuth, no other kind"
+    },
+    {
+      "case": "other-header",
+      "at": "2026-10-25T15:44:34Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: a Middleware in website may only remove x-unmeasured (headers, customRequestHeaders x-unmeasured: \"\"), and do nothing else: no other header, no chain, no plugin, no forwardAuth, basicAuth or digestAuth, no other kind"
+    },
+    {
+      "case": "strip-and-response",
+      "at": "2026-10-25T15:44:34Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: a Middleware in website may only remove x-unmeasured (headers, customRequestHeaders x-unmeasured: \"\"), and do nothing else: no other header, no chain, no plugin, no forwardAuth, basicAuth or digestAuth, no other kind"
+    },
+    {
+      "case": "chain",
+      "at": "2026-10-25T15:44:34Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: a Middleware in website may only remove x-unmeasured (headers, customRequestHeaders x-unmeasured: \"\"), and do nothing else: no other header, no chain, no plugin, no forwardAuth, basicAuth or digestAuth, no other kind"
+    },
+    {
+      "case": "plugin",
+      "at": "2026-10-25T15:44:34Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: a Middleware in website may only remove x-unmeasured (headers, customRequestHeaders x-unmeasured: \"\"), and do nothing else: no other header, no chain, no plugin, no forwardAuth, basicAuth or digestAuth, no other kind"
+    },
+    {
+      "case": "forward-auth",
+      "at": "2026-10-25T15:44:34Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: a Middleware in website may only remove x-unmeasured (headers, customRequestHeaders x-unmeasured: \"\"), and do nothing else: no other header, no chain, no plugin, no forwardAuth, basicAuth or digestAuth, no other kind"
+    },
+    {
+      "case": "forward-auth-regex",
+      "at": "2026-10-25T15:44:34Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: a Middleware in website may only remove x-unmeasured (headers, customRequestHeaders x-unmeasured: \"\"), and do nothing else: no other header, no chain, no plugin, no forwardAuth, basicAuth or digestAuth, no other kind"
+    },
+    {
+      "case": "basic-auth",
+      "at": "2026-10-25T15:44:34Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: a Middleware in website may only remove x-unmeasured (headers, customRequestHeaders x-unmeasured: \"\"), and do nothing else: no other header, no chain, no plugin, no forwardAuth, basicAuth or digestAuth, no other kind"
+    },
+    {
+      "case": "strip-changed",
+      "at": "2026-10-25T15:44:34Z",
+      "outcome": "refused",
+      "message": "admission webhook \"vpol.validate.kyverno.svc-fail\" denied the request: Policy website-mark failed: a Middleware in website may only remove x-unmeasured (headers, customRequestHeaders x-unmeasured: \"\"), and do nothing else: no other header, no chain, no plugin, no forwardAuth, basicAuth or digestAuth, no other kind"
+    }
+  ],
+  "live": [
+    {
+      "case": "ingressroute.traefik.io/website",
+      "at": "2026-10-25T15:44:34Z",
+      "outcome": "admitted",
+      "message": "ingressroute.traefik.io/website"
+    },
+    {
+      "case": "traefikservice.traefik.io/website",
+      "at": "2026-10-25T15:44:34Z",
+      "outcome": "admitted",
+      "message": "traefikservice.traefik.io/website"
+    },
+    {
+      "case": "middleware.traefik.io/visitors",
+      "at": "2026-10-25T15:44:34Z",
+      "outcome": "admitted",
+      "message": "middleware.traefik.io/visitors"
+    }
+  ]
+}
