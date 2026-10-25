@@ -6,8 +6,7 @@
  * implement the same interface.
  */
 import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { mkdir, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { type FileHandle, mkdir, open as openFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Readable } from 'node:stream';
 
@@ -15,13 +14,22 @@ export const sha256 = (bytes: Uint8Array): string => createHash('sha256').update
 
 export const isHash = (value: string): boolean => /^[0-9a-f]{64}$/.test(value);
 
+/** An artifact opened for reading: its contents, and the size of the very file they are read from. */
+export interface OpenedArtifact {
+  body: Readable;
+  size: number;
+}
+
 export interface ArtifactStore {
   /** Stores the bytes and returns their hash. */
   put(bytes: Uint8Array): Promise<string>;
   /** The stored size in bytes, or null if there is no such artifact. */
   size(hash: string): Promise<number | null>;
-  /** The artifact's contents, or null if there is no such artifact. */
-  open(hash: string): Promise<Readable | null>;
+  /**
+   * The artifact's contents and their size, or null if there is no such artifact. Both come from one opening, so a
+   * file replaced or removed meanwhile cannot give a size that is not the size of the bytes read.
+   */
+  open(hash: string): Promise<OpenedArtifact | null>;
 }
 
 export class DiskArtifacts implements ArtifactStore {
@@ -58,8 +66,24 @@ export class DiskArtifacts implements ArtifactStore {
     }
   }
 
-  async open(hash: string): Promise<Readable | null> {
-    return (await this.size(hash)) === null ? null : createReadStream(this.path(hash));
+  async open(hash: string): Promise<OpenedArtifact | null> {
+    if (!isHash(hash)) return null;
+    let handle: FileHandle;
+    try {
+      handle = await openFile(this.path(hash), 'r');
+    } catch {
+      // As `size` has it: a file this store cannot open is none it can give.
+      return null;
+    }
+    // Measured through the handle, not the path: a `put` renaming over the name, or a `remove` taking it away, leaves
+    // this file as it was, and the stream reads it. The stream owns the handle, and closes it when it ends or is closed.
+    try {
+      const { size } = await handle.stat();
+      return { body: handle.createReadStream(), size };
+    } catch (error) {
+      await handle.close().catch(() => {});
+      throw error;
+    }
   }
 
   /**

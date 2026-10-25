@@ -220,6 +220,7 @@ describe('the console server', () => {
     const res = await fetch(`${base}/artifacts/${screenshot}`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('image/png');
+    expect(res.headers.get('content-length')).toBe('4');
     expect(res.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
     expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox");
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
@@ -285,8 +286,9 @@ describe('an artifact that goes wrong partway', () => {
   ): Promise<{ url: string; app: Server; close: () => Promise<void> }> {
     const store: ArtifactStore = {
       put: () => Promise.reject(new Error('read-only')),
-      size: async () => 1_000_000,
-      open: async () => body,
+      // The console takes the size from `open`, never apart from it.
+      size: () => Promise.reject(new Error('asked for the size apart from opening the file')),
+      open: async () => ({ body, size: 1_000_000 }),
       ...overrides,
     };
     const app = createServer(createApp({ commit: COMMIT, site: loadSite(fakeBuild()), feed, artifacts: store }));
@@ -352,7 +354,7 @@ describe('an artifact that goes wrong partway', () => {
       open: async () => {
         asked();
         await closed;
-        return body;
+        return { body, size: 1_000_000 };
       },
     });
     app.on('request', (_req, res: ServerResponse) => res.on('close', gone));
@@ -366,10 +368,10 @@ describe('an artifact that goes wrong partway', () => {
   });
 
   /**
-   * A file stream whose file was deleted after the store found it: it fails to open, with ENOENT, when `fail` is called
-   * and not before, so a test says when the failure comes rather than racing a timer. It fails once, however often asked.
+   * A stream that fails, with ENOENT, when `fail` is called and not before, so a test says when the failure comes rather
+   * than racing a timer. It fails once, however often asked.
    */
-  function deletedFile(): { body: Readable; fail: () => void } {
+  function failingStream(): { body: Readable; fail: () => void } {
     let failing = false;
     let opened: ((error: Error) => void) | undefined;
     const failNow = () => {
@@ -393,10 +395,11 @@ describe('an artifact that goes wrong partway', () => {
     };
   }
 
-  it('keeps answering when a file it closes unread then fails to open', async () => {
-    // The latest a deleted file can fail: once the console has closed it unread. Node's own `destroy` option waits for
-    // the open, so it would never run here and the test would hang: the instance's `destroy` is wrapped instead.
-    const { body, fail } = deletedFile();
+  it('keeps answering when a stream it closes unread then fails', async () => {
+    // A stream can fail as it closes, after the console has closed it unread: the listener the console adds is all that
+    // keeps that from ending the server. Node's own `destroy` option waits for `construct`, so it would never run here
+    // and the test would hang: the instance's `destroy` is wrapped instead.
+    const { body, fail } = failingStream();
     const destroy = body.destroy.bind(body);
     body.destroy = (error) => {
       destroy(error);
@@ -410,39 +413,12 @@ describe('an artifact that goes wrong partway', () => {
     await close();
   });
 
-  it('keeps answering when a file fails to open while the store says how large it is', async () => {
-    // The earliest a deleted file can fail: before the console has the size, let alone a response to send it to.
-    const { body, fail } = deletedFile();
-    const { url, close } = await consoleWith(body, {
-      size: async () => {
-        fail();
-        // The stream emits its error on the next tick, which comes before the next turn of the event loop.
-        await new Promise((resolve) => setImmediate(resolve));
-        return 1_000_000;
-      },
-    });
-    await fetch(`${url}/artifacts/${screenshot}`, { method: 'HEAD' });
-    expect(body.errored).toBeTruthy();
-    expect((await fetch(`${url}/health`)).status).toBe(200);
-    await close();
-  });
-
   it('answers 500, not by stopping, when the store cannot open the file', async () => {
     const { url, close } = await consoleWith(new Readable({ read() {} }), {
       open: () => Promise.reject(Object.assign(new Error('permission denied'), { code: 'EACCES' })),
     });
     expect((await fetch(`${url}/artifacts/${screenshot}`)).status).toBe(500);
     expect((await fetch(`${url}/health`)).status).toBe(200);
-    await close();
-  });
-
-  it('closes the file, and answers 500, when the store cannot say how large it is', async () => {
-    const body = new Readable({ read() {} });
-    const { url, close } = await consoleWith(body, {
-      size: () => Promise.reject(Object.assign(new Error('i/o error'), { code: 'EIO' })),
-    });
-    expect((await fetch(`${url}/artifacts/${screenshot}`)).status).toBe(500);
-    expect(body.destroyed).toBe(true);
     await close();
   });
 });

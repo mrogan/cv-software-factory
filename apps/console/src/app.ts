@@ -142,32 +142,32 @@ function events(req: IncomingMessage, res: ServerResponse, feed: Feed, url: URL)
 /** An artifact a public event refers to, with the type recorded when it was stored. Nothing else is served. */
 async function artifact(req: IncomingMessage, res: ServerResponse, feed: Feed, store: ArtifactStore, hash: string) {
   const type = isHash(hash) ? feed.artifactType(hash) : undefined;
-  const body = type ? await store.open(hash) : null;
-  // A file opens after the stream is made, and can fail to (deleted meanwhile): an error with no listener would end the
-  // server. pipeline reports a failed read; a file closed unread has nothing worth reporting.
-  body?.on('error', () => {});
-  const size = body
-    ? await store.size(hash).catch((error: unknown) => {
-        body.destroy();
-        throw error;
-      })
-    : null;
+  // Opened once, its size taken from the same opening: a file replaced or removed meanwhile cannot send a length that
+  // is not the length of the bytes that follow.
+  const opened = type ? await store.open(hash) : null;
+  // A stream closed unread can still fail as it closes: an error with no listener would end the server. pipeline
+  // reports a failed read; a file closed unread has nothing worth reporting.
+  opened?.body.on('error', () => {});
   // A browser that left while the file was being found is owed nothing, and piping to its closed response throws.
   if (res.destroyed) {
-    body?.destroy();
+    opened?.body.destroy();
     return;
   }
-  if (!type || size === null || !body) {
-    body?.destroy();
-    return send(req, res, 404, 'text/plain; charset=utf-8', 'No such artifact.\n');
+  if (!type || !opened) return send(req, res, 404, 'text/plain; charset=utf-8', 'No such artifact.\n');
+  const { body, size } = opened;
+  try {
+    res.writeHead(200, {
+      'content-type': type.startsWith('text/') ? `${type}; charset=utf-8` : type,
+      'content-length': size,
+      'cache-control': YEAR,
+      // Opened on its own, an artifact is inert: no script, no styles, no requests.
+      'content-security-policy': "default-src 'none'; sandbox",
+    });
+  } catch (error) {
+    // A header it refuses (a recorded type no header may carry) leaves the file open unless it is closed here.
+    body.destroy();
+    throw error;
   }
-  res.writeHead(200, {
-    'content-type': type.startsWith('text/') ? `${type}; charset=utf-8` : type,
-    'content-length': size,
-    'cache-control': YEAR,
-    // Opened on its own, an artifact is inert: no script, no styles, no requests.
-    'content-security-policy': "default-src 'none'; sandbox",
-  });
   if (req.method === 'HEAD') {
     body.destroy();
     res.end();

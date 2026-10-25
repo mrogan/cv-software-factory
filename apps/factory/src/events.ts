@@ -123,9 +123,9 @@ export async function exportItem(sql: Sql, store: ArtifactStore, item: string | 
   const hashes = new Set(events.flatMap((event) => event.artifacts.map((artifact) => artifact.hash)));
   await mkdir(join(dir, 'artifacts'), { recursive: true });
   for (const hash of hashes) {
-    const body = await store.open(hash);
-    if (!body) throw new Error(`The artifact store has no ${hash}`);
-    await writeFile(logArtifactPath(dir, hash), await buffer(body));
+    const opened = await store.open(hash);
+    if (!opened) throw new Error(`The artifact store has no ${hash}`);
+    await writeFile(logArtifactPath(dir, hash), await buffer(opened.body));
   }
   return { events: events.length, artifacts: hashes.size };
 }

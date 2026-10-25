@@ -1,6 +1,7 @@
-import { mkdtempSync, readdirSync, utimesSync } from 'node:fs';
+import { fstatSync, mkdtempSync, readdirSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Readable } from 'node:stream';
 import { text } from 'node:stream/consumers';
 import { describe, expect, it } from 'vitest';
 import { DiskArtifacts, sha256 } from '../src/artifacts.ts';
@@ -14,8 +15,43 @@ describe('the artifact store on disk', () => {
     const hash = await artifacts.put(bytes('FAIL test/money.test.ts'));
     expect(hash).toBe(sha256(bytes('FAIL test/money.test.ts')));
     expect(await artifacts.size(hash)).toBe(23);
-    const stream = await artifacts.open(hash);
-    expect(stream && (await text(stream))).toBe('FAIL test/money.test.ts');
+    const opened = await artifacts.open(hash);
+    expect(opened?.size).toBe(23);
+    expect(opened && (await text(opened.body))).toBe('FAIL test/money.test.ts');
+  });
+
+  it('measures and reads one file, though another is renamed over its name in between', async () => {
+    const artifacts = store();
+    const hash = await artifacts.put(bytes('the first contents'));
+    const opened = await artifacts.open(hash);
+    // Not a store's own write, which never changes what a name holds: the case a size read by name gets wrong.
+    const other = join(artifacts.dir, 'other');
+    writeFileSync(other, 'something else, and longer than the first');
+    renameSync(other, join(artifacts.dir, hash));
+    expect(opened?.size).toBe(18);
+    expect(opened && (await text(opened.body))).toBe('the first contents');
+  });
+
+  it('reads a file it opened, though it is removed before the read', async () => {
+    const artifacts = store();
+    const hash = await artifacts.put(bytes('a picture'));
+    const opened = await artifacts.open(hash);
+    rmSync(join(artifacts.dir, hash));
+    expect(await artifacts.open(hash)).toBeNull();
+    expect(opened?.size).toBe(9);
+    expect(opened && (await text(opened.body))).toBe('a picture');
+  });
+
+  it('closes the file when its stream is closed unread', async () => {
+    const artifacts = store();
+    const opened = await artifacts.open(await artifacts.put(bytes('a picture')));
+    // A file stream's descriptor, which Node's types leave out.
+    const body = opened?.body as Readable & { fd: number };
+    const { fd } = body;
+    const closed = new Promise<void>((resolve) => body.on('close', resolve));
+    body.destroy();
+    await closed;
+    expect(() => fstatSync(fd)).toThrow(expect.objectContaining({ code: 'EBADF' }));
   });
 
   it('stores the same contents once', async () => {
@@ -28,7 +64,9 @@ describe('the artifact store on disk', () => {
   it('knows nothing of a hash it has not stored, or of anything that is not a hash', async () => {
     const artifacts = store();
     expect(await artifacts.size('0'.repeat(64))).toBeNull();
+    expect(await artifacts.open('0'.repeat(64))).toBeNull();
     expect(await artifacts.open('../../etc/passwd')).toBeNull();
+    expect(await new DiskArtifacts('/nonexistent/artifacts').open('0'.repeat(64))).toBeNull();
   });
 
   it('deletes an artifact stored before it was judged unused, and nothing that is not a hash', async () => {

@@ -4,9 +4,8 @@
  * store, which the probes worker writes; the line has no way to that store, and reads this instead.
  */
 
-import type { Readable } from 'node:stream';
 import type { Screenshot } from '@software-factory/events';
-import type { ArtifactStore } from '@software-factory/store';
+import type { ArtifactStore, OpenedArtifact } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import type { Check } from '../capture.ts';
 
@@ -222,7 +221,7 @@ export class IndexedArtifacts implements ArtifactStore {
     return row ? Number(row.size) : null;
   }
 
-  async open(): Promise<Readable | null> {
+  async open(): Promise<OpenedArtifact | null> {
     return null;
   }
 }

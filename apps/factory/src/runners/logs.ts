@@ -86,8 +86,8 @@ export class StepLogs {
   }
 
   /** A kept log's text, or null if the artifact store has lost it. */
-  open(hash: string): Promise<Readable | null> {
-    return this.#artifacts.open(hash);
+  async open(hash: string): Promise<Readable | null> {
+    return (await this.#artifacts.open(hash))?.body ?? null;
   }
 
   /**
