@@ -13,7 +13,20 @@
 # `review` environment, as the secret REVIEW_APP_PRIVATE_KEY, the gate says its verdict and posts nothing.
 #
 # Shared: cv-worlds-worst-website calls this workflow at a pinned commit from its own, with the same triggers and a
-# `review` environment of its own, so both repositories keep one rule.
+# `review` environment of its own, so both repositories keep one rule. Its caller passes REVIEW_APP_PRIVATE_KEY by name,
+# or with `secrets: inherit`: GitHub's docs say a called job with `environment:` uses the caller's environment of that
+# name, but resolves a secret to empty unless the caller passes it, and a secret held only in the environment may be
+# passed by name. Unpassed, the gate says its verdict and posts nothing, as before the key exists.
+#
+# Two runs GitHub holds for a maintainer's approval, before it reads any job, so no condition here can stop them:
+#
+# - A review by Copilot, which GitHub treats as an outside contributor: its run of review-requested.yml is held, and
+#   when its pull request closes, the run that one starts here. Only Martin's reviews count, so neither has anything to
+#   judge: approved, the first only asks the gate to look again, and the second finds the pull request closed. Both are
+#   safe to leave, and nothing waits on them.
+# - A review of a pull request from a first-time contributor's fork: its run of review-requested.yml is held, so
+#   Martin's approval reaches the gate only once he approves that run, or re-runs this workflow's last run for the pull
+#   request, which reads his reviews afresh.
 name: review
 
 on:
@@ -24,14 +37,21 @@ on:
     workflows: [review requested]
     types: [completed]
   workflow_call:
+    secrets:
+      REVIEW_APP_PRIVATE_KEY:
+        description: The review App's key, from the caller's `review` environment.
+        required: false
 
 permissions: {}
 
 # One verdict at a time for a branch, each read afresh, so an older one is never posted after a newer one. By the
-# branch, which every run names, a fork's included; the merge queue's runs each have a branch of their own.
+# branch, which every run names, a fork's included; the merge queue's runs each have a branch of their own. A deleted
+# fork names no repository: its pull request's runs go by its number, and a review's run, which then finds no pull
+# request to judge, by its own id, so none shares a group with another branch's.
 concurrency:
   group: >-
-    review-${{ github.event.pull_request.head.repo.full_name || github.event.workflow_run.head_repository.full_name }}:${{
+    review-${{ github.event.pull_request.head.repo.full_name || github.event.workflow_run.head_repository.full_name ||
+    format('gone-{0}', github.event.pull_request.number || github.run_id) }}:${{
     github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
 
 jobs:
@@ -44,7 +64,8 @@ jobs:
       contents: read
       pull-requests: read
     env:
-      # Whether the environment holds the App's key: a step's condition cannot read a secret, only this.
+      # Whether the App's key is here, from the environment or a caller: a step's condition cannot read a secret, only
+      # this.
       HAS_KEY: ${{ secrets.REVIEW_APP_PRIVATE_KEY != '' }}
     steps:
       # This workflow's own repository and commit, main's, which is not the caller's when it is called from elsewhere.

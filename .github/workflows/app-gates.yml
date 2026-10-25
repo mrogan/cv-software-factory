@@ -1,9 +1,9 @@
 # The app's gates (spec section 4.1), beside its own lint, types and tests: what a pull request to the app must pass
 # that the app's repository cannot loosen.
 #
-# Shared: cv-worlds-worst-website calls this workflow at a pinned commit, from its pull requests. The scripts come from
-# this repository at that commit, and the probes and crawler from the factory-browser image this repository's local
-# profile pins, so nothing in a pull request to the app changes how it is judged.
+# Shared: cv-worlds-worst-website calls this workflow at a pinned commit, from its pull requests and its merge queue.
+# The scripts come from this repository at that commit, and the probes and crawler from the factory-browser image this
+# repository's local profile pins, so nothing in a pull request to the app changes how it is judged.
 #
 # - journeys: the probes and the crawler against the base's image and the change's; fails on a check that passes on
 #   the base and fails on the change twice. The app is broken on purpose, so failing on the base is no reason to fail.
@@ -15,7 +15,8 @@
 # - dependency review and image scan: fail only on a vulnerability the change brings in.
 #
 # Every job is skipped for a deploy or release pull request the factory's App opened (`skip`), which changes nothing
-# they judge.
+# they judge. In the merge queue every required job runs, since a merge group names no author to tell them apart by;
+# tests first, which the line reads from the pull request, does not.
 name: app-gates
 
 on:
@@ -30,6 +31,9 @@ permissions:
   contents: read
 
 env:
+  # The commit the change is compared with: the pull request's base, or in the merge queue the group's, which is main
+  # with the pull requests ahead of it in the queue, so each is judged on its own change.
+  BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
   # The vulnerability scanner, by digest: 0.74.0.
   TRIVY: ghcr.io/aquasecurity/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
 
@@ -40,17 +44,18 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      # These jobs check out and run a pull request's code. They do it only where that code can do no harm: a
-      # pull_request run, with a read-only token and no secrets. Called from anything else, they fail rather than run.
+      # These jobs check out and run a change's code. They do it only where that code can do no harm: a pull_request
+      # or merge_group run, with this workflow's read-only token and no secrets (ADR 0014). Called from anything else,
+      # they fail rather than run.
       - name: Refuse a privileged context
         run: |
-          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
-            echo "::error::The app's gates run only on pull_request, not $GITHUB_EVENT_NAME."
+          if [ "$GITHUB_EVENT_NAME" != pull_request ] && [ "$GITHUB_EVENT_NAME" != merge_group ]; then
+            echo "::error::The app's gates run only on pull_request and merge_group, not $GITHUB_EVENT_NAME."
             exit 1
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ env.BASE_SHA }}
           path: base
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -72,7 +77,7 @@ jobs:
           context: base
           load: true
           tags: app:base
-          build-args: GIT_COMMIT=${{ github.event.pull_request.base.sha }}
+          build-args: GIT_COMMIT=${{ env.BASE_SHA }}
           cache-from: type=gha
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -108,17 +113,18 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      # These jobs check out and run a pull request's code. They do it only where that code can do no harm: a
-      # pull_request run, with a read-only token and no secrets. Called from anything else, they fail rather than run.
+      # These jobs check out and run a change's code. They do it only where that code can do no harm: a pull_request
+      # or merge_group run, with this workflow's read-only token and no secrets (ADR 0014). Called from anything else,
+      # they fail rather than run.
       - name: Refuse a privileged context
         run: |
-          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
-            echo "::error::The app's gates run only on pull_request, not $GITHUB_EVENT_NAME."
+          if [ "$GITHUB_EVENT_NAME" != pull_request ] && [ "$GITHUB_EVENT_NAME" != merge_group ]; then
+            echo "::error::The app's gates run only on pull_request and merge_group, not $GITHUB_EVENT_NAME."
             exit 1
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ env.BASE_SHA }}
           path: base
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -143,21 +149,22 @@ jobs:
 
   tests-first:
     name: tests first
-    if: ${{ !inputs.skip }}
+    if: ${{ !inputs.skip && github.event_name != 'merge_group' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      # These jobs check out and run a pull request's code. They do it only where that code can do no harm: a
-      # pull_request run, with a read-only token and no secrets. Called from anything else, they fail rather than run.
+      # These jobs check out and run a change's code. They do it only where that code can do no harm: a pull_request
+      # or merge_group run, with this workflow's read-only token and no secrets (ADR 0014). Called from anything else,
+      # they fail rather than run.
       - name: Refuse a privileged context
         run: |
-          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
-            echo "::error::The app's gates run only on pull_request, not $GITHUB_EVENT_NAME."
+          if [ "$GITHUB_EVENT_NAME" != pull_request ] && [ "$GITHUB_EVENT_NAME" != merge_group ]; then
+            echo "::error::The app's gates run only on pull_request and merge_group, not $GITHUB_EVENT_NAME."
             exit 1
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ env.BASE_SHA }}
           path: base
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -200,12 +207,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      # These jobs check out and run a pull request's code. They do it only where that code can do no harm: a
-      # pull_request run, with a read-only token and no secrets. Called from anything else, they fail rather than run.
+      # These jobs check out and run a change's code. They do it only where that code can do no harm: a pull_request
+      # or merge_group run, with this workflow's read-only token and no secrets (ADR 0014). Called from anything else,
+      # they fail rather than run.
       - name: Refuse a privileged context
         run: |
-          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
-            echo "::error::The app's gates run only on pull_request, not $GITHUB_EVENT_NAME."
+          if [ "$GITHUB_EVENT_NAME" != pull_request ] && [ "$GITHUB_EVENT_NAME" != merge_group ]; then
+            echo "::error::The app's gates run only on pull_request and merge_group, not $GITHUB_EVENT_NAME."
             exit 1
           fi
       # It compares the dependency graph of the base and the change, so it fails only on what the change brings in.
@@ -220,17 +228,18 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      # These jobs check out and run a pull request's code. They do it only where that code can do no harm: a
-      # pull_request run, with a read-only token and no secrets. Called from anything else, they fail rather than run.
+      # These jobs check out and run a change's code. They do it only where that code can do no harm: a pull_request
+      # or merge_group run, with this workflow's read-only token and no secrets (ADR 0014). Called from anything else,
+      # they fail rather than run.
       - name: Refuse a privileged context
         run: |
-          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
-            echo "::error::The app's gates run only on pull_request, not $GITHUB_EVENT_NAME."
+          if [ "$GITHUB_EVENT_NAME" != pull_request ] && [ "$GITHUB_EVENT_NAME" != merge_group ]; then
+            echo "::error::The app's gates run only on pull_request and merge_group, not $GITHUB_EVENT_NAME."
             exit 1
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ env.BASE_SHA }}
           path: base
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
