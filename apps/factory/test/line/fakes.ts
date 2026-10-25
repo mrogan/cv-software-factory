@@ -129,6 +129,8 @@ export class FakeGitHub implements GitHubPort {
   deployCommits: string[] = [];
   /** Each of the app's images' commits, by digest, as its revision label names it. */
   readonly revisions = new Map<string, string>();
+  /** The image each read of an image's revision or signature named. */
+  readonly imagesAsked: string[] = [];
   /** The app's images whose signature does not verify, by digest. */
   readonly unsigned = new Set<string>();
   /**
@@ -263,6 +265,7 @@ export class FakeGitHub implements GitHubPort {
         return answer({ status: 'ahead', total: at.length, commits: [...at] });
       }
       case 'imageRevision':
+        this.imagesAsked.push(String(args.image));
         return answer(this.revisions.get(String(args.digest)) ?? null);
       case 'imageSigned':
         return answer(
