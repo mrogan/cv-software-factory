@@ -31,7 +31,7 @@ A test renders the manifests and fails when an image they run is not on the list
 
 ### The dependency graph
 
-On each push to `main`, a job submits Syft's SBOM of the lockfile to GitHub's dependency submission API, so Dependabot's alerts and its security updates see every package. That job alone holds `contents: write`, runs only on a push to `main`, and executes nothing from the repository. The pull request gate does not depend on it.
+On each push to `main`, a job submits Syft's SBOM of the lockfile to GitHub's dependency submission API, so Dependabot's alerts and its security updates see every package. That job alone holds `contents: write`, runs only on a push to `main`, checks out without keeping its token, and executes nothing from the repository: Syft, pinned by digest, reads the lockfile, and nothing installs it or runs a script from it. The pull request gate does not depend on it.
 
 ### Deadlines
 
@@ -50,14 +50,14 @@ A finding with no fix has no deadline. It stays open, and is looked at again whe
 
 A finding that cannot reach us (a package installed but never loaded, a path never called) is excepted in `policy/vulnerabilities.ts`. Each entry gives the repository, the advisory, the package, why it cannot reach us, and an expiry no more than 90 days away. When an entry expires, its finding returns.
 
-The file is code-owned, and the scan reads it from this repository at the commit it runs from. It never reads an ignore file from the repository it scans, since agents write to the app's repository. Scorecard reads `osv-scanner.toml` beside each lockfile, so each is generated from the policy, code-owned in its repository, and a check fails when one differs from it.
+The file is code-owned, and the scan reads it from this repository's `main`, not from the commit the app pins, so moving the pin back cannot bring back an exception that has gone. It checks each entry's expiry against the day it runs. It never reads an ignore file from the repository it scans, since agents write to the app's repository. Scorecard reads `osv-scanner.toml` beside each lockfile, so each is generated from the policy, code-owned in its repository, and a check fails when one differs from it.
 
 ### Who fixes it
 
 - **The app:** the line, as milestone 7's Patching (Part D) sets out.
 - **The factory's lockfile, its images and the platform:** Martin. Dependabot's security updates, once it sees every package, propose most of them.
 
-The daily scan fails on a new High or Critical finding, and on any deadline passed. A failed scheduled run is GitHub's own notice to Martin, with no new secret in CI. From Part D, the factory reads each day's results with its App and alerts him at Notify, through Alertmanager.
+The daily scan fails on a new High or Critical finding, and on any deadline passed. Its log, which anyone can read in a public repository, gives counts by severity and deadline; the packages and advisories are in code scanning, which only those with access to the repository's security findings see. A failed scheduled run is GitHub's own notice to Martin, with no new secret in CI. From Part D, the factory reads each day's results with its App and alerts him at Notify, through Alertmanager.
 
 ## Why
 
@@ -74,6 +74,6 @@ The daily scan fails on a new High or Critical finding, and on any deadline pass
 - Scanning everything finds what is already there. The first full scan opens alerts on the platform's images and on development dependencies, each with its deadline from that day.
 - Each repository's code scanning shows one alert for each package and advisory, so a finding has a file or an image, and can be dismissed, with a reason, by an exception.
 - A day when Trivy's advisory database cannot be fetched is a failed run, not a clean one.
-- The factory's App needs to read code scanning alerts in both repositories from Part D, a change to its permissions in `github-settings.ts`.
+- The factory's App needs to read code scanning alerts in both repositories from Part D, a change to its permissions in `scripts/github-settings.ts`. It is read-only, and covers CodeQL's alerts too, so their text reaches the sense as untrusted input, as every signal's does: a fix is read from the scans, never from an advisory's words.
 - Charts pin images by tag, not digest, so a platform image is scanned as the tag resolves that day. Pinning the platform's images by digest is not part of this decision.
 - Scorecard's Vulnerabilities score rises only as findings are fixed or excepted.
