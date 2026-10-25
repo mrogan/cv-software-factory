@@ -1,12 +1,13 @@
 /**
  * The privacy page (`?view=privacy`), from the footer: what the console keeps on a visitor's device, which is nothing,
- * and what its servers record. Every claim here is held by something that fails when it stops being true: the browser
- * tests' guard, the collector's settings and their test, the backends' retention, and the days a report's text is kept,
- * held to triage's policy (docs/COMPONENTS/CONSOLE.md).
+ * what the app keeps, which is its preview cookie for a browser that asks for one, and what its servers record. Every
+ * claim here is held by something that fails when it stops being true: the browser tests' guard, the probes' `/device`
+ * check, the collector's settings and their test, the backends' retention, and the days a report's text is kept, held
+ * to triage's policy (docs/COMPONENTS/CONSOLE.md).
  */
 import { useEffect } from 'react';
 import { SESSION_MINUTES } from '../access.ts';
-import { KEPT_DAYS, TRIES_MINUTES } from '../privacy.ts';
+import { KEPT_DAYS, PREVIEW, TRIES_MINUTES } from '../privacy.ts';
 import { REPORT_KEPT_DAYS } from '../projection/report.ts';
 import '../styles/settings.css';
 import '../styles/privacy.css';
@@ -46,6 +47,14 @@ export function Privacy() {
             <strong>But Martin’s sign-in.</strong> When Martin signs in, his browser keeps one cookie,{' '}
             <code>__Host-session</code>, for {SESSION_MINUTES} minutes. It is strictly necessary to keep him signed in,
             holds a random number and nothing else, and goes to this site alone. A visitor never gets one.
+          </li>
+          <li>
+            <strong>A preview of the app.</strong> The app keeps nothing on your device either, but for one cookie if
+            you ask to preview a new feature, with <code>?preview=</code> and the feature’s name in its address. Then it
+            keeps <code>{PREVIEW.cookie}</code>, for {PREVIEW.hours} hours from the last time you asked, to keep showing
+            you the feature. It is strictly necessary to give you what you asked for, holds the names of the features
+            asked for and nothing else, goes to the app alone, and no script can read it. To remove it, delete the app’s
+            cookies in your browser’s settings, or wait {PREVIEW.hours} hours.
           </li>
           <li>
             <strong>Motion.</strong> The console reads your device’s <code>prefers-reduced-motion</code> setting to
@@ -105,7 +114,9 @@ export function Privacy() {
       <p className="privacy-proof">
         Each of these is checked, not promised: the console’s{' '}
         <a href={`${SOURCE}/main/apps/console/e2e/support.ts`}>browser tests</a> fail if a page keeps anything on the
-        device or asks another site, and the{' '}
+        device or asks another site, the probes’{' '}
+        <a href={`${SOURCE}/main/apps/factory/src/senses/device.ts`}>device check</a> fails a change to the app that
+        keeps anything but the preview cookie, or keeps that when nobody asked, and the{' '}
         <a href={`${SOURCE}/main/docs/COMPONENTS/TELEMETRY.md#what-is-kept-of-a-visitor`}>telemetry</a> drops addresses
         before anything is stored.
       </p>

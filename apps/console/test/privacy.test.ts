@@ -1,11 +1,13 @@
 /**
- * The privacy page's figures against where each is set: what Loki, Tempo and Prometheus keep, and how long the admin
- * service counts the tries to sign in from one address. The session's 30 minutes are held by `access.test.ts`.
+ * The privacy page's figures against where each is set: what Loki, Tempo and Prometheus keep, how long the admin
+ * service counts the tries to sign in from one address, and the app's preview cookie as the probes' `/device` check
+ * allows it. The session's 30 minutes are held by `access.test.ts`.
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { LIMITS } from '../../factory/src/admin/client.ts';
-import { KEPT_DAYS, TRIES_MINUTES } from '../web/src/privacy.ts';
+import { PREVIEW_COOKIE } from '../../factory/src/senses/device.ts';
+import { KEPT_DAYS, PREVIEW, TRIES_MINUTES } from '../web/src/privacy.ts';
 
 /** The one duration a values file sets by `pattern`, which must match once. */
 function setting(file: string, pattern: RegExp): string {
@@ -31,5 +33,12 @@ describe('what the privacy page says the server keeps', () => {
   it('counts the tries to sign in for as long as the admin service does', () => {
     expect(LIMITS['sign-in'].minutes).toBe(TRIES_MINUTES);
     expect(LIMITS.enrol.minutes).toBe(TRIES_MINUTES);
+  });
+});
+
+describe('what the privacy page says the app keeps', () => {
+  it('names the preview cookie, and the time it lasts, as the probes’ `/device` check allows them', () => {
+    expect(PREVIEW.cookie).toBe(PREVIEW_COOKIE.name);
+    expect(PREVIEW.hours * 3600).toBe(PREVIEW_COOKIE.maxAgeSeconds);
   });
 });
