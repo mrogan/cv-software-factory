@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en" data-theme="paper">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Feature flags · Software Factory · Martin Rogan</title>
+<meta name="description" content="How an improvement goes out behind a feature flag, stage by stage, and why a canary and a share take turns.">
+<link rel="icon" href="../design/system/mark/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="../design/system/tokens.css">
+<link rel="stylesheet" href="architecture.css">
+<style>
+/* ---- Diagram and card ---------------------------------------------------------------- */
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 20px; align-items: start; }
+@media (max-width: 1150px) { .main { grid-template-columns: 1fr; } }
+svg#dia { display: block; width: 100%; min-width: 760px; height: auto; }
+/* Who sees the feature is told apart by fill first: a lit dot is solid ink, an unlit one hollow. */
+.f-req { --flow: var(--text-muted); --dash: none; }
+.f-lit { --flow: var(--signal); --dash: none; }
+.f-unlit { --flow: var(--text-muted); --dash: none; }
+.f-half { --flow: var(--signal); --dash: 7 4; }
+.f-set { --flow: var(--text-2); --dash: 0.5 4.5; }
+.dot-req { fill: var(--text-muted); }
+.dot-lit { fill: var(--signal); }
+.dot-unlit { fill: var(--bg); stroke: var(--text-muted); stroke-width: 1.6; }
+.dot-set { fill: var(--text-2); }
+.dot-denied { fill: var(--attn); }
+.node { cursor: default; }
+#dia .node .name { font-size: 18px; }
+#dia .node .sub { font-size: 13px; }
+.node.dim { opacity: 0.25; }
+.node.canary .box { stroke: var(--station-canary); stroke-width: 2.2; }
+.ntag rect { fill: var(--text); }
+.ntag text { fill: var(--on-inverse); font: 500 11px var(--font-mono); letter-spacing: 0.6px; }
+.legend svg { width: 14px; height: 14px; flex: none; }
+
+/* ---- Who sees it --------------------------------------------------------------------- */
+.whohead { padding: 4px 8px 0; }
+.who { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 0 8px 4px; }
+@media (max-width: 640px) { .who { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.who div { border: 1px solid var(--line-strong); border-radius: var(--radius-card); background: var(--raised); padding: 10px 12px; font-size: 13px; color: var(--text-2); transition: background 0.3s, color 0.3s, border-color 0.3s; }
+.who b { display: block; margin-top: 2px; font: 400 21px / 1.15 var(--font-display); color: var(--text); transition: color 0.3s; }
+.who .lit { background: var(--text); border-color: var(--text); color: var(--on-inverse); }
+.who .lit b { color: var(--on-inverse); }
+.who .half { background: linear-gradient(90deg, var(--text) 0 8px, var(--raised) 8px); padding-left: 20px; }
+
+/* ---- The card ------------------------------------------------------------------------ */
+.card ul { margin: 0 0 10px; padding-left: 20px; color: var(--text-2); }
+.card li { margin-bottom: 4px; }
+.card b { color: var(--text); font-weight: 500; }
+.card code { font: 12.5px var(--font-mono); color: var(--text); background: var(--surface); padding: 1px 5px; border-radius: var(--radius-small); }
+.callout { border-left: var(--stroke-rule) solid var(--signal-line); background: var(--signal-wash); padding: 10px 12px; margin: 0 0 12px; border-radius: 0 var(--radius-small) var(--radius-small) 0; color: var(--text-2); }
+.callout.attn { border-color: var(--attn); background: var(--attn-wash); }
+.card table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 0 0 12px; font-variant-numeric: tabular-nums; }
+.card th, .card td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); color: var(--text-2); }
+.card th { font-weight: 500; color: var(--text); }
+.ids { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.ids span { font: 500 11.5px var(--font-mono); padding: 4px 8px; border-radius: var(--radius-small); border: 1px solid var(--line-strong); color: var(--text-2); }
+.ids .lit { background: var(--text); border-color: var(--text); color: var(--on-inverse); }
+.ids .none { border-style: dashed; }
+details { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+summary { cursor: pointer; font: 500 10.5px var(--font-mono); letter-spacing: 1.2px; color: var(--text-muted); text-transform: uppercase; }
+details p { font-size: 13.5px; margin-top: 8px; }
+.nav { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 16px; }
+.nav .btn:disabled { opacity: 0.35; cursor: default; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow"><a href="../AGENTS.md">Software Factory</a> · architecture · planned in milestone 7 Part B</div>
+      <h1>Feature flags <em>· an improvement, stage by stage</em></h1>
+    </div>
+    <div class="seg" role="tablist" aria-label="Step" id="steps"></div>
+  </header>
+
+  <div class="main">
+    <section class="stage" aria-label="Diagram">
+      <div class="scroll">
+        <svg id="dia" viewBox="0 0 1000 540" role="img" aria-labelledby="diaT">
+          <title id="diaT">The parts involved in this step, and the requests between them</title>
+          <g id="edges"></g><g id="nodes"></g><g id="dotsL"></g><g id="tags"></g>
+        </svg>
+      </div>
+      <div class="legend">
+        <span><svg viewBox="0 0 14 14" aria-hidden="true"><circle class="dot-req" cx="7" cy="7" r="4"/></svg>a request</span>
+        <span><svg viewBox="0 0 14 14" aria-hidden="true"><circle class="dot-unlit" cx="7" cy="7" r="4.5"/></svg>sees the old look</span>
+        <span><svg viewBox="0 0 14 14" aria-hidden="true"><circle class="dot-lit" cx="7" cy="7" r="5"/></svg>sees dark mode</span>
+        <span><svg viewBox="0 0 14 14" aria-hidden="true"><circle class="dot-set" cx="7" cy="7" r="3"/></svg>a setting changing</span>
+        <span><svg viewBox="0 0 14 14" aria-hidden="true"><circle class="dot-denied" cx="7" cy="7" r="4.5"/></svg>stopped</span>
+      </div>
+      <div class="tag whohead">Who sees dark mode</div>
+      <div class="who" id="who" aria-live="polite"></div>
+    </section>
+
+    <aside>
+      <div class="card">
+        <div class="tag" id="count"></div>
+        <h2 id="title"></h2>
+        <div id="body"></div>
+        <div class="nav">
+          <button type="button" class="btn" id="prev">← Back</button>
+          <button type="button" class="btn primary" id="next">Next →</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="foot">
+    <div class="left">
+      <span>The plan: <a href="../PLAN/M07-ADMIN-AND-GUARDRAILS.md#feature-flags-part-b">milestone 7, feature flags</a>.</span>
+      <a href="wiring.html">How the parts connect</a>
+      <a href="hosting.html">Where the factory lives</a>
+      <a href="../design/system/index.html">Design system</a>
+    </div>
+    <div class="right">
+      <div class="seg" role="group" aria-label="Theme"><button type="button" data-theme-set="paper">PAPER</button><button type="button" data-theme-set="ink">INK</button></div>
+      <div class="seg" role="group" aria-label="Motion"><button type="button" data-motion="on">MOTION</button><button type="button" data-motion="off">STILL</button></div>
+    </div>
+  </footer>
+</div>
+
+<script>
+(()=> {
+const NS = 'http://www.w3.org/2000/svg';
+const $ = (id) => document.getElementById(id);
+const PLAN = '../PLAN/M07-ADMIN-AND-GUARDRAILS.md';
+
+const NODES = {
+  visitors: { x: 20, y: 40, t: 'Real visitors', s: 'people using the shop' },
+  gen: { x: 20, y: 165, t: 'Traffic generator', s: 'fake visitors with ids' },
+  preview: { x: 20, y: 290, t: 'A previewer', s: 'asking for a preview' },
+  checks: { x: 20, y: 440, t: "The factory's checks", s: 'probes and journeys' },
+  traefik: { x: 280, y: 40, w: 140, h: 320, t: 'Traefik', s: 'the front door' },
+  argo: { x: 280, y: 382, w: 140, h: 56, t: 'Argo CD', s: 'deploys code' },
+  stable: { x: 500, y: 90, t: 'The app', s: 'the current version' },
+  canary: { x: 500, y: 230, t: 'The app, new', s: 'a canary', canary: true },
+  verify: { x: 500, y: 440, t: 'Verify', s: 'judges what happened' },
+  flagd: { x: 780, y: 150, t: 'flagd', s: 'reads the switchboard' },
+  flags: { x: 780, y: 290, t: 'flags', s: 'the switchboard' },
+  console: { x: 780, y: 440, t: 'The console', s: "Martin's controls" },
+};
+for (const n of Object.values(NODES)) { n.w ??= 200; n.h ??= 64; }
+
+const EDGES = {
+  vis: ['visitors', 'traefik'], gen: ['gen', 'traefik'], pre: ['preview', 'traefik'],
+  ts: ['traefik', 'stable'], tc: ['traefik', 'canary'],
+  cs: { d: 'M220,464 L460,464 Q475,464 475,449 L475,137 Q475,122 490,122 L500,122' },
+  cv: { d: 'M220,494 L500,494' },
+  argo: ['argo', 'canary'],
+  fs: ['flagd', 'stable'], fc: ['flagd', 'canary'],
+  ff: ['flags', 'flagd'], cf: ['console', 'flags'],
+  sv: { d: 'M700,122 C 755,122 755,472 700,472' },
+  canv: ['canary', 'verify'],
+};
+function anchors(a, b) {
+  const A = NODES[a], B = NODES[b];
+  if (B.x >= A.x + A.w) return [[A.x + A.w, A.y + A.h / 2], [B.x, B.y + B.h / 2]];
+  if (B.x + B.w <= A.x) return [[A.x, A.y + A.h / 2], [B.x + B.w, B.y + B.h / 2]];
+  if (B.y > A.y + A.h) return [[A.x + A.w / 2, A.y + A.h], [B.x + B.w / 2, B.y]];
+  return [[A.x + A.w / 2, A.y], [B.x + B.w / 2, B.y + B.h]];
+}
+function pathFor(id) {
+  const e = EDGES[id];
+  if (e.d) return e.d;
+  const [[x1, y1], [x2, y2]] = anchors(e[0], e[1]);
+  if (Math.abs(x2 - x1) > Math.abs(y2 - y1)) { const m = (x1 + x2) / 2; return `M${x1},${y1} C ${m},${y1} ${m},${y2} ${x2},${y2}`; }
+  const m = (y1 + y2) / 2; return `M${x1},${y1} C ${x1},${m} ${x2},${m} ${x2},${y2}`;
+}
+
+const SET = { cf: 'set', ff: 'set', fs: 'set' };
+const STEPS = [
+  {
+    title: 'The parts',
+    tab: 'Parts',
+    nodes: Object.keys(NODES),
+    edges: { vis: 'req', gen: 'req', pre: 'req', ts: 'req', tc: 'req', cs: 'req', fs: 'set', fc: 'set', ff: 'set', cf: 'set' },
+    who: { visitors: 'unlit', preview: 'unlit', gen: 'unlit', checks: 'unlit' },
+    body: `
+<ul>
+<li><b>Real visitors</b> use the shop.</li>
+<li><b>The traffic generator</b> stands in for visitors, so there is always traffic to measure. Each of its fake visitors has an id.</li>
+<li><b>A previewer</b> is Martin, or anyone he sends a preview link to.</li>
+<li><b>The factory's checks</b> click through the shop and take pictures, to see that it works.</li>
+<li><b>Traefik</b> is the front door: visitors and the generator come in through it. The checks reach the app directly.</li>
+<li><b>Argo CD</b> deploys new versions of the app's code.</li>
+<li><b>The app</b> is usually one version. During a release there are briefly two, and the new one is the canary.</li>
+<li><b><code>flags</code></b> is a switchboard: which features are on, and for whom. <b>flagd</b> watches it and keeps the app's copy up to date.</li>
+<li><b>The console</b> is where Martin flips the switches. <b>Verify</b> judges the evidence.</li>
+</ul>`,
+  },
+  {
+    title: 'The code arrives, switched off',
+    tab: 'Shipped',
+    nodes: ['visitors', 'gen', 'traefik', 'argo', 'stable', 'canary', 'verify', 'flagd', 'flags'],
+    edges: { vis: 'unlit', gen: 'unlit', argo: 'req', ts: 'unlit', tc: 'unlit', canv: 'req', sv: 'req', fs: 'set', fc: 'set', ff: 'set' },
+    tags: { traefik: '75% · 25%', flags: 'dark-mode: off', canary: 'dark mode inside' },
+    who: { visitors: 'unlit', preview: 'unlit', gen: 'unlit', checks: 'unlit' },
+    body: `
+<p>The coder writes dark mode behind a flag, <code>dark-mode</code>, which is off unless the switchboard says otherwise. The pull request merges and is released like any other change.</p>
+<div class="callout"><b>A canary is about which code runs.</b> A new version doesn't replace the old one at once: the front door sends it a quarter of the traffic, and the canary's analysis compares the two versions. If the new one has more errors or is slower, it is rolled back on its own; if not, it gets the rest.</div>
+<div class="callout"><b>A flag is about which behaviour that code shows.</b> Dark mode is in the new version, switched off, so the canary only checks that it breaks nothing while off. Switching it on later needs no new version, no deploy and no canary.</div>
+<details><summary>In the plan</summary><p><a href="${PLAN}#feature-flags-part-b">The flag is defined in the change; its state is Martin's.</a> The probes' pictures from this release are the "off" side of the evidence later.</p></details>`,
+  },
+  {
+    title: "Stage 1: the factory's checks",
+    tab: 'Checks',
+    nodes: ['visitors', 'checks', 'traefik', 'stable', 'verify', 'flagd', 'flags', 'console'],
+    edges: { vis: 'denied', ts: 'unlit', cs: 'lit', cv: 'req', ...SET },
+    tags: { flags: 'dark-mode: stage 1', traefik: 'strips the mark' },
+    who: { visitors: 'unlit', preview: 'unlit', gen: 'unlit', checks: 'lit' },
+    body: `
+<p>Martin moves dark mode to stage 1. Only the factory's own checks see it, so they can try it on the real shop while no visitor sees anything.</p>
+<p><b>How the app tells a check from a visitor.</b> The checks already label every request (the header <code>x-unmeasured</code>), and the app shows dark mode to a labelled request. A visitor who adds the label gets nowhere: the front door strips it. The checks don't come through the front door; they reach the app directly, and the network lets nothing else do so. So the label can only come from the checks.</p>
+<p><b>What Verify does.</b> The checks click through the shop with dark mode on, make sure nothing breaks and nothing is left on the device, and take pictures. The release's pictures (off) and these (on) go on the work item's card, and Martin looks at them before going further.</p>
+<details><summary>In the plan</summary><p>Stage 1, <a href="${PLAN}#feature-flags-part-b">the mark</a>: kept by the network, not a key. An admission rule requires the strip on every route to the app (task 14).</p></details>`,
+  },
+  {
+    title: 'Stage 2: a preview',
+    tab: 'Preview',
+    nodes: ['visitors', 'preview', 'traefik', 'stable', 'flagd', 'flags', 'console'],
+    edges: { vis: 'unlit', pre: 'lit', ts: 'req', ...SET },
+    tags: { flags: 'dark-mode: stage 2', preview: '?preview=dark-mode' },
+    who: { visitors: 'unlit', preview: 'lit', gen: 'unlit', checks: 'lit' },
+    body: `
+<p>At stage 2, anyone who asks for a preview sees dark mode. The console's "Preview it" link opens the shop with <code>?preview=dark-mode</code>, and the shop remembers it in a cookie on that one browser.</p>
+<p>It is harmless: they asked for it, they see a feature already deployed, and only in their own browser. Everyone else sees the old look. Each stage keeps the ones before it, so the checks still see it too.</p>
+<p>The preview cookie is the only thing flags ever keep on a visitor's device, and only because they asked, which is why neither the shop nor the console needs a cookie banner.</p>`,
+  },
+  {
+    title: 'Stage 3: a share',
+    tab: 'Share',
+    nodes: ['visitors', 'gen', 'traefik', 'stable', 'verify', 'flagd', 'flags', 'console'],
+    edges: { vis: 'unlit', gen: 'half', ts: 'half', sv: 'req', ...SET },
+    tags: { flags: 'dark-mode: share 50%', gen: 'signed ids' },
+    who: { visitors: 'unlit', preview: 'lit', gen: 'half', checks: 'lit' },
+    body: `
+<p><b>A share is a percentage of the fake visitors.</b> At "share 50%", half of the traffic generator's fake visitors see dark mode and half don't. Real visitors still see the old look.</p>
+<div class="ids"><span class="lit">#101 signed</span><span>#102 signed</span><span class="lit">#103 signed</span><span>#104 signed</span><span class="none">a visitor, unsigned: off</span></div>
+<p><b>Why.</b> It is a fair test: two groups alike in everything but dark mode. Verify compares them on errors and speed, as the generator measured them, and a fault in the feature shows before any real person meets it.</p>
+<p><b>Why only fake visitors.</b> Keeping a real person on one side would mean keeping an id on their device. The fake visitors send their id with every request.</p>
+<p><b>Why signed.</b> If any id would do, anyone could send one and walk into the test. The generator signs each id with a key only it holds; the app holds only the key that checks a signature, which cannot make one.</p>
+<details><summary>In the plan</summary><p>Stage 3: Ed25519, the private key in the generator's Secret and the public one in <code>share-key</code>. flagd's <code>fractional</code> rule splits on the signed id. The app's flag context is code-owned, so an agent cannot quietly skip the check (tasks 14 and 17).</p></details>`,
+  },
+  {
+    title: 'A canary and a share take turns',
+    tab: 'Canary + share',
+    nodes: ['gen', 'traefik', 'argo', 'stable', 'canary', 'verify', 'flagd', 'flags'],
+    edges: { gen: 'half', argo: 'req', ts: 'half', tc: 'half', canv: 'req', sv: 'req', fs: 'set', fc: 'set', ff: 'set' },
+    tags: { traefik: 'split two ways', flags: 'dark-mode: share 50%', canary: 'another fix' },
+    who: { visitors: 'unlit', preview: 'lit', gen: 'half', checks: 'lit' },
+    body: `
+<p>Suppose an unrelated fix is released while dark mode is at "share 50%". The fake visitors' traffic is now split two ways at once, by version and by flag, and each comparison can blame the wrong thing.</p>
+<p>Say dark mode makes pages slow, and by bad luck more of the canary's requests have it on:</p>
+<table>
+<tr><th></th><th>dark mode off</th><th>dark mode on</th></tr>
+<tr><th>current version, 75%</th><td>45 fast</td><td>30 slow</td></tr>
+<tr><th>the canary, 25%</th><td>5 fast</td><td>20 slow</td></tr>
+</table>
+<div class="callout attn"><b>What goes wrong.</b> The canary sees 80% of its requests slow against 40% on the current version, decides the fix is slow, and rolls it back, though the fix is fine and dark mode is the cause. The other way round, Verify's comparison of dark mode mixes two versions.</div>
+<p><b>So they take turns:</b></p>
+<ul>
+<li>A flag cannot move to a share while a canary is in flight; the console says why.</li>
+<li>If a canary starts while a flag is at a share, Verify sets those minutes aside and carries on after. A release never waits for a flag.</li>
+<li>The generator turns its ids independently of the front door's split, so both versions get the same mix of on and off.</li>
+<li>Only one flag is at a share at a time, so a comparison has one difference to explain.</li>
+</ul>`,
+  },
+  {
+    title: 'Stage 4: everyone',
+    tab: 'Everyone',
+    nodes: ['visitors', 'preview', 'gen', 'checks', 'traefik', 'stable', 'flagd', 'flags', 'console'],
+    edges: { vis: 'lit', gen: 'lit', pre: 'lit', ts: 'lit', cs: 'lit', ...SET },
+    tags: { flags: 'dark-mode: everyone' },
+    who: { visitors: 'lit', preview: 'lit', gen: 'lit', checks: 'lit' },
+    body: `
+<p>Verify found the two halves alike, so Martin switches dark mode on for everyone, giving his passkey again, as widening a flag needs. Real visitors see it from their next page.</p>
+<p>From here dark mode is part of the shop like any other: if something goes wrong with it later, the senses notice and triage opens a ticket.</p>
+<details><summary>In the plan</summary><p>Dark mode follows the browser's own setting, with no switch of its own, since a switch would keep a choice on the visitor's device (task 19).</p></details>`,
+  },
+  {
+    title: 'The kill switch',
+    tab: 'Off',
+    nodes: ['visitors', 'traefik', 'stable', 'flagd', 'flags', 'console'],
+    edges: { vis: 'unlit', ts: 'unlit', ...SET },
+    tags: { flags: 'dark-mode: off', console: 'off' },
+    who: { visitors: 'unlit', preview: 'unlit', gen: 'unlit', checks: 'unlit' },
+    body: `
+<p>At any stage Martin can turn a flag off. The admin service changes the switchboard, flagd sees it within seconds and tells the app, and everyone, previewers included, is back on the old look: no new version, no deploy, no rollback. Then the admin service asks the app which switchboard it holds, and tells Martin if the change has not arrived within a minute.</p>
+<p><b>If flagd itself fails,</b> the app carries on with its own copy of the switchboard. But then an "off" could not reach it, so once its copy has gone a minute without word from flagd, the app treats every flag as off.</p>
+<p>A flag turned off closes its work item as turned off, with Martin's reason. It is not a rollback: no code moved.</p>`,
+  },
+  {
+    title: 'Who may touch the switches',
+    tab: 'Guards',
+    nodes: ['console', 'flags', 'flagd', 'argo', 'stable', 'traefik'],
+    edges: { ...SET },
+    tags: { argo: 'leaves them alone', flagd: 'reads only' },
+    who: { visitors: 'unlit', preview: 'unlit', gen: 'unlit', checks: 'unlit' },
+    body: `
+<p>The switches are production state kept outside Git, so each is guarded:</p>
+<ul>
+<li><b>Only the admin service writes <code>flags</code>,</b> and only in the four stages' fixed shapes. The cluster refuses anything else, and refuses deleting it.</li>
+<li><b>flagd only reads it,</b> and lives in a namespace of its own, which nothing the app's repository deploys can reach.</li>
+<li><b>Argo CD makes the switchboard empty and leaves its switches alone,</b> or every merge would turn every flag off.</li>
+<li><b>Only Martin can stage a flag or ask for an improvement:</b> both are admin events, which no worker's role may append. Asking for an improvement and approving its spec take his passkey again and reach his phone.</li>
+<li><b>Widening needs his passkey again;</b> narrowing and off never do, so the safe way is always one click.</li>
+<li><b>The app's code cannot cheat.</b> Agents write the app, so the part that decides who is a check, a previewer or in a share changes only with Martin's approval, and no other part of the app may ask flagd anything. Verify judges a share from what the traffic generator measured, not from what the app says about itself.</li>
+</ul>
+<p>Every switch is an event, so the audit log is each flag's history.</p>`,
+  },
+];
+
+const WHO = [['visitors', 'Real visitors'], ['preview', 'Previewers'], ['gen', 'Fake visitors'], ['checks', "The factory's checks"]];
+const WORD = { lit: 'Dark mode', unlit: 'Old look', half: 'Half of them' };
+
+// Still when the reader asks for less motion, or picks STILL in the footer.
+let still = new URLSearchParams(location.search).get('motion') === 'off' || matchMedia('(prefers-reduced-motion: reduce)').matches;
+let at = 0;
+const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); parent.appendChild(e); return e; };
+
+function paint() {
+  const step = STEPS[at];
+  for (const id of ['edges', 'nodes', 'dotsL', 'tags']) $(id).replaceChildren();
+  for (const [id, kind] of Object.entries(step.edges)) {
+    const flow = kind === 'denied' ? 'f-denied' : `f-${kind}`;
+    const p = el('path', { d: pathFor(id), id: `p-${id}`, class: `edge on ${flow}` }, $('edges'));
+    const len = p.getTotalLength();
+    const count = kind === 'set' ? 2 : 3;
+    const stop = kind === 'denied' ? 0.55 : 1;
+    for (let i = 0; i < count; i++) {
+      const dk = kind === 'half' ? (i % 2 ? 'unlit' : 'lit') : kind;
+      const r = { lit: 5, unlit: 4.5, req: 4, set: 3, denied: 4.5 }[dk];
+      const c = el('circle', { r, class: `dot-${dk}` }, $('dotsL'));
+      if (still) { const pt = p.getPointAtLength(len * stop * (i + 1) / (count + 1)); c.setAttribute('cx', pt.x); c.setAttribute('cy', pt.y); continue; }
+      const dur = 2.4, begin = `${(-i * dur) / count}s`;
+      const m = el('animateMotion', { dur: `${dur}s`, repeatCount: 'indefinite', begin, keyPoints: `0;${stop}`, keyTimes: '0;1', calcMode: 'linear' }, c);
+      el('mpath', { href: `#p-${id}` }, m);
+      if (kind === 'denied') el('animate', { attributeName: 'opacity', values: '1;1;0', keyTimes: '0;0.8;1', dur: `${dur}s`, repeatCount: 'indefinite', begin }, c);
+    }
+  }
+  for (const [id, n] of Object.entries(NODES)) {
+    const on = step.nodes.includes(id);
+    const g = el('g', { class: `node${on ? '' : ' dim'}${n.canary && on ? ' canary' : ''}` }, $('nodes'));
+    el('rect', { class: 'box', x: n.x, y: n.y, width: n.w, height: n.h, rx: 6 }, g);
+    el('text', { class: 'name', x: n.x + 14, y: n.y + n.h / 2 - 3 }, g).textContent = n.t;
+    el('text', { class: 'sub', x: n.x + 14, y: n.y + n.h / 2 + 15 }, g).textContent = n.s;
+    const tag = step.tags?.[id];
+    if (tag) {
+      const tg = el('g', { class: 'ntag' }, $('tags'));
+      const t = el('text', { x: 0, y: 0 }, tg); t.textContent = tag.toUpperCase();
+      // The box's width comes from the text as drawn, letter-spacing and all.
+      const w = t.getBBox().width + 20, x = n.x + n.w - w + 8, y = n.y - 11;
+      t.setAttribute('x', x + 10); t.setAttribute('y', y + 15);
+      tg.insertBefore(el('rect', { x, y, width: w, height: 21, rx: 3 }, tg), t);
+    }
+  }
+}
+
+function show(i) {
+  at = Math.max(0, Math.min(STEPS.length - 1, i));
+  const s = STEPS[at];
+  paint();
+  $('count').textContent = `Step ${at + 1} of ${STEPS.length}`;
+  $('title').textContent = s.title;
+  $('body').innerHTML = s.body;
+  $('who').innerHTML = WHO.map(([k, label]) => `<div class="${s.who[k]}">${label}<b>${WORD[s.who[k]]}</b></div>`).join('');
+  $('prev').disabled = at === 0;
+  $('next').disabled = at === STEPS.length - 1;
+  [...$('steps').children].forEach((b, j) => b.setAttribute('aria-selected', String(j === at)));
+  try { history.replaceState(null, '', `${location.search}#${at + 1}`); } catch {}
+}
+
+STEPS.forEach((s, i) => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.setAttribute('role', 'tab');
+  b.textContent = s.tab;
+  b.title = s.title;
+  b.onclick = () => show(i);
+  $('steps').appendChild(b);
+});
+$('prev').onclick = () => show(at - 1);
+$('next').onclick = () => show(at + 1);
+addEventListener('keydown', (e) => {
+  if (e.target.closest('input, textarea')) return;
+  if (e.key === 'ArrowRight') show(at + 1);
+  if (e.key === 'ArrowLeft') show(at - 1);
+});
+const fromHash = () => show((parseInt(location.hash.slice(1), 10) || 1) - 1);
+addEventListener('hashchange', fromHash);
+
+/* ---------- theme and motion ---------- */
+// Paper always comes first; Ink and motion are choices made on the page, not remembered.
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  document.querySelectorAll('[data-theme-set]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.themeSet === t)));
+}
+function setMotion(on) {
+  still = !on;
+  document.querySelectorAll('[data-motion]').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.motion === 'on') === on)));
+}
+document.querySelectorAll('[data-theme-set]').forEach((b) => (b.onclick = () => setTheme(b.dataset.themeSet)));
+document.querySelectorAll('[data-motion]').forEach((b) => (b.onclick = () => { setMotion(b.dataset.motion === 'on'); paint(); }));
+setTheme(new URLSearchParams(location.search).get('theme') === 'ink' ? 'ink' : 'paper');
+setMotion(!still);
+fromHash();
+})();
+</script>
+</body>
+</html>
