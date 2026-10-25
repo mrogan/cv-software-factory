@@ -260,7 +260,7 @@ const holdAge = meter.createObservableGauge('line.hold.age', {
  * deploy pull request's checks running again), reads 0 from then. The process remembers each series it reported
  * while its hold waits, only to say once that it has ended, and then forgets it: what waits is the store's alone.
  *
- * An ended series stays, at 0, until the line next starts: the SDK (`@opentelemetry/sdk-metrics` 2.12) keeps an
+ * An ended series stays, at 0, until the line next starts: the SDK (`@opentelemetry/sdk-metrics` 3.0) keeps an
  * attribute set it has seen once in the reader's cumulative storage, and sends it each collection whether or not the
  * callback observed it again, and neither an observable nor a synchronous gauge can remove one. Only delta temporality
  * drops a set not observed, and temporality is the reader's, chosen by instrument type, not by instrument or view:

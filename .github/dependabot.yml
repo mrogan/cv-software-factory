@@ -50,6 +50,10 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    # A dependency goes to the first group it matches, and the last two take what the first two leave, so a week's updates
+    # arrive as a few pull requests rather than one each, and fewer are left to bring up to date after each merge. A
+    # major of a production dependency comes alone, but for OpenTelemetry's, whose packages move together whatever the
+    # update: sdk-node's minor pins sdk-metrics's major.
     groups:
       opentelemetry:
         patterns: ['@opentelemetry/*']
@@ -57,6 +61,11 @@ updates:
         patterns: ['@fontsource/*', '@fontsource-variable/*']
       tooling:
         dependency-type: development
+        # A development dependency of OpenTelemetry's moves with the SDK it tests, which needs the same API.
+        exclude-patterns: ['@opentelemetry/*']
+      production:
+        dependency-type: production
+        update-types: [minor, patch]
 
   - package-ecosystem: github-actions
     directory: /
@@ -98,6 +107,9 @@ updates:
       # The build image's Node matches mise.toml's; a new major is a deliberate change, not a weekly bump.
       - dependency-name: node
         update-types: [version-update:semver-major]
+      # A new major of Postgres needs its data directory upgraded, which is a change of its own.
+      - dependency-name: postgres
+        update-types: [version-update:semver-major]
       # In the playwright group, above.
       - dependency-name: playwright
     cooldown:
@@ -105,11 +117,13 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    # An image pinned in several directories moves in all of them in one pull request, an image to a pull request:
+    # distroless's digest in the console's and the factory's Dockerfiles, and Node in three, as scripts/image-pins.test.ts
+    # requires (Node's then waits for mise.toml, which follows by hand). Without `group-by`, a group here would make a
+    # pull request per directory instead; nothing makes one for every image.
     groups:
-      # Node is pinned in three Dockerfiles, so one pull request moves it in all of them: scripts/image-pins.test.ts
-      # fails when they disagree. A new major is ignored above.
-      node:
-        patterns: [node]
+      images:
+        patterns: ['*']
         group-by: dependency-name
 
   # flagd (deploy/base/flagd), from OpenFeature's GHCR. The cooldown below does not apply: GHCR gives Dependabot no
