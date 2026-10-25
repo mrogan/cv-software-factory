@@ -1,0 +1,90 @@
+# The mark kept here (milestone 7). The factory's own checks send `x-unmeasured` (`UNMEASURED`,
+# apps/factory/src/senses/http.ts), and a flag's first stage is on for the requests that carry it. What keeps visitors
+# from sending it is the network: the app's NetworkPolicy lets in, beside Traefik, only the probes, the crawler and the
+# canary's journeys, and the app's route through Traefik passes every request through the Middleware `visitors`, which
+# removes the header. That route and that Middleware are the app's repository's, which the line's agents write, and
+# its Argo CD project may make IngressRoutes, TraefikServices and Middlewares in `website`
+# (deploy/base/website/project.yaml). So this policy holds them, for every request, Argo CD's included:
+#
+#   IngressRoute     each route's middlewares are `visitors` alone, in `website`: a second one after it could set the
+#                    header again. Its services carry no middlewares of their own, and name nothing in another
+#                    namespace or provider (`name@provider`, as `api@internal` would serve Traefik's own API).
+#   TraefikService   a weighted split alone, as the canary's is, with the same rule for each service it shares out.
+#   Middleware       every one in `website` is the strip and nothing else: `headers` removing `x-unmeasured` (an empty
+#                    value removes a header). An allow-list rather than a list of what is refused: at Traefik 3.7,
+#                    `headers` sets any request header (and any casing of the name, which HTTP does not tell apart),
+#                    `forwardAuth` copies headers from an auth server's answer (`authResponseHeaders`,
+#                    `authResponseHeadersRegex`), `basicAuth` and `digestAuth` write the user to a header of their
+#                    choosing (`headerField`), `chain` runs others, and `plugin` runs anything.
+#
+# Traefik itself refuses a reference to an object in another namespace (`allowCrossNamespace` is off, as the cluster's
+# Traefik has it: scripts/mark-refusals.sh keeps its providers' settings), so neither a route here nor one elsewhere can
+# name a Middleware or Service the other namespace holds. An address is not such a reference: a `forwardAuth` in another
+# namespace could still send its requests to the app's Service by URL, but only this repository makes Middlewares there. The app's repository may make no other kind that Traefik routes by (an Ingress, an
+# IngressRouteTCP, an HTTPRoute); its project admits none.
+#
+# Kyverno's, as the app's hosts are held (routes.yaml), rather than a ValidatingAdmissionPolicy: Kyverno reads each
+# resource as it is sent, so the policy compares a Middleware's whole spec with the strip. It fails closed.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: mark
+  annotations:
+    # After Kyverno, whose CRDs it needs (wave -3), before anything it guards.
+    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values: [website]
+    resourceRules:
+      - apiGroups: [traefik.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [ingressroutes, traefikservices, middlewares]
+  variables:
+    # The Middleware that strips the mark, and the spec it must have, whatever its name.
+    - name: strip
+      expression: "'visitors'"
+    - name: stripSpec
+      expression: "{'headers': {'customRequestHeaders': {'x-unmeasured': ''}}}"
+  validations:
+    - expression: >-
+        object.kind != 'IngressRoute' || (has(object.spec.routes) && object.spec.routes.all(r,
+          has(r.middlewares) && size(r.middlewares) == 1 &&
+          has(r.middlewares[0].name) && r.middlewares[0].name == variables.strip &&
+          (!has(r.middlewares[0].namespace) || r.middlewares[0].namespace in ['', 'website'])))
+      messageExpression: >-
+        'each route of an IngressRoute in website must have one middleware, ' + variables.strip +
+        ' in website, which removes x-unmeasured, and no other'
+    - expression: >-
+        object.kind != 'IngressRoute' || !has(object.spec.routes) || object.spec.routes.all(r,
+          !has(r.services) || r.services.all(s,
+            (!has(s.middlewares) || size(s.middlewares) == 0) &&
+            (!has(s.name) || !s.name.contains('@')) &&
+            (!has(s.namespace) || s.namespace in ['', 'website'])))
+      message: >-
+        the services of an IngressRoute in website may have no middlewares of their own, and name nothing in another
+        namespace or provider
+    - expression: >-
+        object.kind != 'TraefikService' || (has(object.spec) && object.spec.all(k, k == 'weighted') &&
+          has(object.spec.weighted) && has(object.spec.weighted.services) && object.spec.weighted.services.all(s,
+            (!has(s.middlewares) || size(s.middlewares) == 0) &&
+            (!has(s.name) || !s.name.contains('@')) &&
+            (!has(s.namespace) || s.namespace in ['', 'website'])))
+      message: >-
+        a TraefikService in website must be a weighted split whose services have no middlewares of their own, and
+        name nothing in another namespace or provider
+    - expression: >-
+        object.kind != 'Middleware' || (has(object.spec) && object.spec == variables.stripSpec)
+      message: >-
+        a Middleware in website may only remove x-unmeasured (headers, customRequestHeaders x-unmeasured: ""), and do
+        nothing else: no other header, no chain, no plugin, no forwardAuth, basicAuth or digestAuth, no other kind

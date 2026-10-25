@@ -304,6 +304,23 @@ describe("the app's fence", () => {
       (e) => e.operator === 'In' && e.values.includes(labels[e.key] ?? ''),
     );
 
+  it('denies everything in website to a pod no other policy there selects, such as one the app relabels', async () => {
+    const inWebsite = (await manifests()).filter(
+      ({ manifest }) => manifest.kind === 'NetworkPolicy' && manifest.metadata?.namespace === 'website',
+    );
+    expect(inWebsite.map(({ manifest }) => manifest.metadata?.name).sort()).toEqual([
+      'default-deny',
+      'journeys',
+      'website',
+    ]);
+    const deny = inWebsite.find(({ manifest }) => manifest.metadata?.name === 'default-deny');
+    expect(deny?.file).toBe('base/website/network-policy.yaml');
+    expect((deny?.manifest as Policy | undefined)?.spec).toEqual({
+      podSelector: {},
+      policyTypes: ['Ingress', 'Egress'],
+    });
+  });
+
   it("selects the app's pods, and lets them reach DNS, the collector's OTLP port and flagd's sync and health ports, nothing else", async () => {
     const policy = await fence();
     expect(policy.spec.podSelector.matchLabels).toEqual({ 'app.kubernetes.io/name': 'website' });

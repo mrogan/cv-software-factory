@@ -5,7 +5,9 @@
 # as `main` has it, whenever the policy changes.
 #
 # Each request is a server-side dry run: it passes through admission exactly as a real one does, and nothing is made.
-# Each route asks for the highest priority, on the HTTPS entrypoint, as one that meant to take the console's host would.
+# Each route asks for the highest priority, on the HTTPS entrypoint, as one that meant to take the console's host would,
+# and goes through the Middleware `visitors`, as `website-mark` (mark.yaml) requires. A refusal must be this policy's;
+# any other answer that is not a success stops the script, so the record holds only this policy's own answers.
 #
 #   app               the app's own host, as its route has it                       admitted
 #   app-path          the app's host and a path, joined with &&                     admitted
@@ -18,6 +20,7 @@ set -euo pipefail
 
 context="${KUBE_CONTEXT:-k3d-software-factory}"
 out="$(dirname "$0")/../deploy/test/route-refusals.json"
+policy="Policy website-routes failed"
 
 try() { # case match: one JSON line, what was asked and what the cluster answered
   local kind=$1 match=$2 answer outcome
@@ -32,17 +35,28 @@ spec:
     - kind: Rule
       match: "$match"
       priority: 2147483647
+      middlewares:
+        - name: visitors
       services:
         - name: website
           port: 80
 EOF
-  ); then outcome=admitted; else outcome=refused; fi
+  ); then outcome=admitted
+  elif [[ $answer == *"$policy"* ]]; then outcome=refused
+  else
+    echo "$kind: neither admitted nor refused by the policy:" >&2
+    echo "$answer" >&2
+    exit 1
+  fi
   jq -cn --arg kind "$kind" --arg match "$match" --arg outcome "$outcome" --arg answer "$answer" \
     --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     '{case: $kind, match: $match, at: $at, outcome: $outcome,
       message: ($answer | sub("^Error from server: error when creating \"STDIN\": "; ""))}'
 }
 
+# Kept aside until every case has answered, so a script that stops leaves the record as it was.
+answers=$(mktemp)
+trap 'rm -f "$answers"' EXIT
 {
   try app 'Host(`website.localhost`)'
   try app-path 'Host(`website.localhost`) && PathPrefix(`/x`)'
@@ -51,5 +65,6 @@ EOF
   try or-console 'Host(`website.localhost`) || Host(`console.localhost`)'
   try host-regexp 'HostRegexp(`.+`)'
   try console-and-app 'Host(`console.localhost`) && Host(`website.localhost`)'
-} | jq -s . >"$out"
+} >"$answers"
+jq -s . "$answers" >"$out"
 jq -r '.[] | "\(.outcome)  \(.case): \(.message)"' "$out"
