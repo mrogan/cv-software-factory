@@ -2,8 +2,18 @@ import { createServer, type IncomingHttpHeaders } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { pino } from 'pino';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { UNMEASURED } from '../src/senses/http.ts';
-import { type Answer, discover, type Get, httpGet, linksOn, round, Traffic } from '../src/traffic/traffic.ts';
+import { type RequestHeaders, UNMEASURED } from '../src/senses/http.ts';
+import { HEADERS, IDS } from '../src/traffic/share.ts';
+import {
+  type Answer,
+  discover,
+  type Get,
+  httpGet,
+  linksOn,
+  round,
+  type Sent,
+  Traffic,
+} from '../src/traffic/traffic.ts';
 
 const page = (...links: string[]) =>
   `<main>${links.map((href) => `<a class="x" href="${href}">a</a>`).join('')}</main>`;
@@ -65,12 +75,13 @@ describe('the walk', () => {
     expect(await discover(() => Promise.reject(new Error('reset')))).toEqual([]);
   });
 
-  it('makes a round whose length shares no factor with 100, with the front door', () => {
-    for (let length = 0; length <= 120; length++) {
+  it('makes a round whose length shares no factor with 100 or the number of ids, with the front door', () => {
+    for (let length = 0; length <= 250; length++) {
       const walk = round(Array.from({ length }, (_, i) => `/page/${i}`));
-      expect([2, 5].some((factor) => walk.length % factor === 0)).toBe(false);
+      expect([2, 5, IDS.length].some((factor) => walk.length % factor === 0)).toBe(false);
       expect(walk.slice(length).every((path) => path === '/')).toBe(true);
     }
+    expect(round(Array.from({ length: IDS.length }, (_, i) => `/page/${i}`))).toHaveLength(IDS.length + 2);
   });
 
   it('deals every page to the canary alike under a split of a quarter or a half', () => {
@@ -144,7 +155,12 @@ describe('the traffic', () => {
       rate: 5,
       log: pino({ level: 'silent' }),
       get: (path) => (path === '/about' ? Promise.reject(new Error('reset')) : get(path)),
-      sent: (status) => statuses.push(status),
+      sent: ({ status, seconds, id }) => {
+        statuses.push(status);
+        expect(seconds).toBeGreaterThanOrEqual(0);
+        // No key, no id.
+        expect(id).toBeNull();
+      },
     });
     await traffic.start();
     await vi.advanceTimersByTimeAsync(1_000 * Math.ceil(traffic.walk.length / 5));
@@ -155,6 +171,83 @@ describe('the traffic', () => {
     const sent = statuses.length;
     await vi.advanceTimersByTimeAsync(5_000);
     expect(statuses).toHaveLength(sent);
+  });
+});
+
+describe('the ids', () => {
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  /** The walk's requests, each with the headers it carried, sent at the rate for `count` requests. */
+  async function walked(count: number, sign?: (id: string, path: string) => RequestHeaders) {
+    vi.useFakeTimers();
+    const get = shop();
+    const sent: { path: string; headers: RequestHeaders | undefined }[] = [];
+    const reports: Sent[] = [];
+    let walking = false;
+    const traffic = new Traffic({
+      rate: 5,
+      log: pino({ level: 'silent' }),
+      get: (path, headers) => {
+        if (walking) sent.push({ path, headers });
+        return get(path);
+      },
+      ...(sign ? { sign } : {}),
+      sent: (report) => reports.push(report),
+    });
+    await traffic.start();
+    walking = true;
+    await vi.advanceTimersByTimeAsync(count * 200);
+    await traffic.stop();
+    return { walk: [...traffic.walk], sent, reports };
+  }
+
+  it('sends one with each request, signed, turning one a request, and reports each request by its id', async () => {
+    const sign = (id: string, path: string) => ({ [HEADERS.id]: id, [HEADERS.signature]: `signed ${id} ${path}` });
+    const { walk, sent, reports } = await walked(250, sign);
+    expect(sent).toHaveLength(250);
+    sent.forEach(({ path, headers }, i) => {
+      expect(path).toBe(walk[i % walk.length]);
+      expect(headers).toEqual(sign(IDS[i % IDS.length] as string, path));
+    });
+    expect(reports.map((r) => r.id)).toEqual(sent.map(({ headers }) => headers?.[HEADERS.id]));
+  });
+
+  it('sends none without the key: its requests carry only the usual headers', async () => {
+    const { sent, reports } = await walked(20);
+    expect(sent.every(({ headers }) => headers === undefined)).toBe(true);
+    expect(reports.every((r) => r.id === null)).toBe(true);
+  });
+
+  it('meets every page with every id equally, and turns them independently of the canary’s split', () => {
+    // One request in n is the walk's place n % length, with the id n % 101 (the test above): over a round's length times
+    // 101 requests, each place in the round meets each id once.
+    for (const pages of [10, 40, 98, 99, 200]) {
+      const walk = round(Array.from({ length: pages }, (_, i) => `/page/${i}`));
+      const cycle = walk.length * IDS.length;
+      const met = new Map<string, number>();
+      for (let n = 0; n < cycle; n++) {
+        const key = `${n % walk.length} ${n % IDS.length}`;
+        met.set(key, (met.get(key) ?? 0) + 1);
+      }
+      expect(met.size).toBe(cycle);
+      expect([...met.values()].every((times) => times === 1)).toBe(true);
+
+      // Traefik's split deals the canary the same places in each hundred requests, whatever they are: here a quarter of
+      // them, scattered. Over a hundred cycles, every id, and every page with every id, reaches it in proportion.
+      const canary = new Set(Array.from({ length: 100 }, (_, r) => r).filter((r) => (r * 37) % 100 < 25));
+      expect(canary.size).toBe(25);
+      const toCanary = new Map<string, number>();
+      for (let n = 0; n < cycle * 100; n++) {
+        if (!canary.has(n % 100)) continue;
+        const key = `${n % walk.length} ${n % IDS.length}`;
+        toCanary.set(key, (toCanary.get(key) ?? 0) + 1);
+      }
+      expect(toCanary.size).toBe(cycle);
+      expect([...toCanary.values()].every((times) => times === 25)).toBe(true);
+    }
   });
 });
 
@@ -195,6 +288,25 @@ describe('asking the app', () => {
       await httpGet(app, { headers: UNMEASURED })('/');
       expect(Object.keys(UNMEASURED).filter((name) => name in (seen[0] ?? {}))).toEqual([]);
       expect(seen[1]).toMatchObject(UNMEASURED);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('sends a request’s own headers with it, beside those it is given for every request', async () => {
+    const seen: IncomingHttpHeaders[] = [];
+    const server = createServer((req, res) => {
+      seen.push(req.headers);
+      res.writeHead(200).end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const app = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      const get = httpGet(app, { headers: { 'x-every': '1' } });
+      await get('/', { [HEADERS.id]: 'traffic-000', host: 'elsewhere.example' });
+      await get('/');
+      expect(seen[0]).toMatchObject({ 'x-every': '1', [HEADERS.id]: 'traffic-000', host: new URL(app).host });
+      expect(seen[1]).not.toHaveProperty(HEADERS.id);
     } finally {
       server.close();
     }

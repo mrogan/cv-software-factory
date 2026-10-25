@@ -1,3 +1,19 @@
+# Everything in `website` is denied, in and out, and then each pod there is let through by its own policy: the app's
+# below, and the canary's journeys Job's (deploy/base/analysis/network-policy.yaml). The app's repository, which agents
+# write, gives the app's pods their labels, so a pod it labelled otherwise would match neither policy; this keeps such a
+# pod reaching nothing and reached by nothing, Traefik included, rather than open to every pod in the cluster. The
+# kubelet's health checks come from the node, which k3s's policy controller always lets through.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: website
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
 # The app's fence. Agents write the app's code, so its pods may reach no more than serving its pages needs: DNS; the
 # collector on OTLP over HTTP (4318), where it sends its telemetry; and flagd's sync port (8015), from which its
 # in-process provider streams the flag set, and its management port (8014), for its health (deploy/base/flagd). Not

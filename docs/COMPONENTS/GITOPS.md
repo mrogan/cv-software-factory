@@ -23,6 +23,8 @@ The app deploys from its own repository through its own Argo CD project, which a
 - `IngressRoute`s;
 - `Middleware`s.
 
+Admission holds the Traefik kinds to the app's hosts ([admin service](ADMIN-SERVICE.md#on-the-cluster)) and to the Middleware that removes `x-unmeasured` ([the mark](ADMISSION-CONTROL.md#the-mark)).
+
 ## Syncing
 
 - **Weights.** Argo CD leaves the traffic split's weights to Argo Rollouts ([progressive delivery](PROGRESSIVE-DELIVERY.md)).
