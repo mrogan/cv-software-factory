@@ -17,9 +17,10 @@
 #                    `authResponseHeadersRegex`), `basicAuth` and `digestAuth` write the user to a header of their
 #                    choosing (`headerField`), `chain` runs others, and `plugin` runs anything.
 #
-# Traefik itself refuses a reference across namespaces (`allowCrossNamespace` is off, as the cluster's Traefik has it:
-# scripts/mark-refusals.sh keeps its providers' settings), so neither a route here nor one elsewhere can borrow what
-# the other namespace holds. The app's repository may make no other kind that Traefik routes by (an Ingress, an
+# Traefik itself refuses a reference to an object in another namespace (`allowCrossNamespace` is off, as the cluster's
+# Traefik has it: scripts/mark-refusals.sh keeps its providers' settings), so neither a route here nor one elsewhere can
+# name a Middleware or Service the other namespace holds. An address is not such a reference: a `forwardAuth` in another
+# namespace could still send its requests to the app's Service by URL, but only this repository makes Middlewares there. The app's repository may make no other kind that Traefik routes by (an Ingress, an
 # IngressRouteTCP, an HTTPRoute); its project admits none.
 #
 # Kyverno's, as the app's hosts are held (routes.yaml), rather than a ValidatingAdmissionPolicy: Kyverno reads each

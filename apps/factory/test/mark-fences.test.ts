@@ -26,8 +26,9 @@ interface Manifest {
 interface Kept {
   k3s: string;
   helmChartConfigs: string[];
-  traefik: { image: string; providers: string[] };
+  traefik: { image: string; providers: string[]; args: string[]; env: string[]; envFrom: unknown[] };
   cases: { case: string; outcome: string; message: string }[];
+  live: { case: string; outcome: string; message: string }[];
 }
 
 const manifests = () => deployManifests<Manifest>();
@@ -123,6 +124,19 @@ describe('the mark', () => {
       expect(refusal.message, refusal.case).toContain('Policy website-mark failed');
     }
   });
+
+  it('admits what was in website before it, sent back unchanged (scripts/mark-refusals.sh)', async () => {
+    // The policy holds what is made and changed, not what is there; these show the app's are as it requires.
+    const { live } = await record();
+    expect(live.map((l) => l.case)).toEqual(
+      expect.arrayContaining([
+        'ingressroute.traefik.io/website',
+        'traefikservice.traefik.io/website',
+        'middleware.traefik.io/visitors',
+      ]),
+    );
+    for (const object of live) expect(object.outcome, object.case).toBe('admitted');
+  });
 });
 
 describe('Traefik', () => {
@@ -131,7 +145,9 @@ describe('Traefik', () => {
   // `namespace-name@kubernetescrd` reference. An ExternalName Service, which could name another namespace's Service by
   // its DNS name, is refused while `allowExternalNameServices` is off, in both Kubernetes providers. Both are off by
   // default at Traefik 3.7, and k3s's bundled chart (traefik 41.4.2 in k3s v1.37.1) sets neither, so what holds them
-  // is that nothing changes the chart's values and that the providers' arguments are these.
+  // is that nothing changes the chart's values and that the providers' arguments are these. These are references to
+  // objects; an address is not one (a forwardAuth's URL could name the app's Service), and only this repository makes
+  // Middlewares outside `website`.
   it('reads no reference across namespaces: its providers are the bundled chart’s, as the cluster has them', async () => {
     const { k3s, helmChartConfigs, traefik } = await record();
     const cluster = parse(await readFile(join(DEPLOY, 'k3d', 'cluster.yaml'), 'utf-8')) as {
@@ -149,6 +165,10 @@ describe('Traefik', () => {
       '--providers.kubernetesingress.allowEmptyServices=true',
       '--providers.kubernetesingress.ingressendpoint.publishedservice=kube-system/traefik',
     ]);
+    // Nor does a configuration file or an environment variable, Traefik's other two sources of static settings.
+    expect(traefik.args.filter((arg) => /^--configfile/i.test(arg))).toEqual([]);
+    expect(traefik.env.filter((name) => name.startsWith('TRAEFIK_'))).toEqual([]);
+    expect(traefik.envFrom).toEqual([]);
     // Nothing on the cluster, and nothing in this repository, changes the chart's values: no HelmChartConfig, no
     // manifest k3d copies onto the node, and no argument to k3s.
     expect(helmChartConfigs).toEqual([]);

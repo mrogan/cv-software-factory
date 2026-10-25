@@ -41,6 +41,9 @@
 #   forward-auth-regex   `forwardAuth` copying every header that matches `.*`                     refused
 #   basic-auth           `basicAuth` writing the user to `x-unmeasured`                           refused
 #   strip-changed        `visitors` changed to set `x-unmeasured`                                 refused
+#
+# Then each IngressRoute, TraefikService and Middleware already in `website`, sent back unchanged as an update, which
+# the policy must admit: it holds what is made and changed, so this shows that what was there before it holds too.
 set -euo pipefail
 
 context="${KUBE_CONTEXT:-k3d-software-factory}"
@@ -163,15 +166,25 @@ trap 'rm -f "$answers"' EXIT
     -p '{"spec": {"headers": {"customRequestHeaders": {"x-unmeasured": "1"}}}}'
 } >"$answers"
 
+live=$(mktemp)
+trap 'rm -f "$answers" "$live"' EXIT
+for kind in ingressroutes.traefik.io traefikservices.traefik.io middlewares.traefik.io; do
+  for name in $("${kubectl[@]}" -n website get "$kind" -o name); do
+    resource=$("${kubectl[@]}" -n website get "$name" -o json)
+    try "$name" "${kubectl[@]}" -n website replace --dry-run=server -o name -f - <<<"$resource"
+  done
+done >"$live"
+
 # What keeps Traefik from reading a reference across namespaces: its providers' settings, as k3s's bundled chart
 # renders them, and nothing on the cluster that changes the chart's values.
 traefik=$("${kubectl[@]}" -n kube-system get deployment traefik -o json |
   jq '.spec.template.spec.containers[] | select(.name == "traefik") |
-    {image, providers: [.args[] | select(startswith("--providers."))]}')
+    {image, providers: [.args[] | select(startswith("--providers."))], args, env: [.env[]?.name], envFrom: (.envFrom // [])}')
 k3s=$("${kubectl[@]}" version -o json | jq -r .serverVersion.gitVersion)
 configs=$("${kubectl[@]}" get helmchartconfigs.helm.cattle.io -A -o json | jq '[.items[].metadata | "\(.namespace)/\(.name)"]')
 
-jq -s --arg k3s "$k3s" --argjson traefik "$traefik" --argjson configs "$configs" \
-  '{k3s: $k3s, helmChartConfigs: $configs, traefik: $traefik, cases: .}' "$answers" >"$out"
+jq -n --arg k3s "$k3s" --argjson traefik "$traefik" --argjson configs "$configs" \
+  --slurpfile cases "$answers" --slurpfile live "$live" \
+  '{k3s: $k3s, helmChartConfigs: $configs, traefik: $traefik, cases: $cases, live: $live}' >"$out"
 jq -r '"k3s \(.k3s), Traefik \(.traefik.image)", (.traefik.providers[] | "  \(.)"),
-  (.cases[] | "\(.outcome)  \(.case): \(.message)")' "$out"
+  (.cases[], .live[] | "\(.outcome)  \(.case): \(.message)")' "$out"
