@@ -31,8 +31,12 @@ export const MARTIN = 6206459;
 /** The check the ruleset requires, from the review App's integration only. */
 export const CHECK = 'review';
 
-/** The branch the merge queue makes for a pull request: `gh-readonly-queue/<base>/pr-<number>-<base commit>`. */
-const QUEUE_BRANCH = /^(?:refs\/heads\/)?gh-readonly-queue\/main\/pr-(\d+)-[0-9a-f]{7,40}$/;
+/**
+ * The branch the merge queue makes for a pull request: `gh-readonly-queue/<base>/pr-<number>-<base commit>`, the number
+ * its second group. pr-title.yml matches the same in bash, so it is written as a POSIX extended expression too, and a
+ * test holds the two the same.
+ */
+export const QUEUE_BRANCH = /^(refs\/heads\/)?gh-readonly-queue\/main\/pr-([0-9]+)-[0-9a-f]{7,40}$/;
 
 export interface PullRequest {
   number: number;
@@ -75,10 +79,10 @@ export function verdict(pr: PullRequest, reviews: readonly Review[]): Verdict {
   if (latest.state === 'DISMISSED')
     return { pass: false, title: `His last review was dismissed: waits for him to approve ${head}` };
   if (latest.commit_id !== pr.head.sha) {
-    return {
-      pass: false,
-      title: `Martin approved ${short(latest.commit_id ?? '')}, and it has moved since: waits for him to approve ${head}`,
-    };
+    const approved = latest.commit_id
+      ? `Martin approved ${short(latest.commit_id)}`
+      : 'Martin approved an earlier commit';
+    return { pass: false, title: `${approved}, and it has moved since: waits for him to approve ${head}` };
   }
   return { pass: true, title: `Martin approved ${head}` };
 }
@@ -109,7 +113,7 @@ export function target(name: string, event: Event): Target {
   const run = event.workflow_run;
   if (name !== 'workflow_run' || !run) return { kind: 'none', reason: `nothing to do on ${name}` };
   if (run.event === 'merge_group') {
-    const number = QUEUE_BRANCH.exec(run.head_branch ?? '')?.[1];
+    const number = QUEUE_BRANCH.exec(run.head_branch ?? '')?.[2];
     if (!number) return { kind: 'none', reason: `${run.head_branch} is not a merge queue branch of main` };
     return { kind: 'queue', number: Number(number), commit: run.head_sha };
   }

@@ -1,0 +1,43 @@
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+
+const workflow = readFileSync('.github/workflows/app-gates.yml', 'utf-8');
+/** Each job's text, by its id. */
+const jobs = Object.fromEntries(
+  workflow
+    .slice(workflow.indexOf('\njobs:\n') + '\njobs:\n'.length)
+    .split(/\n(?= {2}[\w-]+:\n)/)
+    .map((job) => [job.match(/^ {2}([\w-]+):/)?.[1] ?? '', job]),
+);
+
+describe("the app's gates (ADR 0014)", () => {
+  it('run a change only on pull_request or merge_group, and refuse anything else first', () => {
+    expect(Object.keys(jobs).sort()).toEqual([
+      'dependency-review',
+      'image-scan',
+      'journeys',
+      'test-integrity',
+      'tests-first',
+    ]);
+    for (const job of Object.values(jobs)) {
+      const steps = job.slice(job.indexOf('\n    steps:\n'));
+      expect(steps).toMatch(
+        /^\n {4}steps:\n(?: {6}#.*\n)+ {6}- name: Refuse a privileged context\n {8}run: \|\n {10}if \[ "\$GITHUB_EVENT_NAME" != pull_request \] && \[ "\$GITHUB_EVENT_NAME" != merge_group \]; then\n/,
+      );
+    }
+  });
+
+  it('compare with the pull request’s base, or in the merge queue the group’s', () => {
+    expect(workflow).toMatch(
+      /^ {2}BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \|\| github\.event\.merge_group\.base_sha \}\}$/m,
+    );
+    // Nothing reads the pull request's event alone, which a merge group does not carry.
+    expect(workflow.match(/github\.event\.\w+/g)).toEqual(['github.event.pull_request', 'github.event.merge_group']);
+  });
+
+  it('hold a read-only token and no secret', () => {
+    expect(workflow).toMatch(/^permissions:\n {2}contents: read\n\n/m);
+    expect(workflow).not.toMatch(/^ {4}permissions:/m);
+    expect(workflow).not.toMatch(/secrets\./);
+  });
+});

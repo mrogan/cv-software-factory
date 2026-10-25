@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { MARTIN, type PullRequest, type Review, target, verdict } from './review-gate.ts';
+import { MARTIN, type PullRequest, QUEUE_BRANCH, type Review, target, verdict } from './review-gate.ts';
 
 const HEAD = 'a'.repeat(40);
 const EARLIER = 'b'.repeat(40);
@@ -39,6 +39,12 @@ describe('the review gate (ADR 0014)', () => {
     const said = verdict(pr(APP), [review(MARTIN, 'APPROVED', EARLIER)]);
     expect(said.pass).toBe(false);
     expect(said.title).toContain('bbbbbbb');
+    // An approval of a commit GitHub no longer names still holds, and says so plainly.
+    const gone = verdict(pr(APP), [{ user: { id: MARTIN }, state: 'APPROVED', commit_id: null }]);
+    expect(gone).toEqual({
+      pass: false,
+      title: 'Martin approved an earlier commit, and it has moved since: waits for him to approve aaaaaaa',
+    });
   });
 
   it('goes by his latest verdict, and a comment is none', () => {
@@ -124,6 +130,23 @@ describe("the review gate's workflows", () => {
     // Nothing the pull request's author writes reaches a step: its branch names only the concurrency group.
     const steps = gate.slice(gate.indexOf('\njobs:\n'));
     expect(steps).not.toMatch(/github\.event\.(pull_request|workflow_run)\.(head|title|body|user)|github\.head_ref/);
+  });
+
+  it('take the key from a caller by name, and need it from none', () => {
+    expect(gate).toMatch(
+      /workflow_call:\n {4}secrets:\n {6}REVIEW_APP_PRIVATE_KEY:\n {8}description: .+\n {8}required: false\n/,
+    );
+  });
+
+  it('give a deleted fork’s runs a group of their own, not one they share', () => {
+    expect(gate).toContain("format('gone-{0}', github.event.pull_request.number || github.run_id)");
+  });
+
+  it('read the merge queue’s branch as pr-title.yml does', () => {
+    // pr-title.yml matches the branch in bash: the one expression, with the slashes JavaScript escapes left bare.
+    const title = readFileSync('.github/workflows/pr-title.yml', 'utf-8');
+    expect(title).toContain(`[[ "$QUEUE_BRANCH" =~ ${QUEUE_BRANCH.source.replaceAll('\\/', '/')} ]]`);
+    expect(title).toContain('BASH_REMATCH[2]');
   });
 
   it('ask for it again on a review and in the merge queue, holding nothing and running nothing', () => {
