@@ -171,7 +171,9 @@ scoreboard-secrets: node_modules ## Give the scoreboard its password, and the an
 share-key: ## Give the traffic generator its signing key, made once, and the app its public half (the ConfigMap share-key)
 	@for namespace in factory website; do \
 		$(KUBECTL) create namespace $$namespace --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null || exit 1; done
-	@if ! $(KUBECTL) -n factory get secret share-signing-key >/dev/null 2>&1; then \
+	@# Made only when the cluster says there is none: any other failure to read it stops here, and keeps the key.
+	@made="$$($(KUBECTL) -n factory get secret share-signing-key -o name --ignore-not-found)" || exit 1; \
+	if [ -z "$$made" ]; then \
 		key="$$(node scripts/share-key.ts new)" && printf '%s\n' "$$key" | \
 			$(KUBECTL) -n factory create secret generic share-signing-key --from-file=private-key=/dev/stdin >/dev/null && \
 		$(KUBECTL) -n factory delete pod -l app.kubernetes.io/name=traffic --ignore-not-found >/dev/null && \

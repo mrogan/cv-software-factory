@@ -169,9 +169,11 @@ export class Traffic {
     const { sign } = this.#options;
     const id = sign ? (IDS[this.#nextId] as string) : null;
     this.#nextId = (this.#nextId + 1) % IDS.length;
+    const headers = id && sign ? sign(id, path) : undefined;
+    // Timed from here, so a signed request's figure is the app's alone, not its signing too.
     const started = performance.now();
     const done = this.#options
-      .get(path, id && sign ? sign(id, path) : undefined)
+      .get(path, headers)
       .then(
         (answer) => answer.status,
         () => null,

@@ -7,6 +7,11 @@
 # writes to the Mac. Not Argo CD, for either repository, not another member of `system:masters`, and no service
 # account. The one deletion it lets through is of the namespace's contents as the namespace itself is deleted.
 #
+# This holds the key, not the app's use of it: which ConfigMap the app's pods mount, and how its flag context checks a
+# signature, are the app's repository's. A key the app does not hold stops a forgery, not a bypass, so the flag
+# context is code-owned there, and the app's Rollout reading `share-key` comes with it (milestone 7, task 14's app
+# pull request).
+#
 # A ValidatingAdmissionPolicy, Kubernetes's own, as `flags` is held (../flagd/flags.yaml): the API server evaluates it
 # in process, so it holds whether or not Kyverno is up.
 apiVersion: admissionregistration.k8s.io/v1
