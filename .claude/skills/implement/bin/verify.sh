@@ -11,13 +11,15 @@
 #                          what is left to check (its description, checks, threads and summary): its worktree may be
 #                          gone, and its branch may have moved under his own update.
 #   verify.sh <key>        skipped: nothing was left behind, no branch pushed and no pull request opened.
-# A key of 278-2 is issue 278's second pull request. Exit 1 on any mismatch.
+# A key of 278-2 is issue 278's second pull request. A key that begins app- is a work item in the app's repository
+# (repo.sh): its pull request, CODEOWNERS, branch and origin/main are the app's, and its worktree is still under this
+# checkout's scratch/worktrees/; app-278 is this repository's issue 278, which its description names in full
+# (Part of mrogan/cv-software-factory#278). Exit 1 on any mismatch.
 set -euo pipefail
 . "$(dirname "$0")/window.sh"
-key=${1:?usage: verify.sh <key> [pr]} key=${key#\#} pr=${2:-}
-root=$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)
-wt="$root/scratch/worktrees/$key"
-repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+pr=${2:-}
+. "$(dirname "$0")/repo.sh"
+for_key "${1:?usage: verify.sh <key> [pr]}"
 fail=0
 say() { printf '%-9s %s\n' "$1" "$2"; }
 bad() { say "$1" "MISMATCH: $2"; fail=1; }
@@ -29,8 +31,8 @@ if [[ -z $pr ]]; then
     ahead=$(git -C "$wt" rev-list --count origin/main..HEAD)
     (( ahead == 0 )) || bad commits "$ahead commit(s) on $branch"
     [[ -z $(git -C "$wt" status --porcelain) ]] || bad worktree "uncommitted changes in $wt"
-    if git -C "$root" ls-remote -q --exit-code --heads origin "$branch" >/dev/null; then bad branch "$branch was pushed"; fi
-    open=$(gh pr list --head "$branch" --state all --json number -q '[.[].number] | join(" ")')
+    if git -C "$checkout" ls-remote -q --exit-code --heads origin "$branch" >/dev/null; then bad branch "$branch was pushed"; fi
+    open=$(gh pr list -R "$repo" --head "$branch" --state all --json number -q '[.[].number] | join(" ")')
     [[ -z $open ]] || bad pr "pull request(s) from $branch: $open"
   else
     say worktree "none"
@@ -38,19 +40,21 @@ if [[ -z $pr ]]; then
   exit $fail
 fi
 
-IFS=$'\t' read -r state branch head opened < <(gh pr view "$pr" --json state,headRefName,headRefOid,createdAt \
+IFS=$'\t' read -r state branch head opened < <(gh pr view "$pr" -R "$repo" --json state,headRefName,headRefOid,createdAt \
   -q '[.state, .headRefName, .headRefOid, (.createdAt | fromdateiso8601)] | @tsv')
-body=$(gh pr view "$pr" --json body -q .body)
+body=$(gh pr view "$pr" -R "$repo" --json body -q .body)
 say pr "#$pr $state $branch ${head:0:8}"
 [[ $state == OPEN || $state == MERGED ]] || bad state "pull request is $state"
-if [[ $key =~ ^([0-9]+)(-[0-9]+)?$ ]]; then
-  issue=${BASH_REMATCH[1]}
-  grep -qiE "(closes|part of) #$issue\b" <<<"$body" || bad body "no 'Closes #$issue' or 'Part of #$issue'"
+if [[ $key =~ ^(app-)?([0-9]+)(-[0-9]+)?$ ]]; then
+  # An issue is always this repository's, so a pull request in the app's names it with its repository.
+  issue=${BASH_REMATCH[2]} ref=''
+  [[ -z ${BASH_REMATCH[1]} ]] || ref=$(cd "$root" && gh repo view --json nameWithOwner -q .nameWithOwner)
+  grep -qiE "(closes|part of) $ref#$issue\b" <<<"$body" || bad body "no 'Closes $ref#$issue' or 'Part of $ref#$issue'"
 fi
 
 # Every changed file CODEOWNERS gives Martin has a line in the description's section on them, with its reason beside it.
-owners=$(git -C "$root" show origin/main:.github/CODEOWNERS | sed 's/#.*//' | awk 'NF { print $1 }')
-files=$(gh pr diff "$pr" --name-only)
+owners=$(git -C "$checkout" show origin/main:.github/CODEOWNERS | sed 's/#.*//' | awk 'NF { print $1 }')
+files=$(gh pr diff "$pr" -R "$repo" --name-only)
 owned=()
 while IFS= read -r file; do
   while IFS= read -r pattern; do
@@ -85,7 +89,7 @@ else
   bad worktree "no worktree at $wt"
 fi
 
-say checks "$(gh pr checks "$pr" --json state -q '[.[].state] | group_by(.) | map("\(.[0]) \(length)") | join(", ")')"
+say checks "$(gh pr checks "$pr" -R "$repo" --json state -q '[.[].state] | group_by(.) | map("\(.[0]) \(length)") | join(", ")')"
 say threads "$(gh api graphql -F owner="${repo%/*}" -F name="${repo#*/}" -F n="$pr" -f query='
   query($owner:String!, $name:String!, $n:Int!) { repository(owner:$owner, name:$name) { pullRequest(number:$n) {
     reviewThreads(first:100) { nodes { isResolved } } } } }' \
@@ -98,7 +102,7 @@ reviewed=$(gh api "repos/$repo/pulls/$pr/reviews" --paginate | jq -rs 'add // []
   | [.[] | select(.user.login | startswith("copilot-pull-request-reviewer")) | .submitted_at] | last // empty')
 if [[ -z $reviewed ]]; then
   if (( $(date +%s) - opened < copilot_window )); then
-    bad summary "Copilot has not reviewed yet: run copilot.sh $pr again"
+    bad summary "Copilot has not reviewed yet: run copilot.sh $pr $key again"
   else
     say summary "Copilot did not review within $(( copilot_window / 60 )) minutes of the opening"
   fi

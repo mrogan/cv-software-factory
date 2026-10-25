@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Replies to a review thread, and resolves it unless told to leave it open: reply.sh <thread-id> <body> [--open]
-# Thread ids (PRRT_…) are the ones copilot.sh lists.
+# Thread ids (PRRT_…) are the ones copilot.sh lists; GitHub ids name the thread alone, in whichever repository.
 set -euo pipefail
 thread=${1:?usage: reply.sh <thread-id> <body> [--open]} body=${2:?reply body} keep=${3:-}
 gh api graphql -F thread="$thread" -f body="$body" -f query='

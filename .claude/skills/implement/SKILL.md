@@ -13,11 +13,12 @@ You are the orchestrator. Keep your context lean: sub-agents do the work, each f
 
 ## Before starting
 
-1. **Key each work item.** An issue's key is its number. Something from the conversation is a brief, and its key is a short slug (`station-order`). An issue's second pull request is `<n>-2`.
-2. **Make the run directory**: `run.sh <key>...` makes `scratch/implement/<date>-<keys>/` and prints its path. Notes, briefs, PR notes and the summary go there. A run that spans sessions (a milestone's part, with Martin merging between them) keeps three files there as well, which each session reads first and updates last, so that nothing lives only in a reply. A later session takes up the same run directory, named in its handover, rather than making a new one:
+1. **Key each work item.** An issue's key is its number. Something from the conversation is a brief, and its key is a short slug (`station-order`). An issue's second pull request is `<n>-2`. A work item whose pull request is in the app's repository (`mrogan/cv-worlds-worst-website`, checked out beside this one) has a key that begins `app-` (`app-flag-context`, or `app-<n>` for this repository's issue `<n>`): the scripts read the repository from the key, and the prefix keeps its worktree apart from this repository's under `scratch/worktrees/`.
+2. **Make the run directory**: `run.sh <key>...` makes `scratch/implement/<date>-<keys>/` and prints its path. Notes, briefs, PR notes and the summary go there. A run that spans sessions (a milestone's part, with Martin merging between them) keeps two files there as well, which each session reads first and updates last, so that nothing lives only in a reply. A later session takes up the same run directory, named in its handover, rather than making a new one:
    - `LEDGER.md`: a row per work item, with its state, pull requests, what it waits on, and the next action;
-   - `MARTIN.md`: what waits on Martin, in the order to do it, each pull request with what to look at, the files CODEOWNERS gives him, the decisions made for him, the update a merge forces on another pull request, and what to try once it is deployed;
    - `FOLLOWUPS.md`: each loose end the moment it is found (a `found`, a workflow problem, something only Martin can do), with where it goes, emptied at the end of each work item.
+
+   What waits on Martin, and what to try, the session tells him in its reply: the pull requests to merge, in order, with what to look at in each, and what to try once one is deployed.
 3. **Write each brief from the conversation** to `<run dir>/brief-<slug>.md`. The sub-agent sees nothing of this conversation, so the brief stands alone:
    - **Goal**: the change, and why, in a paragraph;
    - **Agreed**: every decision Martin made or accepted, in Martin's terms, and every option turned down;
@@ -25,8 +26,10 @@ You are the orchestrator. Keep your context lean: sub-agents do the work, each f
    - **Open**: anything left undecided, which the sub-agent settles and reports;
    - **Related**: issues, pull requests and commits named.
 
+   A brief for a work item in the app's repository also carries this rule, in these words: nothing written in the app's repository, in code, commits, branch names, pull requests or replies, mentions or hints at seeded defects or faults.
+
    Write down what was said, not what you would add. If the conversation left open a decision that changes what gets built, ask Martin now, in one question, while he is here.
-4. **Read every issue** far enough to brief it. Note work items that touch the same files or depend on each other, and order them so that one another builds on goes first. Each pull request branches from `origin/main`. When several work items need the same piece (a component, a helper they all reuse), make that piece a small work item of its own, branched from `origin/main` and done first, rather than stacking one item's pull requests on another's. Martin can merge a small piece quickly. Don't wait for him: until it merges, each item that uses it stacks on it alone, not on one another; once it has, they branch from `main`. Stack only what truly cannot be done without another's unmerged work, and say so, with the order to merge in.
+4. **Read every issue** far enough to brief it. Note work items that touch the same files or depend on each other, and order them so that one another builds on goes first. Each pull request branches from `origin/main`. When several work items need the same piece (a component, a helper they all reuse), make that piece a small work item of its own, branched from `origin/main` and done first, rather than stacking one item's pull requests on another's. Martin can merge a small piece quickly. Don't wait for him: until it merges, each item that uses it stacks on it alone, not on one another; once it has, they branch from `main`. Stack only what truly cannot be done without another's unmerged work, and say so, with the order to merge in. A pull request that needs one in the other repository merged first cannot stack on it: its description says so, and you order them, the merge order and any `deploy/` pin between, in the summary.
 
 ## Each work item, one at a time
 
@@ -63,7 +66,7 @@ A worker skips what needs an image pinned first, a migration with an ordered rol
 
 - **A `deploy/` change that waits for an image** (a new Deployment, a migration, a new setting): list it in the summary with what it waits for, and make it in a later run, once Martin has merged the change that builds the image and the App's deploy pull request that pins it. Only the App's deploy watch opens a pin's pull request (ADR 0005); never open one yourself.
 - **A proof or a drill on the local cluster:** run it yourself with the `try-the-line` skill, time-boxed, and log what it showed in `NOTES.md`; until then it is in the summary.
-- **Trying it with Martin:** reviews pass faults that a few minutes at the console find, so try each work item that changes what runs on the cluster as soon as it runs there (its pin or its deploy change synced, and the application healthy, so the old version or half a canary is not what he tries), not all of them at the end. Give Martin a short list of what to try and what to look for, a few at a time, with a compact progress line per work item (`#575: 2 of 4 tried, 1 fault`), and turn what he finds into work items of this run: a fault in the item goes back to it, and anything else is held to "Finishing the work, not filing it".
+- **Trying it with Martin:** reviews pass faults that a few minutes at the console find, so try each work item that changes what runs on the cluster as soon as it runs there (its pin or its deploy change synced, and the application healthy, so the old version or half a canary is not what he tries), not all of them at the end. Give Martin a short list of what to try and what to look for, a few at a time, and turn what he finds into work items of this run: a fault in the item goes back to it, and anything else is held to "Finishing the work, not filing it".
 
 When a milestone's plan asks for `/security-review` on a task, say so in its brief.
 
@@ -73,7 +76,7 @@ A pull request of your own (a deploy change, a fix to a check you ran) gets ever
 
 With more than one pull request:
 
-1. **Meta-review.** In a fresh sub-agent, read all the open pull requests together against `docs/REVIEWERS.md`, for changes that conflict, duplicate each other, pull in different directions (naming, an API's shape, how a doc describes something), or would leave `main` broken in any order of merging. It fixes what it finds on the pull request where it belongs. Wait for it to end, and verify every pull request again.
+1. **Meta-review.** In a fresh sub-agent, read all the open pull requests together against `docs/REVIEWERS.md` (the app's, for one in its repository), for changes that conflict, duplicate each other, pull in different directions (naming, an API's shape, how a doc describes something), or would leave `main` broken in any order of merging. It fixes what it finds on the pull request where it belongs. Wait for it to end, and verify every pull request again.
 2. **Checks.** Every pull request's checks pass, no thread is unresolved except the arguable ones and other reviewers' own, and Copilot's review summary has its answer.
 
 Then write `<run dir>/SUMMARY.md` and give it to Martin, leaving out what does not apply:
