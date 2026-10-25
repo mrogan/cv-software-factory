@@ -197,7 +197,7 @@ describe('admission control', () => {
         i.slice(`ghcr.io/${o}/`.length),
       ),
     );
-    expect(ours).toHaveLength(pinned.length);
+    expect(pinned.filter((i) => !OWNERS.some((o) => i.startsWith(`ghcr.io/${o}/cv-software-factory/`)))).toEqual([]);
     const factory = await copy('factory');
     expect(factory.factory.sort()).toEqual(ours.flatMap(underEach).sort());
     expect(factory.website).toEqual([]);
