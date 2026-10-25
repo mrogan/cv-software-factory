@@ -11,6 +11,9 @@ trustPolicyExclude:
   # Octokit's v9 line, which release-please (run by the GitHub worker) still uses: the February 2025 backport of a
   # ReDoS fix, published by GitHub's own octokitbot without provenance, after the v10 line had it.
   - '@octokit/endpoint@9.0.6'
+  # semver's v5 line, which release-please's changelog writer reaches through meow: the July 2023 backport
+  # of a ReDoS fix, published by an npm CLI maintainer without provenance, after the v7 line had it.
+  - semver@5.7.2
 allowBuilds:
   lefthook: false # its postinstall only installs the git hooks, which `prepare` does
   protobufjs: false # its postinstall only prints a version-scheme warning
