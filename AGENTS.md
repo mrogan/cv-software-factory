@@ -16,6 +16,7 @@ make e2e                       # the console in a browser, in the pinned Playwri
 make zap                       # ZAP's baseline scan of the console signed in as Martin, as CI runs it
 make up / make samples / make status / make down
 make enrol                     # a one-time code to enrol a passkey on the console
+make share-key                 # the traffic generator's signing key, made once, and its public half for the app
 ```
 
 The cluster's console is at `https://console.localhost:8443`, and plain HTTP on its host redirects there: Safari drops a `Secure` cookie over HTTP, even on `localhost`, and passkeys need a secure context. The app's hosts (`website.localhost:8080` and the canary), Grafana and Argo CD stay on plain HTTP at :8080. `make up` makes a local certificate authority once, in `~/.config/software-factory/local-ca` (`scripts/local-ca.ts`), whose name constraints let it sign for `localhost` names only, has macOS trust it for TLS servers (it asks once), and gives Traefik the console's certificate, renewed in its last 30 days by any `make up`. Decline the prompt and the console still shows past a browser warning, but secure cookies and passkeys, which the admin sign-in needs, will not work there; the next `make up` asks again. `make untrust-ca` takes it out of the Keychain and deletes it; `make down` leaves it. A new cluster gets the :8443 port from `deploy/k3d/cluster.yaml`; to a cluster without it, `make up` adds it in place (`k3d cluster edit`, which makes only the load balancer again, so the store keeps its work items), and says so.
@@ -88,7 +89,7 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
 
   A runner's two steps also run as containers, for working on the runner itself: `docker build -f apps/runner/Dockerfile .`, then `runner prepare` and `runner agent` with the variables in `apps/runner/src/step.ts`.
 
-  The traffic generator (`factory traffic`) runs on the host against the cluster's Traefik, which k3d serves on :8080, so a canary's split applies to it as to the cluster's copy. `--walk` finds the pages from the front door, as the generator does when it starts, prints the round it would walk, and sends nothing more. `INGRESS_URL` names the ingress to connect to when `APP_URL`'s host does not resolve, and the host is still sent. Aimed at a port-forward of the app's Service, it would reach the stable version only, and a canary would see none of it:
+  The traffic generator (`factory traffic`) runs on the host against the cluster's Traefik, which k3d serves on :8080, so a canary's split applies to it as to the cluster's copy. `--walk` finds the pages from the front door, as the generator does when it starts, prints the round it would walk, and sends nothing more. `INGRESS_URL` names the ingress to connect to when `APP_URL`'s host does not resolve, and the host is still sent. With no `SHARE_KEY_FILE` it signs no id, so none of its requests is in a flag's share: the signing key stays in the cluster. Aimed at a port-forward of the app's Service, it would reach the stable version only, and a canary would see none of it:
 
   ```sh
   APP_URL=http://website.localhost:8080 node apps/factory/src/cli.ts traffic --walk

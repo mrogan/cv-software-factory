@@ -11,10 +11,22 @@
  * whose length shared a factor with that split's period would deal some pages only to one version, and the comparison
  * would be between two different mixes of pages. As it is, every page reaches both versions in proportion, and a
  * route that fails on purpose fails as often in each.
+ *
+ * Given its key, it sends each request with one of its ids, signed (share.ts), for a flag's share stage: the ids turn
+ * one a request, and there are 101 of them, a prime, so a round's length is also made to share no factor with that.
+ * Then every page meets every id equally, once in each stretch of the round's length times 101 requests, and so each
+ * side of a share gets the same mix of pages. And since 101 shares no factor with 100 either, the ids turn
+ * independently of the canary's split: each id reaches both versions in proportion, and a flag left at the share stage
+ * gives a canary's two sides the same mix of on and off.
+ *
+ * It measures each request itself, its status and how long it took, by id, so that Verify can compare a share's two
+ * sides on figures the code being judged did not write. Which side an id is on is Verify's to work out, with flagd's
+ * own rule; the generator never asks flagd.
  */
 import { request } from 'node:http';
 import type { Logger } from '../log.ts';
 import type { RequestHeaders } from '../senses/http.ts';
+import { IDS, type Sign } from './share.ts';
 
 /** What the app answered: its status and the page. */
 export interface Answer {
@@ -22,8 +34,8 @@ export interface Answer {
   body: string;
 }
 
-/** Asks the app for a path and its query, by GET. */
-export type Get = (path: string) => Promise<Answer>;
+/** Asks the app for a path and its query, by GET, with these headers besides the usual. */
+export type Get = (path: string, headers?: RequestHeaders) => Promise<Answer>;
 
 /** The most pages the walk finds: the app has about forty, with its product list's pages and departments. */
 const MOST_PAGES = 200;
@@ -64,11 +76,24 @@ export async function discover(get: Get): Promise<string[]> {
 
 const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
 
-/** The walk as one round, made a length that shares no factor with 100 by visiting the front door again. */
+/**
+ * The walk as one round, made a length that shares no factor with 100, nor with the number of ids, by visiting the
+ * front door again.
+ */
 export function round(pages: readonly string[]): string[] {
   const walk = pages.length ? [...pages] : ['/'];
-  while (gcd(walk.length, 100) !== 1) walk.push('/');
+  while (gcd(walk.length, 100) !== 1 || gcd(walk.length, IDS.length) !== 1) walk.push('/');
   return walk;
+}
+
+/** One request the generator sent, as it measured it. */
+export interface Sent {
+  /** Its status, or null when no answer came. */
+  status: number | null;
+  /** How long it took, from sending it to the end of the answer, or to giving up. */
+  seconds: number;
+  /** The id it was sent with, or null when the generator has no key. */
+  id: string | null;
 }
 
 export interface TrafficOptions {
@@ -78,8 +103,10 @@ export interface TrafficOptions {
   log: Logger;
   /** How often the walk is found again, so a release's new pages join it. */
   rediscoverMs?: number;
-  /** Called with each request's status, or null when none came. */
-  sent?: (status: number | null) => void;
+  /** Signs each request with an id. Without it, no id is sent. */
+  sign?: Sign;
+  /** Called with each request the walk sent, as it was answered. */
+  sent?: (request: Sent) => void;
 }
 
 /**
@@ -87,9 +114,11 @@ export interface TrafficOptions {
  * not the last has been answered, so a slow page does not slow the traffic down.
  */
 export class Traffic {
-  readonly #options: Required<Omit<TrafficOptions, 'sent'>> & Pick<TrafficOptions, 'sent'>;
+  readonly #options: Required<Omit<TrafficOptions, 'sent' | 'sign'>> & Pick<TrafficOptions, 'sent' | 'sign'>;
   #walk: string[] = ['/'];
   #next = 0;
+  /** The next id's place in IDS. It turns on its own, whatever the walk does. */
+  #nextId = 0;
   #timers: NodeJS.Timeout[] = [];
   readonly #inFlight = new Set<Promise<void>>();
   #tally = new Map<string, number>();
@@ -137,14 +166,18 @@ export class Traffic {
   #send(): void {
     const path = this.#walk[this.#next % this.#walk.length] as string;
     this.#next = (this.#next + 1) % this.#walk.length;
+    const { sign } = this.#options;
+    const id = sign ? (IDS[this.#nextId] as string) : null;
+    this.#nextId = (this.#nextId + 1) % IDS.length;
+    const started = performance.now();
     const done = this.#options
-      .get(path)
+      .get(path, id && sign ? sign(id, path) : undefined)
       .then(
         (answer) => answer.status,
         () => null,
       )
       .then((status) => {
-        this.#options.sent?.(status);
+        this.#options.sent?.({ status, seconds: (performance.now() - started) / 1000, id });
         const key = status === null ? 'no answer' : `${Math.floor(status / 100)}xx`;
         this.#tally.set(key, (this.#tally.get(key) ?? 0) + 1);
       })
@@ -174,7 +207,7 @@ export interface GetOptions {
 export function httpGet(app: string, { ingress, timeoutMs = 10_000, headers }: GetOptions = {}): Get {
   const { host } = new URL(app);
   const to = new URL(ingress ?? app);
-  return (path) =>
+  return (path, signed) =>
     new Promise((resolve, reject) => {
       const req = request(
         {
@@ -182,7 +215,7 @@ export function httpGet(app: string, { ingress, timeoutMs = 10_000, headers }: G
           port: to.port || 80,
           path,
           method: 'GET',
-          headers: { 'user-agent': 'software-factory-traffic', ...headers, host },
+          headers: { 'user-agent': 'software-factory-traffic', ...headers, ...signed, host },
           timeout: timeoutMs,
         },
         (res) => {

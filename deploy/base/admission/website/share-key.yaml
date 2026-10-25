@@ -1,0 +1,56 @@
+# `share-key` in `website` holds the traffic generator's public key, which the app checks a share's signed ids with
+# (docs/COMPONENTS/FEATURE-FLAGS.md). It is made by `make share-key`, from the generator's Secret, and by nothing in
+# Git: the app's repository, which agents write, may make ConfigMaps in `website` (deploy/base/website/project.yaml),
+# and a ConfigMap of its own named `share-key` would let the app's code sign its own ids, and put a share of anyone's
+# choosing in the figures Verify judges a flag on. So no one may make, change or delete it but the user `make share-key`
+# runs as, the local kubeconfig's: `system:admin`, the cluster's own administrator, whose credential k3s makes and k3d
+# writes to the Mac. Not Argo CD, for either repository, not another member of `system:masters`, and no service
+# account. The one deletion it lets through is of the namespace's contents as the namespace itself is deleted.
+#
+# A ValidatingAdmissionPolicy, Kubernetes's own, as `flags` is held (../flagd/flags.yaml): the API server evaluates it
+# in process, so it holds whether or not Kyverno is up.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: share-key
+  annotations:
+    # With the other admission policies, before anything they guard.
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values: [website]
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [configmaps]
+  # `share-key` alone: the app's other ConfigMaps are its repository's. A deletion has no object, only the old one.
+  matchConditions:
+    - name: share-key
+      expression: "(request.operation == 'DELETE' ? oldObject : object).metadata.name == 'share-key'"
+  variables:
+    # The user `make share-key` runs as on this profile.
+    - name: writer
+      expression: "'system:admin'"
+  validations:
+    - expression: >-
+        request.userInfo.username == variables.writer ||
+        (request.operation == 'DELETE' && has(namespaceObject.metadata.deletionTimestamp))
+      message: >-
+        share-key holds the traffic generator's public key, and only make share-key writes it, as the cluster's
+        administrator (system:admin)
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: share-key
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  policyName: share-key
+  validationActions: [Deny]

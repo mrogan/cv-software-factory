@@ -130,11 +130,10 @@ describe('changing a release is Martin’s: the admin service’s, for his contr
     const rendered = parseAllDocuments(
       execFileSync('kustomize', ['build', join(DEPLOY, 'base/admission/website')], { encoding: 'utf-8' }),
     ).map((doc) => doc.toJS() as Policy);
-    const names = Object.fromEntries(rendered.map((r) => [r.kind, r.metadata?.name]));
-    expect(names.ValidatingAdmissionPolicy).toBe('website-rollout-controls');
-    expect(rendered.find((r) => r.kind === 'ValidatingAdmissionPolicyBinding')?.spec.policyName).toBe(
-      'website-rollout-controls',
-    );
+    const named = (kind: string) =>
+      rendered.find((r) => r.kind === kind && r.metadata?.name === 'website-rollout-controls');
+    expect(named('ValidatingAdmissionPolicy')).toBeDefined();
+    expect(named('ValidatingAdmissionPolicyBinding')?.spec.policyName).toBe('website-rollout-controls');
   });
 
   it('was answered by the cluster as the Role and the policy say (scripts/rollout-refusals.sh)', async () => {
