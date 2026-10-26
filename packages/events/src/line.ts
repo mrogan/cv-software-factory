@@ -122,7 +122,8 @@ export const pattern = (entry: string) => regExpOf(entry, '(?:.*/)?');
 const regExpOf = (entry: string, anyFolders: string) =>
   new RegExp(
     `^${entry
-      .split(/(\*\*\/?|\*)/)
+      // `**` followed by `/` stands for folders only as a segment of its own: in `a**/b` it is any text, then the slash.
+      .split(/((?<=^|\/)\*\*\/|\*\*|\*)/)
       .map((part) =>
         part === '**/'
           ? anyFolders

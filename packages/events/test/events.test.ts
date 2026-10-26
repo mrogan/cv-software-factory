@@ -1071,6 +1071,8 @@ describe('a scope entry', () => {
     expect(inScope('src/test.ts', ['src/**/test.ts'])).toBe(true);
     expect(inScope('src/latest.ts', ['src/**/test.ts'])).toBe(false);
     expect(inScope('src/a/b.ts', ['src/**'])).toBe(true);
+    expect(inScope('ab', ['a**/b'])).toBe(false);
+    expect(inScope('ax/y/b', ['a**/b'])).toBe(true);
   });
 
   it('takes in a path with a line or paragraph separator in it as any other', () => {
