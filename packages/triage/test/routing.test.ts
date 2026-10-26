@@ -76,6 +76,20 @@ describe('what leaves the cluster of a report', () => {
     expect(scrub('@mossops on social, or a@b')).toBe('@mossops on social, or a@b');
   });
 
+  it('finds an address in markup, before a possessive or a dash, and beside another with no space between', () => {
+    expect(scrub('**jo@example.com** or _jo@example.com_')).toBe('**[email]** or _[email]_');
+    expect(scrub("jo@example.com's inbox, jo@example.com—or jo@example.com…")).toBe(
+      "[email]'s inbox, [email]—or [email]…",
+    );
+    expect(scrub('jo@example.com,jane@example.org/ann@example.net')).toBe('[email],[email]/[email]');
+    expect(scrub('jo@example.com.jane@example.org')).toBe('[email].[email]');
+    expect(scrub('email:jo@example.com')).toBe('email:[email]');
+  });
+
+  it('leaves a version or a host, which is not an address', () => {
+    expect(scrub('widget@1.2.3 on me@localhost')).toBe('widget@1.2.3 on me@localhost');
+  });
+
   it('takes no longer than a pass over a hostile text', () => {
     const hostile = `${'!'.repeat(50_000)}@${'!'.repeat(50_000)}`;
     const started = performance.now();
@@ -98,6 +112,7 @@ describe('what leaves the cluster of a report', () => {
   it('takes anything private out of the path, which the visitor may have typed', () => {
     expect(privatePath('/account/jane.doe%40example.com/orders?x=1')).toBe('/account/[email]/orders');
     expect(privatePath('/track/447700900123')).toBe('/track/[number]');
+    expect(privatePath('/account/jane.doe%40example.com%ZZ')).toBe('/account/[email]%ZZ');
     expect(privatePath('/products/brass-doorstop')).toBe('/products/brass-doorstop');
     expect(privatePath(`/${'a'.repeat(300)}`)).toHaveLength(200);
   });
