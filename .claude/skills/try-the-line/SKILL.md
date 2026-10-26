@@ -9,7 +9,7 @@ Three ways in, from smallest: one agent's step on the **bench**, with no cluster
 
 The local cluster is `k3d-software-factory`, and it is disposable. Unmerged code is tried there on images built locally, not merged first; merging stays Martin's call. Pushing, opening pull requests and filing issues still need his yes.
 
-The helpers are in `bin/` beside this file: `k` is kubectl on the local cluster, `argocd` is Argo CD's CLI on it (`--core`, with no login), `q` is psql on its store, `poll` and `watch` follow a run, and `trace.js` prints a step's conversation.
+The helpers are in `bin/` beside this file: `k` is kubectl on the local cluster, `argocd-core` is Argo CD's CLI on it (`--core`, with no login), `q` is psql on its store, `poll` and `watch` follow a run, and `trace.js` prints a step's conversation.
 
 ## Before you change anything
 
@@ -53,7 +53,7 @@ The line runs in the cluster only: its agent pods may reach only the gateway and
    k3d image import -c software-factory ghcr.io/the-roganator/cv-software-factory/factory:$T ghcr.io/the-roganator/cv-software-factory/factory-runner:$T
    ```
    Build `console` too if its code changed.
-2. **Pause Argo CD** on `root` only, which owns every factory deployment: `bin/argocd app set root --sync-policy manual`. If an operation on `root` sticks, on a hook its own sync must fix, end it with `bin/argocd app terminate-op root` and sync only what it needs with `bin/argocd app sync root --resource <group>:<kind>:<name>`; never write `operation` or `status` by hand.
+2. **Pause Argo CD** on `root` only, which owns every factory deployment: `bin/argocd-core app set root --sync-policy manual`. If an operation on `root` sticks, on a hook its own sync must fix, end it with `bin/argocd-core app terminate-op root` and sync only what it needs with `bin/argocd-core app sync root --resource <group>:<kind>:<namespace>/<name>` for each resource (a core kind's group is empty: `:ConfigMap:factory/<name>`); never write `operation` or `status` by hand.
 3. **Admission:** images built here are unsigned, and admission control refuses them in `factory` and `runners` (ADR 0010). Switch the factory's policy, and only it, to audit: `bin/k patch imagevalidatingpolicy factory-images --type merge -p '{"spec":{"validationActions":["Audit"]}}'`. It covers `factory` and `runners`. Never `website-images`, `scoreboard-images` or `flagd-images`: nothing built on the Mac runs in `website`, beside the answer key in `scoreboard`, or in `flagd`, and the scoreboard stays on `main`'s image.
 4. **Dry run first**, before anything else can act: `GITHUB_DRY_RUN=true` on `github`, and `LINE_MODE=dry-run` on `line`, with `LINE_TAKE` removed. Optionally `GITHUB_DRY_RUN_CHECKS_SECONDS` and `GITHUB_DRY_RUN_MERGE_SECONDS` to go round faster.
 5. **Point** `line` (its container, its `runner-image` initContainer and `RUNNER_IMAGE`), `gateway` and `github` at the new images with `kubectl set image` and `set env`. Every `set env` in these steps names its container: `-c line`, `-c gateway`, `-c github`, `-c console`. Without `-c` it writes every container, the line's `runner-image` init container included, and Argo CD never removes a field it does not own, so a `RUNNER_IMAGE` or `LINE_MODE` left there outlives the run and fails `make admission-ready`. Undoing one takes the same `-c`: `bin/k -n factory set env deployment/line -c line NAME-`.
@@ -95,7 +95,7 @@ Copy this into `scratch/` at the start:
 - [ ] `runners`: no Jobs left before `root` gets its sync policy back.
 - [ ] `factory-images`: back as `main` sets it, which `root`'s self-heal does; was: …
 - [ ] No pod or Job in `factory` or `runners` on a `local-` image.
-- [ ] Argo CD `root`: `bin/argocd app set root --sync-policy automated --auto-prune --self-heal`, then check `line`, `gateway`, `github` and `console` are back on `main`'s images (`line`'s container, `runner-image` and `RUNNER_IMAGE`), with `LINE_MODE`, `LINE_TAKE` and `GITHUB_DRY_RUN` as `main` sets them, and no work item new on the line; was: …
+- [ ] Argo CD `root`: `bin/argocd-core app set root --sync-policy automated --auto-prune --self-heal`, then check `line`, `gateway`, `github` and `console` are back on `main`'s images (`line`'s container, `runner-image` and `RUNNER_IMAGE`), with `LINE_MODE`, `LINE_TAKE` and `GITHUB_DRY_RUN` as `main` sets them, and no work item new on the line; was: …
 - [ ] Any copied `migrate` Job deleted (migrations stay applied).
 - [ ] Local images removed: `docker rmi` each `local-*` tag.
 - [ ] The line started (`make start-the-line`), so triage takes work again.

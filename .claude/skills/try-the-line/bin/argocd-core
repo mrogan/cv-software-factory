@@ -1,10 +1,13 @@
 #!/bin/sh
 # Argo CD's CLI on the local cluster, with --core: straight to Kubernetes through the kube context, with no login or
 # server port. --core looks for Argo CD in the context's own namespace, so it runs on a copy of the context set to
-# `argocd`, made for the one command and removed after; the kubeconfig itself is left as it is.
+# `argocd`, made for the one command and removed after, even when interrupted; the kubeconfig itself is left as it is.
 set -eu
 dir=$(mktemp -d)
 trap 'rm -rf "$dir"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 kubectl config view --minify --flatten --context k3d-software-factory >"$dir/config"
 KUBECONFIG="$dir/config" kubectl config set-context --current --namespace argocd >/dev/null
 KUBECONFIG="$dir/config" argocd --core "$@"
