@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - project.yaml
   - network-policy.yaml
+  - admin-finds-app-pods.yaml

@@ -76,12 +76,14 @@ describe('changing a release is Martin’s: the admin service’s, for his contr
     expect(bound.map(({ manifest }) => [manifest.kind, manifest.metadata?.namespace, manifest.subjects])).toEqual([
       ['RoleBinding', 'website', [{ kind: 'ServiceAccount', name: 'admin', namespace: 'factory' }]],
     ]);
-    // And the admin service's account holds no other right, anywhere, but its Role on `flags` (flag-fences.test.ts).
+    // And the admin service's account holds no other right, anywhere, but its Role on `flags` (flag-fences.test.ts) and
+    // its list of the app's EndpointSlices, to find its pods (admin-fences.test.ts).
     const admins = all.filter(({ manifest }) =>
       manifest.subjects?.some((s) => s.kind === 'ServiceAccount' && s.name === 'admin' && s.namespace === 'factory'),
     );
     expect(admins.map(({ manifest }) => manifest.roleRef?.name).sort()).toEqual([
       'admin-controls-release',
+      'admin-finds-app-pods',
       'admin-stages-flags',
     ]);
   });
@@ -343,7 +345,7 @@ describe("the app's fence", () => {
     ]);
   });
 
-  it('lets in, on 8080 only, the pods of the probes, the crawler and the journeys Job, by the labels they carry', async () => {
+  it('lets in, on 8080 only, the pods of the probes, the crawler, the admin service and the journeys Job, by their labels', async () => {
     const all = await manifests();
     const policy = await fence();
     const podLabels = (name: string) => {
@@ -361,6 +363,8 @@ describe("the app's fence", () => {
     const callers: [string, Record<string, string>][] = [
       ['factory', podLabels('probes')],
       ['factory', podLabels('crawler')],
+      // To ask each pod which flags it holds.
+      ['factory', podLabels('admin')],
       ...journeys.map((labels): [string, Record<string, string>] => ['website', labels]),
       ['kube-system', { 'app.kubernetes.io/name': 'traefik' }],
     ];

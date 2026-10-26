@@ -385,6 +385,40 @@ serverFiles:
             annotations:
               summary: "The shop's pod is 25 days old"
               description: "Its container logs on the node may hold a visitor's report, and they go only with the pod. Release the shop (merge a pending update, or its deploy pull request), so a new pod replaces it before a report in its logs is 30 days old. With none pending, restart its Rollout: with one replica, the shop is down until the new pod is ready."
+      - name: flags
+        rules:
+          - alert: FlagsNotTaken
+            expr: "max(admin_flags_narrowing_seconds{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}) > 60"
+            for: 0s
+            labels:
+              level: "page"
+            annotations:
+              summary: "The app has not taken a flag you narrowed"
+              description: "A minute after you narrowed a flag or turned one off, the app does not hold the flags as you set them, and may still show the feature to those you took it from. Restart flagd, which reads them again as it starts."
+          - alert: FlagsDiffer
+            expr: "max(admin_flags_differing_seconds{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}) > 300 and on () max(admin_flags_checked{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}) == 1"
+            for: 0s
+            labels:
+              level: "notify"
+            annotations:
+              summary: "The app does not hold the flags as set"
+              description: "For more than 5 minutes a pod of the app has held other flags than the ones set: flagd may have stopped watching them. Restart flagd, which reads them again as it starts."
+          - alert: FlagsUnchecked
+            expr: "max(admin_flags_differing_seconds{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}) > 300 and on () max(admin_flags_checked{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}) == 0"
+            for: 0s
+            labels:
+              level: "notify"
+            annotations:
+              summary: "The flags the app holds are not being checked"
+              description: "For more than 5 minutes the admin service has not been able to ask every pod of the app which flags it holds, so a change of a flag that did not reach the app would not be told."
+          - alert: FlagsUnchecked
+            expr: "max(last_over_time(admin_flags_set{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}[6h])) == 1 unless on () count(admin_flags_set{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"})"
+            for: 0s
+            labels:
+              level: "notify"
+            annotations:
+              summary: "The flags the app holds are not being checked"
+              description: "For more than 5 minutes the admin service has not been able to ask every pod of the app which flags it holds, so a change of a flag that did not reach the app would not be told."
   recording_rules.yml:
     groups:
       - name: routes

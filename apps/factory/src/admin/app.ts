@@ -18,6 +18,7 @@
  *   the spend caps, within policy, with the passkey again when anything in it raises.
  * - The feature flags' stages (`flags.ts`): `POST /admin/flags/:flag/stage` with the stage the slider showed, the one
  *   chosen and, to turn it off, Martin's reason, with the passkey again when the move widens past Checks.
+ * - `GET /admin/flags/held`, public: whether the app holds the flags as set (`flags-held.ts`), as last checked.
  * - Needs you (`holds.ts`): `POST /admin/holds/:workItem/approve`, `/reject` and `/answer` (with his words), each
  *   naming the hold the card showed, with the passkey again to approve a guardrail's.
  * - `GET /admin/session`, with the token the session's writes carry and the deployment's tools Martin's menu links to,
@@ -36,6 +37,7 @@ import type { Logger } from '../log.ts';
 import { clientAddress, LIMITS, RateLimit } from './client.ts';
 import type { AdminConfig } from './config.ts';
 import { type FlagStages, MOVE } from './flags.ts';
+import type { FlagsHeld } from './flags-held.ts';
 import { fromConsole, type Guard, guardOf, refuseWrite } from './guard.ts';
 import { ANSWER, answerHold, WORK_ITEM } from './holds.ts';
 import { CHANGE, changeControls, REASON, startLine, stopLine } from './line.ts';
@@ -96,6 +98,8 @@ export interface AdminAppOptions {
   controls?: ReleaseControls;
   /** The feature flags' stages; without them, every move is refused. */
   flags?: FlagStages;
+  /** Whether the app holds the flags as set; without it, nobody can be told. */
+  held?: FlagsHeld;
   /** The clock the rate limits count by. */
   now?: () => number;
 }
@@ -131,6 +135,7 @@ export function createAdminApp({
   log,
   controls,
   flags,
+  held,
   now = Date.now,
 }: AdminAppOptions): RequestListener {
   const limits = { enrol: new RateLimit(LIMITS.enrol, now), 'sign-in': new RateLimit(LIMITS['sign-in'], now) };
@@ -208,6 +213,10 @@ export function createAdminApp({
 
   const handlers: Record<ServedBy<'admin'>, (context: Context) => Promise<Reply>> = {
     'admin.health': async () => ({ status: 200, body: { status: 'ok' } }),
+
+    // What the last check found, never a check of its own: anyone may ask, as often as they like.
+    'flags.held': async () =>
+      held ? { status: 200, body: held.view() } : refused(503, 'flags', 'The admin service does not check the flags.'),
 
     session: async ({ session, id }) => ({ status: 200, body: await described(session as Session, id as string) }),
 
@@ -430,7 +439,8 @@ export function createAdminApp({
     const url = new URL(req.url ?? '/', 'http://admin');
     const route = routeOf('admin', req.method ?? 'GET', url.pathname);
     res.on('finish', () => {
-      if (route?.name === 'admin.health') return;
+      // Neither the kubelet's checks nor the console's reads of the flags held, which anyone may make as often as they like.
+      if (route?.name === 'admin.health' || route?.name === 'flags.held') return;
       const ms = Math.round(performance.now() - started);
       // The route's name, never its path: a passkey's id is in one.
       log.info({ method: req.method, route: route?.name, status: res.statusCode, ms }, `${req.method} ${route?.name}`);

@@ -36,3 +36,11 @@ export const TRACES_FROM_THE_APP = `resource.${APP_POD_ATTRIBUTE} != nil`;
  * the line's, and page him for nothing.
  */
 export const METRICS_FROM_THE_LINE = 'k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="line"';
+
+/**
+ * Which series are the admin service's: those from a pod in `factory` labelled `app.kubernetes.io/name: admin`, stamped
+ * by the collector as the line's are. Its figures of whether the app holds the flags as set page Martin, so no other
+ * worker may send them.
+ */
+export const METRICS_FROM_THE_ADMIN_SERVICE =
+  'k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="admin"';

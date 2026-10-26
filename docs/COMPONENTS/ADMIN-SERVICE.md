@@ -8,7 +8,7 @@ Martin's sign-in, his sessions, and the one way a browser changes the factory (s
 - **v1:** Martin's answers to holds, from Needs you: approve, reject, or answer in words ([below](#needs-you)).
 - **v1:** Stop the line and Start the line, from the console's header, with the canary in flight aborted as the line stops ([below](#stopping-and-starting-the-line)).
 - **v1:** the line's controls: the autonomy level, whether agents take new work, auto-merge, and what the line takes, within policy ([below](#the-lines-controls)).
-- **v1:** the feature flags' stages, written to `flags` as the one service of ours that may ([below](#the-flags-stages)). The probe of the revision the app holds, and the check after a narrowing, come next (milestone 7, task 16).
+- **v1:** the feature flags' stages, written to `flags` as the one service of ours that may ([below](#the-flags-stages)), and whether the app holds them: every pod asked every minute, and after each narrowing or Off ([below](#whether-the-app-holds-the-flags)).
 - **Later:** improvement requests, the red-team attacks, auto-rollback's switch and visitor keys' usage (spec 5.4), each a route in the access table.
 
 ```mermaid
@@ -18,6 +18,7 @@ flowchart LR
   traefik -- "everything else, no Cookie" --> console[Console's server]
   admin -- "factory_admin" --> store[(Event store)]
   admin -- "its service account: get and patch" --> rollout[The app's Rollout]
+  admin -- "x-unmeasured: which flags do you hold?" --> app[The app's pods]
   cli["make enrol"] -- "factory_enrol" --> store
 ```
 
@@ -28,6 +29,7 @@ Every route it answers is in [`policy/access.ts`](../../policy/access.ts), and i
 | Entry | Routes | Takes |
 |---|---|---|
 | `admin.health` | `GET /admin/health` | nothing |
+| `flags.held` | `GET /admin/flags/held` | nothing: whether the app holds the flags as set, as last checked |
 | `session` | `GET /admin/session` | his session; it answers with the token his writes carry, his passkeys, and the deployment's tools his menu links to |
 | `full-events` | `GET /admin/events/stream` | his session |
 | `enrol` | `POST /admin/enrol/options`, `POST /admin/enrol` | the code, the console's `Origin`, and the enrolment's rate limit |
@@ -44,6 +46,7 @@ Every route it answers is in [`policy/access.ts`](../../policy/access.ts), and i
 | `line.stop` | `POST /admin/line/stop` | a write's four checks |
 | `line.start` | `POST /admin/line/start` | a write's four checks, and the passkey given within five minutes |
 | `line.controls` | `POST /admin/line/controls` | a write's four checks, and the passkey given within five minutes when the change loosens (`autonomy.loosen`, `auto-merge.on`, `take.widen`) |
+| `flag.stage` | `POST /admin/flags/:flag/stage` | a write's four checks, and the passkey given within five minutes when the move widens past Checks or turns a flag back on (`flag.widen`, `flag.back-on`) |
 
 A write's four checks, in order: `Origin` exactly the console's origin in configuration, never one made from the request's `Host`; a live session; the session's token in `X-CSRF-Token`; and, for an action the table marks, the passkey given again within `STEP_UP.minutes`. Every write is a `POST` with a JSON body, which no form can send. An action added later plugs in the same way: a route on its entry, and a handler; the guard comes from the table.
 
@@ -126,8 +129,29 @@ The console's header stops and starts the line (`admin/line.ts`), each with Mart
 - **The write.** `flags` is read, the flag changed and every other flag kept at its stage, read back through `readFlags`, so a flag in no stage's shape is never written back: it is dropped, which turns it off, logged, and named in the answer (`dropped`). A new `flag-set-revision` (`r1`, `r2`, …, counting on from the one held, or from the time in milliseconds after one written by hand) goes with every write. The whole object is replaced (`PUT`), conditional on the `resourceVersion` it read; when `flags` changed in between, it is read again and the move judged again, up to three times (409 after), so two moves at once never lose one.
 - **Recorded once made,** as a control of the canary is: `flag.staged` is checked before the write and appended after it, in a transaction of its own, so a write Kubernetes refuses leaves none (502), and no connection waits on Kubernetes. A write whose answer never came is read back, and counts as made if `flags` holds its revision with the flag at its stage. An append that fails is tried once more; if that fails too, the stage stands in `flags`, is logged, and the answer says it was not recorded (500). Martin's last move then lags `flags`, and turning back on and Everyone, which depend on it, are refused until a move is recorded again.
 - **Each move alerts Martin,** as a [security event](ALERTING.md#security-events): a widening (to Checks too, and turning back on) notifies him, a narrowing or Off informs him.
-- **What the console reads.** Visitors and Martin alike see each flag's stage and why a stop can't be taken now from the public events, through `flagsFrom` and `movesOf` in `policy/flag-moves.ts`: Martin's `flag.staged`, Verify's `flag.compared`, the specs that name flags, and the line's release events for a canary in flight. The service serves no read of its own: what it refuses beyond that (`flags` changed by hand, a canary the events have not caught up with) it says when it refuses.
+- **What the console reads.** Visitors and Martin alike see each flag's stage and why a stop can't be taken now from the public events, through `flagsFrom` and `movesOf` in `policy/flag-moves.ts`: Martin's `flag.staged`, Verify's `flag.compared`, the specs that name flags, and the line's release events for a canary in flight. The service serves no read of the stages: what it refuses beyond that (`flags` changed by hand, a canary the events have not caught up with) it says when it refuses. Its one read of the flags is whether the app holds them ([below](#whether-the-app-holds-the-flags)).
 - **Unset,** with no `FEATURE_FLAGS`, every move is refused (503), and the service reaches nothing in `flagd`.
+
+## Whether the app holds the flags
+
+flagd's readiness follows its first read of `flags`, not its watch: a watch broken after start (its binding gone, the API out of reach) leaves it ready, serving the last flags it read, and a kill switch would not reach the app ([feature flags](FEATURE-FLAGS.md#readiness)). So the service checks from outside (`admin/flags-held.ts`), comparing the [revision](FEATURE-FLAGS.md#the-revision) in `flags` with the one each of the app's pods tells a marked request.
+
+- **Every pod, every minute.** The app's pods are the ready endpoints of the Services its Rollout names, stable and canary (the Rollout read by name, as the [canary's controls](#the-canarys-controls) read it; their EndpointSlices listed in `website`). Each is asked at its own address, never through a Service, which would answer from one pod of several, so a mismatch on one pod would come and go: `GET /health` with the mark (`x-unmeasured: 1`), for its `x-flags-revision` alone. The app keeps no record of a marked request. A pod not ready, or shutting down, is not asked.
+- **How long they have differed,** as one figure for the app: from the first check in an unbroken run that did not find every pod holding the revision in `flags`, or from a write of `flags` if earlier, until a check that began after the last write finds every pod holding it. So a pod that lags, is replaced, and another that lags, never starts the count again. `flags` holding no revision is the app saying `none`, and no difference; `stale` and `invalid` always are.
+- **A check that cannot ask** is no proof: no `flags`, no Rollout or no ready pod, Kubernetes unreadable, or a pod that does not answer within five seconds, or answers without the header. The count goes on, and the figures say it could not ask.
+- **After each write,** the service asks every ten seconds for two minutes, until the app holds it. After a narrowing or Off, or a write that drops a flag in no stage's shape and so turns it off, it counts too from the write until the app is seen to hold the flags as set.
+- **Its figures,** gauges each time the SDK collects ([telemetry](TELEMETRY.md#which-series-are-the-lines)): `admin_flags_differing_seconds`, `admin_flags_narrowing_seconds`, `admin_flags_checked` (1 when the last check asked every pod and each answered) and `admin_flags_set` (1 when `flags` held a revision). Prometheus's rules [alert Martin](ALERTING.md#the-flags-the-app-holds): a page when a narrowing or Off has not reached the app within a minute, a notification when it has differed, or could not be asked, for more than five minutes.
+- **What anyone reads,** at `GET /admin/flags/held`, as the console's Controls show it beside the flags, to visitors too: whether the app holds the flags as set, from the last check, and never a check of its own, so asking often costs the app nothing. No pod's address or name.
+
+  | Field | |
+  |---|---|
+  | `state` | `held`: every pod holds the revision in `flags`. `taking`: not yet, within a minute of the first sign. `lagging`: not for a minute or more. `unchecked`: the last check could not ask every pod, or none has been made |
+  | `revision` | The revision in `flags`, or `null` when it holds none |
+  | `held` | What the pods answered, each once: a revision, `none`, `stale` or `invalid` |
+  | `since` | When it was first seen not to hold them; `null` while it does |
+  | `checkedAt` | The last check; `null` before the first |
+
+  503 when the service checks nothing: it does so with both `FEATURE_FLAGS` and `RELEASE_ROLLOUT`, and without either reaches no pod of the app.
 
 ## The settings
 
@@ -159,7 +183,7 @@ Every action is an event with Martin as its actor, appended in the same transact
 | `ADMIN_RP_ID` | The relying party a passkey belongs to; by default the origin's host name. |
 | `ADMIN_TRUSTED_PROXIES` | The proxy in front, as addresses or CIDR ranges; none by default. |
 | `RELEASE_ROLLOUT` | The app's Rollout, as `<namespace>/<name>`, as the line is given it: what the canary's controls patch. Unset, they are refused. |
-| `FEATURE_FLAGS` | The FeatureFlag flagd watches, as `<namespace>/<name>` (`flagd/flags`): what the flags' stages are written to. Unset, every move is refused. |
+| `FEATURE_FLAGS` | The FeatureFlag flagd watches, as `<namespace>/<name>` (`flagd/flags`): what the flags' stages are written to, and, with `RELEASE_ROLLOUT`, whose revision the app's pods are asked for. Unset, every move is refused, and nothing is asked. |
 | `KUBE_API_URL` | On a host, where `kubectl proxy` serves the API; in the cluster, its service account's token. |
 | `GRAFANA_URL`, `ARGOCD_URL` | This deployment's Grafana and Argo CD, each an `http` or `https` address with no user name or password in it, which a signed-in session is told so the account menu links to them. Only a session is told: a public deployment's internal hosts never reach a visitor's page. Unset, the menu has no link to that tool. |
 | `FACTORY_PROFILE` | `local`, `do` or `aws`, `local` by default, as the gateway's and the line's: the bounds Martin's settings are held to, and their defaults. |
@@ -170,8 +194,9 @@ Every action is an event with Martin as its actor, appended in the same transact
 
 - **One origin.** Traefik sends `/admin/` on the console's host to the admin service and everything else to the console's server, with the `Cookie` header removed (the `console-no-cookies` middleware), so the session cookie, whose path is `/`, never reaches the console's server.
 - **One replica, replaced and never doubled,** since the rate limits are held in memory.
-- **Fenced.** Its network policy lets in Traefik alone, and lets it reach the store, the collector and the API server's port (6443, as the line's does), nothing else. That is why it believes forwarded headers from the whole pod network (`ADMIN_TRUSTED_PROXIES=10.42.0.0/16`, k3s's default range): only Traefik can connect, and Traefik replaces whatever `X-Forwarded-For` a client sends. Locally every request reaches Traefik through k3d's load balancer, so the rate limits key on that one address, and hold for the Mac as a whole. `make egress` proves the fence on the cluster.
+- **Fenced.** Its network policy lets in Traefik alone, and lets it reach the store, the collector, the API server's port (6443, as the line's does) and the app's pods on 8080, to ask which flags each holds, nothing else. That is why it believes forwarded headers from the whole pod network (`ADMIN_TRUSTED_PROXIES=10.42.0.0/16`, k3s's default range): only Traefik can connect, and Traefik replaces whatever `X-Forwarded-For` a client sends. Locally every request reaches Traefik through k3d's load balancer, so the rate limits key on that one address, and hold for the Mac as a whole. `make egress` proves the fence on the cluster.
 - **No other route on its host.** The app's repository, which agents write to, may make Traefik routes in `website`, and a route on the console's host would take the session cookie. The `website-routes` admission policy (`deploy/base/admission/website/routes.yaml`) admits a route there only if it begins with one of the app's hosts and widens it with no `||`. `scripts/route-refusals.sh` keeps the cluster's answers to the routes that matter (`deploy/test/route-refusals.json`), which the fence test reads.
 - **The one service of ours that may change a Rollout.** Its service account, `admin`, holds one Role in `website` (`deploy/base/analysis/admin-controls-release.yaml`): get and patch the app's Rollout, and patch its status, by name. A Role names objects, not fields, so the `website-rollout-controls` admission policy ([admission control](ADMISSION-CONTROL.md#the-admin-services-hold-on-the-rollout)) refuses any change of the service's but `spec.paused` and the status fields its controls set. Its Deployment runs as that account, with its token mounted, and `RELEASE_ROLLOUT=website/website`; in `factory` only it and the line hold a token. `scripts/rollout-refusals.sh` keeps the cluster's answers to its controls' patches and to the changes it must not make (`deploy/test/rollout-refusals.json`), sent as the service sends them, which the fence test reads.
 - **The one service of ours that may change `flags`,** for Martin's [feature flags' stages](FEATURE-FLAGS.md#the-stages). Its service account holds one Role in `flagd` (`deploy/base/flagd/admin-stages-flags.yaml`): get and update `flags`, by name. The `flagd-flag-stages` admission policy ([admission control](ADMISSION-CONTROL.md#the-admin-services-hold-on-flags)) refuses any change of the service's but the stages' shapes, rendered by `policy/flags.ts`, and the revision. `scripts/flag-stages-refusals.ts` keeps the cluster's answers to every stage and to the changes it must not make (`deploy/test/flag-stages-refusals.json`), which the fence test reads. The service writes them with `FEATURE_FLAGS=flagd/flags` ([above](#the-flags-stages)).
-- `apps/factory/test/admin-fences.test.ts` holds the route, the cookie's removal, the fence, the service account and the admission policy; `release-fences.test.ts` the Role, the policy on the Rollout and the cluster's answers to it; `flag-fences.test.ts` the Role, the policy on `flags` and the cluster's answers to them.
+- **It finds the app's pods, and reaches them.** A Role in `website` (`deploy/base/website/admin-finds-app-pods.yaml`) lets it list EndpointSlices there, and nothing more: a slice's name is generated, so a Role cannot name the app's, and the pods themselves, or their deprecated Endpoints, are not read. The app's own policy lets it in on 8080 ([network policies](NETWORK-POLICIES.md#website)): one more pod beside the probes, the crawler and the journeys that can send [the mark](ADMISSION-CONTROL.md#the-mark), which it sends for the revision alone.
+- `apps/factory/test/admin-fences.test.ts` holds the route, the cookie's removal, the fence, the Role that finds the app's pods, the service account and the admission policy; `release-fences.test.ts` the Role, the policy on the Rollout and the cluster's answers to it; `flag-fences.test.ts` the Role, the policy on `flags` and the cluster's answers to them.

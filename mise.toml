@@ -18,3 +18,6 @@ argocd = "3.5.3"
 # The local certificate authority `make up` makes for https://console.localhost:8443, constrained to `localhost` names
 # (mkcert cannot constrain one), and the tests that hold it to them.
 step = "0.31.0"
+# Prometheus's rule tester, at the version of the server the Prometheus chart runs, for the tests that run the alerts to
+# Martin as Prometheus would (apps/factory/test/flag-alerts.test.ts).
+promtool = "3.15.0"

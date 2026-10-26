@@ -8,7 +8,7 @@
 #
 # Policies add: a pod may do whatever any policy that selects it allows. Policies on telemetry are not needed to let
 # traffic in, because that namespace denies nothing; the app's pods in `website` let in only Traefik, the probes, the
-# crawler and the analysis (deploy/base/website/network-policy.yaml).
+# crawler, the admin service and the analysis (deploy/base/website/network-policy.yaml).
 #
 # The workers that read telemetry reach Prometheus, Loki and Tempo only through the read-only proxy in `telemetry`
 # (deploy/base/telemetry/query.yaml), on each backend's own port, and never the backends themselves: a policy allows a
@@ -200,7 +200,8 @@ spec:
 # that come from the pod network (deploy/base/factory/admin.yaml). It reaches the store, the collector, and the API
 # server's port, for Martin's controls of the canary and his flags' stages: as for the line, 6443 on a private address,
 # which is where the `kubernetes` Service sends it. What it may do there is its Roles', and the admission policies' on
-# the Rollout and on `flags`.
+# the Rollout and on `flags`. And the app's pods on 8080, each at its own address, to ask with the mark which flags it
+# holds (apps/factory/src/admin/flags-held.ts): the app's own policy lets it in (deploy/base/website/network-policy.yaml).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -247,6 +248,15 @@ spec:
             cidr: 192.168.0.0/16
       ports:
         - { protocol: TCP, port: 6443 }
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: website
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: website
+      ports:
+        - { protocol: TCP, port: 8080 }
 ---
 # The gateway is called by triage and by runners' agent pods, and may leave the cluster for its providers: TypeSafe and
 # Anthropic, over TLS. Addresses inside the cluster, on the local network and of the host are excepted, so this opens the

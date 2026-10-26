@@ -118,9 +118,10 @@ jobs:
       - run: echo "TEST_POSTGRES_IMAGE=$(scripts/ci-images.sh postgres)" >> "$GITHUB_ENV"
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
-          # kustomize and step for the tests that render the manifests and make a local certificate authority
-          # (scripts/image-pins.test.ts, scripts/local-ca.test.ts).
-          install_args: node pnpm kustomize step
+          # kustomize, step and promtool for the tests that render the manifests, make a local certificate authority
+          # and run the alerts on the flags (scripts/image-pins.test.ts, scripts/local-ca.test.ts,
+          # apps/factory/test/flag-alerts.test.ts).
+          install_args: node pnpm kustomize step promtool
       - run: pnpm install --frozen-lockfile
       - run: make check-tests SHARD="$SHARD"
         env:

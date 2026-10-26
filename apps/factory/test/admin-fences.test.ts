@@ -115,7 +115,7 @@ describe('the admin service', () => {
     expect(from).toEqual([TRAEFIK]);
   });
 
-  it('reaches the store, the collector and the API server’s port, and nothing else', async () => {
+  it('reaches the store, the collector, the API server’s port and the app’s pods on 8080, and nothing else', async () => {
     const policy = (await manifests()).find(
       ({ manifest, namespace }) =>
         manifest.kind === 'NetworkPolicy' && namespace === 'factory' && manifest.metadata?.name === 'admin',
@@ -139,6 +139,39 @@ describe('the admin service', () => {
         to: ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'].map((cidr) => ({ ipBlock: { cidr } })),
         ports: [{ protocol: 'TCP', port: 6443 }],
       },
+      // The app's pods, by the label its own fence selects them by, to ask each which flags it holds.
+      {
+        to: [
+          {
+            namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'website' } },
+            podSelector: { matchLabels: { 'app.kubernetes.io/name': 'website' } },
+          },
+        ],
+        ports: [{ protocol: 'TCP', port: 8080 }],
+      },
+    ]);
+  });
+
+  it('finds the app’s pods by one Role in website: list its EndpointSlices, and nothing more, for its account alone', async () => {
+    type Rbac = Manifest & {
+      rules?: unknown[];
+      roleRef?: { kind: string; name: string };
+      subjects?: { kind: string; name: string; namespace?: string }[];
+    };
+    const all = await deployManifests<Rbac>();
+    const roles = all.filter(
+      ({ manifest }) => manifest.kind === 'Role' && manifest.metadata?.name === 'admin-finds-app-pods',
+    );
+    expect(roles.map(({ file, namespace }) => [file, namespace])).toEqual([
+      ['base/website/admin-finds-app-pods.yaml', 'website'],
+    ]);
+    // A slice's name is generated, so none is named; never get, watch or a change, nor the pods themselves.
+    expect(roles[0]?.manifest.rules).toEqual([
+      { apiGroups: ['discovery.k8s.io'], resources: ['endpointslices'], verbs: ['list'] },
+    ]);
+    const bound = all.filter(({ manifest }) => manifest.roleRef?.name === 'admin-finds-app-pods');
+    expect(bound.map(({ manifest, namespace }) => [manifest.kind, namespace, manifest.subjects])).toEqual([
+      ['RoleBinding', 'website', [{ kind: 'ServiceAccount', name: 'admin', namespace: 'factory' }]],
     ]);
   });
 

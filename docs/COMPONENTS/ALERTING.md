@@ -24,7 +24,7 @@ flowchart LR
 
 ## The rules
 
-`apps/factory/src/alerts/rules.ts` generates Prometheus's alerting rules from it, and the alerts to Martin ([security events](#security-events), [holds](#holds) and [the shop's pod](#the-shops-pod)), into `deploy/base/telemetry/values/prometheus-rules.yaml`, labelled with the route and the symptom class (`server-error`, `slow-response`). Each rule compares every route's error ratio or p95 over the window, once it has had enough requests, with the objective, by the same expression Prometheus records for dashboards ([recording rules](TELEMETRY.md#each-route-against-the-objectives)), and reads only the app's own series. `make check` fails when the file is out of date.
+`apps/factory/src/alerts/rules.ts` generates Prometheus's alerting rules from it, and the alerts to Martin ([security events](#security-events), [holds](#holds), [the flags the app holds](#the-flags-the-app-holds) and [the shop's pod](#the-shops-pod)), into `deploy/base/telemetry/values/prometheus-rules.yaml`, labelled with the route and the symptom class (`server-error`, `slow-response`). Each rule compares every route's error ratio or p95 over the window, once it has had enough requests, with the objective, by the same expression Prometheus records for dashboards ([recording rules](TELEMETRY.md#each-route-against-the-objectives)), and reads only the app's own series. `make check` fails when the file is out of date.
 
 ## Levels and routes
 
@@ -32,8 +32,8 @@ Each rule says how loudly it is told by a `level` label, and Alertmanager routes
 
 | Level | Label | Sent to | For |
 |---|---|---|---|
-| Page | `level: page` | Pushover, at high priority, which sounds through Martin's quiet hours | the security events that loosen a guardrail or change who can sign in, the security events' count missing or stale, a silence in place |
-| Notify | `level: notify` | Pushover, at normal priority | each hold that waits for Martin, the shop's pod 25 days old, the security events that widen what the line does or a feature flag, act on a release, change a setting or tighten autonomy |
+| Page | `level: page` | Pushover, at high priority, which sounds through Martin's quiet hours | the security events that loosen a guardrail or change who can sign in, the security events' count missing or stale, a silence in place, a narrowing or Off of a flag the app has not taken within a minute |
+| Notify | `level: notify` | Pushover, at normal priority | each hold that waits for Martin, the shop's pod 25 days old, the security events that widen what the line does or a feature flag, act on a release, change a setting or tighten autonomy, the app holding other flags than those set, or not checked, for more than five minutes |
 | Inform | `level: inform` | Pushover, at low priority, with no sound or vibration | the security events that tighten, but for autonomy, or only record Martin's own use |
 | Dashboard only | none | no one: a receiver that sends nothing | everything else |
 
@@ -111,6 +111,23 @@ Martin is notified of each hold that waits for him, once, as it starts to wait (
 - **Nothing but numbers make a link.** Each rule matches only a work item and a pull request of digits, and alerts for no other: the line checks its labels the same way before it sends them, and the message links a label only if it is digits, so an alert from anything else that reaches Alertmanager links nothing. No title, reason or visitor's words is in a label or a message. A dry run's pull request (from 1,000,000,000) is on no GitHub, so the rule takes it off and links the sheet alone.
 - **The console's origin is the profile's,** a template each overlay defines (`console.origin`, in its Prometheus values), the origin its passkeys are bound to: `https://console.localhost:8443` locally. A test fails for a profile without it, as Alertmanager could render no message to Martin without it.
 - **A deploy hold whose pull request is not ready alerts no one.** While its checks run, fail, or it is merged or closed, the hold is not yet his ([its state](RELEASE-AND-VERIFY.md#the-deploy-pull-requests-state)), and the console says what it waits for. Nothing alerts on one that stays there: the `held` stage has no stuck limit, as it waits for Martin.
+
+## The flags the app holds
+
+flagd keeps serving the last flags it read when its watch of `flags` breaks after it started, and stays ready, so a change Martin makes in Controls might never reach the app ([feature flags](FEATURE-FLAGS.md#readiness)). The [admin service](ADMIN-SERVICE.md#whether-the-app-holds-the-flags) asks every pod of the app, every minute and soon after each write, for the revision it holds, and reports how long they have differed from `flags`. Its rules, in a group of their own (`flagRules`):
+
+| Alert | When | Level |
+|---|---|---|
+| `FlagsNotTaken` | A narrowing or Off, or a write that dropped a flag and so turned it off, that the app has not been seen to take a minute after it was written (`admin_flags_narrowing_seconds` over 60) | Page |
+| `FlagsDiffer` | A pod of the app has held other flags than those set for more than five minutes, every pod answering (`admin_flags_differing_seconds` over 300, `admin_flags_checked` 1) | Notify |
+| `FlagsUnchecked` | The admin service has not been able to ask every pod for as long (`admin_flags_checked` 0), or its figures have gone while `flags` held a flag set (`admin_flags_set` 1 in the six hours before, and none for the five minutes Prometheus looks back) | Notify |
+
+- **A kill switch that has not worked pages.** Martin narrows a flag, or turns it off, because what it shows is wrong; if the app still shows it a minute on, the switch has failed while visitors see it. Within a minute of his own action he is at the console, so the page reaches him at once, and it sounds through his quiet hours if he acted then. A widening not taken harms nobody, so it is told at five minutes, as a notification.
+- **Not being able to ask notifies,** as a difference does: a narrowing meanwhile would page him anyway, as one the app has not been seen to take.
+- **One figure for the app,** counted on through pods that come and go, so a lagging pod replaced by another does not start the five minutes again; a pod a check cannot ask counts it on too. `flags` holding no flag set and the app saying `none` is no difference.
+- **What Martin does:** look at Controls, which says whether the app holds the flags, which revision it holds and since when. When flagd has stopped watching `flags` (its log says so, or its binding or Role has gone), restart it, which reads `flags` again as it starts or stays unready until it can: `kubectl -n flagd rollout restart deployment/flagd`. When the app answers `stale`, flagd is down or out of its reach, and the app already treats every flag as off ([failing off](FEATURE-FLAGS.md#failing-off)). When it cannot be asked, `make egress` and the admin service's log say whether its fence, its Role or the app's pods are at fault.
+- **Each reads only the admin service's own series,** by what the collector stamps on them ([telemetry](TELEMETRY.md#which-series-are-the-lines)), and the highest of each by its name.
+- **Proved by Prometheus's own rule tester:** `apps/factory/test/flag-alerts.test.ts` runs `promtool test rules` (pinned in `mise.toml` at the server's version) over the rules as committed, for each alert's when and when not.
 
 ## The shop's pod
 

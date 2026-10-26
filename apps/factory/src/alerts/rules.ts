@@ -16,10 +16,11 @@ import { HOLD_CAUSES, type HoldCause } from '@software-factory/events';
 import { type Objectives, objectives } from '../../../../policy/objectives.ts';
 import { STUCK, type StuckStage } from '../../../../policy/stuck.ts';
 import { REPORT_TEXT } from '../../../../policy/triage.ts';
+import { HELD } from '../admin/flags-held.ts';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
 import { NUMBER_PATTERN } from '../line/metrics.ts';
 import { SECURITY_KINDS, type SecurityKind } from '../line/security.ts';
-import { METRICS_FROM_THE_LINE } from '../provenance.ts';
+import { METRICS_FROM_THE_ADMIN_SERVICE, METRICS_FROM_THE_LINE } from '../provenance.ts';
 import * as query from './queries.ts';
 
 export const RULES_FILE = join(import.meta.dirname, '../../../../deploy/base/telemetry/values/prometheus-rules.yaml');
@@ -327,6 +328,79 @@ export const SHOP_POD_DAYS = REPORT_TEXT.promisedDays - SHOP_POD_RELEASE_DAYS;
 const SHOP_PODS_RUNNING =
   'max by (pod) (kube_pod_owner{namespace="website", owner_kind="ReplicaSet"}) and on (pod) max by (pod) (kube_pod_status_phase{namespace="website", phase="Running"} == 1)';
 
+/** One of the admin service's series, as only its pod sends it. */
+const fromTheAdminService = (name: string) => `${name}{${METRICS_FROM_THE_ADMIN_SERVICE}}`;
+/** How long the app has not been seen to hold the flags as set, and since a narrowing it has not taken (`flags-held.ts`). */
+export const FLAGS_DIFFERING = fromTheAdminService('admin_flags_differing_seconds');
+export const FLAGS_NARROWING = fromTheAdminService('admin_flags_narrowing_seconds');
+/** Whether the admin service's last check asked every pod of the app, and whether `flags` held a flag set. */
+export const FLAGS_CHECKED = fromTheAdminService('admin_flags_checked');
+export const FLAGS_SET = fromTheAdminService('admin_flags_set');
+/** How long the app may differ from `flags` before Martin is told: long enough for flagd and the app to catch up. */
+export const FLAGS_DIFFER_MINUTES = 5;
+/** How long the app has to take a narrowing or Off before Martin is paged. */
+export const FLAGS_NARROWING_SECONDS = HELD.takeMs / 1000;
+
+/**
+ * The alerts that say whether the app holds the flags as Martin set them, from the admin service's checks of every pod
+ * (`admin/flags-held.ts`):
+ * - a page when a narrowing or Off has not reached the app within a minute: he used a kill switch, and it has not
+ *   worked;
+ * - a notification when the app has held another flag set than `flags` for more than five minutes: flagd may have
+ *   stopped watching `flags`, which leaves it ready and serving the last flags it read, so no change reaches the app;
+ * - a notification when the admin service has not been able to ask every pod for as long, or its figures have gone
+ *   while `flags` held a flag set: either way, a change that did not reach the app would not be told.
+ *
+ * Each figure is the highest of any series by its name from the admin service's pod. Its count of how long they have
+ * differed goes on while it cannot ask, so the two are told apart by its last check.
+ */
+export function flagRules(): Rule[] {
+  const differ = FLAGS_DIFFER_MINUTES * 60;
+  const unchecked = {
+    summary: 'The flags the app holds are not being checked',
+    description: `For more than ${FLAGS_DIFFER_MINUTES} minutes the admin service has not been able to ask every pod of the app which flags it holds, so a change of a flag that did not reach the app would not be told.`,
+  };
+  return [
+    {
+      alert: 'FlagsNotTaken',
+      expr: `max(${FLAGS_NARROWING}) > ${FLAGS_NARROWING_SECONDS}`,
+      for: '0s',
+      labels: { level: LEVELS.page },
+      annotations: {
+        summary: 'The app has not taken a flag you narrowed',
+        description:
+          'A minute after you narrowed a flag or turned one off, the app does not hold the flags as you set them, and may still show the feature to those you took it from. Restart flagd, which reads them again as it starts.',
+      },
+    },
+    {
+      alert: 'FlagsDiffer',
+      expr: `max(${FLAGS_DIFFERING}) > ${differ} and on () max(${FLAGS_CHECKED}) == 1`,
+      for: '0s',
+      labels: { level: LEVELS.notify },
+      annotations: {
+        summary: 'The app does not hold the flags as set',
+        description: `For more than ${FLAGS_DIFFER_MINUTES} minutes a pod of the app has held other flags than the ones set: flagd may have stopped watching them. Restart flagd, which reads them again as it starts.`,
+      },
+    },
+    {
+      alert: 'FlagsUnchecked',
+      expr: `max(${FLAGS_DIFFERING}) > ${differ} and on () max(${FLAGS_CHECKED}) == 0`,
+      for: '0s',
+      labels: { level: LEVELS.notify },
+      annotations: unchecked,
+    },
+    {
+      alert: 'FlagsUnchecked',
+      // Gone for as long as Prometheus looks back for a sample (five minutes), having said in the six hours before
+      // that `flags` held a flag set. One that never held any, or an admin service never given `flags`, is not missed.
+      expr: `max(last_over_time(${FLAGS_SET}[6h])) == 1 unless on () count(${FLAGS_SET})`,
+      for: '0s',
+      labels: { level: LEVELS.notify },
+      annotations: unchecked,
+    },
+  ];
+}
+
 /** How far back an alert to Martin looks for a new event: one or several in it are one message. */
 const RECENT = '5m';
 
@@ -596,6 +670,9 @@ ${alerts(rulesFor(o))}
       - name: martin
         rules:
 ${alerts(martinRules())}
+      - name: flags
+        rules:
+${alerts(flagRules())}
   recording_rules.yml:
     groups:
       - name: routes
