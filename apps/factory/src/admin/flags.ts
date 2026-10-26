@@ -125,10 +125,8 @@ export class FlagStages {
 
   /** Sets a flag's stage, and records it; or refuses, having changed nothing. */
   async stage(session: Session, flag: string, asked: Asked): Promise<Staged> {
-    if (!isFlagName(flag)) throw new Refused('flag', 404, 'That is no flag of the app’s.');
-    if (asked.to.stage === 'off' && !asked.reason) {
-      throw new Refused('body', 400, 'Give a reason for turning it off, for the audit log and the work item.');
-    }
+    // As long as a name the events take: one longer is none an improvement's flag could be staged under.
+    if (!isFlagName(flag) || flag.length > 100) throw new Refused('flag', 404, 'That is no flag of the app’s.');
     for (let attempt = 1; ; attempt++) {
       try {
         return await this.#once(session, flag, asked);
@@ -155,6 +153,9 @@ export class FlagStages {
     const to = asked.to as Stage;
     const action = flagAction(stage, to);
     if (action === undefined) return { staged: null };
+    if (action === 'flag.off' && !asked.reason) {
+      throw new Refused('body', 400, 'Give a reason for turning it off, for the audit log and the work item.');
+    }
 
     const intoShare = to.stage === 'share' && stage?.stage !== 'share';
     const [{ stagedOn, ...history }, around, steppedUp] = await Promise.all([
@@ -162,12 +163,7 @@ export class FlagStages {
       intoShare ? this.#around(flag, held.stages) : ({} as Around),
       steppedUpNow(this.#sql, session),
     ]);
-    // A flag once staged can always be turned off, on the work item it was staged on, though no spec names it now.
-    const now: FlagNow = {
-      stage,
-      ...history,
-      ...(!history.workItem && to.stage === 'off' && stagedOn && { workItem: stagedOn }),
-    };
+    const now: FlagNow = { stage, ...history, ...(stagedOn && { stagedOn }) };
     const move = moveOf(flag, now, to, around);
     if (move.refused) throw new Refused('stage', 409, move.refused);
     if (ACCESS[action].stepUp && !steppedUp) throw new Refused('step-up', 403, 'This needs your passkey again.');
@@ -176,6 +172,8 @@ export class FlagStages {
     const rendered = flagsSpec({ ...held.stages, [flag]: to }, revision).flagSpec.flags;
     const dropped = held.outside.filter((name) => name !== flag && isFlagName(name));
     // Checked before the write, so a move whose event the store would refuse changes nothing.
+    // A flag once staged can always be turned off, on the work item it was staged on, though no spec names it now.
+    const workItem = now.workItem ?? now.stagedOn;
     const event = checked(
       adminEvent(
         'flag.staged',
@@ -189,7 +187,7 @@ export class FlagStages {
           ...(asked.reason && { reason: asked.reason }),
           steppedUp,
         },
-        now.workItem,
+        workItem,
       ),
     );
     await this.#write(read, rendered, revision, flag, to);

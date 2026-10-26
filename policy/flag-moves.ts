@@ -34,8 +34,10 @@ export type FlagAction = FlagActionName;
 export interface FlagNow {
   /** Its stage: off when `flags` does not name it, and null when `flags` holds it in no stage's shape. */
   stage: Stage | null;
-  /** The work item whose improvement's spec names it: none, and it is not staged here. */
+  /** The work item whose improvement's spec names it: none, and it is not staged here, but turned off. */
   workItem?: string;
+  /** The work item it was last staged on, if it has been: one turned off is recorded there. */
+  stagedOn?: string;
   /** Martin's last move of it (its latest `flag.staged`), which says what a flag that is off was turned off from. */
   last?: { from: Stage | null; to: Stage };
   /** Verify's latest comparison of it at the share stage since that move, if there is one. */
@@ -123,6 +125,8 @@ function refusalOf(
     return `A share is ${SHARES.slice(0, -1).join(', ')} or ${SHARES.at(-1)}%.`;
   }
   if (action === undefined) return `${flag} is at ${stageWords(to)} already.`;
+  // A flag once staged can always be turned off, on the work item it was staged on, though no spec names it now.
+  if (action === 'flag.off' && now.stagedOn) return undefined;
   if (!now.workItem) {
     return `No improvement's spec names ${flag}: only a flag an improvement ships behind is staged here.`;
   }
@@ -183,7 +187,8 @@ export function flagsFrom(
     if (record.type === 'flag.staged') {
       const { flag, workItem, from, to } = record;
       // A move clears the comparison before it: Verify compares the flag as it stands.
-      flags[flag] = { stage: to, workItem: named[flag] ?? workItem, last: { from, to } };
+      const spec = named[flag];
+      flags[flag] = { stage: to, ...(spec && { workItem: spec }), stagedOn: workItem, last: { from, to } };
     } else {
       const now = flags[record.flag] ?? { stage: { stage: 'off' } };
       flags[record.flag] = { ...now, compared: { share: record.share, outcome: record.outcome } };

@@ -2254,6 +2254,8 @@ describe('the flags’ stages', () => {
     });
     expect(held()).toEqual(checks);
     expect(readFlags(kube.object.spec).revision).toBe('r1');
+    // A name longer than the events take is no flag of the app's.
+    expect(await move(browser, off, checks, {}, 'a'.repeat(101))).toMatchObject({ status: 404 });
     // The rest of `flags` is as it was read.
     expect((kube.object.metadata as Body).annotations).toEqual({ 'argocd.argoproj.io/sync-wave': '0' });
     const [recorded] = await staged();
@@ -2267,6 +2269,10 @@ describe('the flags’ stages', () => {
     expect(recorded?.public).toMatchObject({ payload: recorded?.payload });
     // To where it is already: nothing written, nothing recorded.
     expect(await move(browser, checks, checks)).toMatchObject({ status: 200, body: { staged: null } });
+    expect(await move(browser, off, off, {}, `${FLAG}-never-on`)).toMatchObject({
+      status: 200,
+      body: { staged: null },
+    });
     expect(kube.writes).toHaveLength(1);
     expect(await staged()).toHaveLength(1);
   });

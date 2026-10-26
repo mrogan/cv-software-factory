@@ -179,14 +179,17 @@ describe('a flag as its events tell it', () => {
       'delivery-dates': {
         stage: share(50),
         workItem: '1316',
+        stagedOn: '1316',
         last: { from: checks, to: share(50) },
         compared: { share: 50, outcome: 'passed' },
       },
       'price-sort': { stage: off, workItem: '1330' },
-      'old-banner': { stage: off, workItem: '1200', last: { from: everyone, to: off } },
+      'old-banner': { stage: off, stagedOn: '1200', last: { from: everyone, to: off } },
     });
     expect(moveOf('delivery-dates', flags['delivery-dates'] as FlagNow, everyone).refused).toBeUndefined();
-    expect(moveOf('old-banner', flags['old-banner'] as FlagNow, everyone).refused).toBeUndefined();
+    // No spec names it now: it is staged no more, but turned off.
+    expect(moveOf('old-banner', flags['old-banner'] as FlagNow, everyone).refused).toMatch(/No improvement's spec/);
+    expect(moveOf('old-banner', { stage: checks, stagedOn: '1200' }, off).refused).toBeUndefined();
   });
 
   it('forgets a comparison once Martin moves the flag again', () => {
