@@ -257,8 +257,8 @@ describe('admission control', () => {
     // Only each policy sets its own mode: the images policy, the app's routes' (admin-fences.test.ts), the mark's
     // (mark-fences.test.ts), the admin service's hold on the app's Rollout (release-fences.test.ts), the holds on
     // `flags` and on the admin service's stages (flag-fences.test.ts) and on `share-key` (share-fences.test.ts), which
-    // deny too. The `try-the-line` skill
-    // switches `factory-images` to Audit on the cluster for a run, and Argo CD puts it back; no manifest here does.
+    // deny too. The `try-the-line` skill switches `factory-images` to Audit on the cluster for a run, and Argo CD puts it
+    // back; no manifest here does.
     // Nothing switches `website-images`, `scoreboard-images`, `flagd-images`, `website-routes`, `website-mark`,
     // `website-rollout-controls`, `website-share-key`, `flagd-flags` or `flagd-flag-stages`.
     const policies = [

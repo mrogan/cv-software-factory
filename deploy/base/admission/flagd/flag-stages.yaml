@@ -25,7 +25,7 @@
 #
 # Kubernetes's CEL refuses a list or map literal of mixed types, so each value of the shapes below is `dyn`. The
 # cluster's answers to policy/flags.ts's every stage, and to changes outside them, are kept in
-# deploy/test/flag-stages-refusals.json (scripts/flag-stages-refusals.sh).
+# deploy/test/flag-stages-refusals.json (node scripts/flag-stages-refusals.ts).
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -51,7 +51,9 @@ spec:
       expression: request.userInfo.username == 'system:serviceaccount:factory:admin'
   variables:
     - name: flags
-      expression: "has(object.spec) && has(object.spec.flagSpec) ? object.spec.flagSpec.flags : {}"
+      expression: >-
+        has(object.spec) && has(object.spec.flagSpec) && has(object.spec.flagSpec.flags) ?
+        object.spec.flagSpec.flags : {}
     # The revision's value, when the revision flag has one; null otherwise.
     - name: revision
       expression: >-

@@ -5,8 +5,8 @@
 # `flags`, never a deletion of it.
 #
 # It holds every request, Argo CD's, an administrator's and the admin service's: nothing may make another FeatureFlag
-# in `flagd` or delete `flags`. What the admin service may change in `flags` is held by flag-stages.yaml. The one deletion it lets through is of the namespace's
-# contents as the namespace itself is deleted, which takes flagd with it.
+# in `flagd` or delete `flags`. What the admin service may change in `flags` is held by flag-stages.yaml. The one
+# deletion it lets through is of the namespace's contents as the namespace itself is deleted, which takes flagd with it.
 #
 # A ValidatingAdmissionPolicy, Kubernetes's own, as the admin service's hold on the Rollout is
 # (../website/rollout-controls.yaml): the API server evaluates it in process, so it holds whether or not Kyverno is up.

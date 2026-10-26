@@ -3,8 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse, parseAllDocuments } from 'yaml';
-import { flagsSpec } from '../../../policy/flags.ts';
-import { ADMIN, CASES, type FlagStagesRecord, REVISION } from '../../../scripts/flag-stages-refusals.ts';
+import { EVERY_STAGE, flagsSpec, SHARES } from '../../../policy/flags.ts';
+import { ADMIN, CASES, type FlagStagesRecord, REVISION, stageName } from '../../../scripts/flag-stages-refusals.ts';
 import { DEPLOY, manifests as deployManifests } from './deploy.ts';
 
 /**
@@ -86,6 +86,15 @@ interface Manifest {
 }
 
 const manifests = () => deployManifests<Manifest>();
+
+/** `deploy/base/admission/flagd` as Argo CD renders it, its names prefixed: built once. */
+let admission: Manifest[] | undefined;
+const admissionFlagd = () => {
+  admission ??= parseAllDocuments(
+    execFileSync('kustomize', ['build', join(DEPLOY, 'base/admission/flagd')], { encoding: 'utf-8' }),
+  ).map((doc) => doc.toJS() as Manifest);
+  return admission;
+};
 
 const GROUP = 'core.openfeature.dev';
 const READ = ['get', 'list', 'watch'];
@@ -277,10 +286,8 @@ describe('the admin service’s hold on flags', () => {
     expect(spec?.matchConditions?.map((c) => c.expression)).toEqual([`request.userInfo.username == '${ADMIN}'`]);
     expect(spec?.validations?.[0]?.expression).toBe("request.operation == 'UPDATE'");
     // The shares it admits are the module's, and no others.
-    expect(spec?.validations?.at(-1)?.expression).toContain('[10, 25, 50].exists(share,');
-    const rendered = parseAllDocuments(
-      execFileSync('kustomize', ['build', join(DEPLOY, 'base/admission/flagd')], { encoding: 'utf-8' }),
-    ).map((doc) => doc.toJS() as Manifest);
+    expect(spec?.validations?.at(-1)?.expression).toContain(`[${SHARES.join(', ')}].exists(share,`);
+    const rendered = admissionFlagd();
     const named = (kind: string) => rendered.find((r) => r.kind === kind && r.metadata?.name === 'flagd-flag-stages');
     expect(named('ValidatingAdmissionPolicy')).toBeDefined();
     expect(named('ValidatingAdmissionPolicyBinding')?.spec).toEqual({
@@ -295,11 +302,9 @@ describe('the admin service’s hold on flags', () => {
     ) as FlagStagesRecord;
     // The policy the cluster answered with is the one here, as Argo CD applies it: a change to it is a change to take
     // the answers again.
-    const policy = parseAllDocuments(
-      execFileSync('kustomize', ['build', join(DEPLOY, 'base/admission/flagd')], { encoding: 'utf-8' }),
-    )
-      .map((doc) => doc.toJS() as Manifest)
-      .find((r) => r.kind === 'ValidatingAdmissionPolicy' && r.metadata?.name === 'flagd-flag-stages')?.spec;
+    const policy = admissionFlagd().find(
+      (r) => r.kind === 'ValidatingAdmissionPolicy' && r.metadata?.name === 'flagd-flag-stages',
+    )?.spec;
     expect(kept.policy).toEqual({
       matchConditions: policy?.matchConditions,
       variables: policy?.variables,
@@ -319,9 +324,7 @@ describe('the admin service’s hold on flags', () => {
     }
     // Every stage, and every share, admitted.
     const admitted = CASES.filter((c) => c.expected === 'admitted').flatMap((c) => Object.values(c.stages ?? {}));
-    expect(new Set(admitted.map((s) => (s.stage === 'share' ? `share-${s.share}` : s.stage)))).toEqual(
-      new Set(['off', 'checks', 'preview', 'share-10', 'share-25', 'share-50', 'everyone']),
-    );
+    expect(new Set(admitted.map(stageName))).toEqual(new Set(EVERY_STAGE.map(stageName)));
   });
 });
 
@@ -388,9 +391,7 @@ describe('flags', () => {
       "request.operation != 'CREATE' || object.metadata.name == 'flags'",
       "request.operation != 'DELETE' || has(namespaceObject.metadata.deletionTimestamp)",
     ]);
-    const rendered = parseAllDocuments(
-      execFileSync('kustomize', ['build', join(DEPLOY, 'base/admission/flagd')], { encoding: 'utf-8' }),
-    ).map((doc) => doc.toJS() as Manifest);
+    const rendered = admissionFlagd();
     const named = (kind: string) => rendered.find((r) => r.kind === kind && r.metadata?.name === 'flagd-flags');
     expect(named('ValidatingAdmissionPolicy')).toBeDefined();
     expect(named('ValidatingAdmissionPolicyBinding')?.spec).toEqual({

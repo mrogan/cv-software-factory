@@ -23,7 +23,15 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type FlagdFlag, flag, flagsSpec, REVISION_FLAG, revisionFlag, type Stage } from '../policy/flags.ts';
+import {
+  EVERY_STAGE,
+  type FlagdFlag,
+  flag,
+  flagsSpec,
+  REVISION_FLAG,
+  revisionFlag,
+  type Stage,
+} from '../policy/flags.ts';
 
 /** The admin service's account, as the API server names its requests. */
 export const ADMIN = 'system:serviceaccount:factory:admin';
@@ -74,18 +82,14 @@ const staged = (stage: Stage): Pick<Case, 'stages' | 'verb' | 'change'> => ({
   verb: 'replace',
   change: rendered({ [FLAG]: stage }),
 });
+/** A stage's name in the record: `share-25` for the share stage at 25. */
+export const stageName = (stage: Stage) => (stage.stage === 'share' ? `share-${stage.share}` : stage.stage);
 const share = (s: number) => ({ stage: 'share', share: s }) as Stage;
 const targeting = (f: Record<string, unknown>) => f.targeting as { if: unknown[] };
 
 export const CASES: Case[] = [
   // Every stage, alone, and all at once.
-  { case: 'off', expected: 'admitted', ...staged({ stage: 'off' }) },
-  { case: 'checks', expected: 'admitted', ...staged({ stage: 'checks' }) },
-  { case: 'preview', expected: 'admitted', ...staged({ stage: 'preview' }) },
-  { case: 'share-10', expected: 'admitted', ...staged(share(10)) },
-  { case: 'share-25', expected: 'admitted', ...staged(share(25)) },
-  { case: 'share-50', expected: 'admitted', ...staged(share(50)) },
-  { case: 'everyone', expected: 'admitted', ...staged({ stage: 'everyone' }) },
+  ...EVERY_STAGE.map((stage): Case => ({ case: stageName(stage), expected: 'admitted', ...staged(stage) })),
   (() => {
     const stages: Record<string, Stage> = {
       [`${FLAG}-a`]: { stage: 'off' },
