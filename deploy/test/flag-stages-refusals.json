@@ -1,0 +1,717 @@
+{
+  "policy": {
+    "matchConditions": [
+      {
+        "expression": "request.userInfo.username == 'system:serviceaccount:factory:admin'",
+        "name": "admin-service"
+      }
+    ],
+    "variables": [
+      {
+        "expression": "has(object.spec) && has(object.spec.flagSpec) && has(object.spec.flagSpec.flags) ? object.spec.flagSpec.flags : {}",
+        "name": "flags"
+      },
+      {
+        "expression": "'flag-set-revision' in variables.flags && 'revision' in dyn(variables.flags['flag-set-revision'].variants) ? dyn(variables.flags['flag-set-revision'].variants)['revision'] : dyn(null)",
+        "name": "revision"
+      },
+      {
+        "expression": "{'on': true, 'off': false}",
+        "name": "variants"
+      },
+      {
+        "expression": "[dyn({'==': [dyn({'var': 'marked'}), dyn(true)]}), dyn('on')]",
+        "name": "marked"
+      },
+      {
+        "expression": "dyn({'==': [dyn({'var': 'signed'}), dyn(true)]})",
+        "name": "signed"
+      }
+    ],
+    "validations": [
+      {
+        "expression": "request.operation == 'UPDATE'",
+        "message": "the admin service may only change flags, never make or delete a FeatureFlag"
+      },
+      {
+        "expression": "has(object.spec) && has(object.spec.flagSpec) && has(oldObject.spec) && has(oldObject.spec.flagSpec) && dyn(object.spec).all(k, k == 'flagSpec' || (k in dyn(oldObject.spec) && dyn(object.spec)[k] == dyn(oldObject.spec)[k])) && dyn(oldObject.spec).all(k, k == 'flagSpec' || k in dyn(object.spec)) && dyn(object.spec.flagSpec).all(k, k == 'flags' ||\n\n  (k in dyn(oldObject.spec.flagSpec) && dyn(object.spec.flagSpec)[k] == dyn(oldObject.spec.flagSpec)[k])) &&\ndyn(oldObject.spec.flagSpec).all(k, k == 'flags' || k in dyn(object.spec.flagSpec))",
+        "message": "the admin service may change only the flags of flags, not its $evaluators or the flag set's metadata"
+      },
+      {
+        "expression": "(has(object.metadata.labels) ? object.metadata.labels : {}) ==\n\n  (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) &&\n(has(object.metadata.annotations) ? object.metadata.annotations : {}) ==\n\n  (has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {}) &&\n(has(object.metadata.finalizers) ? object.metadata.finalizers : []) ==\n\n  (has(oldObject.metadata.finalizers) ? oldObject.metadata.finalizers : []) &&\n(has(object.metadata.ownerReferences) ? object.metadata.ownerReferences : []) ==\n\n  (has(oldObject.metadata.ownerReferences) ? oldObject.metadata.ownerReferences : [])",
+        "message": "the admin service may not change the labels, annotations, finalizers or owners of flags"
+      },
+      {
+        "expression": "variables.flags.all(k, k == 'flag-set-revision' || k.matches('^[a-z0-9]+(-[a-z0-9]+)*$'))",
+        "message": "a feature flag's name is lower-case letters and digits, in words joined by hyphens"
+      },
+      {
+        "expression": "'flag-set-revision' in variables.flags && type(variables.revision) == string && variables.flags['flag-set-revision'] == {'state': dyn('ENABLED'), 'defaultVariant': dyn('revision'),\n\n  'variants': dyn({'revision': variables.revision})} &&\nstring(variables.revision).matches('^[!-~]{1,128}$') && !(string(variables.revision) in ['none', 'stale', 'invalid'])",
+        "message": "flags must name its revision, flag-set-revision, with one string variant, revision: visible ASCII of 1 to 128 characters, and never none, stale or invalid"
+      },
+      {
+        "expression": "variables.flags.all(k, k == 'flag-set-revision' ||\n\n  [\n    {'state': dyn('ENABLED'), 'variants': dyn(variables.variants), 'defaultVariant': dyn('off')},\n    {'state': dyn('ENABLED'), 'variants': dyn(variables.variants), 'defaultVariant': dyn('off'),\n      'targeting': dyn({'if': variables.marked + [dyn('off')]})},\n    {'state': dyn('ENABLED'), 'variants': dyn(variables.variants), 'defaultVariant': dyn('off'),\n      'targeting': dyn({'if': variables.marked +\n        [dyn({'in': [dyn(k), dyn({'var': 'preview'})]}), dyn('on'), dyn('off')]})},\n    {'state': dyn('ENABLED'), 'variants': dyn(variables.variants), 'defaultVariant': dyn('on')}\n  ].exists(shape, variables.flags[k] == shape) ||\n  [10, 25, 50].exists(share, variables.flags[k] ==\n    {'state': dyn('ENABLED'), 'variants': dyn(variables.variants), 'defaultVariant': dyn('off'),\n      'targeting': dyn({'if': variables.marked +\n        [dyn({'in': [dyn(k), dyn({'var': 'preview'})]}), dyn('on'), variables.signed,\n         dyn({'fractional': [[dyn('on'), dyn(share)], [dyn('off'), dyn(100 - share)]]}), dyn('off')]})}))",
+        "message": "each feature flag in flags must be at one stage, in its fixed shape: off, checks, preview, a share of 10, 25 or 50, or everyone"
+      }
+    ]
+  },
+  "answers": [
+    {
+      "case": "off",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "admitted",
+      "message": "admitted",
+      "flags": {
+        "flag-stages-refusal": {
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off"
+        },
+        "flag-set-revision": {
+          "state": "ENABLED",
+          "variants": {
+            "revision": "flag-stages-refusals"
+          },
+          "defaultVariant": "revision"
+        }
+      }
+    },
+    {
+      "case": "checks",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "admitted",
+      "message": "admitted",
+      "flags": {
+        "flag-stages-refusal": {
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off",
+          "targeting": {
+            "if": [
+              {
+                "==": [
+                  {
+                    "var": "marked"
+                  },
+                  true
+                ]
+              },
+              "on",
+              "off"
+            ]
+          }
+        },
+        "flag-set-revision": {
+          "state": "ENABLED",
+          "variants": {
+            "revision": "flag-stages-refusals"
+          },
+          "defaultVariant": "revision"
+        }
+      }
+    },
+    {
+      "case": "preview",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "admitted",
+      "message": "admitted",
+      "flags": {
+        "flag-stages-refusal": {
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off",
+          "targeting": {
+            "if": [
+              {
+                "==": [
+                  {
+                    "var": "marked"
+                  },
+                  true
+                ]
+              },
+              "on",
+              {
+                "in": [
+                  "flag-stages-refusal",
+                  {
+                    "var": "preview"
+                  }
+                ]
+              },
+              "on",
+              "off"
+            ]
+          }
+        },
+        "flag-set-revision": {
+          "state": "ENABLED",
+          "variants": {
+            "revision": "flag-stages-refusals"
+          },
+          "defaultVariant": "revision"
+        }
+      }
+    },
+    {
+      "case": "share-10",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "admitted",
+      "message": "admitted",
+      "flags": {
+        "flag-stages-refusal": {
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off",
+          "targeting": {
+            "if": [
+              {
+                "==": [
+                  {
+                    "var": "marked"
+                  },
+                  true
+                ]
+              },
+              "on",
+              {
+                "in": [
+                  "flag-stages-refusal",
+                  {
+                    "var": "preview"
+                  }
+                ]
+              },
+              "on",
+              {
+                "==": [
+                  {
+                    "var": "signed"
+                  },
+                  true
+                ]
+              },
+              {
+                "fractional": [["on", 10], ["off", 90]]
+              },
+              "off"
+            ]
+          }
+        },
+        "flag-set-revision": {
+          "state": "ENABLED",
+          "variants": {
+            "revision": "flag-stages-refusals"
+          },
+          "defaultVariant": "revision"
+        }
+      }
+    },
+    {
+      "case": "share-25",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "admitted",
+      "message": "admitted",
+      "flags": {
+        "flag-stages-refusal": {
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off",
+          "targeting": {
+            "if": [
+              {
+                "==": [
+                  {
+                    "var": "marked"
+                  },
+                  true
+                ]
+              },
+              "on",
+              {
+                "in": [
+                  "flag-stages-refusal",
+                  {
+                    "var": "preview"
+                  }
+                ]
+              },
+              "on",
+              {
+                "==": [
+                  {
+                    "var": "signed"
+                  },
+                  true
+                ]
+              },
+              {
+                "fractional": [["on", 25], ["off", 75]]
+              },
+              "off"
+            ]
+          }
+        },
+        "flag-set-revision": {
+          "state": "ENABLED",
+          "variants": {
+            "revision": "flag-stages-refusals"
+          },
+          "defaultVariant": "revision"
+        }
+      }
+    },
+    {
+      "case": "share-50",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "admitted",
+      "message": "admitted",
+      "flags": {
+        "flag-stages-refusal": {
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off",
+          "targeting": {
+            "if": [
+              {
+                "==": [
+                  {
+                    "var": "marked"
+                  },
+                  true
+                ]
+              },
+              "on",
+              {
+                "in": [
+                  "flag-stages-refusal",
+                  {
+                    "var": "preview"
+                  }
+                ]
+              },
+              "on",
+              {
+                "==": [
+                  {
+                    "var": "signed"
+                  },
+                  true
+                ]
+              },
+              {
+                "fractional": [["on", 50], ["off", 50]]
+              },
+              "off"
+            ]
+          }
+        },
+        "flag-set-revision": {
+          "state": "ENABLED",
+          "variants": {
+            "revision": "flag-stages-refusals"
+          },
+          "defaultVariant": "revision"
+        }
+      }
+    },
+    {
+      "case": "everyone",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "admitted",
+      "message": "admitted",
+      "flags": {
+        "flag-stages-refusal": {
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "on"
+        },
+        "flag-set-revision": {
+          "state": "ENABLED",
+          "variants": {
+            "revision": "flag-stages-refusals"
+          },
+          "defaultVariant": "revision"
+        }
+      }
+    },
+    {
+      "case": "every-stage",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "admitted",
+      "message": "admitted",
+      "flags": {
+        "flag-stages-refusal-a": {
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off"
+        },
+        "flag-stages-refusal-b": {
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off",
+          "targeting": {
+            "if": [
+              {
+                "==": [
+                  {
+                    "var": "marked"
+                  },
+                  true
+                ]
+              },
+              "on",
+              "off"
+            ]
+          }
+        },
+        "flag-stages-refusal-c": {
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off",
+          "targeting": {
+            "if": [
+              {
+                "==": [
+                  {
+                    "var": "marked"
+                  },
+                  true
+                ]
+              },
+              "on",
+              {
+                "in": [
+                  "flag-stages-refusal-c",
+                  {
+                    "var": "preview"
+                  }
+                ]
+              },
+              "on",
+              "off"
+            ]
+          }
+        },
+        "flag-stages-refusal-d": {
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off",
+          "targeting": {
+            "if": [
+              {
+                "==": [
+                  {
+                    "var": "marked"
+                  },
+                  true
+                ]
+              },
+              "on",
+              {
+                "in": [
+                  "flag-stages-refusal-d",
+                  {
+                    "var": "preview"
+                  }
+                ]
+              },
+              "on",
+              {
+                "==": [
+                  {
+                    "var": "signed"
+                  },
+                  true
+                ]
+              },
+              {
+                "fractional": [["on", 25], ["off", 75]]
+              },
+              "off"
+            ]
+          }
+        },
+        "flag-stages-refusal-e": {
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "on"
+        },
+        "flag-set-revision": {
+          "state": "ENABLED",
+          "variants": {
+            "revision": "flag-stages-refusals"
+          },
+          "defaultVariant": "revision"
+        }
+      }
+    },
+    {
+      "case": "unknown-key",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "refused",
+      "message": "The featureflags \"flags\" is invalid: : ValidatingAdmissionPolicy 'flagd-flag-stages' with binding 'flagd-flag-stages' denied request: each feature flag in flags must be at one stage, in its fixed shape: off, checks, preview, a share of 10, 25 or 50, or everyone"
+    },
+    {
+      "case": "share-30",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "refused",
+      "message": "The featureflags \"flags\" is invalid: : ValidatingAdmissionPolicy 'flagd-flag-stages' with binding 'flagd-flag-stages' denied request: each feature flag in flags must be at one stage, in its fixed shape: off, checks, preview, a share of 10, 25 or 50, or everyone"
+    },
+    {
+      "case": "other-variable",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "refused",
+      "message": "The featureflags \"flags\" is invalid: : ValidatingAdmissionPolicy 'flagd-flag-stages' with binding 'flagd-flag-stages' denied request: each feature flag in flags must be at one stage, in its fixed shape: off, checks, preview, a share of 10, 25 or 50, or everyone"
+    },
+    {
+      "case": "other-flag-previewed",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "refused",
+      "message": "The featureflags \"flags\" is invalid: : ValidatingAdmissionPolicy 'flagd-flag-stages' with binding 'flagd-flag-stages' denied request: each feature flag in flags must be at one stage, in its fixed shape: off, checks, preview, a share of 10, 25 or 50, or everyone"
+    },
+    {
+      "case": "unsigned-share",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "refused",
+      "message": "The featureflags \"flags\" is invalid: : ValidatingAdmissionPolicy 'flagd-flag-stages' with binding 'flagd-flag-stages' denied request: each feature flag in flags must be at one stage, in its fixed shape: off, checks, preview, a share of 10, 25 or 50, or everyone"
+    },
+    {
+      "case": "other-value",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "refused",
+      "message": "The featureflags \"flags\" is invalid: : ValidatingAdmissionPolicy 'flagd-flag-stages' with binding 'flagd-flag-stages' denied request: each feature flag in flags must be at one stage, in its fixed shape: off, checks, preview, a share of 10, 25 or 50, or everyone"
+    },
+    {
+      "case": "disabled",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "refused",
+      "message": "The featureflags \"flags\" is invalid: : ValidatingAdmissionPolicy 'flagd-flag-stages' with binding 'flagd-flag-stages' denied request: each feature flag in flags must be at one stage, in its fixed shape: off, checks, preview, a share of 10, 25 or 50, or everyone"
+    },
+    {
+      "case": "bad-name",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "refused",
+      "message": "The featureflags \"flags\" is invalid: : ValidatingAdmissionPolicy 'flagd-flag-stages' with binding 'flagd-flag-stages' denied request: a feature flag's name is lower-case letters and digits, in words joined by hyphens"
+    },
+    {
+      "case": "no-revision",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "refused",
+      "message": "The featureflags \"flags\" is invalid: : ValidatingAdmissionPolicy 'flagd-flag-stages' with binding 'flagd-flag-stages' denied request: flags must name its revision, flag-set-revision, with one string variant, revision: visible ASCII of 1 to 128 characters, and never none, stale or invalid"
+    },
+    {
+      "case": "revision-none",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "refused",
+      "message": "The featureflags \"flags\" is invalid: : ValidatingAdmissionPolicy 'flagd-flag-stages' with binding 'flagd-flag-stages' denied request: flags must name its revision, flag-set-revision, with one string variant, revision: visible ASCII of 1 to 128 characters, and never none, stale or invalid"
+    },
+    {
+      "case": "revision-stale",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "refused",
+      "message": "The featureflags \"flags\" is invalid: : ValidatingAdmissionPolicy 'flagd-flag-stages' with binding 'flagd-flag-stages' denied request: flags must name its revision, flag-set-revision, with one string variant, revision: visible ASCII of 1 to 128 characters, and never none, stale or invalid"
+    },
+    {
+      "case": "revision-invalid",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "refused",
+      "message": "The featureflags \"flags\" is invalid: : ValidatingAdmissionPolicy 'flagd-flag-stages' with binding 'flagd-flag-stages' denied request: flags must name its revision, flag-set-revision, with one string variant, revision: visible ASCII of 1 to 128 characters, and never none, stale or invalid"
+    },
+    {
+      "case": "revision-targeted",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "refused",
+      "message": "The featureflags \"flags\" is invalid: : ValidatingAdmissionPolicy 'flagd-flag-stages' with binding 'flagd-flag-stages' denied request: flags must name its revision, flag-set-revision, with one string variant, revision: visible ASCII of 1 to 128 characters, and never none, stale or invalid"
+    },
+    {
+      "case": "revision-staged",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "refused",
+      "message": "The featureflags \"flags\" is invalid: : ValidatingAdmissionPolicy 'flagd-flag-stages' with binding 'flagd-flag-stages' denied request: flags must name its revision, flag-set-revision, with one string variant, revision: visible ASCII of 1 to 128 characters, and never none, stale or invalid"
+    },
+    {
+      "case": "flag-set-metadata",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "refused",
+      "message": "The featureflags \"flags\" is invalid: : ValidatingAdmissionPolicy 'flagd-flag-stages' with binding 'flagd-flag-stages' denied request: the admin service may change only the flags of flags, not its $evaluators or the flag set's metadata"
+    },
+    {
+      "case": "evaluators",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:30Z",
+      "outcome": "refused",
+      "message": "The featureflags \"flags\" is invalid: : ValidatingAdmissionPolicy 'flagd-flag-stages' with binding 'flagd-flag-stages' denied request: the admin service may change only the flags of flags, not its $evaluators or the flag set's metadata"
+    },
+    {
+      "case": "label",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:31Z",
+      "outcome": "refused",
+      "message": "The featureflags \"flags\" is invalid: : ValidatingAdmissionPolicy 'flagd-flag-stages' with binding 'flagd-flag-stages' denied request: the admin service may not change the labels, annotations, finalizers or owners of flags"
+    },
+    {
+      "case": "second",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:31Z",
+      "outcome": "refused",
+      "message": "featureflags.core.openfeature.dev is forbidden: User \"system:serviceaccount:factory:admin\" cannot create resource \"featureflags\" in API group \"core.openfeature.dev\" in the namespace \"flagd\""
+    },
+    {
+      "case": "patch",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:31Z",
+      "outcome": "refused",
+      "message": "featureflags.core.openfeature.dev \"flags\" is forbidden: User \"system:serviceaccount:factory:admin\" cannot patch resource \"featureflags\" in API group \"core.openfeature.dev\" in the namespace \"flagd\""
+    },
+    {
+      "case": "status",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:31Z",
+      "outcome": "refused",
+      "message": "featureflags.core.openfeature.dev \"flags\" is forbidden: User \"system:serviceaccount:factory:admin\" cannot update resource \"featureflags/status\" in API group \"core.openfeature.dev\" in the namespace \"flagd\""
+    },
+    {
+      "case": "delete",
+      "as": "system:serviceaccount:factory:admin",
+      "at": "2026-10-26T22:04:31Z",
+      "outcome": "refused",
+      "message": "featureflags.core.openfeature.dev \"flags\" is forbidden: User \"system:serviceaccount:factory:admin\" cannot delete resource \"featureflags\" in API group \"core.openfeature.dev\" in the namespace \"flagd\""
+    },
+    {
+      "case": "as-line",
+      "as": "system:serviceaccount:factory:line",
+      "at": "2026-10-26T22:04:31Z",
+      "outcome": "refused",
+      "message": "featureflags.core.openfeature.dev \"flags\" is forbidden: User \"system:serviceaccount:factory:line\" cannot update resource \"featureflags\" in API group \"core.openfeature.dev\" in the namespace \"flagd\"",
+      "flags": {
+        "flag-stages-refusal": {
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off",
+          "targeting": {
+            "if": [
+              {
+                "==": [
+                  {
+                    "var": "marked"
+                  },
+                  true
+                ]
+              },
+              "on",
+              "off"
+            ]
+          }
+        },
+        "flag-set-revision": {
+          "state": "ENABLED",
+          "variants": {
+            "revision": "flag-stages-refusals"
+          },
+          "defaultVariant": "revision"
+        }
+      }
+    },
+    {
+      "case": "as-flagd",
+      "as": "system:serviceaccount:flagd:flagd",
+      "at": "2026-10-26T22:04:31Z",
+      "outcome": "refused",
+      "message": "featureflags.core.openfeature.dev \"flags\" is forbidden: User \"system:serviceaccount:flagd:flagd\" cannot update resource \"featureflags\" in API group \"core.openfeature.dev\" in the namespace \"flagd\"",
+      "flags": {
+        "flag-stages-refusal": {
+          "state": "ENABLED",
+          "variants": {
+            "on": true,
+            "off": false
+          },
+          "defaultVariant": "off",
+          "targeting": {
+            "if": [
+              {
+                "==": [
+                  {
+                    "var": "marked"
+                  },
+                  true
+                ]
+              },
+              "on",
+              "off"
+            ]
+          }
+        },
+        "flag-set-revision": {
+          "state": "ENABLED",
+          "variants": {
+            "revision": "flag-stages-refusals"
+          },
+          "defaultVariant": "revision"
+        }
+      }
+    }
+  ]
+}

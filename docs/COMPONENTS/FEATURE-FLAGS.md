@@ -8,9 +8,28 @@ Ship improvements switched off; a kill switch without a rollback. Part of the [r
 
 - **flagd 0.17, alone in `flagd`,** not in the app's pod or beside it in `website` (`deploy/base/flagd`). The app's pods hold no token and no route to the Kubernetes API, and nothing the app's repository may write in `website` can touch flagd, its service account or its state.
 - **The state of every flag is one `FeatureFlag`, `flags` in `flagd`,** which flagd watches through the Kubernetes API. Only the kind's definition is installed, vendored from OpenFeature's operator at the API version flagd builds against, not the operator itself. In Git it has no flags. Argo CD makes it before flagd starts, and leaves its flags alone ([GitOps](GITOPS.md#syncing)).
-- **flagd reads, and writes nothing.** Its watch lists the whole namespace, so its Role may get, list and watch `featureflags` in `flagd`, with no names. Admission keeps `flags` the only one there and refuses its deletion, since flagd keeps serving the last flags it read when its resource goes ([admission control](ADMISSION-CONTROL.md#flags)). Nothing of ours may write `flags` yet.
+- **flagd reads, and writes nothing.** Its watch lists the whole namespace, so its Role may get, list and watch `featureflags` in `flagd`, with no names. Admission keeps `flags` the only one there and refuses its deletion, since flagd keeps serving the last flags it read when its resource goes ([admission control](ADMISSION-CONTROL.md#flags)). Of ours, only the admin service writes `flags`, Martin's [stages](#the-stages).
 - **The app's pods reach flagd's sync port (8015), and nothing else of it** ([network policies](NETWORK-POLICIES.md#flagd)): its [flag context](#the-apps-flag-context) streams the flag set from it and evaluates each request itself. Not flagd's management port (8014), where the kubelet checks its health from the node. flagd reaches the Kubernetes API, DNS and the collector, where its traces and metrics go; its logs are its container's.
 - **Its image is admitted by digest** in a copy of admission control of its own, `flagd-images`, so `website-images` still admits no third-party image.
+
+## The stages
+
+Martin stages each flag from the console, and the admin service writes his stages into `flags` (milestone 7, task 16; the console's controls and the service's endpoint are not built yet). It writes typed stages, never flagd's own JSON: `policy/flags.ts` renders them, and nothing else. Each stage keeps the ones before it, and is a fixed shape of flagd's targeting over the [evaluation context](#the-evaluation-context); the share is the only parameter. A feature is `ENABLED`, with two variants, `on` (`true`) and `off` (`false`):
+
+| Stage | Default | On, by its targeting, for |
+|---|---|---|
+| Off | `off` | Nobody: no targeting. Off is a change to the flag, never its deletion |
+| Checks | `off` | A request with `marked` |
+| Preview | `off` | Those, and a request whose `preview` names the flag |
+| Share | `off` | Those, and a request with `signed`, by flagd's `fractional` rule over its `targetingKey`, with `on` weighted by the share, 10, 25 or 50, and `off` by the rest |
+| Everyone | `on` | Everyone: no targeting |
+
+A flag `flags` does not name is off, by its default in the app. Beside the features, every write sets the [revision](#the-revision) anew: `flag-set-revision`, with one variant, `revision`, whose value is the revision, and its default.
+
+- **Only the admin service writes them.** Its service account holds one Role in `flagd` (`deploy/base/flagd/admin-stages-flags.yaml`): get `flags`, and update it, by name, and nothing else. It writes the whole spec, rendered from every flag's stage, conditional on the resourceVersion it read. flagd's own Role stays read-only.
+- **Admission holds it to the shapes.** A Role names objects, not fields, so `flagd-flag-stages` refuses any change of the admin service's to `flags` in which a flag is not a feature, named as the app names them, at one of these stages, or the revision in its one shape, never `none`, `stale` or `invalid`; and any change to the rest of `flags` ([admission control](ADMISSION-CONTROL.md#the-admin-services-hold-on-flags)). So the service, or anyone holding its token, can stage a flag and nothing more: no other variable of the request, no other value, no other share.
+- **Which stage may follow which is the service's.** Widening one stage at a time, the share stage only between canaries and for one flag at a time, and everyone only after Verify's comparison are its own rules, from Martin's events, not admission's.
+- **Argo CD and an administrator are not held.** Argo CD makes `flags` and leaves its flags alone; an administrator may still write them by hand, as `flagd-flags` allows.
 
 ## Readiness
 
@@ -39,7 +58,7 @@ A flag is on only when flagd says so. It is off on an error, for a flag flagd do
 
 ### The revision
 
-The flag set's revision is a flag of its own, `flag-set-revision`: a string flag with one static variant, whose value names the flag set. Whoever writes `flags` sets it with every change: the admin service (task 16), and by hand until then. It is not a feature: it is never on, never previewable, and evaluating it as one gives off. Its value is never `none`, `stale` or `invalid`, the words the header below keeps for no revision: a revision spelt as one is told as `invalid`.
+The flag set's revision is a flag of its own, `flag-set-revision`: a string flag with one static variant, whose value names the flag set. Whoever writes `flags` sets it with every change: the admin service, whose every write admission refuses without one ([the stages](#the-stages)), and an administrator by hand. It is not a feature: it is never on, never previewable, and evaluating it as one gives off. Its value is never `none`, `stale` or `invalid`, the words the header below keeps for no revision: a revision spelt as one is told as `invalid`.
 
 The app tells it only to a marked request, on every response, whatever the path, in `x-flags-revision`, set after the route's own headers so that no route can change it:
 

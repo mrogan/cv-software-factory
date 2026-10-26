@@ -1,0 +1,32 @@
+# The admin service stages the app's feature flags for Martin, from the console (milestone 7, task 16): it is the one
+# service of ours that may change `flags`, with this Role, bound to its service account alone: get `flags`, and update
+# it, by name, and nothing else in `flagd`. It renders every flag's stage from policy/flags.ts and writes the whole
+# spec, conditional on the resourceVersion it read, so an update rather than a patch: a merge patch could not drop
+# what the render leaves out. A Role names objects, not fields, so an admission policy holds each update to the
+# stages' shapes and the revision, and to nothing else of `flags` (deploy/base/admission/flagd/flag-stages.yaml). It
+# may not make, delete, list or watch a FeatureFlag; flagd's own Role (flagd.yaml) stays read-only.
+#
+# The service account is the admin service's own, made with its Role on the app's Rollout
+# (deploy/base/analysis/admin-controls-release.yaml).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: admin-stages-flags
+rules:
+  - apiGroups: [core.openfeature.dev]
+    resources: [featureflags]
+    resourceNames: [flags]
+    verbs: [get, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: admin-stages-flags
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: admin-stages-flags
+subjects:
+  - kind: ServiceAccount
+    name: admin
+    namespace: factory

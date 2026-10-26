@@ -58,6 +58,16 @@ Everything else in the spec and the status, and the Rollout's labels, annotation
 
 `flags` in `flagd` holds the state of every [feature flag](FEATURE-FLAGS.md). flagd's watch lists the whole namespace, so its Role may read every FeatureFlag there, and flagd keeps serving the last flags it read when its resource goes. So `flagd-flags` (`deploy/base/admission/flagd/flags.yaml`) refuses any FeatureFlag in `flagd` but `flags`, and refuses the deletion of `flags`, but as its namespace is deleted, which takes flagd with it: off is a change to a flag, never a deletion. It holds every request, Argo CD's and an administrator's included. Like the hold on the Rollout, it is a ValidatingAdmissionPolicy, which holds whether or not Kyverno is up; it denies, and fails closed.
 
+## The admin service's hold on `flags`
+
+The admin service writes Martin's [stages](FEATURE-FLAGS.md#the-stages) into `flags`: its Role in `flagd` may get and update `flags`, by name. A Role names objects, not fields, so `flagd-flag-stages` (`deploy/base/admission/flagd/flag-stages.yaml`) holds each of its changes to the stages' shapes, which `policy/flags.ts` renders:
+
+- every flag but the revision is a feature, named in lower-case letters and digits in words joined by hyphens, in one of the five shapes: off, checks, preview, a share of 10, 25 or 50, or everyone. Its whole definition is compared with the shape, so it has no other key, variant, value, state or variable of the request;
+- `flag-set-revision` is there, with one string variant, `revision`, its default, of visible ASCII of 1 to 128 characters, and not `none`, `stale` or `invalid`;
+- the rest of `flags` is as it was: the flag set's `$evaluators` and metadata, and its labels, annotations, finalizers and owners; and nothing may be made or deleted.
+
+Which stage may follow which is the service's to hold. It is a ValidatingAdmissionPolicy, which holds whether or not Kyverno is up. It matches the admin service's service account alone, denies, and fails closed; Argo CD and an administrator are not held by it, and `flagd-flags` holds everyone.
+
 ## The mark
 
 The factory's own checks send `x-unmeasured` (`UNMEASURED`, `senses/http.ts`), and a [feature flag](FEATURE-FLAGS.md)'s first stage is on for the requests that carry it. The network keeps visitors from sending it: the app's route through Traefik passes every request through the app's Middleware `visitors`, which removes it, and only the pods its [network policy](NETWORK-POLICIES.md#website) names reach the app any other way. That route and that Middleware are in the app's repository, which agents write, so `website-mark` (`deploy/base/admission/website/mark.yaml`) holds what that repository may make in `website`:
@@ -78,6 +88,7 @@ Traefik itself refuses a reference to an object in another namespace, so a route
 - Kyverno's refusals are kept in `deploy/test/admission-refusals.json` (`scripts/admission-refusals.sh`).
 - `scripts/rollout-refusals.sh` asks the cluster, as the admin service's account, for the controls' patches and for the changes the policy and the Role must refuse, each a server-side dry run, and keeps the answers in `deploy/test/rollout-refusals.json`, which `release-fences.test.ts` reads.
 - `release-fences.test.ts` fails if the Role or the policy grows.
+- `node scripts/flag-stages-refusals.ts` asks the cluster, as the admin service's account, to write each stage `policy/flags.ts` renders and changes outside the shapes, and, as the line's and flagd's accounts, to stage a flag, each a server-side dry run, and keeps the answers in `deploy/test/flag-stages-refusals.json`, with the policy the cluster answered with. `flag-fences.test.ts` reads them, and fails when the stages the module renders, or the policy in `deploy/`, are no longer those the cluster answered, or when the Role or the policy grows.
 - `scripts/flags-refusals.sh` asks the cluster for a second FeatureFlag in `flagd`, the deletion of `flags` and a change to its flags, each a server-side dry run, and keeps the answers in `deploy/test/flags-refusals.json`, which `flag-fences.test.ts` reads.
 - `scripts/mark-refusals.sh` asks the cluster, in `website`, for the app's route, split and Middleware as its repository has them and for each way to put the mark back, and sends back unchanged each of those kinds already in `website`, each a server-side dry run, and keeps the answers in `deploy/test/mark-refusals.json`, with Traefik's arguments and environment and the k3s they ran on, which `mark-fences.test.ts` reads.
 - `scripts/share-key-refusals.sh` asks the cluster, as `make share-key`'s user, as Argo CD's application controller and as another administrator, to make, change and delete `share-key`, each a server-side dry run, and keeps the answers in `deploy/test/share-key-refusals.json`, with the keys `share-key` holds and whether its public key is the Secret's, which `share-fences.test.ts` reads.
