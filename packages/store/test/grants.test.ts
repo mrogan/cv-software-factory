@@ -370,6 +370,7 @@ const PAYLOADS: Partial<Record<EventType, object>> = {
     flag: 'delivery-dates',
     from: { stage: 'checks' },
     to: { stage: 'share', share: 50 },
+    action: 'flag.widen',
     revision: 'r3',
     steppedUp: true,
   },

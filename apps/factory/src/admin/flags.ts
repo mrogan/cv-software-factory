@@ -30,7 +30,7 @@ import { fromMartin } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { ACCESS, STEP_UP } from '../../../../policy/access.ts';
+import { ACCESS } from '../../../../policy/access.ts';
 import {
   type Around,
   type FlagAction,
@@ -44,7 +44,7 @@ import { flagsSpec, isFlagName, readFlags, type Share, type Stage } from '../../
 import type { RolloutRef } from '../release/rollout-ref.ts';
 import { KubeError, type KubeWriter } from '../runners/kube.ts';
 import type { ReleaseControls } from './rollout.ts';
-import { adminEvent, appendMade, checked, Refused, type Session } from './store.ts';
+import { adminEvent, appendMade, checked, Refused, type Session, steppedUpNow } from './store.ts';
 
 /** A stage as the slider sends it: a share is checked against policy's, and refused if it is not one. */
 const stage = z.discriminatedUnion('stage', [
@@ -81,10 +81,14 @@ const TRIES = 3;
 /** The role whose events of Verify's, and records of the planner's specs, the admin service believes: the line's. */
 const LINE_ROLE = 'factory_line';
 
-/** The next revision of the flag set: `r1`, `r2`, …, counting on from the one `flags` holds. */
-export function nextRevision(held: string | undefined): string {
-  const n = Number(/^r(\d{1,9})$/.exec(held ?? '')?.[1] ?? 0);
-  return `r${n + 1}`;
+/**
+ * The next revision of the flag set: `r1`, `r2`, …, counting on from the one `flags` holds. After one of another
+ * shape (written by hand), the count starts again from the time, in milliseconds, so it reuses none it held before.
+ */
+export function nextRevision(held: string | undefined, now = Date.now()): string {
+  if (held === undefined) return 'r1';
+  const n = /^r(\d{1,15})$/.exec(held)?.[1];
+  return n === undefined ? `r${now}` : `r${Number(n) + 1}`;
 }
 
 /** The summary of a move, in the console's words. */
@@ -152,12 +156,20 @@ export class FlagStages {
     const action = flagAction(stage, to);
     if (action === undefined) return { staged: null };
 
-    const now: FlagNow = { stage, ...(await this.#history(flag, stage)) };
     const intoShare = to.stage === 'share' && stage?.stage !== 'share';
-    const around: Around = intoShare ? await this.#around(flag, held.stages) : {};
+    const [{ stagedOn, ...history }, around, steppedUp] = await Promise.all([
+      this.#history(flag, stage),
+      intoShare ? this.#around(flag, held.stages) : ({} as Around),
+      steppedUpNow(this.#sql, session),
+    ]);
+    // A flag once staged can always be turned off, on the work item it was staged on, though no spec names it now.
+    const now: FlagNow = {
+      stage,
+      ...history,
+      ...(!history.workItem && to.stage === 'off' && stagedOn && { workItem: stagedOn }),
+    };
     const move = moveOf(flag, now, to, around);
     if (move.refused) throw new Refused('stage', 409, move.refused);
-    const steppedUp = await this.#steppedUp(session);
     if (ACCESS[action].stepUp && !steppedUp) throw new Refused('step-up', 403, 'This needs your passkey again.');
 
     const revision = nextRevision(held.revision);
@@ -172,6 +184,7 @@ export class FlagStages {
           flag,
           from: stage as PayloadOfStaged['from'],
           to: to as PayloadOfStaged['to'],
+          action,
           revision,
           ...(asked.reason && { reason: asked.reason }),
           steppedUp,
@@ -191,13 +204,14 @@ export class FlagStages {
    * latest comparison since. A last move that is not the stage `flags` holds (its event not recorded) says nothing of
    * the flag as it stands, so neither it nor a comparison since counts.
    */
-  async #history(flag: string, stage: Stage | null): Promise<Omit<FlagNow, 'stage'>> {
+  async #history(flag: string, stage: Stage | null): Promise<Omit<FlagNow, 'stage'> & { stagedOn?: string }> {
     const sql = this.#sql;
     const [named] = await sql<{ work_item: string }[]>`
       with specs as (
         select distinct on (s.work_item) s.work_item, s.seq, s.payload->>'flag' as flag
         from events s
-        where s.type = 'spec.written' and s.appended_by = ${LINE_ROLE} and s.work_item is not null and not s.sample
+        where s.type = 'spec.written'
+          and s.work_item in (select n.work_item from events n where n.type = 'spec.written' and n.payload->>'flag' = ${flag}) and s.appended_by = ${LINE_ROLE} and s.work_item is not null and not s.sample
         order by s.work_item, s.seq desc
       )
       select p.work_item from specs p
@@ -205,8 +219,8 @@ export class FlagStages {
         and exists (select 1 from events o where o.type = 'work-item.opened' and o.work_item = p.work_item
                     and o.payload->>'kind' = 'improvement' and not o.sample)
       order by p.seq desc limit 1`;
-    const [last] = await sql<{ seq: string; payload: { from: Stage | null; to: Stage } }[]>`
-      select e.seq::text as seq, e.payload from events e
+    const [last] = await sql<{ seq: string; work_item: string; payload: { from: Stage | null; to: Stage } }[]>`
+      select e.seq::text as seq, e.work_item, e.payload from events e
       where e.type = 'flag.staged' and e.payload->>'flag' = ${flag} and e.version <= ${VERSIONS['flag.staged']}
         and e.appended_by is not null and ${fromMartin(sql, 'e')} and not e.sample
       order by e.seq desc limit 1`;
@@ -220,6 +234,7 @@ export class FlagStages {
       : [];
     return {
       ...(named && { workItem: named.work_item }),
+      ...(last && { stagedOn: last.work_item }),
       ...(current && { last: { from: last.payload.from, to: last.payload.to } }),
       ...(compared && { compared: { share: compared.payload.share, outcome: compared.payload.outcome } }),
     };
@@ -237,16 +252,6 @@ export class FlagStages {
       this.#log.warn({ err: error }, 'could not tell whether a canary is in flight');
       return { canary: 'unknown' };
     }
-  }
-
-  /** Whether the session's passkey was given again within five minutes, by the store's clock, as the move is taken. */
-  async #steppedUp(session: Session): Promise<boolean> {
-    const [row] = await this.#sql<{ fresh: boolean }[]>`
-      select coalesce(s.stepped_up_at > now() - make_interval(mins => ${STEP_UP.minutes}), false) as fresh
-      from sessions s join passkeys p on p.id = s.passkey
-      where s.id_sha256 = ${session.hash} and s.ended_at is null and s.expires_at > now() and p.revoked_at is null`;
-    if (!row) throw new Refused('session', 401, 'Sign in first: the session has ended.');
-    return row.fresh;
   }
 
   /**

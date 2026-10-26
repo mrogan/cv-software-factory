@@ -20,7 +20,7 @@ import {
 } from '@software-factory/events';
 import { CAP_NAMES, type CapField, changesBetween, inForce } from '../../../../../policy/settings.ts';
 import type { Profile } from '../../../../../policy/spend.ts';
-import { CONTROL_STEP_UP, FRESH_MINUTES, GUARDRAIL_HOLDS, SETTINGS_STEP_UP, STEP_UP } from '../access.ts';
+import { CONTROL_STEP_UP, FLAG_STEP_UP, FRESH_MINUTES, GUARDRAIL_HOLDS, SETTINGS_STEP_UP, STEP_UP } from '../access.ts';
 import { changeWords, clock, dayLabel, modelTitle, money, tokens } from '../format.ts';
 import { changeAction } from './controls.ts';
 import { startOfDay } from './line.ts';
@@ -248,9 +248,7 @@ function askedForPasskey(event: PublicEvent, causes: Map<string, HoldCause>, pro
       return action !== undefined && CONTROL_STEP_UP[action];
     }
     case 'flag.staged': {
-      // The event says whether the passkey was fresh as the move was taken: every widening past Checks, and turning a
-      // flag back on, take it (`FLAG_STEP_UP`).
-      return event.payload.steppedUp;
+      return FLAG_STEP_UP[event.payload.action];
     }
     case 'hold.answered': {
       const cause = event.payload.hold ? causes.get(event.payload.hold) : undefined;

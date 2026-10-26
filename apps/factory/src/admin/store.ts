@@ -288,7 +288,7 @@ export function adminEvent<K extends AdminEvent>(
  * `STEP_UP.minutes`, by the store's clock, as the action is taken: asked again after the lock an action takes, as the
  * passkey given may have gone stale while it waited.
  */
-export async function steppedUpNow(tx: TransactionSql, session: Session): Promise<boolean> {
+export async function steppedUpNow(tx: Sql | TransactionSql, session: Session): Promise<boolean> {
   const [fresh] = await tx`
     select 1 from sessions s join passkeys p on p.id = s.passkey
     where s.id_sha256 = ${session.hash} and s.ended_at is null and s.expires_at > now()

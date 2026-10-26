@@ -10,7 +10,8 @@
  * - **Turning back on**: a flag turned off from Everyone may go straight back to Everyone, with the passkey
  *   (`flag.back-on`). Any other flag that is off widens from Checks.
  * - **Narrowing** may go to any lower stage, or a smaller share, and **Off** from any stage, each with no passkey: they
- *   only tighten, so neither is refused, but for narrowing into Share, which is held as widening into it is.
+ *   only tighten, so neither is refused, but for narrowing into Share, which is held as widening into it is. A flag
+ *   once staged can always be turned off, on the work item it was staged on.
  * - **Share** is refused while a canary is in flight, whose two versions would mix the two sides, or can't be told to
  *   be, and while another flag is at Share: one at a time, so each comparison varies one thing.
  * - **Everyone** waits for Verify's comparison of the flag at Share (`flag.compared`) since Martin last set its stage:
@@ -23,11 +24,11 @@
  *
  * Human-owned: see `README.md`.
  */
-import type { FlagComparison } from '../packages/events/src/vocabulary.ts';
+import type { FlagActionName, FlagComparison } from '../packages/events/src/vocabulary.ts';
 import { EVERY_STAGE, SHARES, type Share, STAGES, type Stage, type StageName } from './flags.ts';
 
 /** The access table's action a move is (`policy/access.ts`). */
-export type FlagAction = 'flag.to-checks' | 'flag.widen' | 'flag.back-on' | 'flag.narrow' | 'flag.off';
+export type FlagAction = FlagActionName;
 
 /** Where a flag stands, as a move of it is judged. */
 export interface FlagNow {
@@ -125,7 +126,7 @@ function refusalOf(
   if (!now.workItem) {
     return `No improvement's spec names ${flag}: only a flag an improvement ships behind is staged here.`;
   }
-  // Off only ever tightens: the kill switch is never refused.
+  // Off only ever tightens: the kill switch is never refused, for a flag on a work item.
   if (action === 'flag.off') return undefined;
   const from = now.stage;
   if (from === null) {

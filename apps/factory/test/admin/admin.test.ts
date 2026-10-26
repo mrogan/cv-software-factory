@@ -2221,12 +2221,13 @@ describe('the flags’ stages', () => {
   /** The stage `flags` holds the flag at, read back through the module. */
   const held = (flag = FLAG) => readFlags(kube.object.spec).stages[flag];
 
+  /** The service, with `flags` empty, and the app's Rollout in this state (none: not there): by default, no canary out. */
   const withFlags = async (
-    rollout?: RolloutKube,
+    rollout: RolloutKube | null = new RolloutKube({ current: STABLE, stable: STABLE, revision: 7 }),
     config: Partial<AdminConfig> = { flags: FLAGS, rollout: ROLLOUT },
   ) => {
     kube = new FlagsKube();
-    kube.rollout = rollout;
+    kube.rollout = rollout ?? undefined;
     await service.stop();
     await start(config, kube);
   };
@@ -2354,10 +2355,12 @@ describe('the flags’ stages', () => {
     expect((await move(browser, checks, share(50))).body.message).toMatch(
       /is at 25%, and its two versions would mix the two sides\. Share can be taken once it ends\.$/,
     );
-    // With no Rollout to read, whether a canary is in flight can't be told.
-    await withFlags(undefined, { flags: FLAGS });
-    kube.flags = flagsSpec({ [FLAG]: { stage: 'checks' } }, 'r1').flagSpec.flags;
-    expect((await move(browser, checks, share(50))).body.message).toMatch(/can't be told/);
+    // With no Rollout to read, or none named, whether a canary is in flight can't be told.
+    for (const config of [{ flags: FLAGS }, { flags: FLAGS, rollout: ROLLOUT }]) {
+      await withFlags(null, config);
+      kube.flags = flagsSpec({ [FLAG]: { stage: 'checks' } }, 'r1').flagSpec.flags;
+      expect((await move(browser, checks, share(50))).body.message).toMatch(/can't be told/);
+    }
     // A canary-free cluster, and another flag at Share.
     await withFlags();
     kube.flags = flagsSpec(
@@ -2439,9 +2442,32 @@ describe('the flags’ stages', () => {
     expect(await staged()).toHaveLength(1);
   });
 
+  it('turns off a flag staged before, once no spec names it, on the work item it was staged on', async () => {
+    const workItem = await improvement(FLAG);
+    const { browser } = await signedIn();
+    expect((await move(browser, off, checks)).status).toBe(200);
+    // The planner's next spec renames the flag.
+    await append(db.as.line, [
+      event(workItem, 'spec.written', 'planner', {
+        outcome: 'Each product says when it would arrive',
+        criteria: [{ given: 'a product page', when: 'it is shown', expect: 'it says when it would arrive' }],
+        scope: ['src/pages/product.ts'],
+        risks: [],
+        rollout: 'Behind its flag',
+        flag: `${FLAG}-renamed`,
+      }),
+    ]);
+    expect((await move(browser, checks, preview)).body.message).toMatch(/No improvement's spec names/);
+    expect((await move(browser, checks, off, { reason: 'Renamed' })).status).toBe(200);
+    expect((await staged()).map((e) => [e.work_item, e.payload.action])).toEqual([
+      [workItem, 'flag.to-checks'],
+      [workItem, 'flag.off'],
+    ]);
+  });
+
   it('refuses every move when the admin service has no flags to stage', async () => {
     await improvement(FLAG);
-    await withFlags(undefined, {});
+    await withFlags(null, {});
     const { browser } = await signedIn();
     expect(await move(browser, off, checks)).toMatchObject({ status: 503, body: { refused: 'flags' } });
   });

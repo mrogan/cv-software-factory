@@ -2,9 +2,9 @@
  * The Kubernetes API, as much of it as the line needs to run jobs in the `runners` namespace: create, read and delete
  * a Job, create a work item's volume, and read a Job's pods and their logs; and as much as the admin service needs to
  * control the app's Rollout, read it, and patch it or its status, and to stage the feature flags: read `flags`, and
- * replace it whole. In the cluster it uses the pod's service account; on
- * a host, the address `kubectl proxy` serves (KUBE_API_URL), which carries the person's own credentials. What each may
- * do is its service account's Role, not this client's.
+ * replace it whole. In the cluster it uses the pod's service account; on a host, the address `kubectl proxy` serves
+ * (KUBE_API_URL), which carries the person's own credentials. What each may do is its service account's Role, not
+ * this client's.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { request as httpsRequest } from 'node:https';

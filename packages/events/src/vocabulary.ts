@@ -234,6 +234,13 @@ export type FlagStage = (typeof FLAG_STAGES)[number];
 export const FLAG_SHARES = [10, 25, 50] as const;
 export type FlagShare = (typeof FLAG_SHARES)[number];
 
+/**
+ * What a move of a flag's stage is, as the access table names it (`policy/access.ts`): Off to Checks, any other
+ * widening, turning a flag back on for everyone, narrowing, and Off.
+ */
+export const FLAG_ACTIONS = ['flag.to-checks', 'flag.widen', 'flag.back-on', 'flag.narrow', 'flag.off'] as const;
+export type FlagActionName = (typeof FLAG_ACTIONS)[number];
+
 /** How Verify's comparison of a flag's two sides at the share stage came out. */
 export const FLAG_COMPARISONS = ['passed', 'failed'] as const;
 export type FlagComparison = (typeof FLAG_COMPARISONS)[number];

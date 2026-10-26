@@ -325,7 +325,14 @@ describe('the detail under a row', () => {
       }),
     ];
     const staged = (from: PayloadOf<'flag.staged'>['from'], to: PayloadOf<'flag.staged'>['to']) =>
-      event(2, 'flag.staged', 'martin', { flag: 'delivery-dates', from, to, revision: 'r2', steppedUp: true });
+      event(2, 'flag.staged', 'martin', {
+        flag: 'delivery-dates',
+        from,
+        to,
+        action: to.stage === 'everyone' && from?.stage === 'off' ? 'flag.back-on' : 'flag.widen',
+        revision: 'r2',
+        steppedUp: true,
+      });
     const held = event(1, 'hold.started', 'factory', {
       stage: 'gates',
       kind: 'approval',

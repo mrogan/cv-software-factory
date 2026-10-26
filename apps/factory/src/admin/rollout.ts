@@ -477,18 +477,13 @@ export class ReleaseControls {
 
   /**
    * The canary in flight now, as a move of a feature flag into Share is judged (`flags.ts`): its version, as the line
-   * recorded its release, or the release's name, and its weight. None when no canary is out, or the app has no
-   * Rollout. Throws when the Rollout can't be read, or is between releases: whether one is in flight can't be told.
+   * recorded its release, or the release's name, and its weight; none when no canary is out. Throws when the Rollout
+   * can't be read, isn't there, or is between releases: whether one is in flight can't be told.
    */
   async inFlight(): Promise<{ version: string; weight: number } | undefined> {
-    try {
-      const { canary, record } = await this.#read();
-      if (!canary.inFlight) return undefined;
-      return { version: record ? short(record.started.version) : canary.release, weight: canary.weight };
-    } catch (error) {
-      if (error instanceof Refused && error.refused === 'rollout') return undefined;
-      throw error;
-    }
+    const { canary, record } = await this.#read();
+    if (!canary.inFlight) return undefined;
+    return { version: record ? short(record.started.version) : canary.release, weight: canary.weight };
   }
 }
 
