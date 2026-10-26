@@ -156,4 +156,4 @@ It has controls, which must reach what they reach:
 - Tempo reaches Prometheus's remote-write receiver, and Argo Rollouts' controller reaches Prometheus;
 - Alertmanager reaches the intake and Pushover, and Prometheus's server reaches Alertmanager;
 - Traefik, the probes and the crawler still reach the app;
-- the app reaches flagd's sync port, and not its management port.
+- the app reaches flagd's sync port.

@@ -28,10 +28,11 @@
 # that label reaches neither.
 #
 # Then the app's own pods, whose code agents write: a pod labelled like them reaches DNS, the collector and flagd's sync
-# port, and not flagd's other ports (its management port among them, though flagd listens there), Prometheus, Loki, Tempo,
-# Postgres, the gateway, the Kubernetes API or the internet. The app is reached through Traefik and by the probes, the
-# crawler and the analysis, and not by another pod beside it, which neither of `website`'s policies selects and so
-# reaches nothing at all, not even DNS; nor does a worker reach flagd. flagd's own fence is seen from outside alone:
+# port, and not flagd's other ports (its management port among them, where the kubelet's probes find it ready),
+# Prometheus, Loki, Tempo, Postgres, the gateway, the Kubernetes API or the internet. The app is reached through
+# Traefik and by the probes, the crawler and the analysis, and not by another pod beside it, which neither of
+# `website`'s policies selects and so reaches nothing at all, not even DNS; nor does a worker reach flagd. flagd's own
+# fence is seen from outside alone:
 # `flagd-images` admits flagd's image and nothing else, so no pod labelled like it can be started there.
 #
 # Then the pod log collector, which reads every pod's log from the node's files: a pod labelled like it reaches Loki's

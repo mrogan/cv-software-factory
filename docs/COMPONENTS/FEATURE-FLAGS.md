@@ -35,7 +35,7 @@ A flag's name is lower-case letters and digits, in words joined by hyphens, as t
 
 ### Failing off
 
-A flag is on only when flagd says so. It is off on an error, for a flag flagd does not know, for a value that is not a boolean, and before the app has its first flag set. The provider keeps serving its last flag set while flagd is away, so a kill switch would not reach it: every flag is off once the provider has been without flagd for a minute (it has reported its flag set stale or in error, and not been back in step since), or has heard nothing from flagd for a stream's length and a minute more. Each stream to flagd lasts a minute and the provider then opens another, so a healthy sync is heard from at least every minute, and a connection that died silently is caught within two. A stream that flagd ends cleanly, rather than one that fails or reaches its length, is one the provider neither tells of nor follows with another, so the app watches for it: when the sync has been silent for a stream's length and 5 seconds more, the app opens it again on the same provider, which keeps its flag set meanwhile, and tries again after as long again until flagd answers. Every flag stays off until the provider is in step again.
+A flag is on only when flagd says so. It is off on an error, for a flag flagd does not know, for a value that is not a boolean, and before the app has its first flag set. The provider keeps serving its last flag set while flagd is away, so a kill switch would not reach it: every flag is off once the provider has been without flagd for a minute (it has reported its flag set stale or in error, and not been back in step since), or has heard nothing from flagd for a stream's length and a minute more. Each stream to flagd lasts a minute and the provider then opens another, so a healthy sync is heard from at least every minute, and a connection that died silently is caught within two. A stream that flagd ends cleanly, rather than one that fails or reaches its length, is one the provider neither tells of nor follows with another, so the app watches for it: once it has had a flag set, and unless the provider is already reconnecting after reporting its flag set stale or in error, when the sync has been silent for a stream's length and 5 seconds more, the app opens it again on the same provider, which keeps its flag set meanwhile, and tries again after as long again until flagd answers. Every flag stays off until the provider is in step again.
 
 ### The revision
 
@@ -54,7 +54,7 @@ An unmarked request never gets the header.
 
 ### Caching
 
-An answer a flag may have changed is the requester's alone. When a route asked about any flag, or its answer sets the [preview cookie](#the-preview-cookie), the answer is `Cache-Control: private, no-store`, since it depends on the cookie, the share id or the mark, and no cache in between may keep it. Like the revision, the flag context sets its headers after the route's, so no route can undo them.
+An answer a flag may have changed is the requester's alone. When a route asked about any flag, or its answer sets the [preview cookie](#the-preview-cookie), the route's own answer is `Cache-Control: private, no-store`, since it depends on the cookie, the share id or the mark, and no cache in between may keep it. Like the revision, the flag context sets its headers after the route's, so no route can undo them.
 
 ### On the request's span
 
