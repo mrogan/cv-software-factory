@@ -27,11 +27,11 @@ Each request is evaluated with four names, and nothing else: what flagd's sync s
 | Name | Value |
 |---|---|
 | `marked` | `true` when the request carries `x-unmeasured`, whatever its value ([the mark](ADMISSION-CONTROL.md#the-mark)); `false` otherwise |
-| `preview` | The flags its [preview cookie](#the-preview-cookie) names, with those this request asks for when the ask counts: a list of names, `[]` for none |
+| `preview` | The flags its [preview cookie](#the-preview-cookie) names; when this request's ask counts, those flagd still knows with the ones it asks for, as the cookie it sets names them. A list of names, `[]` for none |
 | `targetingKey` | Its share id, only when its [signature](#the-shares-signed-ids) checks out; absent otherwise |
 | `signed` | `true` exactly when it has a `targetingKey` |
 
-A flag's name is lower-case letters and digits, in words joined by hyphens. A flag named otherwise is always off, and is never evaluated.
+A flag's name is lower-case letters and digits, in words joined by hyphens, as the [preview cookie](#its-contract) names them. A flag named otherwise is always off, and is never evaluated.
 
 ### Failing off
 
@@ -39,7 +39,7 @@ A flag is on only when flagd says so. It is off on an error, for a flag flagd do
 
 ### The revision
 
-The flag set's revision is a flag of its own, `flag-set-revision`: a string flag with one static variant, whose value names the flag set. Whoever writes `flags` sets it with every change: the admin service (task 16), and by hand until then. It is not a feature: it is never on, never previewable, and evaluating it as one gives off.
+The flag set's revision is a flag of its own, `flag-set-revision`: a string flag with one static variant, whose value names the flag set. Whoever writes `flags` sets it with every change: the admin service (task 16), and by hand until then. It is not a feature: it is never on, never previewable, and evaluating it as one gives off. Its value is never `none`, `stale` or `invalid`, which the header below reserves.
 
 The app tells it only to a marked request, on every response, whatever the path, in `x-flags-revision`:
 
@@ -54,7 +54,7 @@ An unmarked request never gets the header.
 
 ### On the request's span
 
-Each evaluation of a feature is an event, `feature_flag.evaluation`, on the request's span, named as OpenTelemetry's semantic conventions for feature flags name it. Only a request the app records has a span ([whose requests are judged](PROGRESSIVE-DELIVERY.md#whose-requests-are-judged)), so a marked request's evaluations are not recorded, and the traffic generator's are.
+Each evaluation of a feature is an event, `feature_flag.evaluation`, on the request's span, named as OpenTelemetry's semantic conventions for feature flags name it. Only a request the app records has a span ([whose requests are judged](PROGRESSIVE-DELIVERY.md#whose-requests-are-judged)), so a marked request's evaluations are not recorded, and the traffic generator's are. Nor is one when the app has no sync address, one of a flag it never evaluates (a name as above, or the revision), or one that throws.
 
 | Attribute | Value |
 |---|---|
@@ -62,7 +62,7 @@ Each evaluation of a feature is an event, `feature_flag.evaluation`, on the requ
 | `feature_flag.provider.name` | `flagd` |
 | `feature_flag.result.variant` | The variant flagd chose, when it chose one |
 | `feature_flag.result.value` | Whether the flag is on for the request: `false` whenever it fails off |
-| `feature_flag.result.reason` | flagd's reason, in lower case (`targeting_match`, `static`, `error`); `stale` when the flag set is stale or the app has none yet, and flagd is not asked |
+| `feature_flag.result.reason` | flagd's reason, in lower case (`targeting_match`, `static`, `error`); `stale` when the flag set is stale or the app has none yet, and the provider is not asked (where the revision header says `none` before the first flag set) |
 | `error.type` | The error, in lower case (`flag_not_found`, `type_mismatch`), only on one |
 
 The event never carries the context: `feature_flag.context.id` would be the share id, and nothing of the app's logs, traces or metrics holds the id or its signature.
@@ -86,9 +86,9 @@ The app sets the cookie exactly as this says, and the `/device` check holds ever
 
 | | |
 |---|---|
-| When | Only on a `GET` (or `HEAD`) of one of the app's routes, not a file, `/health` or `/version`, whose `?preview=` names only flags flagd knows, in a flag set that is not stale ([failing off](#failing-off)). One that names any other changes nothing, and the app never echoes the parameter. An answer that sets it is `Cache-Control: private, no-store`. |
+| When | Only on a `GET` (or `HEAD`) of one of the app's routes, not a file, `/health` or `/version`, whose `?preview=` names only features flagd knows, not the [revision](#the-revision), in a flag set that is not stale ([failing off](#failing-off)). One that names any other changes nothing, and the app never echoes the parameter. An answer that sets it is `Cache-Control: private, no-store`. |
 | Name | `preview` |
-| Value | The flags asked for, each once, in the order asked, joined by `.`: `dark-mode.big-buttons`. Each ask adds its flag to those the cookie already names that flagd still knows. A flag's name is lower-case letters and digits, in words joined by hyphens; a flag named otherwise cannot be previewed. |
+| Value | The flags asked for, each once, in the order asked, joined by `.`: `dark-mode.big-buttons`. One ask may name several, each in a `preview` parameter of its own (`?preview=dark-mode&preview=big-buttons`), and counts only when flagd knows every one. Each ask adds its flag to those the cookie already names that flagd still knows. A flag's name is lower-case letters and digits, in words joined by hyphens; a flag named otherwise cannot be previewed. |
 | `Path` | `/` |
 | `Domain` | None, so it is the app's host's alone |
 | `Max-Age` | `86400`: a day from the latest ask. No ask, no renewal. |
@@ -132,7 +132,7 @@ The message is six fields, in this order, each its UTF-8 bytes after its length 
 5. the method, in upper case: `GET`, the only one the generator sends;
 6. the path: the request target as sent on the request line, the path and its query, percent-encoding and all (`/search?q=glove`), and no fragment.
 
-The app accepts a signature when every one of the three headers is there, once, and `Host` once; the time is all digits; the signature is the one base64url spelling of its 64 bytes; with `now` its own clock in whole seconds, `0 <= now - time < 60`; and the signature verifies, with the public key in `share-key`, over the message it builds from those headers and its own view of the request: its `Host`, method and request target, not anything the request says about itself elsewhere. Anything else and the request is not signed, and the id is not its targeting key.
+The app accepts a signature when every one of the three headers is there, once, and `Host` once; the id, `Host`, method and request target are visible ASCII; the time is 1 to 15 digits; the signature is the one base64url spelling of its 64 bytes; with `now` its own clock in whole seconds, `0 <= now - time < 60`; and the signature verifies, with the public key in `share-key`, over the message it builds from those headers and its own view of the request: its `Host`, method and request target, not anything the request says about itself elsewhere. Anything else and the request is not signed, and the id is not its targeting key.
 
 ### Test vector
 
