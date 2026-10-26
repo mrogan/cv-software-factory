@@ -9,7 +9,7 @@ Ship improvements switched off; a kill switch without a rollback. Part of the [r
 - **flagd 0.17, alone in `flagd`,** not in the app's pod or beside it in `website` (`deploy/base/flagd`). The app's pods hold no token and no route to the Kubernetes API, and nothing the app's repository may write in `website` can touch flagd, its service account or its state.
 - **The state of every flag is one `FeatureFlag`, `flags` in `flagd`,** which flagd watches through the Kubernetes API. Only the kind's definition is installed, vendored from OpenFeature's operator at the API version flagd builds against, not the operator itself. In Git it has no flags. Argo CD makes it before flagd starts, and leaves its flags alone ([GitOps](GITOPS.md#syncing)).
 - **flagd reads, and writes nothing.** Its watch lists the whole namespace, so its Role may get, list and watch `featureflags` in `flagd`, with no names. Admission keeps `flags` the only one there and refuses its deletion, since flagd keeps serving the last flags it read when its resource goes ([admission control](ADMISSION-CONTROL.md#flags)). Nothing of ours may write `flags` yet.
-- **The app's pods reach flagd's sync port (8015) and its health port (8014), and nothing else of it** ([network policies](NETWORK-POLICIES.md#flagd)). The app uses the sync port alone: its [flag context](#the-apps-flag-context) streams the flag set from it and evaluates each request itself. flagd reaches the Kubernetes API, DNS and the collector, where its traces and metrics go; its logs are its container's.
+- **The app's pods reach flagd's sync port (8015), and nothing else of it** ([network policies](NETWORK-POLICIES.md#flagd)): its [flag context](#the-apps-flag-context) streams the flag set from it and evaluates each request itself. Not flagd's management port (8014), where the kubelet checks its health from the node. flagd reaches the Kubernetes API, DNS and the collector, where its traces and metrics go; its logs are its container's.
 - **Its image is admitted by digest** in a copy of admission control of its own, `flagd-images`, so `website-images` still admits no third-party image.
 
 ## Readiness
@@ -35,22 +35,26 @@ A flag's name is lower-case letters and digits, in words joined by hyphens, as t
 
 ### Failing off
 
-A flag is on only when flagd says so. It is off on an error, for a flag flagd does not know, for a value that is not a boolean, and before the app has its first flag set. The provider keeps serving its last flag set while flagd is away, so a kill switch would not reach it: every flag is off once the provider has been without flagd for a minute (it has reported its flag set stale or in error, and not been back in step since), or has heard nothing from flagd for a stream's length and a minute more. Each stream to flagd lasts a minute and the provider then opens another, so a healthy sync is heard from at least every minute, and a connection that died silently is caught within two. Every flag stays off until the provider is in step again. A stream that flagd ends cleanly, rather than one that fails or reaches its length, is not followed by another: the provider says nothing, the silence turns every flag off two minutes after it was last heard from, and they stay off until the app restarts.
+A flag is on only when flagd says so. It is off on an error, for a flag flagd does not know, for a value that is not a boolean, and before the app has its first flag set. The provider keeps serving its last flag set while flagd is away, so a kill switch would not reach it: every flag is off once the provider has been without flagd for a minute (it has reported its flag set stale or in error, and not been back in step since), or has heard nothing from flagd for a stream's length and a minute more. Each stream to flagd lasts a minute and the provider then opens another, so a healthy sync is heard from at least every minute, and a connection that died silently is caught within two. A stream that flagd ends cleanly, rather than one that fails or reaches its length, is one the provider neither tells of nor follows with another, so the app watches for it: when the sync has been silent for a stream's length and 5 seconds more, the app opens it again on the same provider, which keeps its flag set meanwhile, and tries again after as long again until flagd answers. Every flag stays off until the provider is in step again.
 
 ### The revision
 
-The flag set's revision is a flag of its own, `flag-set-revision`: a string flag with one static variant, whose value names the flag set. Whoever writes `flags` sets it with every change: the admin service (task 16), and by hand until then. It is not a feature: it is never on, never previewable, and evaluating it as one gives off. Its value is never `none`, `stale` or `invalid`, which the header below reserves.
+The flag set's revision is a flag of its own, `flag-set-revision`: a string flag with one static variant, whose value names the flag set. Whoever writes `flags` sets it with every change: the admin service (task 16), and by hand until then. It is not a feature: it is never on, never previewable, and evaluating it as one gives off. Its value is never `none`, `stale` or `invalid`, the words the header below keeps for no revision: a revision spelt as one is told as `invalid`.
 
-The app tells it only to a marked request, on every response, whatever the path, in `x-flags-revision`:
+The app tells it only to a marked request, on every response, whatever the path, in `x-flags-revision`, set after the route's own headers so that no route can change it:
 
 | Value | When |
 |---|---|
-| the revision | The flag's value, when it is visible ASCII (`!` to `~`) of 1 to 128 characters |
+| the revision | The flag's value, when it is visible ASCII (`!` to `~`) of 1 to 128 characters, and not one of the three words below |
 | `none` | There is no such flag, the app has no sync address, or it has not yet had a flag set |
 | `stale` | Every flag is off, as above, because the flag set is stale |
-| `invalid` | Any other value, or the flag cannot be read as a string |
+| `invalid` | Any other value, one of these three words among them, or the flag cannot be read as a string |
 
 An unmarked request never gets the header.
+
+### Caching
+
+An answer a flag may have changed is the requester's alone. When a route asked about any flag, or its answer sets the [preview cookie](#the-preview-cookie), the answer is `Cache-Control: private, no-store`, since it depends on the cookie, the share id or the mark, and no cache in between may keep it. Like the revision, the flag context sets its headers after the route's, so no route can undo them.
 
 ### On the request's span
 
@@ -86,7 +90,7 @@ The app sets the cookie exactly as this says, and the `/device` check holds ever
 
 | | |
 |---|---|
-| When | Only on a `GET` (or `HEAD`) of one of the app's routes, not a file, `/health` or `/version`, whose `?preview=` names only features flagd knows, not the [revision](#the-revision), in a flag set that is not stale ([failing off](#failing-off)). One that names any other changes nothing, and the app never echoes the parameter. An answer that sets it is `Cache-Control: private, no-store`. |
+| When | Only on a `GET` (or `HEAD`) of one of the app's routes, not a file, `/health` or `/version`, whose `?preview=` names only features flagd knows, not the [revision](#the-revision), in a flag set that is not stale ([failing off](#failing-off)). One that names any other changes nothing, and the app never echoes the parameter. An answer that sets it is `Cache-Control: private, no-store` ([caching](#caching)). |
 | Name | `preview` |
 | Value | The flags asked for, each once, in the order asked, joined by `.`: `dark-mode.big-buttons`. One ask may name several, each in a `preview` parameter of its own (`?preview=dark-mode&preview=big-buttons`), and counts only when flagd knows every one. Each ask adds its flag to those the cookie already names that flagd still knows. A flag's name is lower-case letters and digits, in words joined by hyphens; a flag named otherwise cannot be previewed. |
 | `Path` | `/` |

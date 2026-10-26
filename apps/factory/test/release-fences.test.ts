@@ -320,7 +320,7 @@ describe("the app's fence", () => {
     });
   });
 
-  it("selects the app's pods, and lets them reach DNS, the collector's OTLP port and flagd's sync and health ports, nothing else", async () => {
+  it("selects the app's pods, and lets them reach DNS, the collector's OTLP port and flagd's sync port, nothing else", async () => {
     const policy = await fence();
     expect(policy.spec.podSelector.matchLabels).toEqual({ 'app.kubernetes.io/name': 'website' });
     expect(policy.spec.policyTypes).toEqual(['Ingress', 'Egress']);
@@ -336,7 +336,7 @@ describe("the app's fence", () => {
       { to: [['kube-system', { 'k8s-app': 'kube-dns' }]], ports: ['UDP/53', 'TCP/53'] },
       { to: [['telemetry', { 'app.kubernetes.io/name': 'opentelemetry-collector' }]], ports: ['TCP/4318'] },
       // Its in-process provider streams the flag set from flagd's sync port (flag-fences.test.ts).
-      { to: [['flagd', { 'app.kubernetes.io/name': 'flagd' }]], ports: ['TCP/8015', 'TCP/8014'] },
+      { to: [['flagd', { 'app.kubernetes.io/name': 'flagd' }]], ports: ['TCP/8015'] },
     ]);
   });
 

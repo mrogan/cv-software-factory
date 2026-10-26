@@ -1,8 +1,8 @@
 # flagd's fences. Everything in `flagd` is denied, in and out, and then:
 #
 # - the app's pods may reach flagd's sync port (8015), which their in-process provider streams the flag set from, and
-#   its management port (8014), for its health, and nothing else of it: not its evaluation (8013) or OFREP (8016)
-#   ports, which listen in the pod. The app's own policy lets them out to those two ports (deploy/base/website);
+#   nothing else of it: not its management (8014), evaluation (8013) or OFREP (8016) ports, which listen in the pod.
+#   The app's own policy lets them out to that port alone (deploy/base/website);
 # - flagd may reach the API server (6443 on a private address, as for the line: deploy/base/factory), for its watch of
 #   `flags`; DNS, for the collector's name; and the collector's OTLP port, for its traces and metrics.
 #
@@ -39,7 +39,6 @@ spec:
               app.kubernetes.io/name: website
       ports:
         - { protocol: TCP, port: 8015 }
-        - { protocol: TCP, port: 8014 }
   egress:
     - to:
         - namespaceSelector:

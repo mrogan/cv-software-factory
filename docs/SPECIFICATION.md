@@ -236,7 +236,7 @@ Each seam sits behind an interface, so a pivot means a new adapter, not a rewrit
 | Probes and crawler    | Playwright                                                                          |
 | Console               | Preact and Vite (ADR 0007), reading the event store, live via server-sent events    |
 | Admin sign-in         | Passkeys (WebAuthn), sessions kept on the server                                    |
-| Feature flags         | OpenFeature in the app, flagd beside it                                             |
+| Feature flags         | OpenFeature in the app, flagd in a namespace of its own                             |
 | Alerting              | Prometheus and Alertmanager; to Martin by Pushover                                  |
 
 ### 7.1 Recorded model responses
