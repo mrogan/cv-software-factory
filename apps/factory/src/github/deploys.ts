@@ -8,10 +8,10 @@
  * repository's console, and its factory images. The pull request moves each pin file whose images main has a newer
  * build of, to the newest commit on main that every one of them was built from: one pin file when only one has a
  * newer build, all of them, each at its own commit, when they all have. One pull request, not one each: in one commit
- * they deploy together, in the order Argo CD's sync waves give them, for one approval and one run of the merge queue's
- * checks, which run in full for every pull request it merges. When a newer build is found, the new digests are
- * committed on main's head (signed, through the API), the branch is moved to that commit, and the pull request is
- * opened, or retitled if it was for older builds or other pin files.
+ * they deploy together, in the order Argo CD's sync waves give them, for one verdict of the review gate and one run of
+ * the merge queue's checks, which run in full for every pull request it merges. When a newer build is found, the new
+ * digests are committed on main's head (signed, through the API), the branch is moved to that commit, and the pull
+ * request is opened, or retitled if it was for older builds or other pin files.
  *
  * The branch is never at main's head itself, even for a moment: GitHub closes a pull request whose branch has nothing
  * to merge, and would close the one for the older build, as the App. So the commit is made on a scratch branch of

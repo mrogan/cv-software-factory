@@ -93,7 +93,7 @@ flowchart TD
 ```
 
 - **The pull request** is labelled with the profile, names each pin file's commit in its title (`run console 1f14f44 and the factory 9e0b2d1 on the local cluster`), and links the changes since each commit pinned now.
-- **One, not one each.** One pull request waits for one approval, and takes one run of the merge queue's checks, which run in full for every pull request it merges. Together they deploy in the order of Argo CD's sync waves: the console's image runs the store's migrations before the factory starts.
+- **One, not one each.** One pull request waits once for the required `review` check, and takes one run of the merge queue's checks, which run in full for every pull request it merges. Together they deploy in the order of Argo CD's sync waves: the console's image runs the store's migrations before the factory starts.
 - **Waits for every signature.** While one pin file's build waits to be signed, none is proposed, so the pull request does not open for the others only to move a minute later. A build still being pushed is not seen yet: the pull request opens without it, and moves once it is there. A build signed by anyone else, or never, is left out; when the open pull request runs an older build of that pin file, it stays as it is rather than drop it.
 - **Never at main's head.** The deploy branch is never at main's head, where GitHub would close the pull request for having nothing to merge.
 - **Closed unmerged.** A build whose pull request was closed unmerged is not proposed again, alone or beside another; the next build of that pin file is.
