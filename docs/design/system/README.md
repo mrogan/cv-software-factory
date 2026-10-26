@@ -564,7 +564,7 @@ The "+" stays where it is, a `signal` disc on the Plan station, and Plan's panel
 
 Once asked, the work item is a row at the top of Plan's panel ("asked just now · waiting behind the open tickets"), and a card on the reel. Nothing else announces it.
 
-**For a visitor** the "+" is there too, titled "How Martin asks for an improvement", and Plan's panel's button says the same. It opens the same dialog, **How Martin asks**, read-only: the field holds Martin's latest request, disabled, with when he asked; the facts speak of him ("he widens it"), and the last one says that a suggestion sent from the app reaches Martin and never starts work by itself; **Request** is a label beside "Martin requests it signed in, with his passkey again: it widens what the line does", and the only button is Close.
+**For a visitor** the "+" is there too, titled "How Martin asks for an improvement", and Plan's panel's button says the same. It opens the same dialog, read-only, titled **How Martin asks**: the field holds Martin's latest request, disabled, with when he asked; the facts speak of him ("he widens it"), and the last one says that a suggestion sent from the app reaches Martin and never starts work by itself; **Request** is a label beside "Martin requests it signed in, with his passkey again: it widens what the line does", and the only button is Close.
 
 ### An improvement's card and sheet
 

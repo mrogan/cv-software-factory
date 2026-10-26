@@ -1269,11 +1269,13 @@ const flagQ = new URLSearchParams(location.search);
 const FLAG_SCENE = flagQ.get('flag') || 'preview';
 const FLAGSET = {
   'delivery-dates': { item: '1316', title: 'Delivery dates on each product', page: '/products/clock-stopped',
-    stage: { shipped: 'off', compared: 'share', busy: 'preview' }[FLAG_SCENE] ?? FLAG_SCENE, share: 50, turnedOff: FLAG_SCENE === 'off' },
-  'show-stock': { item: '1271', title: 'How many are left on each card', page: '/products', stage: FLAG_SCENE === 'busy' ? 'share' : 'everyone', share: 50 },
+    stage: { shipped: 'off', compared: 'share', busy: 'preview' }[FLAG_SCENE] ?? FLAG_SCENE, share: 50, turnedOff: FLAG_SCENE === 'off',
+    compared: ['compared', 'everyone'].includes(FLAG_SCENE) },
+  'show-stock': { item: '1271', title: 'How many are left on each card', page: '/products', stage: FLAG_SCENE === 'busy' ? 'share' : 'everyone', share: 50, compared: FLAG_SCENE !== 'busy' },
 };
 // What Verify has found at the stage a flag stands at: whether it is ready for Martin to widen.
-const flagReady = (name) => name !== 'delivery-dates' || FLAG_SCENE !== 'share';
+// Verify has judged the comparison of a flag at Share; widening to Share starts a new one.
+const flagReady = (name) => FLAGSET[name].stage !== 'share' || FLAGSET[name].compared;
 // The app's copy of the flag set: in step (ok), taking a change Martin just made (taking), or behind (?sync=behind).
 const FLAG_SYNC = { state: flagQ.get('sync') === 'behind' ? 'behind' : 'ok', revision: 'r7' };
 STAGES.verify.rows[0][2] = { checks: 'flag at Checks · checked · waiting for Martin to widen', preview: 'flag at Preview · checked · waiting for Martin to widen',
@@ -2294,7 +2296,7 @@ const FLAG_TIMES = {
 };
 function flagBlocks(it) {
   const f = FLAGSET[it.flag], t = FLAG_TIMES[it.flag], at = FLAG_AT[f.stage], name = it.flag;
-  const compared = it.flag === 'show-stock' || ['compared', 'everyone'].includes(FLAG_SCENE);
+  const compared = f.compared;
   const pv = `<a href="http://mossop.localhost${f.page}?preview=${name}" target="_blank" rel="noopener">Preview it on the app<span aria-hidden="true"> ↗</span></a>`;
   const block = (label, at, word, tone, body) => ({ head: `<span class="label">${label} · ${t.day} ${at}</span><span class="word tone-${tone}"><span class="dot tone-${tone}"></span>${word}</span>`, body });
   const out = [];
@@ -2597,7 +2599,7 @@ function renderFlags() {
 // A flag that Verify has checked at its stage waits for Martin: a hold in Needs you, answered by widening it or
 // turning it off, each through the same confirmation as the slider.
 function flagHolds() {
-  return Object.entries(FLAGSET).filter(([, f]) => ITEMS[indexOf(f.item)]?.end === 'flag' && !f.turnedOff && FLAG_AT[f.stage] < 4).map(([name, f]) => {
+  return Object.entries(FLAGSET).filter(([name, f]) => ITEMS[indexOf(f.item)]?.end === 'flag' && !f.turnedOff && FLAG_AT[f.stage] < 4 && flagReady(name)).map(([name, f]) => {
     const at = FLAG_AT[f.stage], t = FLAG_TIMES[name], next = FLAG_STAGES[at + 1], why = flagWhyNot(name, next[0]), v = S.visitor;
     const ev = at === 0 ? `<p class="ev">Released in ${t.version} with <code class="flagname">${name}</code> off. At Checks, Verify sees it on where only the factory’s checks can.</p>`
       : at === 1 ? `<p class="ev">With it on, the journeys passed and the device check found nothing kept. No probe knows a new feature: judge the pictures before you widen.</p>
@@ -2705,8 +2707,8 @@ function openDialog(kind, ctx = {}) {
   else if (kind === 'improve') {
     // The "+" on Plan. A visitor sees the same form read-only, holding Martin's latest request.
     const v = S.visitor, last = ITEMS[indexOf('1316')], open = ITEMS.filter((i) => ['live', 'planner', 'waiting', 'deploy'].includes(i.end)).length;
-    el.innerHTML = `<div class="kickline">${glyph('improvement')}<span class="label">${v ? 'How Martin asks' : 'An improvement'}</span></div>
-      <h2 id="dialog-title" tabindex="-1">Request an improvement</h2>
+    el.innerHTML = `<div class="kickline">${glyph('improvement')}<span class="label">An improvement</span></div>
+      <h2 id="dialog-title" tabindex="-1">${v ? 'How Martin asks' : 'Request an improvement'}</h2>
       <p>${v ? 'Martin asks here, in his own words. The planner turns it into a spec, which waits for him before any code is written.' : 'Say what should change, in your own words. The planner turns it into a spec, which waits for you before any code is written.'}</p>
       <label class="label" for="imp-words">What ${v ? 'he wants' : 'you want'}</label>
       ${v ? `<textarea id="imp-words" disabled>${esc(last.request.words)}</textarea><p class="help">His latest request, ${last.request.at}.</p>`
@@ -2801,6 +2803,7 @@ function confirmDialog() {
     const f = FLAGSET[d.flag], from = FLAG_AT[f.stage], to = FLAG_AT[d.to];
     if (to > from && to >= 2) giveKey();
     if (to === 0) { if (ITEMS[indexOf(f.item)]?.end === 'verified') f.was = from; else f.turnedOff = true; } else f.was = null;
+    if (d.to === 'share') f.compared = false;
     setStage(d.flag, d.to);
   }
   if (d.kind === 'stop') { S.stopped = true; S.stopReason = $('stop-reason').value.trim(); const r = canaryScenario(S.canary); if (!r.end && !r.idle && !r.none && !r.dry) S.canary = 'stopped'; }
@@ -2919,10 +2922,12 @@ const AUDIT = [
   ['Today', '16:20:40', 'triage', 'model', '1306', 'Jev 1.13.0 · TypeSafe · triage/v2', '4 questions · <$0.01'],
   ['Today', '16:12:00', 'Martin', 'admin', '1310', 'Answered the hold in words', '“Keep the old error page; fix the logging only.”'],
   ['Today', '15:58:30', 'Martin', 'admin', '', 'Raised the day’s cap from $5 to $10', 'passkey given at 15:58'],
-  ['Today', '12:43:02', 'Martin', 'admin', '1316', 'Widened delivery-dates to Preview', 'flag.staged · checks → preview · passkey given at 12:42'],
-  ['Today', '12:26:15', 'Martin', 'admin', '1316', 'Widened delivery-dates to Checks', 'flag.staged · off → checks · passkey given at 12:25'],
-  ['Today', '10:12:04', 'Martin', 'admin', '1316', 'Asked for an improvement: “Delivery dates on each product”', 'improvement.requested · passkey given at 10:11'],
   ['Today', '15:40:12', 'Martin', 'admin', '', 'Signed in', 'with a passkey'],
+  ['Today', '12:43:02', 'Martin', 'admin', '1316', 'Widened delivery-dates to Preview', 'flag.staged · checks → preview · passkey given at 12:42'],
+  ['Today', '12:26:15', 'Martin', 'admin', '1316', 'Widened delivery-dates to Checks', 'flag.staged · off → checks'],
+  ['Today', '12:24:50', 'Martin', 'admin', '', 'Signed in', 'with a passkey'],
+  ['Today', '10:12:04', 'Martin', 'admin', '1316', 'Asked for an improvement: “Delivery dates on each product”', 'improvement.requested · passkey given at 10:11'],
+  ['Today', '10:11:30', 'Martin', 'admin', '', 'Signed in', 'with a passkey'],
   ['Yesterday', '21:40:05', 'Martin', 'admin', '', 'Stopped the line', '“Going out; nothing to land tonight.”'],
   ['Yesterday', '21:02:44', 'Martin', 'admin', '', 'Signed in', 'with a passkey'],
 ];
