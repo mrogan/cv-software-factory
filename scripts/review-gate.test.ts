@@ -59,24 +59,32 @@ describe('the review gate (ADR 0014)', () => {
   });
 
   it('judges the pull request a run names: opened or moved, reviewed, or in the merge queue', () => {
-    expect(target('pull_request_target', { pull_request: { number: 7 } })).toEqual({ kind: 'pull-request', number: 7 });
     const run = { head_sha: HEAD, head_branch: 'fix/x', head_repository: { owner: { login: 'someone' } } };
-    expect(
-      target('workflow_run', {
-        workflow_run: {
-          ...run,
-          event: 'pull_request_review',
-          pull_requests: [
-            { number: 8, base: { ref: 'other' } },
-            { number: 7, base: { ref: 'main' } },
-          ],
-        },
-      }),
-    ).toEqual({ kind: 'pull-request', number: 7 });
-    // A fork's: GitHub names no pull request, so it is found by its branch and commit.
-    expect(
-      target('workflow_run', { workflow_run: { ...run, event: 'pull_request_review', pull_requests: [] } }),
-    ).toEqual({ kind: 'find', owner: 'someone', branch: 'fix/x', commit: HEAD });
+    for (const event of ['pull_request', 'pull_request_review']) {
+      expect(
+        target('workflow_run', {
+          workflow_run: {
+            ...run,
+            event,
+            pull_requests: [
+              { number: 8, base: { ref: 'other' } },
+              { number: 7, base: { ref: 'main' } },
+            ],
+          },
+        }),
+      ).toEqual({ kind: 'pull-request', number: 7 });
+      // A fork's: GitHub names no pull request, so it is found by its branch and commit.
+      expect(target('workflow_run', { workflow_run: { ...run, event, pull_requests: [] } })).toEqual({
+        kind: 'find',
+        owner: 'someone',
+        branch: 'fix/x',
+        commit: HEAD,
+      });
+      // A deleted fork's names no repository: nothing to find.
+      expect(
+        target('workflow_run', { workflow_run: { ...run, event, head_repository: null, pull_requests: [] } }).kind,
+      ).toBe('none');
+    }
     const queue = `gh-readonly-queue/main/pr-7-${EARLIER}`;
     expect(target('workflow_run', { workflow_run: { ...run, event: 'merge_group', head_branch: queue } })).toEqual({
       kind: 'queue',
@@ -91,13 +99,15 @@ describe('the review gate (ADR 0014)', () => {
   it('judges nothing a run cannot name: another event, or a branch that is not the queue’s into main', () => {
     const run = { head_sha: HEAD, head_branch: `gh-readonly-queue/main/pr-7-${EARLIER}` };
     expect(target('workflow_run', { workflow_run: { ...run, event: 'push' } }).kind).toBe('none');
-    expect(target('workflow_run', { workflow_run: { ...run, event: 'pull_request' } }).kind).toBe('none');
+    expect(target('workflow_run', { workflow_run: { ...run, event: 'pull_request_target' } }).kind).toBe('none');
     expect(
       target('workflow_run', {
         workflow_run: { ...run, event: 'merge_group', head_branch: `gh-readonly-queue/other/pr-7-${EARLIER}` },
       }).kind,
     ).toBe('none');
     expect(target('push', {}).kind).toBe('none');
+    // The gate runs on workflow_run alone: a pull request's own event names nothing.
+    expect(target('pull_request_target', {}).kind).toBe('none');
   });
 });
 
@@ -109,9 +119,9 @@ describe("the review gate's workflows", () => {
     [...(workflow.match(/^on:\n((?: {2}.*\n|\n)*)/m)?.[1] ?? '').matchAll(/^ {2}([\w-]+):/gm)].map((m) => m[1]).sort();
 
   it('run only main’s copy with the key, and never check out the pull request', () => {
-    // pull_request_target and workflow_run run the workflow as main has it; pull_request would run the change's copy.
-    expect(triggers(gate)).toEqual(['pull_request_target', 'workflow_call', 'workflow_run']);
-    expect(gate).toMatch(/pull_request_target:\n {4}branches: \[main\]\n/);
+    // workflow_run runs the workflow as main has it; pull_request would run the change's copy. GitHub's default event
+    // policy blocks pull_request_target in public repositories.
+    expect(triggers(gate)).toEqual(['workflow_call', 'workflow_run']);
     expect(gate).toMatch(/workflow_run:\n {4}workflows: \[review requested\]\n/);
     expect(requested).toMatch(/^name: review requested$/m);
     // The key is in an environment only main may use: a pull request into another branch runs that branch's copy.
@@ -139,7 +149,9 @@ describe("the review gate's workflows", () => {
   });
 
   it('give a deleted fork’s runs a group of their own, not one they share', () => {
-    expect(gate).toContain("format('gone-{0}', github.event.pull_request.number || github.run_id)");
+    expect(gate).toContain(
+      "review-${{ github.event.workflow_run.head_repository.full_name || format('gone-{0}', github.run_id) }}:${{",
+    );
   });
 
   it('read the merge queue’s branch as pr-title.yml does', () => {
@@ -149,8 +161,11 @@ describe("the review gate's workflows", () => {
     expect(title).toContain('BASH_REMATCH[2]');
   });
 
-  it('ask for it again on a review and in the merge queue, holding nothing and running nothing', () => {
-    expect(triggers(requested)).toEqual(['merge_group', 'pull_request_review']);
+  it('ask for it when a pull request into main opens or moves, on a review and in the merge queue, holding nothing and running nothing', () => {
+    expect(triggers(requested)).toEqual(['merge_group', 'pull_request', 'pull_request_review']);
+    expect(requested).toMatch(
+      /pull_request:\n {4}branches: \[main\]\n {4}types: \[opened, reopened, synchronize, ready_for_review, edited\]\n/,
+    );
     expect(requested).toMatch(/^permissions: \{\}$/m);
     expect(requested).not.toMatch(/uses:|secrets\./);
   });
