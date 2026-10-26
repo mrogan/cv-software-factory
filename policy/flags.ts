@@ -21,6 +21,9 @@
  * Beside the features, the reserved string flag `flag-set-revision` names the flag set: the admin service sets a new
  * one with every write, and the app reports the one it holds to a marked request (FEATURE-FLAGS.md, "The revision").
  *
+ * The admin service reads `flags` back with `readFlags`, changes one flag's stage, and writes the whole of it again
+ * with `flagsSpec` and a new revision.
+ *
  * Human-owned: see `README.md`.
  */
 
@@ -119,4 +122,51 @@ export function flagsSpec(stages: Readonly<Record<string, Stage>>, revision: str
   for (const name of Object.keys(stages).sort()) flags[name] = flag(name, stages[name] as Stage);
   flags[REVISION_FLAG] = revisionFlag(revision);
   return { flagSpec: { flags } };
+}
+
+/** Every stage there is, the share stage at each share: what a flag of `flags` is read back as. */
+export const EVERY_STAGE: readonly Stage[] = STAGES.flatMap((stage): Stage[] =>
+  stage === 'share' ? SHARES.map((share) => ({ stage, share })) : [{ stage }],
+);
+
+/** Whether two JSON values are the same, whatever the order of their keys. */
+const same = (a: unknown, b: unknown): boolean => {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const keys = Object.keys(a);
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((k) => Object.hasOwn(b, k) && same((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
+  );
+};
+
+/** The stage a flag of `flags` is at, when it is exactly one of the shapes; undefined when it is in none. */
+export function stageOf(name: string, value: unknown): Stage | undefined {
+  if (!isFlagName(name)) return undefined;
+  return EVERY_STAGE.find((stage) => same(value, flag(name, stage)));
+}
+
+/**
+ * `flags` read back, from the spec the cluster holds: each feature at its stage, the revision when it has one in its
+ * shape, and, by name, any flag in no shape, which the admin service never writes back as it is.
+ */
+export function readFlags(spec: unknown): { stages: Record<string, Stage>; revision?: string; outside: string[] } {
+  const flags = (spec as { flagSpec?: { flags?: unknown } } | undefined)?.flagSpec?.flags;
+  const stages: Record<string, Stage> = {};
+  const outside: string[] = [];
+  let revision: string | undefined;
+  if (typeof flags !== 'object' || flags === null) return { stages, outside };
+  for (const [name, value] of Object.entries(flags).sort(([a], [b]) => (a < b ? -1 : 1))) {
+    if (name === REVISION_FLAG) {
+      const given = (value as { variants?: { revision?: unknown } } | null)?.variants?.revision;
+      if (typeof given === 'string' && isRevision(given) && same(value, revisionFlag(given))) revision = given;
+      else outside.push(name);
+      continue;
+    }
+    const stage = stageOf(name, value);
+    if (stage) stages[name] = stage;
+    else outside.push(name);
+  }
+  return { stages, ...(revision !== undefined && { revision }), outside };
 }

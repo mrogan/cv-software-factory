@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { flag, flagsSpec, REVISION_FLAG, revisionFlag, SHARES, STAGES, type Stage } from '../../../policy/flags.ts';
+import {
+  EVERY_STAGE,
+  flag,
+  flagsSpec,
+  REVISION_FLAG,
+  readFlags,
+  revisionFlag,
+  SHARES,
+  STAGES,
+  type Stage,
+  stageOf,
+} from '../../../policy/flags.ts';
 
 /**
  * policy/flags.ts: the stages' shapes, as flagd reads them. Whether the cluster admits each, and refuses what is not
@@ -106,5 +117,47 @@ describe('the whole of flags', () => {
   it('refuses a stage for the revision, and a revision that is not one', () => {
     expect(() => flagsSpec({ [REVISION_FLAG]: { stage: 'off' } }, 'r1')).toThrow(/name/);
     expect(() => flagsSpec({ 'big-buttons': { stage: 'off' } }, 'none')).toThrow(/revision/);
+  });
+});
+
+describe('flags read back', () => {
+  it('gives every stage it renders, and the revision', () => {
+    const stages = Object.fromEntries(EVERY_STAGE.map((stage, i): [string, Stage] => [`flag-${i}`, stage]));
+    expect(readFlags(flagsSpec(stages, 'r1'))).toEqual({ stages, revision: 'r1', outside: [] });
+    expect(EVERY_STAGE).toHaveLength(7);
+  });
+
+  it('names any flag in no shape, and reads nothing from what is not a flag set', () => {
+    const { flagSpec } = flagsSpec({ 'big-buttons': { stage: 'checks' } }, 'r1');
+    const flags: Record<string, unknown> = {
+      ...flagSpec.flags,
+      'dark-mode': { ...flag('dark-mode', { stage: 'off' }), metadata: { x: 1 } },
+      'wide-share': { ...flag('wide-share', { stage: 'share', share: 50 }), targeting: { if: ['on'] } },
+      // Another flag's preview: a stage's shape names its own flag.
+      'own-name': flag('other-name', { stage: 'preview' }),
+      Bad_Name: flag('bad-name', { stage: 'off' }),
+    };
+    expect(readFlags({ flagSpec: { flags } })).toEqual({
+      stages: { 'big-buttons': { stage: 'checks' } },
+      revision: 'r1',
+      outside: ['Bad_Name', 'dark-mode', 'own-name', 'wide-share'],
+    });
+    const reserved = {
+      [REVISION_FLAG]: { state: 'ENABLED', variants: { revision: 'none' }, defaultVariant: 'revision' },
+    };
+    expect(readFlags({ flagSpec: { flags: reserved } })).toEqual({ stages: {}, outside: [REVISION_FLAG] });
+    expect(readFlags({ flagSpec: { flags: {} } })).toEqual({ stages: {}, outside: [] });
+    expect(readFlags(undefined)).toEqual({ stages: {}, outside: [] });
+  });
+
+  it('takes a flag whose keys are in another order as its stage', () => {
+    const { targeting, defaultVariant, state } = flag('big-buttons', { stage: 'share', share: 10 });
+    expect(stageOf('big-buttons', { targeting, defaultVariant, variants: { off: false, on: true }, state })).toEqual({
+      stage: 'share',
+      share: 10,
+    });
+    expect(
+      stageOf('big-buttons', { ...flag('big-buttons', { stage: 'everyone' }), state: 'DISABLED' }),
+    ).toBeUndefined();
   });
 });
