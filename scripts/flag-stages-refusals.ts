@@ -52,7 +52,7 @@ export interface Case {
   /** For a case that writes stages through policy/flags.ts: each flag's stage. */
   stages?: Record<string, Stage>;
   /** The request: the whole of `flags` as read, changed by `change`, or another verb. */
-  verb: 'replace' | 'create' | 'delete';
+  verb: 'replace' | 'create' | 'delete' | 'patch' | 'status';
   change?: (read: FeatureFlag) => FeatureFlag;
 }
 
@@ -215,6 +215,16 @@ export const CASES: Case[] = [
   },
   // Nothing else of flags.
   {
+    case: 'flag-set-metadata',
+    expected: 'refused',
+    by: 'policy',
+    verb: 'replace',
+    change: (read) => {
+      const next = rendered({ [FLAG]: { stage: 'off' } })(read);
+      return { ...next, spec: { ...next.spec, flagSpec: { ...next.spec.flagSpec, metadata: { refusal: true } } } };
+    },
+  },
+  {
     case: 'evaluators',
     expected: 'refused',
     by: 'policy',
@@ -239,6 +249,8 @@ export const CASES: Case[] = [
   },
   // What its Role does not grant.
   { case: 'second', expected: 'refused', by: 'role', verb: 'create' },
+  { case: 'patch', expected: 'refused', by: 'role', verb: 'patch' },
+  { case: 'status', expected: 'refused', by: 'role', verb: 'status', change: (read) => read },
   { case: 'delete', expected: 'refused', by: 'role', verb: 'delete' },
   // And nobody else of ours, staging a flag as the admin service would.
   {
@@ -297,7 +309,14 @@ function ask(context: string, read: FeatureFlag, c: Case): Answer {
             ['create', '--raw', `${PATH.replace(/\/flags$/, '')}?dryRun=All`, '-f', '-'],
             JSON.stringify(second),
           )
-        : kubectl(context, as, ['delete', '--raw', dry]);
+        : c.verb === 'patch'
+          ? kubectl(context, as, [
+              ...['-n', 'flagd', 'patch', 'featureflag', 'flags', '--type', 'merge', '--dry-run=server'],
+              ...['-p', JSON.stringify({ spec: { flagSpec: { flags: flagsSpec({}, REVISION).flagSpec.flags } } })],
+            ])
+          : c.verb === 'status'
+            ? kubectl(context, as, ['replace', '--raw', `${PATH}/status?dryRun=All`, '-f', '-'], JSON.stringify(read))
+            : kubectl(context, as, ['delete', '--raw', dry]);
   const answer = (result.stderr || result.stdout).trim();
   const at = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
   const flags = c.stages ? sent?.spec.flagSpec.flags : undefined;
