@@ -416,8 +416,8 @@ describe('the line', () => {
     await pass(); // the hold for Martin
     expect(await stage(workItem)).toBe('held');
 
-    // GitHub brings the branch up to date with main while it waits, its gates run again and pass, and Martin merges
-    // before the line reads them.
+    // Main is merged into the branch while it waits, its gates run again and pass, and Martin merges before the line
+    // reads them.
     const pr = github.pulls.get(12);
     if (!pr) throw new Error('No pull request #12');
     const updated = 'd'.repeat(40);
@@ -457,7 +457,7 @@ describe('the line', () => {
     await pass(); // the hold for Martin
     expect(await stage(workItem)).toBe('held');
 
-    // GitHub brings the branch up to date with main while it waits, and a required gate fails there: GitHub would
+    // Main is merged into the branch while it waits, and a required gate fails there: GitHub would
     // refuse the merge, so the work goes back to the coder, whose second round starts from the newer commit.
     const pr = github.pulls.get(12);
     if (!pr) throw new Error('No pull request #12');

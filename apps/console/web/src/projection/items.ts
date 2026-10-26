@@ -313,9 +313,10 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
   let release: string | undefined;
   /**
    * The gates of the latest push: the commit of their latest run, and whether they passed in the latest run that
-   * ended. Once they have, a run on a newer commit of the same push (GitHub bringing the branch up to date with main)
-   * does not take the work item back to Gates while it runs, or if it passes, as the line does not: it stays where it
-   * waits, for the review or the merge. If it fails, it does, and ends a wait for the merge GitHub would refuse.
+   * ended. Once they have, a run on a newer commit of the same push (main merged into the branch, as to resolve a
+   * conflict) does not take the work item back to Gates while it runs, or if it passes, as the line does not: it stays
+   * where it waits, for the review or the merge. If it fails, it does, and ends a wait for the merge GitHub would
+   * refuse.
    */
   const gates: { commit: string | undefined; passed: boolean } = { commit: undefined, passed: false };
   /** Whether the work went back to Build and the coder has not pushed since: gates then leave it at Build. */

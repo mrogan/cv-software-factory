@@ -19,10 +19,12 @@ import type { Logger } from 'pino';
 import { z } from 'zod';
 import { guardBranch } from './branches.ts';
 import { type GitHub, GitHubError } from './client.ts';
-import { APP_LOGIN } from './current.ts';
 import { carriesSection, type Deploy, DeployRefused, deployTarget, deployTitle, withCarries } from './deploys.ts';
 import { applyTo, filesIn, PatchRefused } from './patches.ts';
 import { CODEOWNERS_PATHS, inScope, protectedFrom } from './paths.ts';
+
+/** How the App appears as a pull request's author, and as whoever merged one or added it to the merge queue. */
+export const APP_LOGIN = 'mrogan-software-factory[bot]';
 
 export interface FileChanges {
   /** Files to add or replace, with their whole new contents. */
@@ -170,8 +172,6 @@ export interface Actions {
   readyForReview(repo: string, pullRequest: PullRequestRef): Promise<void>;
   /** Puts a pull request ready for review back to draft, so that GitHub will not merge it. */
   convertToDraft(repo: string, pullRequest: PullRequestRef): Promise<void>;
-  /** Merges the base into a pull request's branch, as GitHub's "Update branch" does, if the head is still `expectedHead`. */
-  updateBranch(repo: string, number: number, expectedHead: string): Promise<void>;
   /** A comment review: it neither approves nor requests changes, so it never counts toward a merge. */
   review(
     repo: string,
@@ -426,12 +426,6 @@ export class LiveActions implements Actions {
 
   async convertToDraft(repo: string, pullRequest: PullRequestRef): Promise<void> {
     await this.#github.graphql(repo, TO_DRAFT, { id: pullRequest.nodeId }, z.unknown());
-  }
-
-  async updateBranch(repo: string, number: number, expectedHead: string): Promise<void> {
-    await this.#github.write(repo, 'PUT', `/repos/${repo}/pulls/${number}/update-branch`, {
-      expected_head_sha: expectedHead,
-    });
   }
 
   async review(
@@ -761,10 +755,6 @@ export class DryRunActions implements Actions {
     await this.#record('convertToDraft', repo, { number: pullRequest.number });
     const pull = this.#pulls.get(pullRequest.number);
     if (pull && !pull.draft) Object.assign(pull, { draft: true, readiedAt: null });
-  }
-
-  async updateBranch(repo: string, number: number, expectedHead: string): Promise<void> {
-    await this.#record('updateBranch', repo, { number, expectedHead });
   }
 
   async review(

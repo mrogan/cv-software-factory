@@ -66,22 +66,22 @@ interface Pull {
 
 /**
  * GitHub with main at d, then c, b, a; the pin files at main's head (the factory's alone, unless it is told others); and the deploy branch's pull requests, each with its
- * head at the deploy branch and approved or not. It keeps the branches and the commit each was made on, and closes an
- * open pull request whose branch is moved to main's head, with nothing left to merge, as GitHub does. Main can move
- * on to a commit no image was built from.
+ * head at the deploy branch, and merging cleanly unless told otherwise (null: GitHub has yet to work it out). It keeps
+ * the branches and the commit each was made on, and closes an open pull request whose branch is moved to main's head,
+ * with nothing left to merge, as GitHub does. Main can move on to a commit no image was built from.
  */
 function github(
   target: DeployTarget,
-  options: { pins?: Record<string, string>; pulls?: Pull[]; failCommit?: boolean; approved?: boolean } = {},
+  options: { pins?: Record<string, string>; pulls?: Pull[]; failCommit?: boolean; mergeable?: boolean | null } = {},
 ) {
   const { repo } = target;
   const sent: Sent[] = [];
   let failCommit = options.failCommit ?? false;
   let main = HEAD;
+  let mergeable = options.mergeable === undefined ? true : options.mergeable;
   const pulls = (options.pulls ?? []).map((p) => ({ ...p }));
   // The deploy branch is where the older build's commit left it, on main's head.
   const branches = new Map([[target.branch, commit('f')]]);
-  const parents = new Map([[commit('f'), HEAD]]);
   // The commits the pins are made as, in turn.
   const made = ['e', '9', '8'].map(commit);
   const branchOf = (path: string) => decodeURIComponent(path.replace(/^.*\/git\/refs?\/heads\//, ''));
@@ -118,20 +118,7 @@ function github(
       path: /\/pulls\?state=all/,
       answer: () => ({ body: pulls.map((p) => ({ ...p, head: { sha: branches.get(target.branch) } })) }),
     },
-    {
-      method: 'GET',
-      path: /\/compare\//,
-      answer: ({ path }) => {
-        const [base, head] = path.replace(/^.*\/compare\//, '').split('...');
-        // One commit on main is all a deploy branch holds; one made on an older head is a commit behind.
-        return { body: { behind_by: parents.get(head ?? '') === base ? 0 : 1 } };
-      },
-    },
-    {
-      method: 'GET',
-      path: /\/pulls\/\d+\/reviews/,
-      answer: () => ({ body: options.approved ? [{ state: 'APPROVED' }] : [] }),
-    },
+    { method: 'GET', path: /\/pulls\/\d+$/, answer: () => ({ body: { mergeable } }) },
     {
       method: 'GET',
       path: /\/git\/ref\/heads\//,
@@ -174,7 +161,6 @@ function github(
         // GitHub commits only on a branch that is where the caller expects it.
         if (branches.get(branch.branchName) !== expectedHeadOid) return { body: { errors: [{ message: 'moved' }] } };
         const oid = made.shift() as string;
-        parents.set(oid, expectedHeadOid);
         move(branch.branchName, oid);
         return { body: { data: { createCommitOnBranch: { commit: { oid } } } } };
       },
@@ -194,6 +180,7 @@ function github(
     recover: () => (failCommit = false),
     // A merge that built no image.
     moveMain: () => (main = commit('0')),
+    setMergeable: (to: boolean | null) => (mergeable = to),
   };
 }
 
@@ -486,14 +473,31 @@ Argo CD deploys them from \`deploy/overlays/local\` once this merges. A newer bu
     ]);
   });
 
-  it('makes its commit again on main’s new head when main moves on with no newer build, keeping its pull request', async () => {
+  it('leaves its pull request behind main when main moves on with no newer build: the merge queue takes it as it is', async () => {
     const title = 'chore(deploy): run the factory bbbbbbb on the local cluster';
     const label = [{ name: 'deploy: local' }];
     const gh = github(FACTORY, { pulls: [{ number: 69, title, state: 'open', merged_at: null, labels: label }] });
     const pass = watch(gh, FACTORY);
     await pass();
-    expect(writes(gh.sent)).toEqual([]);
     gh.moveMain();
+    await pass();
+    expect(writes(gh.sent)).toEqual([]);
+    expect(gh.branches.get(FACTORY.branch)).toBe(commit('f'));
+  });
+
+  it('makes its commit again on main’s new head when its pull request conflicts with main, keeping its pull request', async () => {
+    const title = 'chore(deploy): run the factory bbbbbbb on the local cluster';
+    const label = [{ name: 'deploy: local' }];
+    const gh = github(FACTORY, { pulls: [{ number: 69, title, state: 'open', merged_at: null, labels: label }] });
+    const pass = watch(gh, FACTORY);
+    await pass();
+    gh.moveMain();
+    // GitHub still answers from main before it moved, or has yet to say: nothing moves, and each pass asks again.
+    await pass();
+    gh.setMergeable(null);
+    await pass();
+    expect(writes(gh.sent)).toEqual([]);
+    gh.setMergeable(false);
     await pass();
     expect(steps(gh.sent)).toEqual([
       'POST git/refs',
@@ -507,21 +511,9 @@ Argo CD deploys them from \`deploy/overlays/local\` once this merges. A newer bu
     // Straight from the commit on the old head to the one on the new: the pull request stays open, one commit on main.
     expect(writes(gh.sent)[2]?.body).toEqual({ sha: commit('e'), force: true });
     expect(gh.pulls[0]?.state).toBe('open');
-    // Current now, so the next pass leaves it.
+    // Made again at this head of main, so the next pass leaves it.
     await pass();
     expect(writes(gh.sent)).toHaveLength(4);
-  });
-
-  it('leaves a deploy pull request Martin has approved behind main: a push would make his approval stale', async () => {
-    const title = 'chore(deploy): run the factory bbbbbbb on the local cluster';
-    const label = [{ name: 'deploy: local' }];
-    const gh = github(FACTORY, {
-      pulls: [{ number: 69, title, state: 'open', merged_at: null, labels: label }],
-      approved: true,
-    });
-    gh.moveMain();
-    await watch(gh, FACTORY)();
-    expect(writes(gh.sent)).toEqual([]);
   });
 
   it('does not propose again a build whose pull request was closed without merging', async () => {
@@ -573,7 +565,7 @@ Argo CD deploys them from \`deploy/overlays/local\` once this merges. A newer bu
     const pass = watch(gh, FACTORY, ghcr(), actions);
     await pass();
     await pass();
-    // Nor again as main moves on: GitHub has no pull request of the dry run's to bring up to date.
+    // Nor again as main moves on: GitHub has no pull request of the dry run's to conflict with main.
     gh.moveMain();
     await pass();
     expect(records).toEqual(['setBranch', 'commit', 'setBranch', 'deleteBranch', 'openPullRequest']);

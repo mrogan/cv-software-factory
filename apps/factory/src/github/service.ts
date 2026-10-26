@@ -7,7 +7,6 @@ import type { Logger } from 'pino';
 import { type Actions, contentsReader, DryRunActions, LiveActions } from './actions.ts';
 import { GitHub } from './client.ts';
 import type { GitHubConfig } from './config.ts';
-import { currentWatch } from './current.ts';
 import { DEPLOYS, DeployProposals, deployWatch } from './deploys.ts';
 import { DryRunReads } from './dry-run-reads.ts';
 import { Poller } from './poller.ts';
@@ -44,9 +43,6 @@ export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
         `deploy ${target.branch} in ${target.repo}`,
         deployWatch({ github, registry, signatures, actions, log, proposals }, target),
       );
-    }
-    for (const repo of config.repositories) {
-      poller.watch(`pull requests current in ${repo}`, currentWatch(github, actions, repo, log));
     }
     if (mode === 'live') {
       quietReleasePlease(log);

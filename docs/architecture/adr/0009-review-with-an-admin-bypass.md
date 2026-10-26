@@ -1,5 +1,7 @@
 # 0009: Code-owner review on main, with a bypass for the admin's own pull requests
 
+**Superseded by [ADR 0014](0014-merge-queue-and-review-gate.md).** `main` has one ruleset, which nobody bypasses, and review is the required `review` check, which the merge queue waits for. What follows is the decision as it was made.
+
 ## Decision
 
 `main` in both public repositories has two rulesets. One holds everything but review: changes arrive only by pull request, squash-merged, with signed and linear history, once the required checks pass. Nobody bypasses it. The other holds review: one approval, from a code owner, given after the last push. The repository's admin role may bypass this one, and only when merging a pull request.
