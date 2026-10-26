@@ -4,8 +4,10 @@
  * in a working tree a sandbox has touched, where a planted hook or config would run with the worker's rights.
  *
  * Plain text changes only: a file added, changed or deleted, as an ordinary file (mode 100644), at a plain relative
- * path. A binary file, a rename, an executable or a symlink, a change of mode, a path with `..`, `.` or an empty
- * segment, a block with no change in it, and a patch that does not apply cleanly are refused.
+ * path, once in the patch. A binary file, a rename, an executable or a symlink, a change of mode, a path with `..`, `.`
+ * or an empty segment, a file named twice, a block with no change in it, text that is not a unified diff, and a patch
+ * that does not apply cleanly are refused, each with a `PatchRefused`. What applies is what the patch says, line
+ * endings and all.
  */
 import { applyPatch, parsePatch, type StructuredPatch } from 'diff';
 import type { FileChanges } from './actions.ts';
@@ -42,8 +44,15 @@ export function filesIn(patch: string): FilePatch[] {
   if (/^(new|deleted) file mode (?!100644$)/m.test(patch)) {
     throw new PatchRefused('unsupported', 'The patch adds or deletes something other than an ordinary file.');
   }
-  const files = parsePatch(patch)
-    .filter((p) => p.oldFileName !== undefined || p.newFileName !== undefined)
+  let parsed: StructuredPatch[];
+  try {
+    parsed = parsePatch(patch);
+  } catch (error) {
+    throw new PatchRefused('unsupported', `The patch is not a unified diff: ${(error as Error).message}`);
+  }
+  const files = parsed
+    // The parser gives a nameless entry for text with no file in it; one with hunks is a change with no path.
+    .filter((p) => p.oldFileName !== undefined || p.newFileName !== undefined || p.hunks.length)
     .map((p) => {
       const before = strip(p.oldFileName, 'a');
       const after = strip(p.newFileName, 'b');
@@ -53,13 +62,17 @@ export function filesIn(patch: string): FilePatch[] {
         throw new PatchRefused('path', `The patch names ${JSON.stringify(path)}, which is not a plain path.`);
       if (before && after && before !== after)
         throw new PatchRefused('unsupported', `The patch moves ${before} to ${after}.`);
-      if (!p.hunks.length) throw new PatchRefused('unsupported', `The patch names ${path} and changes nothing in it.`);
+      if (!p.hunks.some((h) => h.lines.some((l) => l.startsWith('+') || l.startsWith('-'))))
+        throw new PatchRefused('unsupported', `The patch names ${path} and changes nothing in it.`);
       return { path, change: before === null ? 'add' : after === null ? 'delete' : 'modify', patch: p } as FilePatch;
     });
   // Every `diff --git` block must be one of those: a block with no hunks (an empty file added) has no lines for the
   // parser to read, and would otherwise slip past the fence unseen.
   const blocks = patch.match(/^diff --git /gm)?.length ?? 0;
   if (blocks > files.length) throw new PatchRefused('unsupported', 'The patch has a file with no change in it.');
+  // Each block is applied to the file as it was, so a second block for a path would undo the first.
+  const twice = files.find((f, i) => files.findIndex((g) => g.path === f.path) !== i);
+  if (twice) throw new PatchRefused('unsupported', `The patch names ${twice.path} more than once.`);
   return files;
 }
 
@@ -75,12 +88,15 @@ export async function applyTo(patch: string, read: (path: string) => Promise<str
       throw new PatchRefused('does-not-apply', `${file.path} already exists.`);
     if (file.change !== 'add' && current === null)
       throw new PatchRefused('does-not-apply', `${file.path} is not there to change.`);
+    // Line endings as the patch has them, never converted to the file's, so what is committed is what it says.
+    const next = applyPatch(current ?? '', file.patch, { autoConvertLineEndings: false });
+    // A file deleted is deleted only as the patch saw it: all of it, as it is at the commit.
+    if (next === false || (file.change === 'delete' && next !== ''))
+      throw new PatchRefused('does-not-apply', `The patch does not apply to ${file.path}.`);
     if (file.change === 'delete') {
       changes.deletions.push(file.path);
       continue;
     }
-    const next = applyPatch(current ?? '', file.patch);
-    if (next === false) throw new PatchRefused('does-not-apply', `The patch does not apply to ${file.path}.`);
     changes.additions.push({ path: file.path, contents: new TextEncoder().encode(next) });
   }
   return changes;
