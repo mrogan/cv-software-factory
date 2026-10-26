@@ -114,7 +114,8 @@ export function target(name: string, event: Event): Target {
     return { kind: 'queue', number: Number(number), commit: run.head_sha };
   }
   if (run.event === 'pull_request' || run.event === 'pull_request_review') {
-    // GitHub names the pull request only when its branch is in this repository; a fork's is found by its branch.
+    // GitHub names the pull request only when its branch is in this repository and still at the run's commit; a fork's,
+    // or a branch that has moved since, is found by its branch.
     const number = run.pull_requests?.find((p) => p.base.ref === 'main')?.number;
     if (number) return { kind: 'pull-request', number };
     const owner = run.head_repository?.owner.login;
@@ -155,16 +156,17 @@ async function main(): Promise<void> {
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf-8')) as Event;
   let asked = target(name, event);
   if (asked.kind === 'find') {
-    const { owner, branch, commit } = asked;
+    // The open pull request into main from that branch, wherever its head is now: the run that asked may be for an
+    // older push, and the verdict goes on the head as it is now. GitHub allows one open pull request per head and base.
+    const { owner, branch } = asked;
     const open = await api<PullRequest[]>(
       'GET',
-      `/repos/${repo}/pulls?state=open&head=${encodeURIComponent(`${owner}:${branch}`)}`,
+      `/repos/${repo}/pulls?state=open&base=main&head=${encodeURIComponent(`${owner}:${branch}`)}`,
       read,
     );
-    const found = open.find((p) => p.head.sha === commit);
-    asked = found
-      ? { kind: 'pull-request', number: found.number }
-      : { kind: 'none', reason: `no open pull request has ${owner}:${branch} at ${short(commit)}` };
+    asked = open[0]
+      ? { kind: 'pull-request', number: open[0].number }
+      : { kind: 'none', reason: `no open pull request into main has ${owner}:${branch}` };
   }
   if (asked.kind === 'none') {
     console.log(`Nothing to judge: ${asked.reason}.`);

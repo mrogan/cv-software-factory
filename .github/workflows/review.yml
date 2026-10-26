@@ -15,9 +15,12 @@
 # `review` environment, as the secret REVIEW_APP_PRIVATE_KEY, the gate says its verdict and posts nothing.
 #
 # Shared: cv-worlds-worst-website calls this workflow at a pinned commit from its own review.yml, with a `review`
-# environment of its own, so both repositories keep one rule. The caller does as this repository does: its
+# environment of its own, so both repositories keep one rule. A caller pinned here does as this repository does: its
 # review-requested.yml, a copy of this one's, runs on `pull_request`, `pull_request_review` and `merge_group` and holds
-# nothing, and its review.yml runs on `workflow_run` after it alone, with `workflow_call` to this file. It passes
+# nothing, and its review.yml runs on `workflow_run` after it alone, with `workflow_call` to this file. This copy judges
+# only a `workflow_run`, so a caller moves its pin and its triggers in the same change: pinned here and still started by
+# `pull_request_target`, it would judge nothing. The app's pin is older, from before this repository's gate left
+# `pull_request_target`, and its own triggers match that pin until it moves. A caller passes
 # REVIEW_APP_PRIVATE_KEY by name, or with `secrets: inherit`: GitHub's docs say a called job with `environment:` uses the
 # caller's environment of that name, but resolves a secret to empty unless the caller passes it, and a secret held only
 # in the environment may be passed by name. Unpassed, the gate says its verdict and posts nothing, as before the key

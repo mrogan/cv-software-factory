@@ -148,9 +148,11 @@ describe("the review gate's workflows", () => {
     );
   });
 
-  it('give a deleted fork’s runs a group of their own, not one they share', () => {
-    expect(gate).toContain(
-      "review-${{ github.event.workflow_run.head_repository.full_name || format('gone-{0}', github.run_id) }}:${{",
+  it('key a run by the branch that asked, and a deleted fork’s by its own id', () => {
+    // By the asking run's repository and branch, whatever the folding of the expression.
+    const group = (gate.match(/^ {2}group: >-\n((?: {4}.*\n)+)/m)?.[1] ?? '').replace(/\s+/g, ' ').trim();
+    expect(group).toBe(
+      "review-${{ github.event.workflow_run.head_repository.full_name || format('gone-{0}', github.run_id) }}:${{ github.event.workflow_run.head_branch }}",
     );
   });
 
