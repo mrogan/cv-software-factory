@@ -19,7 +19,10 @@
  * - `line-stopped`: every `line.stopped`, which tightens and so needs no passkey again, but which Martin is still told of;
  * - every change of the line's controls (`controls.changed`), as the access table's action it is, told from the
  *   stored change's before and after alone (`policy/line.ts`): `autonomy-loosened` and `autonomy-tightened`,
- *   `new-work-on` and `new-work-off`, `auto-merge-on` and `auto-merge-off`, `take-widened` and `take-narrowed`.
+ *   `new-work-on` and `new-work-off`, `auto-merge-on` and `auto-merge-off`, `take-widened` and `take-narrowed`;
+ * - every move of a feature flag's stage (`flag.staged`), as the access table's action it is, told from the stored
+ *   stages before and after alone (`policy/flag-moves.ts`): `flag-widened` for every widening (Off to Checks, past it,
+ *   a larger share, and turning a flag back on for everyone), `flag-narrowed`, and `flag-off`.
  *
  * And every hold started, by its cause, whoever started it.
  *
@@ -34,7 +37,10 @@ import { type BatchObservableResult, metrics } from '@opentelemetry/api';
 import { HOLD_CAUSES, type HoldCause, type ReleaseControl, upcast } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import { GUARDRAIL_HOLDS } from '../../../../policy/access.ts';
+import { type FlagAction, flagAction } from '../../../../policy/flag-moves.ts';
+import type { Stage } from '../../../../policy/flags.ts';
 import { type ControlAction, type ControlChange, controlAction } from '../../../../policy/line.ts';
 import type { Logger } from '../log.ts';
 
@@ -58,6 +64,9 @@ export const SECURITY_KINDS = [
   'auto-merge-off',
   'take-widened',
   'take-narrowed',
+  'flag-widened',
+  'flag-narrowed',
+  'flag-off',
 ] as const;
 export type SecurityKind = (typeof SECURITY_KINDS)[number];
 
@@ -78,6 +87,7 @@ const TYPES = [
   'line.started',
   'line.stopped',
   'controls.changed',
+  'flag.staged',
   'hold.started',
 ] as const;
 
@@ -92,6 +102,26 @@ export interface Stored {
   cause?: string | null;
   /** A change of the line's controls: the one control, with its value before and after. */
   change?: unknown;
+  /** A move of a flag's stage: the stages before and after. */
+  staged?: unknown;
+}
+
+/** The kind each move of a flag's stage counts as, by the access table's action it is. */
+const FLAG_KINDS: Record<FlagAction, SecurityKind> = {
+  'flag.to-checks': 'flag-widened',
+  'flag.widen': 'flag-widened',
+  'flag.back-on': 'flag-widened',
+  'flag.narrow': 'flag-narrowed',
+  'flag.off': 'flag-off',
+};
+
+const { from, to } = PAYLOADS['flag.staged'].shape;
+const STAGES_MOVED = z.object({ from, to });
+
+/** A stored move, if it is one as the event's schema has it, so a malformed row is counted as nothing. */
+function movedOf(value: unknown): { from: Stage | null; to: Stage } | undefined {
+  const read = STAGES_MOVED.safeParse(value);
+  return read.success ? (read.data as { from: Stage | null; to: Stage }) : undefined;
 }
 
 /** The kind each change of the line's controls counts as, by the access table's action it is. */
@@ -141,6 +171,11 @@ export function countAs(event: Stored): { kind: SecurityKind } | { hold: HoldCau
       const change = changeOf(event.change);
       return change ? { kind: CONTROL_KINDS[controlAction(change)] } : null;
     }
+    case 'flag.staged': {
+      const moved = movedOf(event.staged);
+      const action = moved && flagAction(moved.from, moved.to);
+      return action ? { kind: FLAG_KINDS[action] } : null;
+    }
     case 'release.controlled':
       return STEPPED_UP_CONTROLS.includes(event.action as ReleaseControl) ? { kind: 'release-control' } : null;
     case 'hold.answered':
@@ -181,6 +216,7 @@ export async function readOn(sql: Sql, tally: Tally): Promise<Tally> {
       action: string | null;
       decision: string | null;
       change: unknown;
+      staged: unknown;
       hold_version: number | null;
       hold_payload: Record<string, unknown> | null;
     }[]
@@ -188,6 +224,8 @@ export async function readOn(sql: Sql, tally: Tally): Promise<Tally> {
     with upto as (select max(seq) as last from events)
     select upto.last::text as last, e.type, e.payload->>'action' as action, e.payload->>'decision' as decision,
            e.payload->'change' as change,
+           case when e.type = 'flag.staged' then jsonb_build_object('from', e.payload->'from', 'to', e.payload->'to')
+           end as staged,
            h.version as hold_version, h.payload as hold_payload
     from upto
     left join events e
@@ -207,6 +245,7 @@ export async function readOn(sql: Sql, tally: Tally): Promise<Tally> {
       action: row.action,
       decision: row.decision,
       change: row.change,
+      staged: row.staged,
       cause: causeOf(row),
     });
     if (counted && 'kind' in counted) next.kinds[counted.kind] += 1;

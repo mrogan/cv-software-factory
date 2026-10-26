@@ -17,7 +17,7 @@ import {
   SESSION,
   STEP_UP,
 } from '../../../policy/access.ts';
-import { CONTROL_STEP_UP, LINE_STEP_UP, SESSION_MINUTES } from '../web/src/access.ts';
+import { CONTROL_STEP_UP, FLAG_STEP_UP, LINE_STEP_UP, SESSION_MINUTES } from '../web/src/access.ts';
 
 const entries = Object.entries(ACCESS) as [Name, Access][];
 const doc = (path: string) => readFileSync(new URL(`../../../${path}`, import.meta.url), 'utf-8');
@@ -65,12 +65,15 @@ describe('the access table', () => {
   });
 
   it('is copied into the console where it marks the line’s controls with the key', () => {
-    for (const [name, asks] of Object.entries({ ...LINE_STEP_UP, ...CONTROL_STEP_UP })) {
+    for (const [name, asks] of Object.entries({ ...LINE_STEP_UP, ...CONTROL_STEP_UP, ...FLAG_STEP_UP })) {
       expect(ACCESS[name as Name]?.stepUp, name).toBe(asks);
     }
     // Every action of the line's controls the table names, but auto-rollback's, which has no control until Part C.
     const named = Object.keys(ACCESS).filter((name) => /^(autonomy|new-work|auto-merge|take)\./.test(name));
     expect(Object.keys(CONTROL_STEP_UP).sort()).toEqual(named.sort());
+    // Every move of a flag's stage the table names, but the one route that is each of them.
+    const moves = Object.keys(ACCESS).filter((name) => name.startsWith('flag.') && name !== 'flag.stage');
+    expect(Object.keys(FLAG_STEP_UP).sort()).toEqual(moves.sort());
   });
 
   it('holds the plan’s figures: 30 minutes a session with no idle timeout, five minutes a passkey given again', () => {

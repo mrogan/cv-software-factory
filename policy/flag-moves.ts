@@ -67,11 +67,11 @@ export const stageWords = (stage: Stage | null): string => {
 };
 
 const rank = (stage: StageName) => STAGES.indexOf(stage);
-const same = (a: Stage | null, b: Stage | null) =>
-  a !== null &&
-  b !== null &&
-  a.stage === b.stage &&
-  (a.stage !== 'share' || (b.stage === 'share' && a.share === b.share));
+/** Whether two stages are the same, a share the same share; none, outside every stage, is the same as none. */
+export const sameStage = (a: Stage | null, b: Stage | null): boolean =>
+  a === null || b === null
+    ? a === b
+    : a.stage === b.stage && (a.stage !== 'share' || (b.stage === 'share' && a.share === b.share));
 
 /**
  * The access table's action a move from one stage to another is, or undefined when it moves nothing. A flag in no
@@ -80,7 +80,7 @@ const same = (a: Stage | null, b: Stage | null) =>
 export function flagAction(from: Stage | null, to: Stage): FlagAction | undefined {
   if (to.stage === 'off') return from?.stage === 'off' ? undefined : 'flag.off';
   if (from === null) return 'flag.widen';
-  if (same(from, to)) return undefined;
+  if (sameStage(from, to)) return undefined;
   if (from.stage === 'share' && to.stage === 'share') return to.share > from.share ? 'flag.widen' : 'flag.narrow';
   if (rank(to.stage) < rank(from.stage)) return 'flag.narrow';
   if (from.stage === 'off' && to.stage === 'checks') return 'flag.to-checks';

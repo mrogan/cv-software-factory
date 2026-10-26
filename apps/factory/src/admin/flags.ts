@@ -37,6 +37,7 @@ import {
   type FlagNow,
   flagAction,
   moveOf,
+  sameStage,
   stageWords,
 } from '../../../../policy/flag-moves.ts';
 import { flagsSpec, isFlagName, readFlags, type Share, type Stage } from '../../../../policy/flags.ts';
@@ -85,8 +86,6 @@ export function nextRevision(held: string | undefined): string {
   const n = Number(/^r(\d{1,9})$/.exec(held ?? '')?.[1] ?? 0);
   return `r${n + 1}`;
 }
-
-const sameStage = (a: Stage | null, b: Stage | null) => JSON.stringify(a) === JSON.stringify(b);
 
 /** The summary of a move, in the console's words. */
 export function stagedSummary(flag: string, action: FlagAction, from: Stage | null, to: Stage): string {

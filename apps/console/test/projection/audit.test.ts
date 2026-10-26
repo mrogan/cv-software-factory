@@ -324,6 +324,8 @@ describe('the detail under a row', () => {
         changes,
       }),
     ];
+    const staged = (from: PayloadOf<'flag.staged'>['from'], to: PayloadOf<'flag.staged'>['to']) =>
+      event(2, 'flag.staged', 'martin', { flag: 'delivery-dates', from, to, revision: 'r2', steppedUp: true });
     const held = event(1, 'hold.started', 'factory', {
       stage: 'gates',
       kind: 'approval',
@@ -342,6 +344,8 @@ describe('the detail under a row', () => {
       'caps.raise': saved([{ field: 'cap', cap: 'day', beforeUsd: 5, afterUsd: 10 }]),
       'hold.approve-guardrail': [held, event(2, 'hold.answered', 'martin', { decision: 'approved', hold: held.id })],
       'passkey.revoke': [event(2, 'passkey.revoked', 'martin', { from: 'console' })],
+      'flag.widen': [staged({ stage: 'checks' }, { stage: 'share', share: 50 })],
+      'flag.back-on': [staged({ stage: 'off' }, { stage: 'everyone' })],
     };
     const marked = Object.entries(ACCESS as Record<string, { stepUp: boolean }>)
       .filter(([name, access]) => access.stepUp && name !== 'step-up')

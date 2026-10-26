@@ -18,9 +18,11 @@ import {
   type PublicEvent,
   SENSES,
 } from '@software-factory/events';
+import { flagAction } from '../../../../../policy/flag-moves.ts';
+import type { Stage } from '../../../../../policy/flags.ts';
 import { CAP_NAMES, type CapField, changesBetween, inForce } from '../../../../../policy/settings.ts';
 import type { Profile } from '../../../../../policy/spend.ts';
-import { CONTROL_STEP_UP, FRESH_MINUTES, GUARDRAIL_HOLDS, SETTINGS_STEP_UP, STEP_UP } from '../access.ts';
+import { CONTROL_STEP_UP, FLAG_STEP_UP, FRESH_MINUTES, GUARDRAIL_HOLDS, SETTINGS_STEP_UP, STEP_UP } from '../access.ts';
 import { changeWords, clock, dayLabel, modelTitle, money, tokens } from '../format.ts';
 import { changeAction } from './controls.ts';
 import { startOfDay } from './line.ts';
@@ -246,6 +248,10 @@ function askedForPasskey(event: PublicEvent, causes: Map<string, HoldCause>, pro
     case 'controls.changed': {
       const action = changeAction(event.payload.change);
       return action !== undefined && CONTROL_STEP_UP[action];
+    }
+    case 'flag.staged': {
+      const action = flagAction(event.payload.from as Stage | null, event.payload.to as Stage);
+      return action !== undefined && FLAG_STEP_UP[action];
     }
     case 'hold.answered': {
       const cause = event.payload.hold ? causes.get(event.payload.hold) : undefined;
