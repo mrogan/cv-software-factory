@@ -671,8 +671,9 @@ select.field:disabled, input.field:disabled { color: var(--text-muted); backgrou
 /* Flags in Controls: one block per flag, its stages, and its actions as answer rows. */
 .flag { display: flex; flex-direction: column; gap: 4px; padding: 10px 0 2px; border-top: 1px solid var(--line); }
 .flag:first-of-type { border-top: 0; padding-top: 2px; }
-.flag-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; font-size: 13px; }
-.flag-top .pv { margin-left: auto; font-size: 12.5px; color: var(--text); }
+.flag-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13px; }
+.flag-top .pv-icon { margin-left: auto; width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--radius-small); color: var(--text-muted); }
+.flag-top .pv-icon:hover { color: var(--text); background: var(--surface); }
 .flags-closed summary { cursor: pointer; padding: 8px 0; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--text-muted); }
 .dialog .fromto { display: block; margin-bottom: 4px; font: 11px/1.4 var(--font-mono); letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); }
 .dialog .what p { margin: 0; font-size: 13.5px; color: var(--text); }
@@ -1212,6 +1213,7 @@ const G = {
   // Admin: the passkey (step-up), a person, an agent at work and a model call.
   key: '<circle cx="4.5" cy="8" r="2.75"/><path d="M7.25 8H14.25 M11.75 8v2.5 M14 8v2"/>',
   person: '<circle cx="8" cy="5.25" r="2.75"/><path d="M2.75 14c.7-2.9 2.8-4.5 5.25-4.5s4.55 1.6 5.25 4.5"/>',
+  eye: '<path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/>',
   flag: '<path d="M3.75 14.25V2.25 M3.75 2.75h8.5l-2 3 2 3h-8.5"/>',
   chip: '<rect x="4" y="4" width="8" height="8" rx="1.5"/><path d="M6.5 1.75V4 M9.5 1.75V4 M6.5 12v2.25 M9.5 12v2.25 M1.75 6.5H4 M1.75 9.5H4 M12 6.5h2.25 M12 9.5h2.25"/>',
 };
@@ -2585,7 +2587,7 @@ function renderFlags() {
     behind: [glyph('cross'), 'attn', `The app still holds r6, 3min after ${FLAG_SYNC.revision}: Martin’s phone hears at 5min.`] }[FLAG_SYNC.state];
   const row = (name) => { const f = FLAGSET[name], at = FLAG_AT[f.stage];
     return `<div class="flag"><div class="flag-top"><code class="flagname">${name}</code><button type="button" class="linkish" data-open="${f.item}">#${f.item}</button>
-      ${at >= 2 && !f.turnedOff ? previewLink(name) : ''}</div>${flagSlider(name)}</div>`; };
+      ${at >= 2 && !f.turnedOff ? `<a class="pv-icon" href="http://mossop.localhost${f.page}?preview=${name}" target="_blank" rel="noopener" title="Preview it on the app" aria-label="Preview ${name} on the app (opens it)">${glyph('eye')}</a>` : ''}</div>${flagSlider(name)}</div>`; };
   $('flags').innerHTML = `<span class="label"><span>Flags</span><span>${live.length} in the app</span></span>
     ${names.length ? live.map(row).join('') : '<p class="help">No flag yet. An improvement ships behind one, off, and it shows here once its release is out.</p>'}
     ${closed.length ? `<details class="flags-closed"><summary>Turned off and closed · ${closed.length}</summary>${closed.map(row).join('')}</details>` : ''}
