@@ -393,8 +393,8 @@ serverFiles:
             labels:
               level: "page"
             annotations:
-              summary: "The app has not taken a flag you narrowed"
-              description: "A minute after you narrowed a flag or turned one off, the app does not hold the flags as you set them, and may still show the feature to those you took it from. Restart flagd, which reads them again as it starts."
+              summary: "The app has not been seen to take a flag you narrowed"
+              description: "A minute after you narrowed a flag or turned one off, the admin service has not seen every pod of the app hold the flags as you set them, or could not ask them: the app may still show the feature to those you took it from. Restart flagd, which reads them again as it starts."
           - alert: FlagsDiffer
             expr: "max(admin_flags_differing_seconds{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}) > 300 and on () max(max_over_time(admin_flags_checked{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}[5m])) == 1"
             for: 0s

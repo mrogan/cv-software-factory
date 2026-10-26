@@ -344,8 +344,8 @@ export const FLAGS_NARROWING_SECONDS = FLAGS_HELD.takeSeconds;
 /**
  * The alerts that say whether the app holds the flags as Martin set them, from the admin service's checks of every pod
  * (`admin/flags-held.ts`):
- * - a page when a narrowing or Off has not reached the app within a minute: he used a kill switch, and it has not
- *   worked;
+ * - a page when a narrowing or Off has not been seen to reach the app within a minute, whether the app holds other flags
+ *   or could not be asked: he used a kill switch, and nothing shows it worked;
  * - a notification when the app has held another flag set than `flags` for more than five minutes: flagd may have
  *   stopped watching `flags`, which leaves it ready and serving the last flags it read, so no change reaches the app;
  * - a notification when the admin service has not been able to ask every pod for as long, or its figures have gone
@@ -368,9 +368,9 @@ export function flagRules(): Rule[] {
       for: '0s',
       labels: { level: LEVELS.page },
       annotations: {
-        summary: 'The app has not taken a flag you narrowed',
+        summary: 'The app has not been seen to take a flag you narrowed',
         description:
-          'A minute after you narrowed a flag or turned one off, the app does not hold the flags as you set them, and may still show the feature to those you took it from. Restart flagd, which reads them again as it starts.',
+          'A minute after you narrowed a flag or turned one off, the admin service has not seen every pod of the app hold the flags as you set them, or could not ask them: the app may still show the feature to those you took it from. Restart flagd, which reads them again as it starts.',
       },
     },
     {

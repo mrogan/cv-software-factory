@@ -104,6 +104,15 @@ describe('the alerts on the flags the app holds', () => {
       },
       {
         interval: '1m',
+        // Not seen taken because no pod could be asked: a kill switch nothing shows working pages as well.
+        input_series: [
+          { series: admin('admin_flags_narrowing_seconds'), values: each(0, 0, 30, 60, 90) },
+          { series: admin('admin_flags_checked'), values: each(1, 0, 0, 0, 0) },
+        ],
+        alert_rule_test: [{ eval_time: '4m', alertname: 'FlagsNotTaken', exp_alerts: [firing('FlagsNotTaken')] }],
+      },
+      {
+        interval: '1m',
         // Taken within the minute: never.
         input_series: [{ series: admin('admin_flags_narrowing_seconds'), values: each(0, 20, 50, 0, 0, 0) }],
         alert_rule_test: [{ eval_time: '5m', alertname: 'FlagsNotTaken', exp_alerts: [] }],

@@ -399,9 +399,9 @@ export class FlagsHeld {
     const pods = new Map<string, Pod>();
     for (const slice of lists.flatMap((list) => list?.items ?? [])) {
       if (slice.addressType !== 'IPv4' && slice.addressType !== 'IPv6') continue;
-      // The app's own port, the one its fence and the admin service's let through, when the slice lists it.
-      const tcp = (slice.ports ?? []).filter((p) => (p.protocol ?? 'TCP') === 'TCP' && p.port);
-      const port = (tcp.find((p) => p.port === APP_PORT) ?? tcp.find((p) => p.name === 'http') ?? tcp[0])?.port;
+      // The app's own port, the one its fence and the admin service's let through, and no other: a slice without it
+      // has no pod to ask, which leaves the check unable to ask rather than reading another server's header.
+      const port = (slice.ports ?? []).find((p) => (p.protocol ?? 'TCP') === 'TCP' && p.port === APP_PORT)?.port;
       if (!port) continue;
       for (const endpoint of slice.endpoints ?? []) {
         // Kubernetes says to read a ready condition it does not know as ready; one shutting down is not.

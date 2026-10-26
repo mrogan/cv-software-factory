@@ -263,7 +263,7 @@ describe('whether the app holds the flags as set', () => {
     expect(held.figures()).toEqual({ differing: 0, narrowing: 0, checked: 1, set: 1 });
   });
 
-  it('asks each pod once on a dual-stack cluster, at the app’s own port when its Service has others', async () => {
+  it('asks each pod once on a dual-stack cluster, at the app’s own port, and none behind a slice without it', async () => {
     const { kube, pods, held } = made();
     kube.slices = {
       website: [
@@ -273,6 +273,10 @@ describe('whether the app holds the flags as set', () => {
     };
     await held.check();
     expect(pods.asked).toEqual([{ address: '10.42.0.11', port: 8080, name: 'website-abc-1' }]);
+    kube.slices = { website: [{ endpoints: [{ ip: '10.42.0.11', name: 'website-abc-1' }], ports: [9464] }] };
+    await held.check();
+    expect(pods.asked).toHaveLength(1);
+    expect(held.figures()?.checked).toBe(0);
   });
 
   it('cannot compare, and says so, when `flags` holds a revision of a shape no write of ours makes', async () => {
