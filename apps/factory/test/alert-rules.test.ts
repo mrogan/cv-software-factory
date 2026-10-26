@@ -260,19 +260,28 @@ describe('the alerts to Martin', () => {
     }
   });
 
-  it('page for what loosens a guardrail or changes who can sign in, notify of what widens the line’s work or acts on a release, and inform of the rest', () => {
+  it('page for what loosens a guardrail or changes who can sign in, notify of what widens the line’s work or a flag or acts on a release, and inform of the rest', () => {
     const at = (level: string) => SECURITY_KINDS.filter((kind) => SECURITY_LEVELS[kind] === level).sort();
     expect(at(LEVELS.page)).toEqual(['autonomy-loosened', 'guardrail-approved', 'passkey-enrolled', 'passkey-revoked']);
     expect(at(LEVELS.notify)).toEqual([
       'auto-merge-on',
       'autonomy-tightened',
+      'flag-widened',
       'line-started',
       'new-work-on',
       'release-control',
       'setting-changed',
       'take-widened',
     ]);
-    expect(at(LEVELS.inform)).toEqual(['auto-merge-off', 'line-stopped', 'new-work-off', 'sign-in', 'take-narrowed']);
+    expect(at(LEVELS.inform)).toEqual([
+      'auto-merge-off',
+      'flag-narrowed',
+      'flag-off',
+      'line-stopped',
+      'new-work-off',
+      'sign-in',
+      'take-narrowed',
+    ]);
   });
 
   it('say only what happened: no label’s value but a hold’s work item, a number, whether it has a pull request, or its cause', () => {

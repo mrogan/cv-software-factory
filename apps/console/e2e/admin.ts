@@ -251,6 +251,7 @@ export class Rollout implements KubeWriter {
   text = async () => undefined;
   create = async () => {};
   remove = async () => {};
+  replace = async () => {};
 }
 
 /** A JSON merge patch (RFC 7386). */
