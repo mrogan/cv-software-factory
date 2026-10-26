@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ANSWERS, answersTo, returnWords, sameVersion, scopesOverlap, WORDS_LEAVE_HELD } from '../src/line.ts';
+import { ANSWERS, answersTo, inScope, returnWords, sameVersion, scopesOverlap, WORDS_LEAVE_HELD } from '../src/line.ts';
 import { formatLog, parseLog } from '../src/log-format.ts';
 import { PUBLIC_VIEWS, publicView, redactSecrets } from '../src/public.ts';
 import { validate, validateSignal } from '../src/schemas.ts';
@@ -1060,6 +1060,17 @@ describe('a return in words', () => {
     // The gates fail a run that names no check all the same.
     expect(returnWords({ from: 'gates', failed: [] })).toBe('1 check failed');
     expect(returnWords({ from: 'review' })).toBe('sent back from review');
+  });
+});
+
+describe('a scope entry', () => {
+  it('reads `**` as whole segments: any folder or none, never part of a name', () => {
+    expect(inScope('test.ts', ['**/test.ts'])).toBe(true);
+    expect(inScope('src/deep/test.ts', ['**/test.ts'])).toBe(true);
+    expect(inScope('latest.ts', ['**/test.ts'])).toBe(false);
+    expect(inScope('src/test.ts', ['src/**/test.ts'])).toBe(true);
+    expect(inScope('src/latest.ts', ['src/**/test.ts'])).toBe(false);
+    expect(inScope('src/a/b.ts', ['src/**'])).toBe(true);
   });
 });
 

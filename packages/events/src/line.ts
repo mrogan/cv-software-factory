@@ -111,14 +111,21 @@ export const answersTo = (cause: HoldCause): HoldAnswer[] =>
 
 /**
  * A scope entry as a pattern: a file (`src/money.ts`), a folder ending in `/` (`test/`), or a pattern with `*` (one
- * path segment) or `**` (any number).
+ * path segment, or part of one) or `**` (any number of whole segments: `**` followed by `/` stands for none or some
+ * folders, so `**` followed by `/test.ts` is `test.ts` in any folder, never `latest.ts`).
  */
 export const pattern = (entry: string) =>
   new RegExp(
     `^${entry
       .split(/(\*\*\/?|\*)/)
       .map((part) =>
-        part.startsWith('**') ? '.*' : part === '*' ? '[^/]*' : part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'),
+        part === '**/'
+          ? '(?:.*/)?'
+          : part === '**'
+            ? '.*'
+            : part === '*'
+              ? '[^/]*'
+              : part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'),
       )
       .join('')}${entry.endsWith('/') ? '.*' : ''}$`,
   );

@@ -39,7 +39,7 @@ describe('the scope fence', () => {
 
   it('never lets through the workflows, the deployment or a code-owned path, whatever the scope says', () => {
     const owned = ownedPaths('# The rules\n/Dockerfile  @mrogan\n/deploy/ @mrogan\npackage.json @mrogan\n');
-    expect(owned).toEqual(['Dockerfile', 'deploy/', '**/package.json']);
+    expect(owned).toEqual(['Dockerfile', 'Dockerfile/', 'deploy/', '**/package.json', '**/package.json/']);
     const result = fence(
       PATCH('.github/workflows/check.yml') + PATCH('Dockerfile') + PATCH('apps/package.json'),
       ['**'],
