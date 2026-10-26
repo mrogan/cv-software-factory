@@ -591,7 +591,7 @@ table.steps { width: 100%; border-collapse: collapse; font: 12px/1.35 var(--font
 .need { display: flex; flex-direction: column; gap: 10px; padding: 16px 16px 16px 18px; background: var(--raised); border: 1px solid var(--line); border-left: var(--stroke-rule) solid var(--attn); border-radius: var(--radius-rule) var(--radius-card) var(--radius-card) var(--radius-rule); }
 .need .kind { font: 11px/1.4 var(--font-mono); letter-spacing: .8px; color: var(--attn); }
 .need .kind span { color: var(--text-muted); letter-spacing: 0; margin-left: 6px; font-family: var(--font-sans); font-size: 12px; }
-.need p { margin: 0; font-size: 15px; line-height: 1.4; }
+.need > p { margin: 0; font-size: 15px; line-height: 1.4; }
 .need p.q { font-size: 13px; color: var(--text-2); }
 .need .row { display: flex; gap: 8px; flex-wrap: wrap; }
 .count-attn { font: 12px/1 var(--font-mono); color: var(--attn); }
@@ -2578,7 +2578,7 @@ function flagSlider(name, { ro = false } = {}) {
       ? `<span class="fstop ${cls}" ${i === at ? 'aria-current="true"' : ''}>${inner}</span>`
       : `<button type="button" class="fstop ${cls}" data-flag-to="${name}:${k}" aria-label="${i < at ? (i === 0 ? 'Turn off' : 'Narrow to ' + label) : 'Widen to ' + label}${why ? ': not now' : ''}">${inner}</button>`;
   }).join('');
-  return `<div class="fslider ${v ? 'ro' : ''} ${f.turnedOff ? 'is-off' : ''}" data-slider="${name}" style="--at: ${at}" role="group" aria-label="${name}: ${f.turnedOff ? 'turned off' : FLAG_STAGES[at][1]}">
+  return `<div class="fslider ${v ? 'is-ro' : ''} ${f.turnedOff ? 'is-off' : ''}" data-slider="${name}" style="--at: ${at}" role="group" aria-label="${name}: ${f.turnedOff ? 'turned off' : FLAG_STAGES[at][1]}">
     <span class="frail"></span><span class="fill"></span>${v ? '' : '<span class="fthumb" aria-hidden="true"></span>'}${stops}</div>`;
 }
 function renderFlags() {
