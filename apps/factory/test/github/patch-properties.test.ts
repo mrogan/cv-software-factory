@@ -388,6 +388,41 @@ const spoilers = (bad: string, [x, code, y]: [string, string, string]): Spoiler[
       return [...blocks, `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-x\n+y\n`];
     },
   },
+  {
+    name: 'a hunk repeated',
+    kinds: ['unsupported'],
+    splice: (blocks, at) =>
+      blocks.map((b, i) => {
+        const [head, ...hunks] = b.split(/(?=^@@ )/m);
+        return i === at ? [head, ...hunks, hunks.at(-1)].join('') : b;
+      }),
+  },
+  {
+    name: 'hunks out of order',
+    kinds: ['unsupported'],
+    splice: (blocks, at) =>
+      blocks.map((b, i) => {
+        const [head, ...hunks] = b.split(/(?=^@@ )/m);
+        return i === at ? [head, ...hunks.reverse()].join('') : b;
+      }),
+  },
+  {
+    name: 'a file changed under a header that deletes it',
+    kinds: ['unsupported'],
+    splice: (blocks, at, files) =>
+      files[at]?.spec.change === 'modify' ? intoHeader(blocks, at, 'deleted file mode 100644\n') : blocks,
+  },
+  {
+    name: 'a header naming another file than its lines',
+    kinds: ['unsupported'],
+    splice: (blocks, at) =>
+      blocks.map((b, i) => (i === at ? b.replace(/^.*/, `diff --git a/${SPLICED} b/${SPLICED}`) : b)),
+  },
+  {
+    name: 'a plain block beside git’s',
+    kinds: ['unsupported'],
+    splice: (blocks, at) => insert(blocks, at, `--- /dev/null\n+++ b/${SPLICED}\n@@ -0,0 +1 @@\n+x\n`),
+  },
 ];
 
 describe('a patch with one thing in it the module refuses', () => {

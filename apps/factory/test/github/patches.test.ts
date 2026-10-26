@@ -176,6 +176,30 @@ describe('what a patch may not do', () => {
     expect(() => filesIn(change('b') + change('c'))).toThrow('more than once');
   });
 
+  it('change a line twice, with hunks that overlap or come out of order', () => {
+    const hunk = (at: number, from: string, to: string) => `@@ -${at} +${at} @@\n-${from}\n+${to}\n`;
+    const patch = (...hunks: string[]) => `diff --git a/x b/x\n--- a/x\n+++ b/x\n${hunks.join('')}`;
+    expect(() => filesIn(patch(hunk(1, 'a', 'b'), hunk(1, 'a', 'b')))).toThrow('overlap or are out of order');
+    expect(() => filesIn(patch(hunk(3, 'c', 'C'), hunk(1, 'a', 'A')))).toThrow('overlap or are out of order');
+    const insert = '@@ -1,0 +2 @@\n+b\n';
+    expect(() => filesIn(patch(insert, insert))).toThrow('overlap or are out of order');
+    expect(filesIn(patch(hunk(1, 'a', 'A'), hunk(3, 'c', 'C'))).map((f) => f.path)).toEqual(['x']);
+  });
+
+  it('say one thing in git’s header and another in the lines under it', () => {
+    const lines = '--- a/x\n+++ b/x\n@@ -1 +0,0 @@\n-a\n';
+    expect(() => filesIn(`diff --git a/x b/x\ndeleted file mode 100644\n${lines}`)).toThrow('says otherwise');
+    expect(() => filesIn(`diff --git a/evil b/evil\n${lines}`)).toThrow('says otherwise');
+    const empty = 'diff --git a/e b/e\nnew file mode 100644\nindex 0000000..e69de29\n';
+    const plain = (path: string) => `--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-a\n+b\n`;
+    expect(() => filesIn(empty + plain('x') + plain('y'))).toThrow(PatchRefused);
+  });
+
+  it('be misread where a lone carriage return in a line looks as if it began one', () => {
+    const patch = 'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\rnew mode 100755\n';
+    expect(filesIn(patch).map((f) => f.path)).toEqual(['x']);
+  });
+
   it('delete a file that is not, at the commit, what it saw', async () => {
     const patch = 'diff --git a/x b/x\ndeleted file mode 100644\n--- a/x\n+++ /dev/null\n@@ -1 +0,0 @@\n-gone\n';
     expect((await applyTo(patch, async () => 'gone\n')).deletions).toEqual(['x']);
