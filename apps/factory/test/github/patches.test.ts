@@ -165,6 +165,13 @@ describe('what a patch may not do', () => {
     }
   });
 
+  it('change no file at all, when it is to be applied', async () => {
+    for (const patch of ['', 'no diff here\n']) {
+      expect(filesIn(patch), patch).toEqual([]);
+      await expect(applyTo(patch, read), patch).rejects.toThrow('changes no file');
+    }
+  });
+
   it('change lines it names no file for, or name a file and change no line of it', () => {
     expect(() => filesIn('@@ -1 +1 @@\n-a\n+b\n')).toThrow(expect.objectContaining({ kind: 'path' }));
     expect(() => filesIn('--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n a\n b\n')).toThrow('changes nothing');

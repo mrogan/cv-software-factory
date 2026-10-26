@@ -7,8 +7,8 @@
  * path, once in the patch. A binary file, a rename, an executable or a symlink, a change of mode, a path with `..`, `.`
  * or an empty segment, a file named twice, a block with no change in it, hunks that overlap or are out of order, a
  * git header that says otherwise than the lines under it, text that is not a unified diff, and a patch that does not
- * apply cleanly are refused, each with a `PatchRefused`. What applies is what the patch says, line
- * endings and all.
+ * apply cleanly are refused, each with a `PatchRefused`; so is a patch that changes no file, when it is to be applied.
+ * What applies is what the patch says, line endings and all.
  */
 import { applyPatch, parsePatch, type StructuredPatch } from 'diff';
 import type { FileChanges } from './actions.ts';
@@ -112,7 +112,10 @@ export function filesIn(patch: string): FilePatch[] {
  */
 export async function applyTo(patch: string, read: (path: string) => Promise<string | null>): Promise<FileChanges> {
   const changes: FileChanges = { additions: [], deletions: [] };
-  for (const file of filesIn(patch)) {
+  const files = filesIn(patch);
+  // Text with no file in it reads as no change, which is not a commit to make.
+  if (!files.length) throw new PatchRefused('unsupported', 'The patch changes no file.');
+  for (const file of files) {
     const current = await read(file.path);
     if (file.change === 'add' && current !== null)
       throw new PatchRefused('does-not-apply', `${file.path} already exists.`);

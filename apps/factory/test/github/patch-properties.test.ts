@@ -259,7 +259,10 @@ const addBlock = (path: string, mode: string) =>
 const insert = (blocks: string[], at: number, block: string) => [...blocks.slice(0, at), block, ...blocks.slice(at)];
 /** Lines put into the block at `at`, after its `diff --git` line. */
 const intoHeader = (blocks: string[], at: number, lines: string) =>
-  blocks.map((b, i) => (i === at ? b.replace(/\n/, `\n${lines}`) : b));
+  blocks.map((b, i) => {
+    const cut = b.indexOf('\n') + 1;
+    return i === at ? b.slice(0, cut) + lines + b.slice(cut) : b;
+  });
 /** The block at `at`, naming `bad` wherever it names its own path. */
 const renamed = (blocks: string[], at: number, files: Written[], bad: string) => {
   const path = (files[at] as Written).spec.path;
@@ -555,7 +558,7 @@ describe('any text at all, given as a patch', () => {
   /** What a reader finds: the files the patch was made from, or for a path it was not, anything. */
   const found = fc.oneof(fc.constant(null), fc.constantFrom('a\n', 'a\nb\n', 'x\n', '', 'a'));
 
-  it('is refused with the module’s own refusal, or commits only plain paths, once each, that the fence reads', async () => {
+  it('is refused with the module’s own refusal, or commits at least one plain path, each once, that the fence reads', async () => {
     await fc.assert(
       fc.asyncProperty(anyPatch, found, async ({ files, patch }, other) => {
         let read: string[];
@@ -575,6 +578,7 @@ describe('any text at all, given as a patch', () => {
           return;
         }
         const committed = [...changes.additions.map((a) => a.path), ...changes.deletions];
+        expect(committed.length).toBeGreaterThan(0);
         expect(new Set(committed).size).toBe(committed.length);
         for (const path of committed) expect(read).toContain(path);
       }),
