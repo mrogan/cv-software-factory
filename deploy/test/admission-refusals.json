@@ -2,104 +2,104 @@
   {
     "namespace": "factory",
     "case": "unsigned",
-    "image": "ghcr.io/mrogan/cv-software-factory/factory@sha256:96ab7beb79ac69cc54e1cb6e107d8979e51261573e82d4503b7a383ca1e3787f",
-    "at": "2026-10-25T13:54:50Z",
+    "image": "ghcr.io/the-roganator/cv-software-factory/factory@sha256:f8298adaffea60fac0d3238e3d6bf81dc918b78ab95a82f74b330ac4b3c6db9d",
+    "at": "2026-10-26T00:17:50Z",
     "outcome": "refused",
-    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-factory-images\" denied the request: Policy factory-images failed: images must be signed by build.yml on main of the repository that builds them: ghcr.io/mrogan/cv-software-factory/factory@sha256:96ab7beb79ac69cc54e1cb6e107d8979e51261573e82d4503b7a383ca1e3787f"
+    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-factory-images\" denied the request: Policy factory-images failed: images must be signed by build.yml on main of the repository that builds them: ghcr.io/the-roganator/cv-software-factory/factory@sha256:f8298adaffea60fac0d3238e3d6bf81dc918b78ab95a82f74b330ac4b3c6db9d"
   },
   {
     "namespace": "factory",
     "case": "other-identity",
     "image": "ghcr.io/sigstore/timestamp-server@sha256:8637f0482ed1ecb229b44ebd0afc760f6f57114a4d53c6953cf65c00218896b2",
-    "at": "2026-10-25T13:54:50Z",
+    "at": "2026-10-26T00:17:50Z",
     "outcome": "refused",
     "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-factory-images\" denied the request: Policy factory-images failed: images must come from this project's GHCR, or be named by digest in the policy: ghcr.io/sigstore/timestamp-server@sha256:8637f0482ed1ecb229b44ebd0afc760f6f57114a4d53c6953cf65c00218896b2"
   },
   {
     "namespace": "factory",
     "case": "misplaced",
-    "image": "ghcr.io/mrogan/cv-worlds-worst-website@sha256:8bc00e120b41cd55fe69e9a8c91d31882e57a3cfb01fc3e3a3060b34439dfe97",
-    "at": "2026-10-25T13:54:51Z",
+    "image": "ghcr.io/the-roganator/cv-worlds-worst-website@sha256:7ae8f3ef5a89017e77917ee68a4b62aae65c2e95d3d9f1f6b327a6d608927142",
+    "at": "2026-10-26T00:17:51Z",
     "outcome": "refused",
-    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-factory-images\" denied the request: Policy factory-images failed: images from this project's GHCR must be ones this namespace runs: ghcr.io/mrogan/cv-worlds-worst-website@sha256:8bc00e120b41cd55fe69e9a8c91d31882e57a3cfb01fc3e3a3060b34439dfe97"
+    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-factory-images\" denied the request: Policy factory-images failed: images from this project's GHCR must be ones this namespace runs: ghcr.io/the-roganator/cv-worlds-worst-website@sha256:7ae8f3ef5a89017e77917ee68a4b62aae65c2e95d3d9f1f6b327a6d608927142"
   },
   {
     "namespace": "runners",
     "case": "unsigned",
-    "image": "ghcr.io/mrogan/cv-software-factory/factory@sha256:96ab7beb79ac69cc54e1cb6e107d8979e51261573e82d4503b7a383ca1e3787f",
-    "at": "2026-10-25T13:54:53Z",
+    "image": "ghcr.io/the-roganator/cv-software-factory/factory@sha256:f8298adaffea60fac0d3238e3d6bf81dc918b78ab95a82f74b330ac4b3c6db9d",
+    "at": "2026-10-26T00:17:53Z",
     "outcome": "refused",
-    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-factory-images\" denied the request: Policy factory-images failed: images must be signed by build.yml on main of the repository that builds them: ghcr.io/mrogan/cv-software-factory/factory@sha256:96ab7beb79ac69cc54e1cb6e107d8979e51261573e82d4503b7a383ca1e3787f"
+    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-factory-images\" denied the request: Policy factory-images failed: images must be signed by build.yml on main of the repository that builds them: ghcr.io/the-roganator/cv-software-factory/factory@sha256:f8298adaffea60fac0d3238e3d6bf81dc918b78ab95a82f74b330ac4b3c6db9d"
   },
   {
     "namespace": "runners",
     "case": "other-identity",
     "image": "ghcr.io/sigstore/timestamp-server@sha256:8637f0482ed1ecb229b44ebd0afc760f6f57114a4d53c6953cf65c00218896b2",
-    "at": "2026-10-25T13:54:53Z",
+    "at": "2026-10-26T00:17:54Z",
     "outcome": "refused",
     "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-factory-images\" denied the request: Policy factory-images failed: images must come from this project's GHCR, or be named by digest in the policy: ghcr.io/sigstore/timestamp-server@sha256:8637f0482ed1ecb229b44ebd0afc760f6f57114a4d53c6953cf65c00218896b2"
   },
   {
     "namespace": "runners",
     "case": "misplaced",
-    "image": "ghcr.io/mrogan/cv-worlds-worst-website@sha256:8bc00e120b41cd55fe69e9a8c91d31882e57a3cfb01fc3e3a3060b34439dfe97",
-    "at": "2026-10-25T13:54:54Z",
+    "image": "ghcr.io/the-roganator/cv-worlds-worst-website@sha256:7ae8f3ef5a89017e77917ee68a4b62aae65c2e95d3d9f1f6b327a6d608927142",
+    "at": "2026-10-26T00:17:55Z",
     "outcome": "refused",
-    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-factory-images\" denied the request: Policy factory-images failed: images from this project's GHCR must be ones this namespace runs: ghcr.io/mrogan/cv-worlds-worst-website@sha256:8bc00e120b41cd55fe69e9a8c91d31882e57a3cfb01fc3e3a3060b34439dfe97"
+    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-factory-images\" denied the request: Policy factory-images failed: images from this project's GHCR must be ones this namespace runs: ghcr.io/the-roganator/cv-worlds-worst-website@sha256:7ae8f3ef5a89017e77917ee68a4b62aae65c2e95d3d9f1f6b327a6d608927142"
   },
   {
     "namespace": "website",
     "case": "unsigned",
-    "image": "ghcr.io/mrogan/cv-worlds-worst-website@sha256:8bc00e120b41cd55fe69e9a8c91d31882e57a3cfb01fc3e3a3060b34439dfe97",
-    "at": "2026-10-25T13:54:57Z",
+    "image": "ghcr.io/the-roganator/cv-worlds-worst-website@sha256:9d3c63c55c4307cdcc2f38f96b7006be274c353302e9ee0a3d2d8bdb13a152c8",
+    "at": "2026-10-26T00:17:57Z",
     "outcome": "refused",
-    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-website-images\" denied the request: Policy website-images failed: images must be signed by build.yml on main of the repository that builds them: ghcr.io/mrogan/cv-worlds-worst-website@sha256:8bc00e120b41cd55fe69e9a8c91d31882e57a3cfb01fc3e3a3060b34439dfe97"
+    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-website-images\" denied the request: Policy website-images failed: images must be signed by build.yml on main of the repository that builds them: ghcr.io/the-roganator/cv-worlds-worst-website@sha256:9d3c63c55c4307cdcc2f38f96b7006be274c353302e9ee0a3d2d8bdb13a152c8"
   },
   {
     "namespace": "website",
     "case": "other-identity",
     "image": "ghcr.io/sigstore/timestamp-server@sha256:8637f0482ed1ecb229b44ebd0afc760f6f57114a4d53c6953cf65c00218896b2",
-    "at": "2026-10-25T13:54:57Z",
+    "at": "2026-10-26T00:17:57Z",
     "outcome": "refused",
     "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-website-images\" denied the request: Policy website-images failed: images must come from this project's GHCR, or be named by digest in the policy: ghcr.io/sigstore/timestamp-server@sha256:8637f0482ed1ecb229b44ebd0afc760f6f57114a4d53c6953cf65c00218896b2"
   },
   {
     "namespace": "website",
     "case": "misplaced",
-    "image": "ghcr.io/mrogan/cv-software-factory/factory@sha256:96ab7beb79ac69cc54e1cb6e107d8979e51261573e82d4503b7a383ca1e3787f",
-    "at": "2026-10-25T13:54:58Z",
+    "image": "ghcr.io/the-roganator/cv-software-factory/factory@sha256:a717cec3e06dd4a0df6c6e7b945c4208807560fa03008149e7b096e8a134a667",
+    "at": "2026-10-26T00:17:58Z",
     "outcome": "refused",
-    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-website-images\" denied the request: Policy website-images failed: images from this project's GHCR must be ones this namespace runs: ghcr.io/mrogan/cv-software-factory/factory@sha256:96ab7beb79ac69cc54e1cb6e107d8979e51261573e82d4503b7a383ca1e3787f"
+    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-website-images\" denied the request: Policy website-images failed: images from this project's GHCR must be ones this namespace runs: ghcr.io/the-roganator/cv-software-factory/factory@sha256:a717cec3e06dd4a0df6c6e7b945c4208807560fa03008149e7b096e8a134a667"
   },
   {
     "namespace": "scoreboard",
     "case": "unsigned",
-    "image": "ghcr.io/mrogan/cv-software-factory/factory@sha256:96ab7beb79ac69cc54e1cb6e107d8979e51261573e82d4503b7a383ca1e3787f",
-    "at": "2026-10-25T13:55:00Z",
+    "image": "ghcr.io/the-roganator/cv-software-factory/factory@sha256:f8298adaffea60fac0d3238e3d6bf81dc918b78ab95a82f74b330ac4b3c6db9d",
+    "at": "2026-10-26T00:18:00Z",
     "outcome": "refused",
-    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-scoreboard-images\" denied the request: Policy scoreboard-images failed: images must be signed by build.yml on main of the repository that builds them: ghcr.io/mrogan/cv-software-factory/factory@sha256:96ab7beb79ac69cc54e1cb6e107d8979e51261573e82d4503b7a383ca1e3787f"
+    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-scoreboard-images\" denied the request: Policy scoreboard-images failed: images must be signed by build.yml on main of the repository that builds them: ghcr.io/the-roganator/cv-software-factory/factory@sha256:f8298adaffea60fac0d3238e3d6bf81dc918b78ab95a82f74b330ac4b3c6db9d"
   },
   {
     "namespace": "scoreboard",
     "case": "other-identity",
     "image": "ghcr.io/sigstore/timestamp-server@sha256:8637f0482ed1ecb229b44ebd0afc760f6f57114a4d53c6953cf65c00218896b2",
-    "at": "2026-10-25T13:55:01Z",
+    "at": "2026-10-26T00:18:00Z",
     "outcome": "refused",
     "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-scoreboard-images\" denied the request: Policy scoreboard-images failed: images must come from this project's GHCR, or be named by digest in the policy: ghcr.io/sigstore/timestamp-server@sha256:8637f0482ed1ecb229b44ebd0afc760f6f57114a4d53c6953cf65c00218896b2"
   },
   {
     "namespace": "scoreboard",
     "case": "misplaced",
-    "image": "ghcr.io/mrogan/cv-software-factory/factory-browser@sha256:92e361d5acc472f26afd99d4b55fd78586284cdfc1e6cbeb1253db420838f2f9",
-    "at": "2026-10-25T13:55:02Z",
+    "image": "ghcr.io/the-roganator/cv-software-factory/factory-browser@sha256:b05dba2a5e0ab0188a39e37f0cc23090d8af30430283f89b603407e52af2ab86",
+    "at": "2026-10-26T00:18:01Z",
     "outcome": "refused",
-    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-scoreboard-images\" denied the request: Policy scoreboard-images failed: images from this project's GHCR must be ones this namespace runs: ghcr.io/mrogan/cv-software-factory/factory-browser@sha256:92e361d5acc472f26afd99d4b55fd78586284cdfc1e6cbeb1253db420838f2f9"
+    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-scoreboard-images\" denied the request: Policy scoreboard-images failed: images from this project's GHCR must be ones this namespace runs: ghcr.io/the-roganator/cv-software-factory/factory-browser@sha256:b05dba2a5e0ab0188a39e37f0cc23090d8af30430283f89b603407e52af2ab86"
   },
   {
     "namespace": "flagd",
     "case": "other-digest",
     "image": "ghcr.io/open-feature/flagd:v0.16.3@sha256:a11ae82ec6e40e89edae4327392a1e4ffc03e211f1b724879bb35b2e4f271bb3",
-    "at": "2026-10-25T13:55:02Z",
+    "at": "2026-10-26T00:18:02Z",
     "outcome": "refused",
     "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-flagd-images\" denied the request: Policy flagd-images failed: images must come from this project's GHCR, or be named by digest in the policy: ghcr.io/open-feature/flagd:v0.16.3@sha256:a11ae82ec6e40e89edae4327392a1e4ffc03e211f1b724879bb35b2e4f271bb3"
   },
@@ -107,16 +107,16 @@
     "namespace": "flagd",
     "case": "other-identity",
     "image": "ghcr.io/sigstore/timestamp-server@sha256:8637f0482ed1ecb229b44ebd0afc760f6f57114a4d53c6953cf65c00218896b2",
-    "at": "2026-10-25T13:55:02Z",
+    "at": "2026-10-26T00:18:02Z",
     "outcome": "refused",
     "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-flagd-images\" denied the request: Policy flagd-images failed: images must come from this project's GHCR, or be named by digest in the policy: ghcr.io/sigstore/timestamp-server@sha256:8637f0482ed1ecb229b44ebd0afc760f6f57114a4d53c6953cf65c00218896b2"
   },
   {
     "namespace": "flagd",
     "case": "misplaced",
-    "image": "ghcr.io/mrogan/cv-software-factory/factory@sha256:96ab7beb79ac69cc54e1cb6e107d8979e51261573e82d4503b7a383ca1e3787f",
-    "at": "2026-10-25T13:55:03Z",
+    "image": "ghcr.io/the-roganator/cv-software-factory/factory@sha256:a717cec3e06dd4a0df6c6e7b945c4208807560fa03008149e7b096e8a134a667",
+    "at": "2026-10-26T00:18:03Z",
     "outcome": "refused",
-    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-flagd-images\" denied the request: Policy flagd-images failed: images from this project's GHCR must be ones this namespace runs: ghcr.io/mrogan/cv-software-factory/factory@sha256:96ab7beb79ac69cc54e1cb6e107d8979e51261573e82d4503b7a383ca1e3787f"
+    "message": "admission webhook \"ivpol.validate.kyverno.svc-fail-finegrained-flagd-images\" denied the request: Policy flagd-images failed: images from this project's GHCR must be ones this namespace runs: ghcr.io/the-roganator/cv-software-factory/factory@sha256:a717cec3e06dd4a0df6c6e7b945c4208807560fa03008149e7b096e8a134a667"
   }
 ]
