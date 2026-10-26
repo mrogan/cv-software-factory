@@ -20,7 +20,10 @@ const alnum = `${lower}ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789`;
 /** Letters from other scripts, which an address may hold and prose around it often does. */
 const unicodeLetters = 'éüßøñçжйдзαβλ東京連絡先𝐡𝐚𠀋';
 
-/** An address as people write them: dotted, tagged, hyphenated, in any case, with a long or a country TLD. */
+/**
+ * An address as people write them: dotted, tagged, hyphenated, in any case, with a long or a country TLD, and now and
+ * then a quoted local part with a space in it.
+ */
 const email = fc
   .record({
     first: chars(alnum + unicodeLetters),
@@ -32,8 +35,12 @@ const email = fc
       { minLength: 1, maxLength: 3 },
     ),
     tld: fc.string({ unit: chars(lower + lower.toUpperCase()), minLength: 2, maxLength: 6 }),
+    quote: fc.boolean(),
   })
-  .map(({ first, local, labels, tld }) => ({ local: first + local, domain: [...labels, tld].join('.') }))
+  .map(({ first, local, labels, tld, quote }) => ({
+    local: quote ? `"${first} ${local}"` : first + local,
+    domain: [...labels, tld].join('.'),
+  }))
   .map(({ local, domain }) => ({ local, domain, address: `${local}@${domain}` }));
 
 /** What may sit right after an address in prose or markup: a dash may run on into the next address. */

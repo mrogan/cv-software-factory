@@ -88,6 +88,7 @@ describe('what leaves the cluster of a report', () => {
     expect(scrub('email:jo@example.com')).toBe('email:[email]');
     expect(scrub('first/last@example.com, jo&jane@example.com, a=b@example.com')).toBe('[email], [email], [email]');
     expect(scrub('jo𝐡n@example.com or john@ex𝐚mple.com')).toBe('[email] or [email]');
+    expect(scrub('"jo.bloggs"@example.com or "jo bloggs"@example.com')).toBe('[email] or [email]');
     expect(scrub('bob@my_host.example.com, jo\u200b@example.com, jo@exam\u00adple.com')).toBe(
       '[email], [email], [email]',
     );

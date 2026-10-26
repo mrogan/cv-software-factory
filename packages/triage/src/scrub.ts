@@ -38,7 +38,7 @@ function withoutEmails(text: string): string {
   let out = '';
   let done = 0;
   for (let at = text.indexOf('@'); at !== -1; at = text.indexOf('@', at + 1)) {
-    const start = forward(text, back(text, at, done, LOCAL), at, ALPHANUMERIC, true);
+    const start = quoted(text, at, done) ?? forward(text, back(text, at, done, LOCAL), at, ALPHANUMERIC, true);
     const end = forward(text, at + 1, text.length, DOMAIN);
     const next = forward(text, end, text.length, LOCAL);
     const length = domainIn(text.slice(at + 1, end), text.charAt(next) === '@');
@@ -75,6 +75,16 @@ function longestDomain(run: string, cut: number): number {
     end = dot;
   }
   return 0;
+}
+
+/**
+ * Where a quoted local part (`"jo bloggs"@example.com`) begins, if the `@` follows one: at its opening quote, which
+ * is the one before its closing quote, so scans for two addresses never cross. Not before `done`.
+ */
+function quoted(text: string, at: number, done: number): number | undefined {
+  if (text.charAt(at - 1) !== '"') return undefined;
+  const open = text.lastIndexOf('"', at - 2);
+  return open >= done && at - open > 2 ? open : undefined;
 }
 
 /**
