@@ -84,6 +84,11 @@ const TRIES = 3;
 /** The role whose events of Verify's, and records of the planner's specs, the admin service believes: the line's. */
 const LINE_ROLE = 'factory_line';
 
+/** The FeatureFlag's address in the Kubernetes API, as the stages write it and the check of the app reads it. */
+export const featureFlagPath = (flags: RolloutRef): string =>
+  `/apis/core.openfeature.dev/v1beta1/namespaces/${encodeURIComponent(flags.namespace)}` +
+  `/featureflags/${encodeURIComponent(flags.name)}`;
+
 /**
  * The next revision of the flag set: `r1`, `r2`, …, counting on from the one `flags` holds. After one of another
  * shape (written by hand), the count starts again from the time, in milliseconds, so it reuses none it held before.
@@ -126,9 +131,7 @@ export class FlagStages {
     held?: Pick<FlagsHeld, 'written'>,
   ) {
     this.#kube = kube;
-    this.#path =
-      `/apis/core.openfeature.dev/v1beta1/namespaces/${encodeURIComponent(flags.namespace)}` +
-      `/featureflags/${encodeURIComponent(flags.name)}`;
+    this.#path = featureFlagPath(flags);
     this.#sql = sql;
     this.#log = log;
     this.#releases = releases;

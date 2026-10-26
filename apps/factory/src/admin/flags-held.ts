@@ -28,6 +28,7 @@ import { FLAGS_HELD, REVISION, REVISION_FLAG, readFlags } from '../../../../poli
 import type { RolloutRef } from '../release/rollout-ref.ts';
 import type { Kube } from '../runners/kube.ts';
 import { UNMEASURED } from '../senses/http.ts';
+import { featureFlagPath } from './flags.ts';
 
 /** How often it asks, how long it waits for a pod, and the minute the app has to take a narrowing. */
 export const HELD = {
@@ -191,9 +192,7 @@ export class FlagsHeld {
     now = Date.now,
   }: { kube: Kube; flags: RolloutRef; rollout: RolloutRef; log: Logger; ask?: Ask; now?: () => number }) {
     this.#kube = kube;
-    this.#flags =
-      `/apis/core.openfeature.dev/v1beta1/namespaces/${encodeURIComponent(flags.namespace)}` +
-      `/featureflags/${encodeURIComponent(flags.name)}`;
+    this.#flags = featureFlagPath(flags);
     this.#rollout =
       `/apis/argoproj.io/v1alpha1/namespaces/${encodeURIComponent(rollout.namespace)}` +
       `/rollouts/${encodeURIComponent(rollout.name)}`;
