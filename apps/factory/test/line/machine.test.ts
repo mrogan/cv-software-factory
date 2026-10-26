@@ -1232,7 +1232,7 @@ describe('Martin’s answer to a hold', () => {
   });
 
   it('reviews a change whose gates pass after they sent it back, on a branch the coder did not move', () => {
-    // The branch was brought up to date with main while the coder found nothing to change, and held.
+    // Main was merged into the branch while the coder found nothing to change, and held.
     const returnedThenHeld = [ticket, spec, pushed(), started(), finished('failed'), returned('gates')];
     expect(decide(returnedThenHeld, facts).next).toEqual({ do: 'step', agent: 'coder', round: 2 });
     const passed = [...returnedThenHeld, started(OTHER), finished('passed', OTHER)];

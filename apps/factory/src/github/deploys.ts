@@ -21,8 +21,9 @@
  * The deploy branch is this watch's alone. When main moves on and the build is still the newest (a merge that built no
  * image), the branch is left behind main: the merge queue tests it on main as it will be, so it merges as it is. Only
  * when it conflicts with main, which the queue cannot take (main's pin file changed by other means), is the pin commit
- * made again, the same way, on main's new head, approved or not: a conflict merges with no approval, and Martin's
- * approval counts only on the commit it was given to.
+ * made again, the same way, on main's new head, approved or not: a pull request that conflicts cannot merge either
+ * way, and Martin's approval counts only on the commit it was given to. GitHub may answer whether it conflicts from
+ * main before it moved, so an open pull request found to merge cleanly is asked again every pass.
  *
  * Its title names each pin file's commit, as the build workflow's `changes` job reads them back: `chore(deploy): run
  * console 1f14f44 and the factory 9e0b2d1 on the local cluster`. A build Martin closed a pull request for without
@@ -450,7 +451,7 @@ const runsOf = ({ pin, proposal }: Pick<Move, 'pin' | 'proposal'>): Runs => ({ p
 
 /**
  * Watches one deploy, and opens or moves its pull request when main has a newer build of any of its pins, or makes
- * its commit again on main's head when main has moved on with no newer build.
+ * its commit again on main's head when its pull request conflicts with main.
  */
 export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
   const { github, signatures, actions, log, now = Date.now, proposals = new DeployProposals() } = deps;
@@ -458,7 +459,8 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
   const label = deployLabel(target);
   // What this worker last proposed, from which newer builds, and at which head of main: a pass does nothing more until
   // any of them moves, and a dry run, which changes nothing in GitHub, records each proposal once.
-  let proposed: { found: string; title: string; head: string } | undefined;
+  // `settled` is false while an open pull request's answer to whether it conflicts may yet change: it is asked again.
+  let proposed: { found: string; title: string; head: string; settled?: false } | undefined;
   // When it first saw each digest with no signature, and the digests it has warned of, so each is said once.
   const waiting = new Map<string, number>();
   const warned = new Set<string>();
@@ -521,7 +523,7 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
     const refused = found.filter((_, i) => states[i] === 'refused');
     if (!ready.length) return;
     const all = deployTitle(target, ready.map(runsOf));
-    if (proposed?.found === all && proposed.head === head) return;
+    if (proposed?.found === all && proposed.head === head && proposed.settled !== false) return;
 
     const [owner] = repo.split('/');
     const { body: pulls } = await github.poll(
@@ -569,7 +571,7 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
       // Not known yet: the next pass asks again.
       if (conflicting === undefined) return;
       if (!conflicting) {
-        proposed = { found: all, title, head };
+        proposed = { found: all, title, head, settled: false };
         return;
       }
     } else if (!existing && proposed?.title === title) {

@@ -492,7 +492,8 @@ Argo CD deploys them from \`deploy/overlays/local\` once this merges. A newer bu
     const pass = watch(gh, FACTORY);
     await pass();
     gh.moveMain();
-    // GitHub has yet to say whether it merges cleanly: nothing moves, and the next pass asks again.
+    // GitHub still answers from main before it moved, or has yet to say: nothing moves, and each pass asks again.
+    await pass();
     gh.setMergeable(null);
     await pass();
     expect(writes(gh.sent)).toEqual([]);
@@ -564,7 +565,7 @@ Argo CD deploys them from \`deploy/overlays/local\` once this merges. A newer bu
     const pass = watch(gh, FACTORY, ghcr(), actions);
     await pass();
     await pass();
-    // Nor again as main moves on: GitHub has no pull request of the dry run's to bring up to date.
+    // Nor again as main moves on: GitHub has no pull request of the dry run's to conflict with main.
     gh.moveMain();
     await pass();
     expect(records).toEqual(['setBranch', 'commit', 'setBranch', 'deleteBranch', 'openPullRequest']);
