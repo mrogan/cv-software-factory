@@ -139,8 +139,8 @@ spec:
             capabilities:
               drop: [ALL]
 ---
-# The two ports the app may reach (network-policies.yaml), and no other of flagd's: not its evaluation or OFREP ports,
-# which listen in the pod and are fenced.
+# The one port the app may reach (network-policies.yaml), and no other of flagd's: not its management port, which the
+# kubelet checks from the node, or its evaluation or OFREP ports, which listen in the pod and are fenced.
 apiVersion: v1
 kind: Service
 metadata:
@@ -158,6 +158,3 @@ spec:
       port: 8015
       targetPort: sync
       appProtocol: grpc
-    - name: management
-      port: 8014
-      targetPort: management

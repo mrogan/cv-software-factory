@@ -28,10 +28,11 @@
 # that label reaches neither.
 #
 # Then the app's own pods, whose code agents write: a pod labelled like them reaches DNS, the collector and flagd's sync
-# and health ports, and not flagd's other ports, Prometheus, Loki, Tempo, Postgres, the gateway, the Kubernetes API or
-# the internet. The app is reached through Traefik and by the probes, the crawler and the analysis, and not by another
-# pod beside it, which neither of `website`'s policies selects and so reaches nothing at all, not even DNS; nor does a
-# worker reach flagd. flagd's own fence is seen from outside alone:
+# port, and not flagd's other ports (its management port among them, where the kubelet's probes find it ready),
+# Prometheus, Loki, Tempo, Postgres, the gateway, the Kubernetes API or the internet. The app is reached through
+# Traefik and by the probes, the crawler and the analysis, and not by another pod beside it, which neither of
+# `website`'s policies selects and so reaches nothing at all, not even DNS; nor does a worker reach flagd. flagd's own
+# fence is seen from outside alone:
 # `flagd-images` admits flagd's image and nothing else, so no pod labelled like it can be started there.
 #
 # Then the pod log collector, which reads every pod's log from the node's files: a pod labelled like it reaches Loki's
@@ -498,7 +499,7 @@ expect "the app cannot reach the gateway" website:egress-app "http://$gateway_ip
 expect "the app cannot reach the Kubernetes API" website:egress-app "https://$api_ip/version" blocked
 expect "the app cannot reach a public address" website:egress-app https://1.1.1.1 blocked
 expect "the app reaches flagd's sync port" website:egress-app http://flagd.flagd:8015/v1/flags reached
-expect "the app reaches flagd's health port" website:egress-app http://flagd.flagd:8014/healthz "reached, HTTP 200"
+expect "the app cannot reach flagd's management port" website:egress-app "http://$flagd_ip:8014/healthz" blocked
 expect "the app cannot reach flagd's evaluation port" website:egress-app "http://$flagd_ip:8013" blocked
 expect "the app cannot reach flagd's OFREP port" website:egress-app "http://$flagd_ip:8016" blocked
 expect "a pod beside the app cannot reach flagd" website:egress-stranger "http://$flagd_ip:8015/v1/flags" blocked
@@ -512,7 +513,7 @@ expect "the crawler reaches the app" factory:egress-crawler http://website.websi
 # would be: `website`'s default deny leaves it nothing, not even DNS.
 expect "a pod beside the app cannot look up a name" website:egress-stranger http://otel-collector.telemetry:4318 "no name"
 expect "a pod beside the app cannot reach the collector" website:egress-stranger "http://$collector_ip:4318" blocked
-expect "a pod beside the app cannot reach flagd's health port" website:egress-stranger "http://$flagd_ip:8014/healthz" blocked
+expect "a pod beside the app cannot reach flagd's management port" website:egress-stranger "http://$flagd_ip:8014/healthz" blocked
 expect "a pod beside the app cannot reach it" website:egress-stranger "http://$website_ip" blocked
 expect "a pod beside the app cannot reach a public address" website:egress-stranger https://1.1.1.1 blocked
 

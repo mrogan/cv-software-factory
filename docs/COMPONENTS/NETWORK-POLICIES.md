@@ -40,7 +40,7 @@ flowchart LR
   line -- verify port --> probes
   triage -- page reader --> probes
   probes --> app
-  app -- sync and health ports --> flagdpod
+  app -- sync port --> flagdpod
 ```
 
 ## `factory`
@@ -86,7 +86,7 @@ The controller reaches DNS, the Kubernetes API and Prometheus, and only Promethe
 
 Everything is denied, then:
 
-- the app's pods may reach flagd's sync port (8015), from which their in-process provider streams the flag set, and its health port (8014), and nothing else of it: not its evaluation or OFREP ports, which listen in the pod;
+- the app's pods may reach flagd's sync port (8015), from which their in-process provider streams the flag set, and nothing else of it: not its management (8014), evaluation or OFREP ports, which listen in the pod. The kubelet checks flagd's health on its management port from the node, which needs no policy;
 - flagd may reach the Kubernetes API, for its watch of `flags`, DNS, and the collector's OTLP port ([feature flags](FEATURE-FLAGS.md)).
 
 ## `pod-logs`
@@ -114,7 +114,7 @@ The policies come from this repository, since the app's AppProject cannot make o
 
 | Pod | Reaches | Reached by |
 |---|---|---|
-| The app's pods, whose code agents write | DNS, the collector's OTLP port, and flagd's sync and health ports | Traefik, the probes, the crawler and the canary's journeys Job, on 8080 only |
+| The app's pods, whose code agents write | DNS, the collector's OTLP port, and flagd's sync port | Traefik, the probes, the crawler and the canary's journeys Job, on 8080 only |
 | The journeys Job | DNS and the app's pods, and nothing else | |
 
 What reaches the app through Traefik has had `x-unmeasured` removed ([the mark](ADMISSION-CONTROL.md#the-mark)), so only the pods this policy lets in beside Traefik can send it.
@@ -128,7 +128,7 @@ It starts a pod labelled like each fenced part, and shows what each reaches and 
 - a worker;
 - a runner's agent and prepare pods;
 - the analysis Job;
-- the app, which reaches flagd's sync and health ports and not its others, where a worker does not reach flagd at all (flagd's own fence is seen from outside: `flagd-images` admits no other image to start there);
+- the app, which reaches flagd's sync port and not its others, its management port among them, where a worker does not reach flagd at all (flagd's own fence is seen from outside: `flagd-images` admits no other image to start there);
 - a pod beside the app that neither `website` policy selects, as one the app's repository relabelled would be, which reaches nothing: not DNS, the collector, flagd, the app or the internet;
 - the Rollouts controller;
 - Kyverno's two controllers;
@@ -156,4 +156,4 @@ It has controls, which must reach what they reach:
 - Tempo reaches Prometheus's remote-write receiver, and Argo Rollouts' controller reaches Prometheus;
 - Alertmanager reaches the intake and Pushover, and Prometheus's server reaches Alertmanager;
 - Traefik, the probes and the crawler still reach the app;
-- the app reaches flagd's sync and health ports.
+- the app reaches flagd's sync port.

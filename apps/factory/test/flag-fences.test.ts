@@ -9,7 +9,7 @@ import { DEPLOY, manifests as deployManifests } from './deploy.ts';
  * Feature flags' fences as deploy/ declares them (milestone 7): flagd alone in `flagd`, reading the one FeatureFlag,
  * `flags`, and writing nothing; nobody of ours writing `flags` but the services named here; the resource made by Argo
  * CD and its flags left alone; admission keeping it the only one and never deleted; and flagd reached by the app's
- * pods on its sync and health ports alone.
+ * pods on its sync port alone.
  */
 interface Rule {
   apiGroups?: string[];
@@ -326,7 +326,7 @@ describe('flagd’s fence', () => {
   const policies = async () =>
     (await manifests()).filter(({ manifest, namespace }) => manifest.kind === 'NetworkPolicy' && namespace === 'flagd');
 
-  it('denies everything in flagd, and then lets in the app’s pods on the sync and health ports alone', async () => {
+  it('denies everything in flagd, and then lets in the app’s pods on the sync port alone', async () => {
     const all = await policies();
     expect(all.map(({ manifest }) => manifest.metadata?.name)).toEqual(['default-deny', 'flagd']);
     const deny = all[0]?.manifest.spec;
@@ -334,7 +334,7 @@ describe('flagd’s fence', () => {
     const flagd = all[1]?.manifest.spec;
     expect(flagd?.podSelector).toEqual({ matchLabels: { 'app.kubernetes.io/name': 'flagd' } });
     expect(describeRules(flagd?.ingress, 'from')).toEqual([
-      { from: [['website', { 'app.kubernetes.io/name': 'website' }]], ports: ['TCP/8015', 'TCP/8014'] },
+      { from: [['website', { 'app.kubernetes.io/name': 'website' }]], ports: ['TCP/8015'] },
     ]);
   });
 
@@ -347,14 +347,11 @@ describe('flagd’s fence', () => {
     ]);
   });
 
-  it('serves those two ports on its Service, to the ports flagd listens on for them', async () => {
+  it('serves the sync port alone on its Service, to the port flagd listens on for it', async () => {
     const all = await manifests();
     const service = all.find(({ manifest, namespace }) => manifest.kind === 'Service' && namespace === 'flagd')
       ?.manifest.spec;
-    expect(service?.ports?.map((p) => [p.port, p.targetPort])).toEqual([
-      [8015, 'sync'],
-      [8014, 'management'],
-    ]);
+    expect(service?.ports?.map((p) => [p.port, p.targetPort])).toEqual([[8015, 'sync']]);
     const container = all.find(({ manifest }) => manifest.kind === 'Deployment' && manifest.metadata?.name === 'flagd')
       ?.manifest.spec?.template?.spec.containers[0];
     expect(container?.ports).toEqual([

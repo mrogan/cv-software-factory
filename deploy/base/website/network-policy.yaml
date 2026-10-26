@@ -16,10 +16,10 @@ spec:
 ---
 # The app's fence. Agents write the app's code, so its pods may reach no more than serving its pages needs: DNS; the
 # collector on OTLP over HTTP (4318), where it sends its telemetry; and flagd's sync port (8015), from which its
-# in-process provider streams the flag set, and its management port (8014), for its health (deploy/base/flagd). Not
-# flagd's other ports, Prometheus, Loki, Tempo, Postgres, the gateway, the Kubernetes API or the internet. They are
-# reached on 8080 only by Traefik, which serves the app's visitors and splits a release's traffic; the probes and the
-# crawler, from the factory's namespace; and the canary's analysis Job.
+# in-process provider streams the flag set (deploy/base/flagd). Not flagd's other ports, its management port (8014)
+# among them, Prometheus, Loki, Tempo, Postgres, the gateway, the Kubernetes API or the internet. They are reached on
+# 8080 only by Traefik, which serves the app's visitors and splits a release's traffic; the probes and the crawler,
+# from the factory's namespace; and the canary's analysis Job.
 #
 # It selects the stable and the canary pods alike, by the label the app's repository gives them. The app's AppProject
 # cannot create a NetworkPolicy, so nothing there can widen this. The kubelet's health checks come from the node, which
@@ -84,4 +84,3 @@ spec:
               app.kubernetes.io/name: flagd
       ports:
         - { protocol: TCP, port: 8015 }
-        - { protocol: TCP, port: 8014 }
