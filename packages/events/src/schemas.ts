@@ -40,6 +40,28 @@ const take = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('just-one'), workItem }),
 ]);
 
+/**
+ * A feature flag's name, as the app names them and `policy/flags.ts` renders them: lower-case letters and digits, in
+ * words joined by hyphens. Never the flag set's revision, which is no feature.
+ */
+const flagName = z
+  .string()
+  .max(100)
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'a flag name, such as delivery-dates')
+  .refine((name) => name !== 'flag-set-revision', "the flag set's revision is no feature flag");
+const flagShare = z.literal(V.FLAG_SHARES);
+/** A flag's stage: the share stage with its share, any other alone (`policy/flags.ts`). */
+const flagStage = z.discriminatedUnion('stage', [
+  z.strictObject({ stage: z.enum(['off', 'checks', 'preview', 'everyone']) }),
+  z.strictObject({ stage: z.literal('share'), share: flagShare }),
+]);
+/** One side of a flag at the share stage, from the traffic generator's own figures: none when it had no requests. */
+const flagSide = z.strictObject({
+  requests: count,
+  errorRate: probability.nullable(),
+  p99Ms: count.nullable(),
+});
+
 /** Where on a page something is, in CSS pixels from the top left of the screenshot. */
 const rect = {
   x: z.number().nonnegative(),
@@ -1043,6 +1065,41 @@ export const PAYLOADS = {
       z.strictObject({ control: z.literal('auto-merge'), before: z.boolean(), after: z.boolean() }),
       z.strictObject({ control: z.literal('take'), before: take.nullable(), after: take }),
     ]),
+  }),
+  /**
+   * Martin set a flag's stage in the console (the admin service): the flag, the stage `flags` held it at before (none
+   * when it held it in no stage's shape) and the one he set, with its share at the share stage, the revision of the
+   * flag set written with it, and whether the move took his passkey again. On the work item whose improvement's spec
+   * names the flag. Turning it off takes his reason, for the audit log and the work item; any other move may give one.
+   */
+  'flag.staged': z
+    .strictObject({
+      flag: flagName,
+      from: flagStage.nullable(),
+      to: flagStage,
+      revision: z.string().regex(/^[!-~]{1,128}$/, "the flag set's revision, as flagd holds it"),
+      reason: text(200).optional(),
+      steppedUp: z.boolean(),
+    })
+    .refine((staged) => staged.to.stage !== 'off' || staged.reason !== undefined, {
+      message: 'turning a flag off gives a reason',
+      path: ['reason'],
+    }),
+  /**
+   * Verify compared a flag's two sides at the share stage (task 17): flag on against flag off, on the traffic
+   * generator's own requests in the window, each id's side worked out with flagd's own rule, judged on errors and
+   * latency with the canary's thresholds. `setAsideMinutes` is how much of the window a canary was in flight, left out.
+   * Until the latest comparison of a flag at its share, appended by the line since Martin last set its stage, has
+   * passed, the admin service refuses Everyone. On the work item whose improvement's spec names the flag.
+   */
+  'flag.compared': z.strictObject({
+    flag: flagName,
+    share: flagShare,
+    window: z.strictObject({ from: timestamp, to: timestamp }),
+    setAsideMinutes: count,
+    outcome: z.enum(V.FLAG_COMPARISONS),
+    sides: z.strictObject({ on: flagSide, off: flagSide }),
+    reason: text(300).optional(),
   }),
 } satisfies { [K in EventType]: z.ZodType };
 

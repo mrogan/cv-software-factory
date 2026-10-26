@@ -40,11 +40,14 @@
  * any resume, in a transaction of its own, so a patch that fails leaves no event, no connection to the store waits on
  * Kubernetes, and the line finds the control as soon as the Rollout acts on it. A patch whose answer never came is
  * read back, and counts as made if the Rollout shows it, or shows the controller has acted on it (a promotion's
- * canary at or past its step, or all of the traffic). An append that fails is tried once more, and if that fails too,
- * the control is logged as made without its event.
+ * canary at or past its step, or all of the traffic). An append that fails is tried once more (`appendMade`), and if
+ * that fails too, the control is logged as made without its event. The feature flags' stages are written and recorded
+ * the same way (`flags.ts`).
+ *
+ * **A canary in flight** is also what a feature flag waits for before it may go to Share (`inFlight`): the two
+ * versions would mix the flag's two sides.
  */
 import type { NewEvent, ReleaseControl } from '@software-factory/events';
-import { validate } from '@software-factory/events/schemas';
 import { lineStopped } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
@@ -61,7 +64,7 @@ import {
 import { namedReleases, observe, podHashes, rolloutSchema } from '../release/rollout.ts';
 import type { RolloutRef } from '../release/rollout-ref.ts';
 import { KubeError, type KubeWriter } from '../runners/kube.ts';
-import { adminEvent, appendMartins, Refused } from './store.ts';
+import { adminEvent, appendMade, checked, Refused } from './store.ts';
 
 /**
  * The Rollout, as the line reads it (`release/rollout.ts`), and what the controls read besides: what a conditional patch
@@ -464,17 +467,27 @@ export class ReleaseControls {
    * so one that did commit after all is found, and recorded once.
    */
   async #record(event: NewEvent): Promise<void> {
-    for (let attempt = 1; ; attempt++) {
-      try {
-        await this.#sql.begin((tx) => appendMartins(this.#sql, tx, [event]));
-        return;
-      } catch (error) {
-        const recorded = await this.#sql`select 1 from events where id = ${event.id}`.catch(() => []);
-        if (recorded.length) return;
-        if (attempt < 2) continue;
-        this.#log.error({ err: error, event }, 'made a control of the canary, and could not record it');
-        throw new Refused('record', 500, 'Done, but not recorded: the store did not take the event. Look in the logs.');
-      }
+    try {
+      await appendMade(this.#sql, event);
+    } catch (error) {
+      this.#log.error({ err: error, event }, 'made a control of the canary, and could not record it');
+      throw new Refused('record', 500, 'Done, but not recorded: the store did not take the event. Look in the logs.');
+    }
+  }
+
+  /**
+   * The canary in flight now, as a move of a feature flag into Share is judged (`flags.ts`): its version, as the line
+   * recorded its release, or the release's name, and its weight. None when no canary is out, or the app has no
+   * Rollout. Throws when the Rollout can't be read, or is between releases: whether one is in flight can't be told.
+   */
+  async inFlight(): Promise<{ version: string; weight: number } | undefined> {
+    try {
+      const { canary, record } = await this.#read();
+      if (!canary.inFlight) return undefined;
+      return { version: record ? short(record.started.version) : canary.release, weight: canary.weight };
+    } catch (error) {
+      if (error instanceof Refused && error.refused === 'rollout') return undefined;
+      throw error;
     }
   }
 }
@@ -513,13 +526,6 @@ function kubeRefusal(error: unknown): Refused | undefined {
     return new Refused('kubernetes', 502, 'Kubernetes refused the change, and nothing was done.');
   }
   return undefined;
-}
-
-/** A control's event, checked as the store will check it: one it would refuse is a fault here, and nothing is done. */
-function checked(event: NewEvent): NewEvent {
-  const valid = validate(event);
-  if (!valid.ok) throw new Error(`a control's event is not valid: ${valid.problems.join('; ')}`);
-  return event;
 }
 
 /** The summary of Stop the line's abort, in the console's words. */

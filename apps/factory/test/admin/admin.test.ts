@@ -839,6 +839,7 @@ class RolloutKube implements KubeWriter {
   text = async () => undefined;
   create = async () => {};
   remove = async () => {};
+  replace = async () => {};
 }
 
 /** The Rollout's spec and status with each flag that is false left out, as `omitempty` leaves it out. */

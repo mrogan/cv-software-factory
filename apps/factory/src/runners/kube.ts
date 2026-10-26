@@ -1,7 +1,8 @@
 /**
  * The Kubernetes API, as much of it as the line needs to run jobs in the `runners` namespace: create, read and delete
  * a Job, create a work item's volume, and read a Job's pods and their logs; and as much as the admin service needs to
- * control the app's Rollout: read it, and patch it or its status. In the cluster it uses the pod's service account; on
+ * control the app's Rollout, read it, and patch it or its status, and to stage the feature flags: read `flags`, and
+ * replace it whole. In the cluster it uses the pod's service account; on
  * a host, the address `kubectl proxy` serves (KUBE_API_URL), which carries the person's own credentials. What each may
  * do is its service account's Role, not this client's.
  */
@@ -20,7 +21,7 @@ export interface Kube {
   remove(path: string): Promise<void>;
 }
 
-/** The API, with patching: the admin service's, for the app's Rollout. */
+/** The API, with writes: the admin service's, for the app's Rollout and the feature flags. */
 export interface KubeWriter extends Kube {
   /**
    * A JSON merge patch of an object, or of a subresource by its path (`…/status`). A `metadata.resourceVersion` in the
@@ -28,6 +29,11 @@ export interface KubeWriter extends Kube {
    * API says it was made, it was.
    */
   patch(path: string, body: unknown): Promise<void>;
+  /**
+   * Replaces an object whole (`PUT`), as read with what changes changed. Its `metadata.resourceVersion` makes it
+   * conditional, as an update always is: the API answers 409 if the object has changed since it was read.
+   */
+  replace(path: string, body: unknown): Promise<void>;
 }
 
 export type KubeErrorKind = 'refused' | 'invalid' | 'server' | 'malformed';
@@ -92,6 +98,9 @@ export function client(send: Send): KubeWriter {
     },
     async patch(path: string, body: unknown) {
       check('PATCH', path, await send('PATCH', path, body, MERGE_PATCH));
+    },
+    async replace(path: string, body: unknown) {
+      check('PUT', path, await send('PUT', path, body));
     },
   };
 }

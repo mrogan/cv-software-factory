@@ -23,8 +23,9 @@ const entries = Object.entries(ACCESS) as [Name, Access][];
 const doc = (path: string) => readFileSync(new URL(`../../../${path}`, import.meta.url), 'utf-8');
 
 /**
- * Each thing spec section 5.4 says needs the passkey again, and the entries that are it. A flag's stage is Part B's,
- * so its entry joins the table with the flags.
+ * Each thing spec section 5.4 says needs the passkey again, and the entries that are it. Widening a flag's stage is
+ * every widening but Off to Checks (`flag.to-checks`), which shows a change to nobody but the factory's own checks, as
+ * the plan's list says, and turning a flag back on for everyone.
  */
 const SPEC_STEP_UP: Record<string, Name[]> = {
   'raising a cap or a setting that raises spend': ['caps.raise', 'agent.raise', 'take.widen'],
@@ -32,7 +33,7 @@ const SPEC_STEP_UP: Record<string, Name[]> = {
   'turning auto-merge on or auto-rollback off': ['auto-merge.on', 'auto-rollback.off'],
   'starting the line': ['line.start'],
   'promoting a canary or retrying a stopped release': ['release.promote', 'release.retry'],
-  "widening a flag's stage": [],
+  "widening a flag's stage": ['flag.widen', 'flag.back-on'],
   'approving a hold whose cause is a guardrail': ['hold.approve-guardrail'],
   'revoking a passkey': ['passkey.revoke'],
 };
