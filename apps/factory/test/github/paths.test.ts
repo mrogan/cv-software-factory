@@ -29,4 +29,11 @@ describe('a plain path', () => {
     expect(plainPath('src/\u009b31mmoney.ts')).toBe(false);
     expect(plainPath('src/money\u0085.ts')).toBe(false);
   });
+
+  it('holds no line or paragraph separator, or format character such as a bidi override', () => {
+    expect(plainPath('deploy/a\u2028b.yaml')).toBe(false);
+    expect(plainPath('src/a\u2029b.ts')).toBe(false);
+    expect(plainPath('src/\u202emoney.ts')).toBe(false);
+    expect(plainPath('src/mo\u200bney.ts')).toBe(false);
+  });
 });

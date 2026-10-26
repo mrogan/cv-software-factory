@@ -1072,6 +1072,12 @@ describe('a scope entry', () => {
     expect(inScope('src/latest.ts', ['src/**/test.ts'])).toBe(false);
     expect(inScope('src/a/b.ts', ['src/**'])).toBe(true);
   });
+
+  it('takes in a path with a line or paragraph separator in it as any other', () => {
+    expect(inScope('deploy/a\u2028b.yaml', ['deploy/'])).toBe(true);
+    expect(inScope('src/a\u2029b/Dockerfile', ['**/Dockerfile'])).toBe(true);
+    expect(inScope('a\nb.ts', ['*.ts'])).toBe(true);
+  });
 });
 
 describe('two scopes that share a file', () => {
@@ -1081,6 +1087,8 @@ describe('two scopes that share a file', () => {
     expect(scopesOverlap(['test/search.test.ts'], ['test/'])).toEqual(['test/search.test.ts']);
     expect(scopesOverlap(['src/*.ts'], ['src/money.ts'])).toEqual(['src/*.ts']);
     expect(scopesOverlap(['src/'], ['src/**/*.ts'])).toEqual(['src/']);
+    expect(scopesOverlap(['docs/*AGENTS.md'], ['**/AGENTS.md'])).toEqual(['docs/*AGENTS.md']);
+    expect(scopesOverlap(['src/*test.ts'], ['**/test.ts'])).toEqual(['src/*test.ts']);
   });
 
   it('share nothing when no file is in both', () => {

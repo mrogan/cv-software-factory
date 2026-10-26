@@ -111,16 +111,21 @@ export const answersTo = (cause: HoldCause): HoldAnswer[] =>
 
 /**
  * A scope entry as a pattern: a file (`src/money.ts`), a folder ending in `/` (`test/`), or a pattern with `*` (one
- * path segment, or part of one) or `**` (any number of whole segments: `**` followed by `/` stands for none or some
- * folders, so `**` followed by `/test.ts` is `test.ts` in any folder, never `latest.ts`).
+ * path segment, or part of one) or `**` (as a segment of its own, any number of whole segments: `**` followed by `/`
+ * stands for none or some folders, so `**` followed by `/test.ts` is `test.ts` in any folder, never `latest.ts`; within
+ * a segment it is any text, slashes too). `.` takes in every
+ * character (the `s` flag), so a line or paragraph separator in a path cannot slip it past a folder or a `**`.
  */
-export const pattern = (entry: string) =>
+export const pattern = (entry: string) => regExpOf(entry, '(?:.*/)?');
+
+/** A scope entry as a regular expression, with what `**` followed by `/` stands for. */
+const regExpOf = (entry: string, anyFolders: string) =>
   new RegExp(
     `^${entry
       .split(/(\*\*\/?|\*)/)
       .map((part) =>
         part === '**/'
-          ? '(?:.*/)?'
+          ? anyFolders
           : part === '**'
             ? '.*'
             : part === '*'
@@ -128,6 +133,7 @@ export const pattern = (entry: string) =>
               : part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'),
       )
       .join('')}${entry.endsWith('/') ? '.*' : ''}$`,
+    's',
   );
 
 /** Whether any entry of a scope matches a path: the scope fence's rule, and the GitHub worker's. */
@@ -138,9 +144,12 @@ export const inScope = (path: string, scope: readonly string[]) => scope.some((e
  * pattern with one in it, or is a folder's name without its slash. A folder stands for a file in it, and a pattern
  * that matches anywhere (one under any folder) for its name at the top. The planner keeps its scope out of the protected
  * paths by it, and the line tells two specs that share a file by it.
+ *
+ * It errs towards sharing. An entry is tried as a path against each of the paths, which reads `**` followed by `/`
+ * as any text, folders or none, so `docs/*AGENTS.md`, which takes in `docs/AGENTS.md`, touches `**` + `/AGENTS.md`.
  */
 export function touches(entry: string, paths: readonly string[]): boolean {
-  if (inScope(entry, paths)) return true;
+  if (paths.some((path) => regExpOf(path, '.*').test(entry))) return true;
   const within = pattern(entry);
   return paths.some((path) => {
     const sample = path.replace(/^\*\*\//, '').replace(/\*/g, 'x');

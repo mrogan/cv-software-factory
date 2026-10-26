@@ -13,13 +13,14 @@ import { inScope, pattern } from '@software-factory/events';
 export const NEVER = ['.github/', 'deploy/'];
 
 /**
- * A path a patch may name: relative, with no empty, `.` or `..` segment, and no backslash or control character, C1's
- * (U+0080 to U+009F) included, any of which a terminal or a page that shows the path could act on.
+ * A path a patch may name: relative, with no empty, `.` or `..` segment, and no backslash, control character (C1's,
+ * U+0080 to U+009F, included), line or paragraph separator, or format character (a bidi override, a zero-width
+ * space): any of which a terminal or a page that shows the path could act on, or hide.
  */
 export function plainPath(path: string): boolean {
   return (
     !path.startsWith('/') &&
-    !/[\\\p{Cc}]/u.test(path) &&
+    !/[\\\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(path) &&
     path.split('/').every((part) => part !== '' && part !== '.' && part !== '..')
   );
 }

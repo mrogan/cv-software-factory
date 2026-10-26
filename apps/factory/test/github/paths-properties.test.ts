@@ -242,6 +242,16 @@ describe('a scope entry', () => {
               { weight: 1, arbitrary: path },
               { weight: 2, arbitrary: pathFor(e) },
               { weight: 3, arbitrary: nearPathFor(e) },
+              // No plain path holds a line separator, but the rule is no laxer for one that does.
+              {
+                weight: 1,
+                arbitrary: fc
+                  .tuple(pathFor(e), fc.nat(), fc.constantFrom('\u2028', '\u2029', '\n', '\r'))
+                  .map(
+                    ([p, i, separator]) =>
+                      `${p.slice(0, i % (p.length + 1))}${separator}${p.slice(i % (p.length + 1))}`,
+                  ),
+              },
             ),
           }),
         ),
@@ -262,10 +272,14 @@ describe('a plain path', () => {
     );
   });
 
-  it('is refused with a leading or trailing slash, an empty, `.` or `..` segment, a backslash or a control character', () => {
-    const control = fc
-      .oneof(fc.integer({ min: 0, max: 0x1f }), fc.integer({ min: 0x7f, max: 0x9f }))
-      .map((code) => String.fromCharCode(code));
+  it('is refused with a leading or trailing slash, an empty, `.` or `..` segment, a backslash, or a control, separator or format character', () => {
+    const control = fc.oneof(
+      fc
+        .oneof(fc.integer({ min: 0, max: 0x1f }), fc.integer({ min: 0x7f, max: 0x9f }))
+        .map((code) => String.fromCharCode(code)),
+      // Line and paragraph separators, and format characters: a soft hyphen, zero-width ones, bidi overrides, a BOM.
+      fc.constantFrom('\u2028', '\u2029', '\u00ad', '\u200b', '\u200d', '\u202e', '\u2066', '\ufeff'),
+    );
     const spoilt = fc.oneof(
       path.map((p) => `/${p}`),
       path.map((p) => `${p}/`),
