@@ -2555,7 +2555,8 @@ function flagWhyNot(name, to) {
   if (f.turnedOff) return `#${f.item} was turned off and closed. Its code stays in the app, off; to try again, ask with the “+”.`;
   if (k <= at) return null;
   if (f.was) return k === f.was ? null : `It was on for everyone before you turned it off: it goes straight back to ${FLAG_STAGES[f.was][1]}.`;
-  if (k > at + 1) return `One stage at a time, so Verify can check each: ${FLAG_STAGES[at + 1][1]} comes first.`;
+  const skipsPreview = at === FLAG_AT.checks && to === 'share';
+  if (k > at + 1 && !skipsPreview) return `One stage at a time, so Verify can check each; only Preview can be skipped. ${at === FLAG_AT.checks ? 'Preview or Share' : FLAG_STAGES[at + 1][1]} comes first.`;
   if (!flagReady(name)) return 'Verify is still comparing the two sides: each needs 300 requests, and they have 236 and 229. Everyone can be taken once it has judged.';
   if (to === 'share') {
     const r = canaryScenario(S.canary);
@@ -2603,7 +2604,7 @@ function flagHolds() {
         <div class="pair-mini"><figure><div class="vis">${t.shot(false)}</div><figcaption>flag off</figcaption></figure><figure><div class="vis">${t.shot(true)}</div><figcaption>flag on</figcaption></figure></div>`
       : at === 2 ? `<p class="ev">A probe’s preview kept the preview cookie and nothing else. ${previewLink(name, 'inline')}</p>`
       : `<p class="ev">Flag on against off, on the traffic generator’s requests: errors 0.97% and 1.01%, p99 41 ms and 40 ms, over 412 and 398 requests. Within the canary’s thresholds.</p>`;
-    const rows = [[`Widen to ${next[1]}`, why ?? 'Shows it to more, after a confirmation that says who.', `data-flag-to="${name}:${next[0]}"`, true, !!why],
+    const rows = [[`Widen to ${next[1]}`, why ?? 'Shows it to more, after a confirmation that says who.', `data-flag-to="${name}:${next[0]}"`, at >= 1, !!why],
       ['Turn off', at === 0 ? `Closes #${f.item}; the flag stays off.` : `Off for everyone within seconds. Closes #${f.item}.`, `data-flag-to="${name}:off"`]]
       .map(([label, what, data, key, off]) => `${v ? `<span class="ro">${label}</span>` : `<button type="button" class="btn ${label === 'Turn off' ? 'attn-line' : ''}" ${data} ${off ? 'disabled' : ''}>${label}${keyIf(key && !S.fresh && !off)}</button>`}<p class="${off ? 'why' : ''}">${what}</p>`).join('');
     return { id: f.item, kicker: at === 0 ? 'Shipped behind its flag' : 'Ready to widen', stage: `Verify · ${FLAG_STAGES[at][1]}`, age: '1h', title: f.title, ev, rows };
@@ -2707,11 +2708,9 @@ function openDialog(kind, ctx = {}) {
     el.innerHTML = `<div class="kickline">${glyph('improvement')}<span class="label">${v ? 'How Martin asks' : 'An improvement'}</span></div>
       <h2 id="dialog-title" tabindex="-1">Request an improvement</h2>
       <p>${v ? 'Martin asks here, in his own words. The planner turns it into a spec, which waits for him before any code is written.' : 'Say what should change, in your own words. The planner turns it into a spec, which waits for you before any code is written.'}</p>
-      <label class="label" for="imp-title">In a few words</label>
-      <input class="field" id="imp-title" maxlength="80" ${v ? `disabled value="${esc(last.title)}"` : 'placeholder="Delivery dates on each product"'}>
       <label class="label" for="imp-words">What ${v ? 'he wants' : 'you want'}</label>
       ${v ? `<textarea id="imp-words" disabled>${esc(last.request.words)}</textarea><p class="help">His latest request, ${last.request.at}.</p>`
-        : '<textarea id="imp-words" maxlength="600" placeholder="What should change, for whom, and why"></textarea><span class="chars">0 / 600</span>'}
+        : '<textarea id="imp-words" maxlength="600" placeholder="What should change, for whom, and why"></textarea><span class="chars">0 / 600</span><p class="help">Its first sentence titles it until the planner names it in the spec.</p>'}
       <ul class="what plain">
         <li>It waits behind every open ticket, ${open} now, oldest first. ${v ? 'Martin can take it at once with Just one.' : 'To take it at once, choose Just one in Controls.'}</li>
         <li>It ships behind a flag of its own, off, and ${v ? 'he widens' : 'you widen'} it a stage at a time from Controls.</li>
@@ -2725,20 +2724,23 @@ function openDialog(kind, ctx = {}) {
     // The slider's confirmation: what the stage means and who gets it, before it is applied; or why it can't be taken.
     const f = FLAGSET[ctx.flag], from = FLAG_AT[f.stage], to = FLAG_AT[ctx.to], [, label, says] = FLAG_STAGES[to];
     const why = flagWhyNot(ctx.flag, ctx.to), wider = to > from, off = to === 0, done = ITEMS[indexOf(f.item)]?.end === 'verified';
+    // Checks shows it to nobody but the factory's own checks, so widening to it asks for no passkey.
+    const keyed = wider && to >= 2 && !fresh;
     const title = why ? `${label} can’t be taken now` : off ? `Turn off ${ctx.flag}` : f.was ? `Turn ${ctx.flag} back on` : `${wider ? 'Widen' : 'Narrow'} ${ctx.flag} to ${label}`;
+    const skip = from === FLAG_AT.checks && ctx.to === 'share' ? ' Preview is skipped: no probe checks a preview first, and anyone can still ask for one.' : '';
     const what = off ? `Off for everyone within seconds, a preview too, with no deploy and no rollback. ${done ? `#${f.item} stays done, and you can turn it back on here.` : `#${f.item} closes as turned off; its code stays in the app, off.`}` : says(f);
-    el.innerHTML = `${wider && !why && !fresh ? `<div class="kickline">${glyph('key', 'key')}<span class="label">Your passkey, again</span></div>` : ''}
+    el.innerHTML = `${keyed && !why ? `<div class="kickline">${glyph('key', 'key')}<span class="label">Your passkey, again</span></div>` : ''}
       <h2 id="dialog-title" tabindex="-1">${title}</h2>
-      <div class="what"><span class="fromto">${FLAG_STAGES[from][1]} <span aria-hidden="true">→</span><span class="sr">to</span> ${label}</span>${why ? `<p>${why}</p>` : `<p>${what}</p>`}</div>
+      <div class="what"><span class="fromto">${FLAG_STAGES[from][1]} <span aria-hidden="true">→</span><span class="sr">to</span> ${label}</span>${why ? `<p>${why}</p>` : `<p>${what}${skip}</p>`}</div>
       ${!why && ctx.to === 'share' ? `<span class="label" id="share-label">Share of the generator’s requests</span>
         <div class="seg" role="group" aria-labelledby="share-label">${[10, 25, 50].map((x) => `<button type="button" data-share="${x}" aria-pressed="${f.share === x}">${x}%</button>`).join('')}</div>
         <p class="help">Half and half fills both sides soonest: each needs 300 requests.</p>` : ''}
       ${!why && off ? reason('off-reason', 'Why, for the audit log and the work item') : ''}
       ${!why && !wider && !off ? '<p class="help">Narrowing acts at once, and never asks for the passkey.</p>' : ''}
-      ${!why && wider ? `<p class="help">The admin service then checks the app has it. ${fresh ? '' : 'Widening shows a change to more people, so it asks for your passkey again.'}</p>` : ''}
+      ${!why && wider ? `<p class="help">The admin service then checks the app has it. ${keyed ? 'Widening shows a change to more people, so it asks for your passkey again.' : ''}</p>` : ''}
       ${!why && off ? '<p class="help">The admin service asks the app for the flags it holds, and tells your phone if it hasn’t taken this within a minute.</p>' : ''}
       <div class="row">${why ? '<button type="button" class="btn" data-dialog-close>Close</button>'
-        : `${cancel}<button type="button" class="btn ${off ? 'attn' : 'primary'}" data-dialog-ok>${off ? 'Turn off' : f.was ? 'Turn back on' : wider ? 'Widen' : 'Narrow'}${wider && !fresh ? glyph('key', 'key') : ''}</button>`}</div>`;
+        : `${cancel}<button type="button" class="btn ${off ? 'attn' : 'primary'}" data-dialog-ok>${off ? 'Turn off' : f.was ? 'Turn back on' : wider ? 'Widen' : 'Narrow'}${keyed ? glyph('key', 'key') : ''}</button>`}</div>`;
   }
   else {
     const [title, what, why] = STEPUP[ctx.action] ?? STEPUP.switch;
@@ -2767,6 +2769,12 @@ function closeDialog() {
   setTimeout(() => (back.isConnected ? back : sel && document.querySelector(sel))?.focus());
 }
 
+// A request's title until the planner names it: its first sentence, cut at a word to about 60 characters.
+function firstSentence(text) {
+  const first = text.trim().split(/(?<=[.!?])\s/)[0].replace(/[.!?]$/, '');
+  return first.length <= 60 ? first : first.slice(0, 60).replace(/\s+\S*$/, '') + '…';
+}
+
 // A change to a flag's stage: the app is asked for its revision until it has it.
 function setStage(name, stage) {
   FLAGSET[name].stage = stage; FLAG_SYNC.revision = 'r' + (+FLAG_SYNC.revision.slice(1) + 1); FLAG_SYNC.state = 'taking';
@@ -2784,15 +2792,14 @@ function confirmDialog() {
   const why = $('stop-reason') ?? $('start-reason') ?? $('off-reason');
   if (why && !why.value.trim()) return why.focus();
   if (d.kind === 'improve') {
-    const title = $('imp-title'), words = $('imp-words');
-    if (!title.value.trim()) return title.focus();
+    const words = $('imp-words');
     if (!words.value.trim()) return words.focus();
     giveKey();
-    STAGES.plan.rows.unshift(['#1320', title.value.trim(), 'asked just now · waiting behind the open tickets', '', null, 'now', 'wait']);
+    STAGES.plan.rows.unshift(['#1320', firstSentence(words.value), 'asked just now · waiting behind the open tickets', '', null, 'now', 'wait']);
   }
   else if (d.kind === 'flag') {
     const f = FLAGSET[d.flag], from = FLAG_AT[f.stage], to = FLAG_AT[d.to];
-    if (to > from) giveKey();
+    if (to > from && to >= 2) giveKey();
     if (to === 0) { if (ITEMS[indexOf(f.item)]?.end === 'verified') f.was = from; else f.turnedOff = true; } else f.was = null;
     setStage(d.flag, d.to);
   }

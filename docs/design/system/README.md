@@ -558,13 +558,13 @@ A flag's stages are drawn as a slider of five stops, Off to Everyone (`.fslider`
 The "+" stays where it is, a `signal` disc on the Plan station, and Plan's panel ends with **Request an improvement**. Both open a dialog, as the other dialogs (centred on a laptop, a bottom sheet on a phone):
 
 - **An improvement** in `t-label` with the improvement glyph, and the title **Request an improvement**, then: "Say what should change, in your own words. The planner turns it into a spec, which waits for you before any code is written."
-- **In a few words** (one line, 80 characters), which titles the work item, and **What you want** (600 characters, counted). Both are required; an empty one takes the focus back.
+- One field, **What you want** (600 characters, counted, required). Its first sentence, cut at a word to about 60 characters, titles the work item until the planner names it in the spec, so no model is asked for a title alone; a line under the field says so.
 - A box of three facts: it waits behind every open ticket (how many now), oldest first, and Just one in Controls takes it at once; it ships behind a flag of its own, off, widened a stage at a time from Controls; visitors see the words, with anything shaped like a secret left out.
 - **Request**, with the key while the passkey is not fresh, and under it why: requesting widens what the line does, so it asks for the passkey again, and tells his phone.
 
 Once asked, the work item is a row at the top of Plan's panel ("asked just now · waiting behind the open tickets"), and a card on the reel. Nothing else announces it.
 
-**For a visitor** the "+" is there too, titled "How Martin asks for an improvement", and Plan's panel's button says the same. It opens the same dialog, **How Martin asks**, read-only: the fields hold Martin's latest request, disabled, with when he asked; the facts speak of him ("he widens it"), and the last one says that a suggestion sent from the app reaches Martin and never starts work by itself; **Request** is a label beside "Martin requests it signed in, with his passkey again: it widens what the line does", and the only button is Close.
+**For a visitor** the "+" is there too, titled "How Martin asks for an improvement", and Plan's panel's button says the same. It opens the same dialog, **How Martin asks**, read-only: the field holds Martin's latest request, disabled, with when he asked; the facts speak of him ("he widens it"), and the last one says that a suggestion sent from the app reaches Martin and never starts work by itself; **Request** is a label beside "Martin requests it signed in, with his passkey again: it widens what the line does", and the only button is Close.
 
 ### An improvement's card and sheet
 
@@ -592,11 +592,12 @@ A group of its own, **Flags**, between What the line takes and Spend, with how m
 
 **Setting a stage.** Martin clicks a stop, or drags the handle and lets go on one; the handle follows the pointer and, until the change is applied, goes back to where the flag stands. Either opens one confirmation, a dialog as the others are, whose box says the move ("PREVIEW → SHARE") and who gets it on there, in the table's words:
 
-- **Widen** (a stop to the right): its title "Widen delivery-dates to Share", and **Widen**, with the key while the passkey is not fresh: it shows a change to more people. To Share it also asks how big a share (10, 25 or 50%, 50 chosen, since half and half fills both sides soonest). The admin service then checks the app has it.
+- **Widen** (a stop to the right): its title "Widen delivery-dates to Share", and **Widen**, with the key while the passkey is not fresh: it shows a change to more people. Widening to Checks asks for no passkey, since it shows the change to nobody but the factory's own checks. To Share it also asks how big a share (10, 25 or 50%, 50 chosen, since half and half fills both sides soonest). The admin service then checks the app has it.
 - **Narrow** (a stop to the left, not Off): **Narrow**, at once, with no passkey.
 - **Turn off** (Off): off for everyone within seconds, a preview too, with no deploy and no rollback; the work item closes as turned off, or, once it is done, it can be turned back on here; a **Reason**, required, for the audit log and the work item; **Turn off** in `attn`, with no passkey, since off only ever tightens; and that the admin service asks the app for the flags it holds, and tells his phone if it has not taken it within a minute.
 - **Turn back on**, for a flag that was on for everyone and turned off: straight back to Everyone, with the key.
-- **Can't be taken now:** its title "Share can't be taken now", the box saying why, and only **Close**: one stage at a time, so Verify can check each ("Preview comes first"); a canary in flight ("v0.9.13 is at 50%, and its two versions would mix the two sides. Share can be taken once it ends."); another flag at Share ("one flag at a time, so each comparison varies one thing"); or Verify still comparing, for Everyone.
+- **Skipping Preview:** from Checks, Share may be taken at once; the box adds that Preview is skipped, so no probe checks a preview first, and anyone can still ask for one. No other stage is skipped.
+- **Can't be taken now:** its title "Share can't be taken now", the box saying why, and only **Close**: one stage at a time, so Verify can check each, Preview the only one that can be skipped; a canary in flight ("v0.9.13 is at 50%, and its two versions would mix the two sides. Share can be taken once it ends."); another flag at Share ("one flag at a time, so each comparison varies one thing"); or Verify still comparing, for Everyone.
 
 A flag turned off before everyone had it, and its work item closed, folds under **Turned off and closed** at the group's foot, its slider read-only.
 
@@ -610,7 +611,7 @@ An improvement's spec is a hold like any other, **An improvement's spec**, with 
 
 ### For visitors
 
-The same views, read-only, by the rules above: the "+" and its form as described; Controls' flags with their sliders, read-only, with no handle and no stop to press; Needs you's flag cards under "Waiting on Martin". **Preview it** stays a link for a visitor: a preview is the app's own feature, sets only the cookie they asked for, and shows the change in their own browser alone. The audit log has each request and each stage, with Martin's words and whether the passkey was given (`improvement.requested`, `flag.staged`).
+The same views, read-only, by the rules above: the "+" and its form as described; Controls' flags with their sliders, read-only, with no handle and no stop to press, and the line saying whether the app holds the flags as set; Needs you's flag cards under "Waiting on Martin". **Preview it** stays a link for a visitor: a preview is the app's own feature, sets only the cookie they asked for, and shows the change in their own browser alone. The audit log has each request and each stage, with Martin's words and whether the passkey was given (`improvement.requested`, `flag.staged`).
 
 ## Not decided yet
 
