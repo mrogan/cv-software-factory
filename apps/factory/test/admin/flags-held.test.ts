@@ -28,7 +28,9 @@ class AppKube implements Kube {
     stableService: 'website',
     canaryService: 'website-canary',
   };
-  slices: Record<string, { addressType?: string; port?: number; endpoints: Endpoint[] }[]> = {
+  /** `flags`' revision written by hand in a shape `readFlags` does not read. */
+  oddRevision = false;
+  slices: Record<string, { addressType?: string; ports?: number[]; endpoints: Endpoint[] }[]> = {
     website: [
       {
         endpoints: [
@@ -48,6 +50,13 @@ class AppKube implements Kube {
     if (path === '/apis/core.openfeature.dev/v1beta1/namespaces/flagd/featureflags/flags') {
       if (!this.flagsThere) return undefined;
       const spec = this.revision === undefined ? { flagSpec: { flags: {} } } : flagsSpec({}, this.revision);
+      if (this.oddRevision) {
+        spec.flagSpec.flags['flag-set-revision'] = {
+          state: 'ENABLED',
+          variants: { revision: 'r3', other: 'x' },
+          defaultVariant: 'revision',
+        };
+      }
       return schema.parse({ metadata: { name: 'flags' }, spec });
     }
     if (path === '/apis/argoproj.io/v1alpha1/namespaces/website/rollouts/website') {
@@ -61,7 +70,11 @@ class AppKube implements Kube {
       return schema.parse({
         items: (this.slices[name] ?? []).map((slice) => ({
           addressType: slice.addressType ?? 'IPv4',
-          ports: [{ name: 'http', port: slice.port ?? 8080, protocol: 'TCP' }],
+          ports: (slice.ports ?? [8080]).map((port) => ({
+            name: port === 8080 ? 'http' : 'metrics',
+            port,
+            protocol: 'TCP',
+          })),
           endpoints: slice.endpoints.map((e) => ({
             addresses: [e.ip],
             conditions: { ready: e.ready, serving: true, terminating: e.terminating ?? false },
@@ -250,6 +263,46 @@ describe('whether the app holds the flags as set', () => {
     expect(held.figures()).toEqual({ differing: 0, narrowing: 0, checked: 1, set: 1 });
   });
 
+  it('asks each pod once on a dual-stack cluster, at the app’s own port when its Service has others', async () => {
+    const { kube, pods, held } = made();
+    kube.slices = {
+      website: [
+        { endpoints: [{ ip: '10.42.0.11', name: 'website-abc-1' }], ports: [9464, 8080] },
+        { addressType: 'IPv6', endpoints: [{ ip: 'fd00::11', name: 'website-abc-1' }], ports: [9464, 8080] },
+      ],
+    };
+    await held.check();
+    expect(pods.asked).toEqual([{ address: '10.42.0.11', port: 8080, name: 'website-abc-1' }]);
+  });
+
+  it('cannot compare, and says so, when `flags` holds a revision of a shape no write of ours makes', async () => {
+    const { kube, held } = made();
+    await held.check();
+    kube.oddRevision = true;
+    await held.check();
+    minutes(6);
+    await held.check();
+    expect(held.figures()).toMatchObject({ differing: 360, checked: 0 });
+    expect(held.view().state).toBe('unchecked');
+  });
+
+  it('keeps counting a narrowing written minutes before it started, and forgets an older one', async () => {
+    const { kube, held } = made();
+    kube.revision = 'r4';
+    held.narrowedBefore(clock - 30_000);
+    await held.check();
+    expect(held.figures()).toMatchObject({ narrowing: 30, differing: 30 });
+    const old = made();
+    old.kube.revision = 'r4';
+    old.held.narrowedBefore(clock - 10 * 60_000);
+    await old.held.check();
+    expect(old.held.figures()).toMatchObject({ narrowing: 0, differing: 0 });
+    // Taken: forgotten.
+    kube.revision = 'r3';
+    await held.check();
+    expect(held.figures()).toMatchObject({ narrowing: 0, differing: 0 });
+  });
+
   it('starts no narrowing’s count for a widening', async () => {
     const { kube, held } = made();
     await held.check();
@@ -260,12 +313,15 @@ describe('whether the app holds the flags as set', () => {
     expect(held.figures()).toMatchObject({ differing: 120, narrowing: 0 });
   });
 
-  it('tells anyone no pod’s address or name', async () => {
+  it('tells anyone no pod’s address or name, and no answer a revision could not be', async () => {
     const { pods, held } = made();
     pods.answers['10.42.0.12'] = 'r2';
     await held.check();
     const view = JSON.stringify(held.view());
     expect(view).not.toMatch(/10\.42|website-abc/);
+    pods.answers['10.42.0.12'] = `<b>${'x'.repeat(200)}</b> `;
+    await held.check();
+    expect(held.view()).toMatchObject({ state: 'taking', held: ['invalid', 'r3'] });
     expect(new FlagsHeld({ kube: new AppKube(), flags: FLAGS, rollout: ROLLOUT, log }).view()).toEqual({
       state: 'unchecked',
       revision: null,
@@ -314,6 +370,24 @@ describe('whether the app holds the flags as set', () => {
     await held.stop();
     await vi.advanceTimersByTimeAsync(HELD.everyMs * 2);
     expect(checks()).toBe(7);
+  });
+});
+
+describe('a burst of writes', () => {
+  it('never puts off the check the first one asked for', async () => {
+    vi.useFakeTimers();
+    const { kube, held } = made();
+    const checks = () => kube.paths.filter((p) => p.includes('featureflags')).length;
+    held.start();
+    await vi.advanceTimersByTimeAsync(0);
+    kube.revision = 'r4';
+    for (let i = 0; i < 3; i++) {
+      held.written(true);
+      await vi.advanceTimersByTimeAsync(2_000);
+    }
+    // Five seconds after the first, not after the last.
+    expect(checks()).toBe(2);
+    await held.stop();
   });
 });
 

@@ -1,5 +1,5 @@
-# Generated from policy/objectives.ts, policy/stuck.ts and policy/triage.ts by apps/factory/src/alerts/rules.ts. Do
-# not edit it: change the policy, then run `node apps/factory/src/alerts/rules.ts`. `make check` fails when this
+# Generated from policy/objectives.ts, policy/stuck.ts, policy/triage.ts and policy/flags.ts by
+# apps/factory/src/alerts/rules.ts. Do not edit it: change the policy, then run `node apps/factory/src/alerts/rules.ts`. `make check` fails when this
 # file is out of date.
 serverFiles:
   alerting_rules.yml:
@@ -396,7 +396,7 @@ serverFiles:
               summary: "The app has not taken a flag you narrowed"
               description: "A minute after you narrowed a flag or turned one off, the app does not hold the flags as you set them, and may still show the feature to those you took it from. Restart flagd, which reads them again as it starts."
           - alert: FlagsDiffer
-            expr: "max(admin_flags_differing_seconds{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}) > 300 and on () max(admin_flags_checked{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}) == 1"
+            expr: "max(admin_flags_differing_seconds{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}) > 300 and on () max(max_over_time(admin_flags_checked{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}[5m])) == 1"
             for: 0s
             labels:
               level: "notify"
@@ -404,7 +404,7 @@ serverFiles:
               summary: "The app does not hold the flags as set"
               description: "For more than 5 minutes a pod of the app has held other flags than the ones set: flagd may have stopped watching them. Restart flagd, which reads them again as it starts."
           - alert: FlagsUnchecked
-            expr: "max(admin_flags_differing_seconds{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}) > 300 and on () max(admin_flags_checked{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}) == 0"
+            expr: "max(admin_flags_differing_seconds{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}) > 300 and on () max(max_over_time(admin_flags_checked{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}[5m])) == 0"
             for: 0s
             labels:
               level: "notify"

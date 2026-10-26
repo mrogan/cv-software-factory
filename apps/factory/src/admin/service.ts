@@ -67,6 +67,8 @@ export async function startAdmin(
   server.requestTimeout = 30_000;
   server.headersTimeout = 10_000;
   await new Promise<void>((resolve) => server.listen(port, resolve));
+  // A narrowing or Off written just before this start: its minute goes on, rather than being forgotten by the restart.
+  if (held && given === undefined) await narrowedBefore(sql, held);
   held?.start();
   const unobserve = held && observeHeld(held);
   const bound = (server.address() as AddressInfo).port;
@@ -93,4 +95,18 @@ export async function startAdmin(
     await sql.end();
   };
   return { server, events, stop };
+}
+
+/** Gives the check the last narrowing or Off Martin recorded, if any: it counts only one written minutes ago. */
+async function narrowedBefore(sql: Sql, held: FlagsHeld): Promise<void> {
+  try {
+    const [last] = await sql<{ ts: Date }[]>`
+      select ts from events
+      where type = 'flag.staged' and payload->>'action' in ('flag.narrow', 'flag.off')
+        and appended_by = 'factory_admin' and not sample
+      order by seq desc limit 1`;
+    if (last) held.narrowedBefore(last.ts.getTime());
+  } catch (error) {
+    log.warn({ err: error }, 'could not read the last narrowing of a flag: one made before this start is not counted');
+  }
 }

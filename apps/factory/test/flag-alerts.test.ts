@@ -137,6 +137,18 @@ describe('the alerts on the flags the app holds', () => {
       },
       {
         interval: '1m',
+        // A pod that misses one check meanwhile does not swap this alert for the other.
+        input_series: [
+          { series: admin('admin_flags_differing_seconds'), values: DIFFERING_UP },
+          { series: admin('admin_flags_checked'), values: each(1, 1, 1, 1, 1, 1, 1, 0, 1) },
+        ],
+        alert_rule_test: [
+          { eval_time: '7m', alertname: 'FlagsDiffer', exp_alerts: [firing('FlagsDiffer')] },
+          { eval_time: '7m', alertname: 'FlagsUnchecked', exp_alerts: [] },
+        ],
+      },
+      {
+        interval: '1m',
         // Held again: the count goes back to 0, and the alert with it.
         input_series: [
           { series: admin('admin_flags_differing_seconds'), values: each(300, 360, 0, 0) },

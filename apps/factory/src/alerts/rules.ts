@@ -13,10 +13,10 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { HOLD_CAUSES, type HoldCause } from '@software-factory/events';
+import { FLAGS_HELD } from '../../../../policy/flags.ts';
 import { type Objectives, objectives } from '../../../../policy/objectives.ts';
 import { STUCK, type StuckStage } from '../../../../policy/stuck.ts';
 import { REPORT_TEXT } from '../../../../policy/triage.ts';
-import { HELD } from '../admin/flags-held.ts';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
 import { NUMBER_PATTERN } from '../line/metrics.ts';
 import { SECURITY_KINDS, type SecurityKind } from '../line/security.ts';
@@ -337,9 +337,9 @@ export const FLAGS_NARROWING = fromTheAdminService('admin_flags_narrowing_second
 export const FLAGS_CHECKED = fromTheAdminService('admin_flags_checked');
 export const FLAGS_SET = fromTheAdminService('admin_flags_set');
 /** How long the app may differ from `flags` before Martin is told: long enough for flagd and the app to catch up. */
-export const FLAGS_DIFFER_MINUTES = 5;
+export const FLAGS_DIFFER_MINUTES = FLAGS_HELD.differMinutes;
 /** How long the app has to take a narrowing or Off before Martin is paged. */
-export const FLAGS_NARROWING_SECONDS = HELD.takeMs / 1000;
+export const FLAGS_NARROWING_SECONDS = FLAGS_HELD.takeSeconds;
 
 /**
  * The alerts that say whether the app holds the flags as Martin set them, from the admin service's checks of every pod
@@ -352,7 +352,8 @@ export const FLAGS_NARROWING_SECONDS = HELD.takeMs / 1000;
  *   while `flags` held a flag set: either way, a change that did not reach the app would not be told.
  *
  * Each figure is the highest of any series by its name from the admin service's pod. Its count of how long they have
- * differed goes on while it cannot ask, so the two are told apart by its last check.
+ * differed goes on while it cannot ask, so the two are told apart by its checks over the five minutes: any that asked
+ * every pod makes it a difference, so a pod missing one check does not swap one alert for the other.
  */
 export function flagRules(): Rule[] {
   const differ = FLAGS_DIFFER_MINUTES * 60;
@@ -374,7 +375,7 @@ export function flagRules(): Rule[] {
     },
     {
       alert: 'FlagsDiffer',
-      expr: `max(${FLAGS_DIFFERING}) > ${differ} and on () max(${FLAGS_CHECKED}) == 1`,
+      expr: `max(${FLAGS_DIFFERING}) > ${differ} and on () max(max_over_time(${FLAGS_CHECKED}[${FLAGS_DIFFER_MINUTES}m])) == 1`,
       for: '0s',
       labels: { level: LEVELS.notify },
       annotations: {
@@ -384,7 +385,7 @@ export function flagRules(): Rule[] {
     },
     {
       alert: 'FlagsUnchecked',
-      expr: `max(${FLAGS_DIFFERING}) > ${differ} and on () max(${FLAGS_CHECKED}) == 0`,
+      expr: `max(${FLAGS_DIFFERING}) > ${differ} and on () max(max_over_time(${FLAGS_CHECKED}[${FLAGS_DIFFER_MINUTES}m])) == 0`,
       for: '0s',
       labels: { level: LEVELS.notify },
       annotations: unchecked,
@@ -658,8 +659,8 @@ ${map(rule.annotations, '              ')}`,
             expr: ${JSON.stringify(rule.expr)}${rule.labels ? `\n            labels:\n${map(rule.labels, '              ')}` : ''}`,
       )
       .join('\n');
-  return `# Generated from policy/objectives.ts, policy/stuck.ts and policy/triage.ts by apps/factory/src/alerts/rules.ts. Do
-# not edit it: change the policy, then run \`node apps/factory/src/alerts/rules.ts\`. \`make check\` fails when this
+  return `# Generated from policy/objectives.ts, policy/stuck.ts, policy/triage.ts and policy/flags.ts by
+# apps/factory/src/alerts/rules.ts. Do not edit it: change the policy, then run \`node apps/factory/src/alerts/rules.ts\`. \`make check\` fails when this
 # file is out of date.
 serverFiles:
   alerting_rules.yml:

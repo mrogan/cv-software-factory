@@ -24,7 +24,7 @@
 import { type BatchObservableResult, metrics } from '@opentelemetry/api';
 import type { Logger } from 'pino';
 import { z } from 'zod';
-import { readFlags } from '../../../../policy/flags.ts';
+import { FLAGS_HELD, REVISION, REVISION_FLAG, readFlags } from '../../../../policy/flags.ts';
 import type { RolloutRef } from '../release/rollout-ref.ts';
 import type { Kube } from '../runners/kube.ts';
 import { UNMEASURED } from '../senses/http.ts';
@@ -37,11 +37,18 @@ export const HELD = {
   afterWriteMs: 120_000,
   timeoutMs: 5_000,
   /** How long the app has to take a change before it is said to lag, and a narrowing pages Martin. */
-  takeMs: 60_000,
+  takeMs: FLAGS_HELD.takeSeconds * 1000,
 } as const;
 
-/** What the app answers a marked request with, when it holds no revision it can tell. */
+/** What the app answers a marked request with, when it holds no revision, and one it cannot read. */
 const NONE = 'none';
+const INVALID = 'invalid';
+
+/** How far back a narrowing written before a restart is still counted: past it, the five minutes' alert has it. */
+const RESTORE_MS = 5 * 60_000;
+
+/** The port the app serves on, which its fence lets the admin service reach. */
+const APP_PORT = 8080;
 
 /** The header the app tells a marked request its flag set's revision in. */
 export const REVISION_HEADER = 'x-flags-revision';
@@ -97,7 +104,15 @@ const endpointSlices = z.looseObject({
   items: z.array(
     z.looseObject({
       addressType: z.string(),
-      ports: z.array(z.looseObject({ port: z.number().int().nullish(), protocol: z.string().nullish() })).nullish(),
+      ports: z
+        .array(
+          z.looseObject({
+            port: z.number().int().nullish(),
+            protocol: z.string().nullish(),
+            name: z.string().nullish(),
+          }),
+        )
+        .nullish(),
       endpoints: z
         .array(
           z.looseObject({
@@ -159,6 +174,10 @@ export class FlagsHeld {
   /** Writes so far: a check that began before one cannot say the app took it. */
   #writes = 0;
   #failing = false;
+  /** Why the check last could not ask, said once. */
+  #told: string | undefined;
+  /** When the next check is due, so a burst of writes does not keep putting it off. */
+  #due: number | undefined;
   #timer: NodeJS.Timeout | undefined;
   #running: Promise<void> | undefined;
   #stopped = true;
@@ -206,7 +225,22 @@ export class FlagsHeld {
     this.#written = now;
     this.#since ??= now;
     if (narrowed) this.#narrowed ??= now;
-    if (!this.#stopped && !this.#running) this.#schedule(HELD.soonMs / 2);
+    const due = Date.now() + HELD.soonMs / 2;
+    if (!this.#stopped && !this.#running && (this.#due === undefined || this.#due > due)) {
+      this.#schedule(HELD.soonMs / 2);
+    }
+  }
+
+  /**
+   * A narrowing or Off written before the service started (as `flag.staged` records it), whose minute a restart would
+   * otherwise forget: counted from its write, until a check finds the app holding the flags as set. Only one written
+   * within the last few minutes, so an old one never pages for a difference that came later.
+   */
+  narrowedBefore(at: number): void {
+    if (this.#now() - at > RESTORE_MS) return;
+    this.#since = Math.min(this.#since ?? at, at);
+    this.#narrowed = Math.min(this.#narrowed ?? at, at);
+    this.#written ??= at;
   }
 
   /** Asks the app once, and keeps what it found. */
@@ -260,6 +294,7 @@ export class FlagsHeld {
 
   #schedule(ms: number): void {
     clearTimeout(this.#timer);
+    this.#due = Date.now() + ms;
     this.#timer = setTimeout(() => void this.#tick(), ms);
     this.#timer.unref();
   }
@@ -276,38 +311,60 @@ export class FlagsHeld {
     this.#schedule(soon ? HELD.soonMs : HELD.everyMs);
   }
 
-  /** One check: `flags`, the app's pods, and each pod's answer. A failure to read is a check that could not ask. */
+  /**
+   * One check: `flags`, the app's pods, and each pod's answer. A failure to read, or a revision in `flags` of a shape
+   * the admin service cannot read, which the app may still tell, is a check that could not compare.
+   */
   async #look(): Promise<Check> {
     const at = this.#now();
     let revision: string | undefined;
     let read = false;
     let pods: Pod[] = [];
     try {
-      const flags = await this.#kube.get(this.#flags, featureFlag);
+      const [flags, found] = await Promise.all([this.#kube.get(this.#flags, featureFlag), this.#pods()]);
       if (flags) {
-        revision = readFlags(flags.spec).revision;
-        read = true;
+        const held = readFlags(flags.spec);
+        revision = held.revision;
+        read = !held.outside.includes(REVISION_FLAG);
+        if (!read)
+          this.#once(
+            'unreadable',
+            { revision: REVISION_FLAG },
+            '`flags` holds a revision of a shape no write of ours makes',
+          );
       }
-      pods = await this.#pods();
+      pods = found;
     } catch (error) {
-      if (!this.#failing) this.#log.warn({ err: error }, 'could not read the flags or find the app’s pods');
-      this.#failing = true;
+      this.#once('unread', { err: error }, 'could not read the flags or find the app’s pods');
       return { at, revision, read, answers: [], checked: false, holds: false };
     }
+    const unanswered: string[] = [];
     const answers = await Promise.all(
       pods.map((pod) =>
-        this.#ask(pod, AbortSignal.timeout(HELD.timeoutMs)).catch((error: unknown) => {
-          this.#log.warn({ err: error, pod: pod.name }, 'a pod of the app did not say which flags it holds');
-          return undefined;
-        }),
+        this.#ask(pod, AbortSignal.timeout(HELD.timeoutMs)).then(
+          // Anyone may read what the pods answered, so an answer no revision could be is told as `invalid`, as the
+          // app tells a revision it cannot read.
+          (answer) => {
+            if (answer === undefined) unanswered.push(pod.name);
+            return answer === undefined || REVISION.test(answer) ? answer : INVALID;
+          },
+          (error: unknown) => {
+            unanswered.push(pod.name);
+            if (!this.#failing) this.#log.warn({ err: error, pod: pod.name }, 'a pod of the app did not answer');
+            return undefined;
+          },
+        ),
       ),
     );
-    const checked = read && pods.length > 0 && answers.every((answer) => answer !== undefined);
+    if (pods.length === 0) this.#once('no-pods', { read }, 'found no ready pod of the app to ask');
+    else if (unanswered.length)
+      this.#once('unanswered', { pods: unanswered }, 'pods of the app did not say which flags they hold');
+    const checked = read && pods.length > 0 && unanswered.length === 0;
     const expected = revision ?? NONE;
     const holds = checked && answers.every((answer) => answer === expected);
     if (checked && this.#failing) this.#log.info('asking the app which flags it holds again');
     this.#failing = !checked;
-    if (!checked && pods.length === 0) this.#log.warn({ read }, 'found no flags, or no ready pod of the app, to ask');
+    if (checked) this.#told = undefined;
     if (checked && !holds) {
       this.#log.warn(
         { expected, held: pods.map((pod, i) => ({ pod: pod.name, revision: answers[i] })) },
@@ -317,29 +374,43 @@ export class FlagsHeld {
     return { at, revision, read, answers, checked, holds };
   }
 
-  /** The ready pods behind the app's Rollout's stable and canary Services, each once. */
+  /** Logs why a check could not ask once, until it can again or the reason changes, not every ten seconds. */
+  #once(why: string, context: object, message: string): void {
+    this.#failing = true;
+    if (this.#told === why) return;
+    this.#told = why;
+    this.#log.warn(context, message);
+  }
+
+  /** The ready pods behind the app's Rollout's stable and canary Services, each once, at the port the app serves on. */
   async #pods(): Promise<Pod[]> {
     const rollout = await this.#kube.get(this.#rollout, rolloutServices);
     const canary = rollout?.spec.strategy?.canary;
     const services = [...new Set([canary?.stableService, canary?.canaryService].filter((s) => s))] as string[];
+    const lists = await Promise.all(
+      services.map((service) =>
+        this.#kube.get(
+          `/apis/discovery.k8s.io/v1/namespaces/${encodeURIComponent(this.#namespace)}/endpointslices` +
+            `?labelSelector=${encodeURIComponent(`kubernetes.io/service-name=${service}`)}`,
+          endpointSlices,
+        ),
+      ),
+    );
     const pods = new Map<string, Pod>();
-    for (const service of services) {
-      const selector = encodeURIComponent(`kubernetes.io/service-name=${service}`);
-      const list = await this.#kube.get(
-        `/apis/discovery.k8s.io/v1/namespaces/${encodeURIComponent(this.#namespace)}/endpointslices?labelSelector=${selector}`,
-        endpointSlices,
-      );
-      for (const slice of list?.items ?? []) {
-        if (slice.addressType !== 'IPv4' && slice.addressType !== 'IPv6') continue;
-        const port = slice.ports?.find((p) => (p.protocol ?? 'TCP') === 'TCP' && p.port)?.port;
-        if (!port) continue;
-        for (const endpoint of slice.endpoints ?? []) {
-          // Kubernetes says to read a ready condition it does not know as ready; one shutting down is not.
-          if (endpoint.conditions?.ready === false || endpoint.conditions?.terminating === true) continue;
-          const address = endpoint.addresses[0];
-          if (!address || pods.has(address)) continue;
-          pods.set(address, { address, port, name: endpoint.targetRef?.name ?? address });
-        }
+    for (const slice of lists.flatMap((list) => list?.items ?? [])) {
+      if (slice.addressType !== 'IPv4' && slice.addressType !== 'IPv6') continue;
+      // The app's own port, the one its fence and the admin service's let through, when the slice lists it.
+      const tcp = (slice.ports ?? []).filter((p) => (p.protocol ?? 'TCP') === 'TCP' && p.port);
+      const port = (tcp.find((p) => p.port === APP_PORT) ?? tcp.find((p) => p.name === 'http') ?? tcp[0])?.port;
+      if (!port) continue;
+      for (const endpoint of slice.endpoints ?? []) {
+        // Kubernetes says to read a ready condition it does not know as ready; one shutting down is not.
+        if (endpoint.conditions?.ready === false || endpoint.conditions?.terminating === true) continue;
+        const address = endpoint.addresses[0];
+        // A pod once, by its name, though a dual-stack cluster lists it in a slice of each family.
+        const name = endpoint.targetRef?.name ?? address;
+        if (!address || !name || pods.has(name)) continue;
+        pods.set(name, { address, port, name });
       }
     }
     return [...pods.values()];
