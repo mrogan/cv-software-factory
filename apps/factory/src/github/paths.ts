@@ -50,6 +50,14 @@ export function ownedPaths(codeowners: string): string[] {
 }
 
 /**
+ * The paths no patch may change as a reader is told them, such as in the planner's prompt: each CODEOWNERS entry once,
+ * as it reads (`Dockerfile`), without the folder `ownedPaths` matches beside it (`Dockerfile/`). For words only: the
+ * checks match every entry.
+ */
+export const protectedWords = (paths: readonly string[]): string[] =>
+  paths.filter((path) => !(path.endsWith('/') && paths.includes(path.slice(0, -1))));
+
+/**
  * The paths no patch may change, as scope entries: the workflows, the deployment, and those a CODEOWNERS file (the
  * first GitHub finds at a commit, or none) gives a person.
  */

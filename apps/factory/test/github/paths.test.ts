@@ -3,7 +3,7 @@
  * every scope and CODEOWNERS file.
  */
 import { describe, expect, it } from 'vitest';
-import { inScope, ownedPaths, plainPath, protectedFrom } from '../../src/github/paths.ts';
+import { inScope, ownedPaths, plainPath, protectedFrom, protectedWords } from '../../src/github/paths.ts';
 
 describe('the paths a CODEOWNERS file gives a person', () => {
   it('take in everything in a folder its entry names without a trailing slash, as GitHub does', () => {
@@ -16,6 +16,20 @@ describe('the paths a CODEOWNERS file gives a person', () => {
   it('read `?`, one character, as `*`, and `/` alone as everything', () => {
     expect(inScope('src/a.ts', ownedPaths('/src/?.ts @mrogan'))).toBe(true);
     expect(inScope('src/money.ts', ownedPaths('/ @mrogan'))).toBe(true);
+  });
+
+  it('are told each once, as CODEOWNERS writes it, without the folder matched beside it', () => {
+    const owned = protectedFrom('/Dockerfile @mrogan\nAGENTS.md @mrogan\n/docs/ @mrogan\n');
+    expect(owned).toEqual([
+      '.github/',
+      'deploy/',
+      'Dockerfile',
+      'Dockerfile/',
+      '**/AGENTS.md',
+      '**/AGENTS.md/',
+      'docs/',
+    ]);
+    expect(protectedWords(owned)).toEqual(['.github/', 'deploy/', 'Dockerfile', '**/AGENTS.md', 'docs/']);
   });
 
   it('are the workflows and the deployment alone when there is no CODEOWNERS file', () => {

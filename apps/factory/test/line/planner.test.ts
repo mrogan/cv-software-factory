@@ -90,7 +90,7 @@ const INPUT: PlannerInput = {
       ],
     },
   ],
-  protectedPaths: ['.github/', 'deploy/', 'Dockerfile'],
+  protectedPaths: ['.github/', 'deploy/', 'Dockerfile', 'Dockerfile/'],
   answers: [],
 };
 
