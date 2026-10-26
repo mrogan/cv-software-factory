@@ -16,7 +16,7 @@
     ?dialog=stop | start | stepup | abort (open one, as a click would)   ?fresh (the passkey was given in the last five minutes)
     ?needs=none (nothing waits)   ?menu (the account menu open)   ?profile=local (default) | cloud (no local model to choose)
   Improvements and flags (README, "Improvements and flags"):
-    ?dialog=improve (the "+" on Plan's form; a visitor's is read-only) | widen (to Share, with its share) | flagoff
+    ?dialog=improve (the "+" on Plan's form; a visitor's is read-only) | flag&to=off|checks|preview|share|everyone (the slider's confirmation)
     ?flag=preview (default) | shipped (released, still off) | checks | share (Verify comparing) | compared | everyone | off
           | busy (another flag holds Share)   where delivery-dates (#1316) stands   ?sync=behind (the app's flags lag)
   The states shipping brings (README, "Shipping"):
@@ -124,7 +124,8 @@ header.top .wrap { min-height: 72px; display: flex; align-items: center; justify
 .stage:hover .name { text-decoration-color: var(--line-strong); }
 .stage[aria-expanded="true"] .name { text-decoration: underline 2px var(--text); }
 .stage .state { display: inline-flex; align-items: center; gap: 6px; font: 11px/1.4 var(--font-mono); color: var(--text-2); white-space: nowrap; }
-.stage .fig { color: var(--text-muted); }
+/* The figure has a line of its own, so a long one ("50% · 1 waiting") never widens its station. */
+.stage .fig { margin-top: -3px; font: 11px/1.4 var(--font-mono); color: var(--text-muted); white-space: nowrap; }
 .overlay { position: absolute; left: 0; top: 0; width: 100%; aspect-ratio: 1344 / 220; pointer-events: none; z-index: 2; }
 .overlay > svg { width: 100%; height: 100%; display: block; overflow: visible; }
 /* Returns: one at a time, fleeting. Work sent back upstream, or production feeding new work to Sense. */
@@ -442,18 +443,26 @@ body.still .sheet, body.still .scrim, body.still .reel.anim .card, body.still .r
 .criteria small.side { display: block; margin-top: 3px; font: 11px/1.3 var(--font-mono); color: var(--text-muted); }
 code.flagname { font: 12.5px var(--font-mono); padding: 1px 6px; border-radius: var(--radius-small); background: var(--surface); color: var(--text); white-space: nowrap; }
 .regress .row.pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-/* A flag's four stages, filled to where it stands; off leaves every stop open. */
-.ftrack { list-style: none; margin: 0 0 14px; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.ftrack li { position: relative; display: flex; flex-direction: column; gap: 7px; font: 11.5px/1.2 var(--font-mono); color: var(--text-muted); }
-.ftrack li:not(:last-child)::after { content: ""; position: absolute; top: 7px; left: 16px; right: 2px; height: 2px; border-radius: 1px; background: var(--line); }
-.ftrack li.done::after { background: var(--signal); }
-.ftrack i { position: relative; z-index: 1; width: 16px; height: 16px; border-radius: 8px; border: 1.5px solid var(--line-strong); background: var(--surface); display: grid; place-items: center; }
-.ftrack li.done i { border-color: var(--signal); background: var(--signal); }
-.ftrack li.now i { border-color: var(--signal); box-shadow: 0 0 0 3px var(--signal-wash); }
-.ftrack li.now i::after { content: ""; width: 6px; height: 6px; border-radius: 3px; background: var(--signal); }
-.ftrack li.now, .ftrack li.done { color: var(--text); }
-.ftrack small { margin-left: 5px; color: var(--text-muted); }
-.ftrack.is-off li { color: var(--text-muted); }
+/* A flag's stages as a slider: five stops, Off to Everyone, filled in ink to where it stands. */
+.fslider { position: relative; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 2px 0 0; touch-action: none; }
+.fslider .frail, .fslider .fill { position: absolute; top: 11px; left: 10%; height: 2px; border-radius: 1px; }
+.fslider .frail { right: 10%; background: var(--line-strong); }
+.fslider .fill { width: calc(var(--at) * 20%); background: var(--signal); }
+.fslider.is-off .fill { display: none; }
+.fstop { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; min-height: 44px; padding: 5px 0 0; border: 0; background: none; font: 11.5px/1.2 var(--font-mono); color: var(--text-muted); }
+button.fstop { cursor: pointer; }
+.fstop i { position: relative; z-index: 1; width: 14px; height: 14px; border-radius: 7px; border: 1.5px solid var(--line-strong); background: var(--surface); display: grid; place-items: center; }
+.fstop.done i { border-color: var(--signal); background: var(--signal); }
+.fstop.now i { border-color: var(--signal); box-shadow: 0 0 0 3px var(--signal-wash); }
+.fstop.now i::after { content: ""; width: 6px; height: 6px; border-radius: 3px; background: var(--signal); }
+.fstop.cant i { border-style: dashed; }
+button.fstop:hover i { border-color: var(--text); }
+.fstop.now, .fstop.done { color: var(--text); }
+.fstop small { margin-left: 4px; color: var(--text-muted); }
+.fslider.is-off .fstop:first-of-type { color: var(--text); }
+.fslider .fthumb { position: absolute; z-index: 2; top: 1px; left: calc(10% + var(--at) * 20%); width: 22px; height: 22px; margin-left: -11px; border-radius: 11px; background: var(--raised); border: 2px solid var(--signal); box-shadow: var(--shadow-popover); cursor: grab; }
+.fslider .fthumb::after { content: ""; position: absolute; inset: 5px; border-radius: 50%; background: var(--signal); }
+.fslider.dragging .fthumb { cursor: grabbing; }
 table.models { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .models th { text-align: left; font: 10px/1.4 var(--font-mono); letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); font-weight: 400; padding: 0 0 8px; border-bottom: 1px solid var(--line); }
 .models td { padding: 10px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -660,12 +669,13 @@ select.field:disabled, input.field:disabled { color: var(--text-muted); backgrou
 .canary-controls dd { margin: 0; }
 
 /* Flags in Controls: one block per flag, its stages, and its actions as answer rows. */
-.flag { display: flex; flex-direction: column; gap: 8px; padding: 12px 0 4px; border-top: 1px solid var(--line); }
+.flag { display: flex; flex-direction: column; gap: 4px; padding: 10px 0 2px; border-top: 1px solid var(--line); }
 .flag:first-of-type { border-top: 0; padding-top: 2px; }
 .flag-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; font-size: 13px; }
-.flag-top .word { margin-left: auto; }
-.flag .ftrack { margin: 4px 0 0; }
-.flag .answers { margin-top: 0; }
+.flag-top .pv { margin-left: auto; font-size: 12.5px; color: var(--text); }
+.flags-closed summary { cursor: pointer; padding: 8px 0; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--text-muted); }
+.dialog .fromto { display: block; margin-bottom: 4px; font: 11px/1.4 var(--font-mono); letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); }
+.dialog .what p { margin: 0; font-size: 13.5px; color: var(--text); }
 .answers p.why { color: var(--text); }
 .answers .btn:disabled { border-style: dashed; color: var(--text-muted); }
 .answers a.btn { min-height: 36px; padding: 0 12px; font-size: 13px; justify-content: flex-start; color: var(--text); text-decoration: none; }
@@ -857,7 +867,6 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
   .try-grid { grid-template-columns: 1fr; }
   .answers { grid-template-columns: 1fr; gap: 4px; }
   .answers .btn, .answers .ro, .answers a.btn { justify-self: stretch; justify-content: center; }
-  .flag-top .word { margin-left: 0; }
   .pair-mini { gap: 8px; }
   .answers p { margin-bottom: 8px; }
   .canary-controls .row .btn { flex: 1 1 40%; }
@@ -1894,7 +1903,8 @@ function renderLine() {
       <sf-station kind="${s.kind}" status="${status}" ${s.beacon && !S.stopped ? `beacon="${s.beacon}"` : ''} decorative ${still() ? 'motion="off"' : ''}></sf-station>
       <span class="cap" aria-hidden="true">
         <span class="name">${STAGE_NAME[s.kind]}</span>
-        <span class="state"><span class="dot tone-${tone} ${tone === 'attn' ? 'ring' : ''}"></span>${word}<span class="fig">&nbsp;· ${esc(s.fig)}</span></span>
+        <span class="state"><span class="dot tone-${tone} ${tone === 'attn' ? 'ring' : ''}"></span>${word}</span>
+        <span class="fig">${esc(s.fig)}</span>
       </span>
     </button>${add}</div>`;
   }).join('');
@@ -2274,13 +2284,6 @@ function releaseSection(it) {
 
 /* The flag's section of an improvement's sheet: where it stands, then each stage it reached, newest first, the older
    ones folded, each with what Verify found there. */
-function flagTrack(f) {
-  const at = f.turnedOff ? 0 : FLAG_AT[f.stage];
-  return `<ol class="ftrack ${f.turnedOff ? 'is-off' : ''}" aria-label="Its stages: ${f.turnedOff ? 'off' : FLAG_STAGES[at][1]}">${FLAG_STAGES.slice(1).map(([k, label], j) => {
-    const i = j + 1;
-    return `<li class="${i < at ? 'done' : i === at ? 'now' : ''}" ${i === at ? 'aria-current="step"' : ''}><i></i><span>${label}${k === 'share' ? `<small>${f.share}%</small>` : ''}</span></li>`;
-  }).join('')}</ol>`;
-}
 const FLAG_TIMES = {
   'delivery-dates': { day: 'Sat', version: 'v0.9.12', release: '3b7e90c1d4-871', page: 'A product', released: '12:22', checks: '12:26', checked: '12:32', preview: '12:43', previewed: '12:46', share: '13:17', off: '13:32', compared: '14:17', everyone: '14:32',
     shot: (on) => PAGES.product('clock', on ? { delivery: true, mark: ['good', 'New: when it would arrive'] } : {}) },
@@ -2334,7 +2337,7 @@ function flagSection(it) {
     ? `<article class="rel"><div class="rel-head">${b.head}</div>${b.body}</article>`
     : `<details class="rel"><summary>${b.head}<span class="more">Show this stage</span></summary>${b.body}</details>`).join('');
   return `<section class="sec"><h3>The flag</h3><p class="help"><code class="flagname">${it.flag}</code> ${f.turnedOff ? 'is off, and #' + it.id + ' is closed.' : `is at ${FLAG_STAGES[at][1]}: ${FLAG_STAGES[at][2](f).replace(/^./, (c) => c.toLowerCase())}`} Each stage is Martin’s, from Controls; widening asks for his passkey.</p>
-    ${flagTrack(f)}<div class="rels">${blocks}</div></section>`;
+    ${flagSlider(it.flag, { ro: true })}<div class="rels">${blocks}</div></section>`;
 }
 
 function renderSheet() {
@@ -2542,79 +2545,66 @@ function renderNeeds() {
 
 /* ==== Flags in Controls, and in Needs you ==================================================== */
 
-// Why the next stage cannot be taken now, or null. One flag at the share stage at a time, and none while a canary is
-// in flight: its two versions would mix the two sides. Everyone waits for Verify's comparison.
-function flagWhyNot(name) {
-  const f = FLAGSET[name], next = FLAG_STAGES[FLAG_AT[f.stage] + 1];
-  if (!next || f.turnedOff) return null;
-  if (!flagReady(name)) return 'Everyone waits for Verify’s comparison: each side needs 300 requests, and has 236 and 229.';
-  if (next[0] === 'share') {
+// Why a flag cannot go to a stage now, or null. Widening is one stage at a time, so Verify checks each; one flag at
+// the share stage at a time, and none while a canary is in flight, since its two versions would mix the two sides;
+// Everyone waits for Verify's comparison. A flag on for everyone and turned off goes straight back to Everyone.
+function flagWhyNot(name, to) {
+  const f = FLAGSET[name], at = FLAG_AT[f.stage], k = FLAG_AT[to];
+  if (f.turnedOff) return `#${f.item} was turned off and closed. Its code stays in the app, off; to try again, ask with the “+”.`;
+  if (k <= at) return null;
+  if (f.was) return k === f.was ? null : `It was on for everyone before you turned it off: it goes straight back to ${FLAG_STAGES[f.was][1]}.`;
+  if (k > at + 1) return `One stage at a time, so Verify can check each: ${FLAG_STAGES[at + 1][1]} comes first.`;
+  if (!flagReady(name)) return 'Verify is still comparing the two sides: each needs 300 requests, and they have 236 and 229. Everyone can be taken once it has judged.';
+  if (to === 'share') {
     const r = canaryScenario(S.canary);
-    if (!r.end && !r.idle && !r.none && !r.dry) return `Share waits while a canary is in flight: ${r.version} is at ${r.now}%, and its two versions would mix the two sides. It can be taken once the canary ends.`;
-    const other = Object.entries(FLAGSET).find(([k, g]) => k !== name && g.stage === 'share');
-    if (other) return `Share waits while ${other[0]} is at it: one flag at a time, so each comparison varies one thing.`;
+    if (!r.end && !r.idle && !r.none && !r.dry) return `A canary is in flight: ${r.version} is at ${r.now}%, and its two versions would mix the two sides. Share can be taken once it ends.`;
+    const other = Object.entries(FLAGSET).find(([n, g]) => n !== name && g.stage === 'share');
+    if (other) return `${other[0]} is at Share: one flag at a time, so each comparison varies one thing.`;
   }
   return null;
 }
-const WIDEN = {
-  checks: 'Verify runs the journeys and the device check with it on, and takes the pictures, off and on.',
-  preview: 'Anyone who asks can preview it in their own browser, and a probe checks a preview keeps only its cookie.',
-  share: 'Asks how big a share. Verify then compares flag on against flag off on the traffic generator’s requests.',
-  everyone: 'On for every visitor.',
-};
-// A flag's actions: [kind, label, what it does, asks for the passkey, disabled]. Martin's are buttons; a visitor's,
-// labels beside what each does.
-function flagActions(name) {
-  const f = FLAGSET[name], at = FLAG_AT[f.stage], it = ITEMS[indexOf(f.item)], done = it?.end === 'verified';
-  if (f.turnedOff) return [];
-  if (at === 0 && f.was) return [['on', 'Turn back on', `Back to ${FLAG_STAGES[f.was][1]} at once, as it was.`, true]];
-  const next = FLAG_STAGES[at + 1], why = flagWhyNot(name), A = [];
-  if (next) A.push(['widen', `Widen to ${next[1]}`, why ?? WIDEN[next[0]], true, !!why]);
-  if (at >= 2) A.push(['narrow', `Narrow to ${FLAG_STAGES[at - 1][1]}`, `Back to ${FLAG_STAGES[at - 1][1]} at once. Narrowing never asks for the passkey.`]);
-  if (at >= 1) A.push(['off', 'Turn off', done ? 'Off for everyone within seconds, a preview too. You can turn it back on here.' : `Off for everyone within seconds, a preview too. Closes #${f.item} as turned off; nothing is rolled back.`]);
-  return A;
-}
-const previewLink = (name) => `<a class="btn small" href="http://mossop.localhost${FLAGSET[name].page}?preview=${name}" target="_blank" rel="noopener">Preview it<span aria-hidden="true">↗</span><span class="sr"> (opens the app)</span></a>`;
-function flagRows(name, { hold = false } = {}) {
-  const v = S.visitor, f = FLAGSET[name];
-  const rows = flagActions(name).map(([k, label, what, key, off]) => {
-    const control = v ? `<span class="ro">${label}</span>`
-      : `<button type="button" class="btn ${k === 'off' ? 'attn-line' : ''}" data-flag="${k}:${name}" ${off ? 'disabled' : ''}>${label}${keyIf(key && !S.fresh && !off)}</button>`;
-    return `${control}<p class="${off ? 'why' : ''}">${what}</p>`;
-  });
-  if (FLAG_AT[f.stage] >= 2 && !f.turnedOff && !hold) rows.push(`${previewLink(name)}<p>Sets the app’s preview cookie in your browser, for a day: you see this flag on, and nobody else does.</p>`);
-  return rows.join('');
+const previewLink = (name, cls = 'pv') => `<a class="${cls}" href="http://mossop.localhost${FLAGSET[name].page}?preview=${name}" target="_blank" rel="noopener">Preview it<span aria-hidden="true"> ↗</span><span class="sr"> (opens the app)</span></a>`;
+// A flag's stages as a slider: five stops, Off to Everyone. Martin clicks a stop, or drags the handle and lets go on
+// one; either opens the confirmation. A stop that cannot be taken now is drawn dashed. A visitor's has no handle.
+function flagSlider(name, { ro = false } = {}) {
+  const f = FLAGSET[name], at = f.turnedOff ? 0 : FLAG_AT[f.stage], v = ro || S.visitor || f.turnedOff;
+  const stops = FLAG_STAGES.map(([k, label], i) => {
+    const why = i !== at && flagWhyNot(name, k), cls = [i < at ? 'done' : '', i === at ? 'now' : '', why && i > at ? 'cant' : ''].join(' ');
+    const inner = `<i></i><span>${label}${k === 'share' ? `<small>${f.share}%</small>` : ''}</span>`;
+    return v || i === at
+      ? `<span class="fstop ${cls}" ${i === at ? 'aria-current="true"' : ''}>${inner}</span>`
+      : `<button type="button" class="fstop ${cls}" data-flag-to="${name}:${k}" aria-label="${i < at ? (i === 0 ? 'Turn off' : 'Narrow to ' + label) : 'Widen to ' + label}${why ? ': not now' : ''}">${inner}</button>`;
+  }).join('');
+  return `<div class="fslider ${v ? 'ro' : ''} ${f.turnedOff ? 'is-off' : ''}" data-slider="${name}" style="--at: ${at}" role="group" aria-label="${name}: ${f.turnedOff ? 'turned off' : FLAG_STAGES[at][1]}">
+    <span class="frail"></span><span class="fill"></span>${v ? '' : '<span class="fthumb" aria-hidden="true"></span>'}${stops}</div>`;
 }
 function renderFlags() {
-  const v = S.visitor, names = Object.keys(FLAGSET);
-  const sync = { ok: [glyph('check'), '', `The app holds every flag as set here: revision ${FLAG_SYNC.revision}, checked 40s ago.`],
-    taking: [glyph('ring'), '', 'The app is taking the change: the admin service asks it for its revision, and tells Martin’s phone if it has not got it within a minute.'],
-    behind: [glyph('cross'), 'attn', `The app still holds r6, 3min after ${FLAG_SYNC.revision} was set: flagd may have stopped watching. Martin’s phone hears at 5min, and in a minute more every flag fails off.`] }[FLAG_SYNC.state];
-  $('flags').innerHTML = `<span class="label"><span>Flags</span><span>${names.length} in the app</span></span>
-    ${names.length ? names.map((name) => {
-      const f = FLAGSET[name], at = FLAG_AT[f.stage], [, stage, says] = FLAG_STAGES[at];
-      const word = f.turnedOff ? ['Turned off', 'faint'] : at === 0 ? ['Off', 'faint'] : at === 4 ? ['Everyone', 'ok'] : [stage, 'signal'];
-      return `<div class="flag">
-        <div class="flag-top"><code class="flagname">${name}</code><button type="button" class="linkish" data-open="${f.item}">#${f.item} ${esc(f.title)}</button>
-          <span class="word tone-${word[1]}"><span class="dot tone-${word[1]}"></span>${word[0]}</span></div>
-        ${flagTrack(f)}
-        <p class="help">${f.turnedOff ? `Turned off at Share, and #${f.item} closed. Its code stays in the app, off; to try again, ask with the “+”.` : says(f)}</p>
-        ${f.turnedOff ? '' : `<div class="answers" role="group" aria-label="${v ? 'What Martin can do with ' : 'Stages for '}${name}">${flagRows(name)}</div>`}
-      </div>`; }).join('')
-    : '<p class="help">No flag yet. An improvement ships behind one, off, and it shows here once its release is out.</p>'}
+  const names = Object.keys(FLAGSET), live = names.filter((n) => !FLAGSET[n].turnedOff), closed = names.filter((n) => FLAGSET[n].turnedOff);
+  const sync = { ok: [glyph('check'), '', `The app holds every flag as set: ${FLAG_SYNC.revision}, checked 40s ago.`],
+    taking: [glyph('ring'), '', 'The app is taking the change. Martin’s phone hears if it hasn’t within a minute.'],
+    behind: [glyph('cross'), 'attn', `The app still holds r6, 3min after ${FLAG_SYNC.revision}: Martin’s phone hears at 5min.`] }[FLAG_SYNC.state];
+  const row = (name) => { const f = FLAGSET[name], at = FLAG_AT[f.stage];
+    return `<div class="flag"><div class="flag-top"><code class="flagname">${name}</code><button type="button" class="linkish" data-open="${f.item}">#${f.item}</button>
+      ${at >= 2 && !f.turnedOff ? previewLink(name) : ''}</div>${flagSlider(name)}</div>`; };
+  $('flags').innerHTML = `<span class="label"><span>Flags</span><span>${live.length} in the app</span></span>
+    ${names.length ? live.map(row).join('') : '<p class="help">No flag yet. An improvement ships behind one, off, and it shows here once its release is out.</p>'}
+    ${closed.length ? `<details class="flags-closed"><summary>Turned off and closed · ${closed.length}</summary>${closed.map(row).join('')}</details>` : ''}
     <p class="sync ${sync[1] ? 'tone-' + sync[1] : ''}">${sync[0]}<span>${sync[2]}</span></p>`;
 }
-// A flag that Verify has checked at its stage waits for Martin to widen it: a hold in Needs you, answered with the
-// same controls as in Controls.
+// A flag that Verify has checked at its stage waits for Martin: a hold in Needs you, answered by widening it or
+// turning it off, each through the same confirmation as the slider.
 function flagHolds() {
-  return Object.entries(FLAGSET).filter(([name, f]) => ITEMS[indexOf(f.item)]?.end === 'flag' && !f.turnedOff && FLAG_AT[f.stage] < 4).map(([name, f]) => {
-    const at = FLAG_AT[f.stage], t = FLAG_TIMES[name];
-    const ev = at === 0 ? `<p class="ev">Released in ${t.version} with <code class="flagname">${name}</code> off. Widening to Checks lets Verify see it on, where only the factory’s checks can.</p>`
+  return Object.entries(FLAGSET).filter(([, f]) => ITEMS[indexOf(f.item)]?.end === 'flag' && !f.turnedOff && FLAG_AT[f.stage] < 4).map(([name, f]) => {
+    const at = FLAG_AT[f.stage], t = FLAG_TIMES[name], next = FLAG_STAGES[at + 1], why = flagWhyNot(name, next[0]), v = S.visitor;
+    const ev = at === 0 ? `<p class="ev">Released in ${t.version} with <code class="flagname">${name}</code> off. At Checks, Verify sees it on where only the factory’s checks can.</p>`
       : at === 1 ? `<p class="ev">With it on, the journeys passed and the device check found nothing kept. No probe knows a new feature: judge the pictures before you widen.</p>
         <div class="pair-mini"><figure><div class="vis">${t.shot(false)}</div><figcaption>flag off</figcaption></figure><figure><div class="vis">${t.shot(true)}</div><figcaption>flag on</figcaption></figure></div>`
-      : at === 2 ? `<p class="ev">A probe’s preview kept the preview cookie and nothing else. ${previewLink(name).replace('btn small', 'inline')}</p>`
+      : at === 2 ? `<p class="ev">A probe’s preview kept the preview cookie and nothing else. ${previewLink(name, 'inline')}</p>`
       : `<p class="ev">Flag on against off, on the traffic generator’s requests: errors 0.97% and 1.01%, p99 41 ms and 40 ms, over 412 and 398 requests. Within the canary’s thresholds.</p>`;
-    return { id: f.item, kicker: at === 0 ? 'Shipped behind its flag' : 'Ready to widen', stage: `Verify · ${FLAG_STAGES[at][1]}`, age: '1h', title: f.title, ev, rows: flagRows(name, { hold: true }) };
+    const rows = [[`Widen to ${next[1]}`, why ?? 'Shows it to more, after a confirmation that says who.', `data-flag-to="${name}:${next[0]}"`, true, !!why],
+      ['Turn off', at === 0 ? `Closes #${f.item}; the flag stays off.` : `Off for everyone within seconds. Closes #${f.item}.`, `data-flag-to="${name}:off"`]]
+      .map(([label, what, data, key, off]) => `${v ? `<span class="ro">${label}</span>` : `<button type="button" class="btn ${label === 'Turn off' ? 'attn-line' : ''}" ${data} ${off ? 'disabled' : ''}>${label}${keyIf(key && !S.fresh && !off)}</button>`}<p class="${off ? 'why' : ''}">${what}</p>`).join('');
+    return { id: f.item, kicker: at === 0 ? 'Shipped behind its flag' : 'Ready to widen', stage: `Verify · ${FLAG_STAGES[at][1]}`, age: '1h', title: f.title, ev, rows };
   });
 }
 
@@ -2690,8 +2680,6 @@ const STEPUP = {
   answer: ['Approve past a guardrail', null, 'A gate held this, and approving overrides it'],
   save: ['Save the settings', '<b>The coder’s effort goes from medium to high</b>, from its next step.', 'This raises spend'],
   revoke: ['Revoke a passkey', null, 'Revoking a passkey'],
-  widen: ['Widen a flag', null, 'Widening shows a change to more people'],
-  on: ['Turn a flag back on', null, 'Turning a flag on shows a change to more people'],
 };
 
 function openDialog(kind, ctx = {}) {
@@ -2726,30 +2714,29 @@ function openDialog(kind, ctx = {}) {
         <li>It waits behind every open ticket, ${open} now, oldest first. ${v ? 'Martin can take it at once with Just one.' : 'To take it at once, choose Just one in Controls.'}</li>
         <li>It ships behind a flag of its own, off, and ${v ? 'he widens' : 'you widen'} it a stage at a time from Controls.</li>
         <li>${v ? 'A suggestion you send from the app reaches Martin, and never starts work by itself.' : 'Visitors see your words, with anything shaped like a secret left out.'}</li></ul>
-      ${v ? `<div class="answers"><span class="ro">Ask${glyph('key', 'key')}</span><p>Martin asks, signed in, with his passkey again: it widens what the line does.</p></div>
+      ${v ? `<div class="answers"><span class="ro">Request${glyph('key', 'key')}</span><p>Martin requests it signed in, with his passkey again: it widens what the line does.</p></div>
         <div class="row"><button type="button" class="btn" data-dialog-close>Close</button></div>`
-      : `<div class="row">${cancel}<button type="button" class="btn primary" data-dialog-ok>${fresh ? 'Ask' : `Use your passkey and ask${glyph('key', 'key')}`}</button></div>
-        <p class="help">Asking widens what the line does, so it asks for your passkey again, and tells your phone.</p>`}`;
+      : `<div class="row">${cancel}<button type="button" class="btn primary" data-dialog-ok>Request${fresh ? '' : glyph('key', 'key')}</button></div>
+        ${fresh ? '' : '<p class="help">Requesting widens what the line does, so it asks for your passkey again, and tells your phone.</p>'}`}`;
   }
-  else if (kind === 'widen') {
-    // Widening to Share asks how big a share; every other widening is the plain step-up dialog.
-    const f = FLAGSET[ctx.flag];
-    el.innerHTML = `${fresh ? '' : `<div class="kickline">${glyph('key', 'key')}<span class="label">Your passkey, again</span></div>`}
-      <h2 id="dialog-title" tabindex="-1">Widen ${ctx.flag} to Share</h2>
-      <p>A share of the traffic generator’s requests get it on, so Verify can compare flag on against flag off, on errors and latency. Visitors still don’t see it.</p>
-      <span class="label" id="share-label">Share of the generator’s requests</span>
-      <div class="seg" role="group" aria-labelledby="share-label">${[10, 25, 50].map((x) => `<button type="button" data-share="${x}" aria-pressed="${f.share === x}">${x}%</button>`).join('')}</div>
-      <p class="help">Half and half fills both sides soonest: each needs 300 requests. A smaller share keeps more of the generator’s requests as they were.</p>
-      ${fresh ? '' : '<p>Widening shows a change to more of the traffic, so it needs your passkey again.</p>'}
-      <div class="row">${cancel}<button type="button" class="btn primary" data-dialog-ok>${fresh ? 'Widen' : `Use your passkey and widen${glyph('key', 'key')}`}</button></div>`;
-  }
-  else if (kind === 'flagoff') {
-    const f = FLAGSET[ctx.flag], done = ITEMS[indexOf(f.item)]?.end === 'verified';
-    el.innerHTML = `<h2 id="dialog-title" tabindex="-1">Turn off ${ctx.flag}</h2>
-      <p>Off for everyone within seconds, a preview too, with no deploy and no rollback. ${done ? `#${f.item} stays done, and you can turn it back on from Controls.` : `#${f.item} closes as turned off: its code stays in the app, off.`}</p>
-      <p>The admin service then asks the app for the flags it holds, and tells your phone if it has not taken this within a minute.</p>
-      ${reason('off-reason', 'Why, for the audit log and the work item')}
-      <div class="row">${cancel}<button type="button" class="btn attn" data-dialog-ok>Turn off</button></div>`;
+  else if (kind === 'flag') {
+    // The slider's confirmation: what the stage means and who gets it, before it is applied; or why it can't be taken.
+    const f = FLAGSET[ctx.flag], from = FLAG_AT[f.stage], to = FLAG_AT[ctx.to], [, label, says] = FLAG_STAGES[to];
+    const why = flagWhyNot(ctx.flag, ctx.to), wider = to > from, off = to === 0, done = ITEMS[indexOf(f.item)]?.end === 'verified';
+    const title = why ? `${label} can’t be taken now` : off ? `Turn off ${ctx.flag}` : f.was ? `Turn ${ctx.flag} back on` : `${wider ? 'Widen' : 'Narrow'} ${ctx.flag} to ${label}`;
+    const what = off ? `Off for everyone within seconds, a preview too, with no deploy and no rollback. ${done ? `#${f.item} stays done, and you can turn it back on here.` : `#${f.item} closes as turned off; its code stays in the app, off.`}` : says(f);
+    el.innerHTML = `${wider && !why && !fresh ? `<div class="kickline">${glyph('key', 'key')}<span class="label">Your passkey, again</span></div>` : ''}
+      <h2 id="dialog-title" tabindex="-1">${title}</h2>
+      <div class="what"><span class="fromto">${FLAG_STAGES[from][1]} <span aria-hidden="true">→</span><span class="sr">to</span> ${label}</span>${why ? `<p>${why}</p>` : `<p>${what}</p>`}</div>
+      ${!why && ctx.to === 'share' ? `<span class="label" id="share-label">Share of the generator’s requests</span>
+        <div class="seg" role="group" aria-labelledby="share-label">${[10, 25, 50].map((x) => `<button type="button" data-share="${x}" aria-pressed="${f.share === x}">${x}%</button>`).join('')}</div>
+        <p class="help">Half and half fills both sides soonest: each needs 300 requests.</p>` : ''}
+      ${!why && off ? reason('off-reason', 'Why, for the audit log and the work item') : ''}
+      ${!why && !wider && !off ? '<p class="help">Narrowing acts at once, and never asks for the passkey.</p>' : ''}
+      ${!why && wider ? `<p class="help">The admin service then checks the app has it. ${fresh ? '' : 'Widening shows a change to more people, so it asks for your passkey again.'}</p>` : ''}
+      ${!why && off ? '<p class="help">The admin service asks the app for the flags it holds, and tells your phone if it hasn’t taken this within a minute.</p>' : ''}
+      <div class="row">${why ? '<button type="button" class="btn" data-dialog-close>Close</button>'
+        : `${cancel}<button type="button" class="btn ${off ? 'attn' : 'primary'}" data-dialog-ok>${off ? 'Turn off' : f.was ? 'Turn back on' : wider ? 'Widen' : 'Narrow'}${wider && !fresh ? glyph('key', 'key') : ''}</button>`}</div>`;
   }
   else {
     const [title, what, why] = STEPUP[ctx.action] ?? STEPUP.switch;
@@ -2801,12 +2788,16 @@ function confirmDialog() {
     giveKey();
     STAGES.plan.rows.unshift(['#1320', title.value.trim(), 'asked just now · waiting behind the open tickets', '', null, 'now', 'wait']);
   }
-  else if (d.kind === 'widen') { giveKey(); setStage(d.flag, 'share'); }
-  else if (d.kind === 'flagoff') { const f = FLAGSET[d.flag]; if (ITEMS[indexOf(f.item)]?.end === 'verified') f.was = FLAG_AT[f.stage]; else f.turnedOff = true; setStage(d.flag, 'off'); }
+  else if (d.kind === 'flag') {
+    const f = FLAGSET[d.flag], from = FLAG_AT[f.stage], to = FLAG_AT[d.to];
+    if (to > from) giveKey();
+    if (to === 0) { if (ITEMS[indexOf(f.item)]?.end === 'verified') f.was = from; else f.turnedOff = true; } else f.was = null;
+    setStage(d.flag, d.to);
+  }
   if (d.kind === 'stop') { S.stopped = true; S.stopReason = $('stop-reason').value.trim(); const r = canaryScenario(S.canary); if (!r.end && !r.idle && !r.none && !r.dry) S.canary = 'stopped'; }
   else if (d.kind === 'start') { giveKey(); S.stopped = false; }
   else if (d.kind === 'abort') S.canary = 'aborted';
-  else if (['improve', 'widen', 'flagoff'].includes(d.kind)) { /* done above */ }
+  else if (['improve', 'flag'].includes(d.kind)) { /* done above */ }
   else { giveKey(); d.then?.(); }
   renderAll(); retIndex = 0; cycleReturns();
   closeDialog();
@@ -2990,15 +2981,8 @@ document.addEventListener('click', (e) => {
   const d = t.dataset;
   if (t.classList.contains('stage')) return openStage(+d.i);
   if ('add' in d) { if (S.stage !== null) openStage(S.stage); return openDialog('improve'); }
-  if (d.share) { FLAGSET[S.dialog.flag].share = +d.share; return openDialog('widen', { flag: S.dialog.flag }); }
-  if (d.flag) {
-    const [k, name] = d.flag.split(':'), f = FLAGSET[name], at = FLAG_AT[f.stage], next = FLAG_STAGES[at + 1];
-    if (k === 'narrow') { setStage(name, FLAG_STAGES[at - 1][0]); return renderAll(); }
-    if (k === 'off') return openDialog('flagoff', { flag: name });
-    if (k === 'on') return keyed(true, 'on', { what: `<b>${name} goes back to ${FLAG_STAGES[f.was][1]}.</b>` }, () => { setStage(name, FLAG_STAGES[f.was][0]); f.was = null; renderAll(); });
-    if (next[0] === 'share') return openDialog('widen', { flag: name });
-    return keyed(true, 'widen', { what: `<b>${name} goes from ${FLAG_STAGES[at][1]} to ${next[1]}.</b> ${FLAG_STAGES[at + 1][2](f)}` }, () => { setStage(name, next[0]); renderAll(); });
-  }
+  if (d.share) { FLAGSET[S.dialog.flag].share = +d.share; return openDialog('flag', { flag: S.dialog.flag, to: 'share' }); }
+  if (d.flagTo) { const [name, to] = d.flagTo.split(':'); return openDialog('flag', { flag: name, to }); }
   if ('closeStage' in d) return openStage(S.stage);
   if (d.open) { if (S.stage !== null) openStage(S.stage); return openSheet(indexOf(d.open)); }
   if (t.id === 'prev') return go(cur() - 1);
@@ -3056,6 +3040,23 @@ document.addEventListener('click', (e) => {
   if (t.id === 'stop-btn') { openDialog(S.stopped ? 'start' : 'stop'); return; }
   if (t.id === 'preview-btn') return setMode(true, true);
   if (t.id === 'to-admin') return setMode(false, false);
+});
+// Dragging a flag's handle: it follows the pointer, written straight to its style; letting go on another stop opens
+// that stop's confirmation, and the handle goes back to where the flag stands until it is applied.
+document.addEventListener('pointerdown', (e) => {
+  const thumb = e.target.closest('.fthumb'), slider = thumb?.closest('.fslider');
+  if (!slider) return;
+  e.preventDefault(); capture(thumb, e); slider.classList.add('dragging');
+  const r = slider.getBoundingClientRect(), x0 = r.left + r.width * 0.1, span = r.width * 0.8;
+  const at = (x) => Math.max(0, Math.min(1, (x - x0) / span));
+  const move = (ev) => { thumb.style.left = `calc(10% + ${at(ev.clientX) * 80}%)`; };
+  const up = (ev) => {
+    thumb.removeEventListener('pointermove', move); thumb.removeEventListener('pointerup', up);
+    slider.classList.remove('dragging'); thumb.style.left = '';
+    const k = Math.round(at(ev.clientX) * 4), name = slider.dataset.slider;
+    if (k !== FLAG_AT[FLAGSET[name].stage]) openDialog('flag', { flag: name, to: FLAG_STAGES[k][0] });
+  };
+  thumb.addEventListener('pointermove', move); thumb.addEventListener('pointerup', up);
 });
 $('scrim').addEventListener('click', closeSheet);
 $('dialog-scrim').addEventListener('click', closeDialog);
@@ -3119,7 +3120,7 @@ setTheme(q.get('theme') === 'ink' ? 'ink' : 'paper');
 setMotion(!(q.get('motion') === 'off' || matchMedia('(prefers-reduced-motion: reduce)').matches));
 renderAll(); renderScore(); cycleReturns();
 if (q.get('dialog') === 'stepup') openDialog('stepup', { action: 'promote-all' });
-else if (['widen', 'flagoff'].includes(q.get('dialog'))) openDialog(q.get('dialog'), { flag: 'delivery-dates' });
+else if (q.get('dialog') === 'flag') openDialog('flag', { flag: 'delivery-dates', to: q.get('to') || 'share' });
 else if (q.get('dialog')) { if (q.get('dialog') === 'start') { S.stopped = true; S.canary = 'stopped'; renderAll(); } openDialog(q.get('dialog')); }
 reel.innerHTML = ITEMS.map(card).join('');
 buildRail(); layout(); renderRail(); fitHeight();
