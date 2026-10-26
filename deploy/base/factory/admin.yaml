@@ -25,9 +25,10 @@ spec:
     metadata:
       labels: *labels
     spec:
-      # Its own service account, whose one Role patches the app's Rollout for Martin's controls of the canary, held by
-      # admission to the fields they set (deploy/base/analysis/admin-controls-release.yaml). Its one container reads the
-      # token; the line is the only other pod in `factory` that has one.
+      # Its own service account, whose Roles patch the app's Rollout for Martin's controls of the canary, held by
+      # admission to the fields they set (deploy/base/analysis/admin-controls-release.yaml), and update `flags` for his
+      # flags' stages, held by admission to their shapes (deploy/base/flagd/admin-stages-flags.yaml). Its one container
+      # reads the token; the line is the only other pod in `factory` that has one.
       serviceAccountName: admin
       automountServiceAccountToken: true
       securityContext:

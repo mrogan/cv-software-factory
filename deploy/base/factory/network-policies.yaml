@@ -198,8 +198,9 @@ spec:
 ---
 # The admin service is reached through the ingress controller alone, which is why it may believe the forwarded headers
 # that come from the pod network (deploy/base/factory/admin.yaml). It reaches the store, the collector, and the API
-# server's port, for Martin's controls of the canary: as for the line, 6443 on a private address, which is where the
-# `kubernetes` Service sends it. What it may do there is its Role's, and the admission policy's on the Rollout.
+# server's port, for Martin's controls of the canary and his flags' stages: as for the line, 6443 on a private address,
+# which is where the `kubernetes` Service sends it. What it may do there is its Roles', and the admission policies' on
+# the Rollout and on `flags`.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

@@ -1,0 +1,129 @@
+# The admin service may change `flags` only as Martin's stages do (milestone 7, task 16). Its Role
+# (deploy/base/flagd/admin-stages-flags.yaml) may get and update `flags`, by name; a Role names objects, not fields, so
+# this policy holds each of the admin service's changes to the stages' shapes, which policy/flags.ts renders. Every flag
+# in `flags` must be, by its name:
+#
+#   flag-set-revision   the revision, one static string variant, `revision`: visible ASCII of 1 to 128 characters,
+#                       and never `none`, `stale` or `invalid`, the words the app keeps for no revision
+#   any other           a feature, named in lower-case letters and digits in words joined by hyphens, at one stage:
+#
+#     off        variants on and off, default off, no targeting
+#     checks     on for a marked request
+#     preview    on for a marked request, or one whose preview names the flag
+#     share      on for those, or for a signed request in flagd's `fractional` share of 10, 25 or 50, by its id
+#     everyone   default on, no targeting
+#
+# And nothing else of `flags` may change: not the flag set's own metadata or `$evaluators` (shared targeting a flag
+# could refer to), not its labels, annotations, finalizers or owners; nothing may be made or deleted. So a fault in the
+# admin service, or anyone holding its token, can stage a flag and nothing more: no other variable of the request, no
+# other variant or value, no other share. Which stage follows which is the service's to hold, from Martin's events.
+#
+# A ValidatingAdmissionPolicy, as the admin service's hold on the Rollout is (../website/rollout-controls.yaml): the API
+# server evaluates it in process, so it holds whether or not Kyverno is up. It matches the admin service's service
+# account alone. Argo CD makes `flags` and leaves its flags alone (root's ignoreDifferences), and an administrator may
+# still change them by hand; `flagd-flags` (flags.yaml) holds everyone to `flags` alone, never deleted.
+#
+# Kubernetes's CEL refuses a list or map literal of mixed types, so each value of the shapes below is `dyn`. The
+# cluster's answers to policy/flags.ts's every stage, and to changes outside them, are kept in
+# deploy/test/flag-stages-refusals.json (scripts/flag-stages-refusals.sh).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: flag-stages
+  annotations:
+    # With the other admission policies, before anything they guard.
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values: [flagd]
+    resourceRules:
+      - apiGroups: [core.openfeature.dev]
+        apiVersions: ["*"]
+        operations: ["*"]
+        resources: [featureflags]
+  matchConditions:
+    - name: admin-service
+      expression: request.userInfo.username == 'system:serviceaccount:factory:admin'
+  variables:
+    - name: flags
+      expression: "has(object.spec) && has(object.spec.flagSpec) ? object.spec.flagSpec.flags : {}"
+    # The revision's value, when the revision flag has one; null otherwise.
+    - name: revision
+      expression: >-
+        'flag-set-revision' in variables.flags &&
+        'revision' in dyn(variables.flags['flag-set-revision'].variants) ?
+        dyn(variables.flags['flag-set-revision'].variants)['revision'] : dyn(null)
+    # A feature's two variants, and the start of every stage's targeting: on for a marked request.
+    - name: variants
+      expression: "{'on': true, 'off': false}"
+    - name: marked
+      expression: "[dyn({'==': [dyn({'var': 'marked'}), dyn(true)]}), dyn('on')]"
+    - name: signed
+      expression: "dyn({'==': [dyn({'var': 'signed'}), dyn(true)]})"
+  validations:
+    - expression: request.operation == 'UPDATE'
+      message: the admin service may only change flags, never make or delete a FeatureFlag
+    - expression: >-
+        has(object.spec) && has(object.spec.flagSpec) && has(oldObject.spec) && has(oldObject.spec.flagSpec) &&
+        dyn(object.spec).all(k, k == 'flagSpec' || (k in dyn(oldObject.spec) && dyn(object.spec)[k] == dyn(oldObject.spec)[k])) &&
+        dyn(oldObject.spec).all(k, k == 'flagSpec' || k in dyn(object.spec)) &&
+        dyn(object.spec.flagSpec).all(k, k == 'flags' ||
+          (k in dyn(oldObject.spec.flagSpec) && dyn(object.spec.flagSpec)[k] == dyn(oldObject.spec.flagSpec)[k])) &&
+        dyn(oldObject.spec.flagSpec).all(k, k == 'flags' || k in dyn(object.spec.flagSpec))
+      message: the admin service may change only the flags of flags, not its $evaluators or the flag set's metadata
+    - expression: >-
+        (has(object.metadata.labels) ? object.metadata.labels : {}) ==
+          (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) &&
+        (has(object.metadata.annotations) ? object.metadata.annotations : {}) ==
+          (has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {}) &&
+        (has(object.metadata.finalizers) ? object.metadata.finalizers : []) ==
+          (has(oldObject.metadata.finalizers) ? oldObject.metadata.finalizers : []) &&
+        (has(object.metadata.ownerReferences) ? object.metadata.ownerReferences : []) ==
+          (has(oldObject.metadata.ownerReferences) ? oldObject.metadata.ownerReferences : [])
+      message: the admin service may not change the labels, annotations, finalizers or owners of flags
+    - expression: >-
+        variables.flags.all(k, k == 'flag-set-revision' || k.matches('^[a-z0-9]+(-[a-z0-9]+)*$'))
+      message: a feature flag's name is lower-case letters and digits, in words joined by hyphens
+    - expression: >-
+        'flag-set-revision' in variables.flags && type(variables.revision) == string &&
+        variables.flags['flag-set-revision'] == {'state': dyn('ENABLED'), 'defaultVariant': dyn('revision'),
+          'variants': dyn({'revision': variables.revision})} &&
+        string(variables.revision).matches('^[!-~]{1,128}$') &&
+        !(string(variables.revision) in ['none', 'stale', 'invalid'])
+      message: >-
+        flags must name its revision, flag-set-revision, with one string variant, revision: visible ASCII of 1 to 128
+        characters, and never none, stale or invalid
+    - expression: >-
+        variables.flags.all(k, k == 'flag-set-revision' ||
+          [
+            {'state': dyn('ENABLED'), 'variants': dyn(variables.variants), 'defaultVariant': dyn('off')},
+            {'state': dyn('ENABLED'), 'variants': dyn(variables.variants), 'defaultVariant': dyn('off'),
+              'targeting': dyn({'if': variables.marked + [dyn('off')]})},
+            {'state': dyn('ENABLED'), 'variants': dyn(variables.variants), 'defaultVariant': dyn('off'),
+              'targeting': dyn({'if': variables.marked +
+                [dyn({'in': [dyn(k), dyn({'var': 'preview'})]}), dyn('on'), dyn('off')]})},
+            {'state': dyn('ENABLED'), 'variants': dyn(variables.variants), 'defaultVariant': dyn('on')}
+          ].exists(shape, variables.flags[k] == shape) ||
+          [10, 25, 50].exists(share, variables.flags[k] ==
+            {'state': dyn('ENABLED'), 'variants': dyn(variables.variants), 'defaultVariant': dyn('off'),
+              'targeting': dyn({'if': variables.marked +
+                [dyn({'in': [dyn(k), dyn({'var': 'preview'})]}), dyn('on'), variables.signed,
+                 dyn({'fractional': [[dyn('on'), dyn(share)], [dyn('off'), dyn(100 - share)]]}), dyn('off')]})}))
+      message: >-
+        each feature flag in flags must be at one stage, in its fixed shape: off, checks, preview, a share of 10, 25
+        or 50, or everyone
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: flag-stages
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  policyName: flag-stages
+  validationActions: [Deny]

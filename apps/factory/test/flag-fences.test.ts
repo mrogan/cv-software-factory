@@ -3,13 +3,15 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse, parseAllDocuments } from 'yaml';
+import { flagsSpec } from '../../../policy/flags.ts';
+import { ADMIN, CASES, type FlagStagesRecord, REVISION } from '../../../scripts/flag-stages-refusals.ts';
 import { DEPLOY, manifests as deployManifests } from './deploy.ts';
 
 /**
  * Feature flags' fences as deploy/ declares them (milestone 7): flagd alone in `flagd`, reading the one FeatureFlag,
- * `flags`, and writing nothing; nobody of ours writing `flags` but the services named here; the resource made by Argo
- * CD and its flags left alone; admission keeping it the only one and never deleted; and flagd reached by the app's
- * pods on its sync port alone.
+ * `flags`, and writing nothing; nobody of ours writing `flags` but the admin service, for Martin's stages, held by
+ * admission to the stages' shapes (policy/flags.ts); the resource made by Argo CD and its flags left alone; admission
+ * keeping it the only one and never deleted; and flagd reached by the app's pods on its sync port alone.
  */
 interface Rule {
   apiGroups?: string[];
@@ -60,8 +62,9 @@ interface Spec {
   // An admission policy's, and its binding's
   failurePolicy?: string;
   matchConstraints?: unknown;
-  matchConditions?: unknown[];
-  validations?: { expression: string }[];
+  matchConditions?: { name: string; expression: string }[];
+  variables?: { name: string; expression: string }[];
+  validations?: { expression: string; message?: string }[];
   policyName?: string;
   validationActions?: string[];
   // A NetworkPolicy's
@@ -90,10 +93,11 @@ const WAVE = 'argocd.argoproj.io/sync-wave';
 const wave = (manifest?: Manifest) => Number(manifest?.metadata?.annotations?.[WAVE] ?? 0);
 
 /**
- * The service accounts of ours that may write `flags`, each with its reason. None today: task 16 gives the admin
- * service its Role on `flags`, by name, for Martin's stages, and adds it here, `factory/admin`. Any other is a failure.
+ * The service accounts of ours that may write `flags`, each with its reason. Any other is a failure.
  */
-const WRITERS: Record<string, string> = {};
+const WRITERS: Record<string, string> = {
+  'factory/admin': 'the admin service stages Martin’s flags, held by `flagd-flag-stages` to the stages’ shapes',
+};
 
 /**
  * The cluster's own controllers, which may write any resource, and are trusted to: none of their rights is in deploy/.
@@ -225,6 +229,102 @@ describe('who may write flags', () => {
   });
 });
 
+describe('the admin service’s hold on flags', () => {
+  it('is one Role, in flagd: get and update flags, by name, and nothing else', async () => {
+    const all = await manifests();
+    const roles = all.filter(
+      ({ manifest }) => manifest.kind === 'Role' && manifest.metadata?.name === 'admin-stages-flags',
+    );
+    expect(roles.map(({ file, namespace }) => [file, namespace])).toEqual([
+      ['base/flagd/admin-stages-flags.yaml', 'flagd'],
+    ]);
+    // Update, not patch: it writes the whole spec, conditional on what it read. Never create, delete, list or watch.
+    expect(roles[0]?.manifest.rules).toEqual([
+      { apiGroups: [GROUP], resources: ['featureflags'], resourceNames: ['flags'], verbs: ['get', 'update'] },
+    ]);
+  });
+
+  it('is bound to the admin service’s own service account alone', async () => {
+    const all = await manifests();
+    const bound = all.filter(({ manifest }) => manifest.roleRef?.name === 'admin-stages-flags');
+    expect(
+      bound.map(({ manifest, namespace }) => [manifest.kind, namespace, manifest.roleRef, manifest.subjects]),
+    ).toEqual([
+      [
+        'RoleBinding',
+        'flagd',
+        { apiGroup: 'rbac.authorization.k8s.io', kind: 'Role', name: 'admin-stages-flags' },
+        [{ kind: 'ServiceAccount', name: 'admin', namespace: 'factory' }],
+      ],
+    ]);
+  });
+
+  it('holds its every change to flags to the stages’ shapes, by a policy that matches its account alone', async () => {
+    const all = await manifests();
+    const policy = all.find(
+      ({ manifest }) => manifest.kind === 'ValidatingAdmissionPolicy' && manifest.metadata?.name === 'flag-stages',
+    );
+    expect(policy?.file).toBe('base/admission/flagd/flag-stages.yaml');
+    const spec = policy?.manifest.spec;
+    expect(spec?.failurePolicy).toBe('Fail');
+    expect(spec?.matchConstraints).toEqual({
+      namespaceSelector: {
+        matchExpressions: [{ key: 'kubernetes.io/metadata.name', operator: 'In', values: ['flagd'] }],
+      },
+      resourceRules: [{ apiGroups: [GROUP], apiVersions: ['*'], operations: ['*'], resources: ['featureflags'] }],
+    });
+    // The admin service's account alone, by the name Kubernetes gives its requests.
+    expect(spec?.matchConditions?.map((c) => c.expression)).toEqual([`request.userInfo.username == '${ADMIN}'`]);
+    expect(spec?.validations?.[0]?.expression).toBe("request.operation == 'UPDATE'");
+    // The shares it admits are the module's, and no others.
+    expect(spec?.validations?.at(-1)?.expression).toContain('[10, 25, 50].exists(share,');
+    const rendered = parseAllDocuments(
+      execFileSync('kustomize', ['build', join(DEPLOY, 'base/admission/flagd')], { encoding: 'utf-8' }),
+    ).map((doc) => doc.toJS() as Manifest);
+    const named = (kind: string) => rendered.find((r) => r.kind === kind && r.metadata?.name === 'flagd-flag-stages');
+    expect(named('ValidatingAdmissionPolicy')).toBeDefined();
+    expect(named('ValidatingAdmissionPolicyBinding')?.spec).toEqual({
+      policyName: 'flagd-flag-stages',
+      validationActions: ['Deny'],
+    });
+  });
+
+  it('was answered by the cluster as the Role and the policy say, for what policy/flags.ts renders now (scripts/flag-stages-refusals.ts)', async () => {
+    const kept = JSON.parse(
+      await readFile(join(DEPLOY, 'test', 'flag-stages-refusals.json'), 'utf-8'),
+    ) as FlagStagesRecord;
+    // The policy the cluster answered with is the one here, as Argo CD applies it: a change to it is a change to take
+    // the answers again.
+    const policy = parseAllDocuments(
+      execFileSync('kustomize', ['build', join(DEPLOY, 'base/admission/flagd')], { encoding: 'utf-8' }),
+    )
+      .map((doc) => doc.toJS() as Manifest)
+      .find((r) => r.kind === 'ValidatingAdmissionPolicy' && r.metadata?.name === 'flagd-flag-stages')?.spec;
+    expect(kept.policy).toEqual({
+      matchConditions: policy?.matchConditions,
+      variables: policy?.variables,
+      validations: policy?.validations,
+    });
+    expect(kept.answers.map((a) => a.case)).toEqual(CASES.map((c) => c.case));
+    for (const [i, c] of CASES.entries()) {
+      const answer = kept.answers[i];
+      expect(answer?.as, c.case).toBe(c.as ?? ADMIN);
+      expect(answer?.outcome, c.case).toBe(c.expected);
+      // Each refused by what should refuse it: the Role for what it does not grant, the policy for the rest.
+      if (c.by === 'role') expect(answer?.message, c.case).toContain(`User "${c.as ?? ADMIN}" cannot`);
+      if (c.by === 'policy') expect(answer?.message, c.case).toContain("ValidatingAdmissionPolicy 'flagd-flag-stages'");
+      // The stages the cluster admitted are those the module renders now: a change to a shape is a change to take
+      // the answers again.
+      if (c.stages) expect(answer?.flags, c.case).toEqual(flagsSpec(c.stages, REVISION).flagSpec.flags);
+    }
+    // Every stage, and every share, admitted.
+    const admitted = CASES.filter((c) => c.expected === 'admitted').flatMap((c) => Object.values(c.stages ?? {}));
+    expect(new Set(admitted.map((s) => (s.stage === 'share' ? `share-${s.share}` : s.stage)))).toEqual(
+      new Set(['off', 'checks', 'preview', 'share-10', 'share-25', 'share-50', 'everyone']),
+    );
+  });
+});
+
 describe('flags', () => {
   it('is the only FeatureFlag deploy/ makes, in flagd, with no flags', async () => {
     const flags = (await manifests()).filter(({ manifest }) => manifest.kind === 'FeatureFlag');
@@ -291,9 +391,12 @@ describe('flags', () => {
     const rendered = parseAllDocuments(
       execFileSync('kustomize', ['build', join(DEPLOY, 'base/admission/flagd')], { encoding: 'utf-8' }),
     ).map((doc) => doc.toJS() as Manifest);
-    const binding = rendered.find((r) => r.kind === 'ValidatingAdmissionPolicyBinding');
-    expect(rendered.find((r) => r.kind === 'ValidatingAdmissionPolicy')?.metadata?.name).toBe('flagd-flags');
-    expect(binding?.spec).toEqual({ policyName: 'flagd-flags', validationActions: ['Deny'] });
+    const named = (kind: string) => rendered.find((r) => r.kind === kind && r.metadata?.name === 'flagd-flags');
+    expect(named('ValidatingAdmissionPolicy')).toBeDefined();
+    expect(named('ValidatingAdmissionPolicyBinding')?.spec).toEqual({
+      policyName: 'flagd-flags',
+      validationActions: ['Deny'],
+    });
   });
 
   it('was answered by the cluster as the policy says (scripts/flags-refusals.sh)', async () => {

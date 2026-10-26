@@ -3,13 +3,15 @@
 # image from another registry, and rather than in `factory-images`, which the `try-the-line` skill switches to Audit.
 # Like `website-images`, it enforces always.
 #
-# With it, `flagd-flags` (flags.yaml), which keeps `flags` the only FeatureFlag in `flagd` and refuses its deletion.
+# With it, `flagd-flags` (flags.yaml), which keeps `flags` the only FeatureFlag in `flagd` and refuses its deletion, and
+# `flagd-flag-stages` (flag-stages.yaml), which holds the admin service's changes to `flags` to the stages' shapes.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namePrefix: flagd-
 resources:
   - ../images
   - flags.yaml
+  - flag-stages.yaml
 patches:
   - target:
       kind: ImageValidatingPolicy

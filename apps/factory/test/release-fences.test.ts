@@ -76,11 +76,14 @@ describe('changing a release is Martin’s: the admin service’s, for his contr
     expect(bound.map(({ manifest }) => [manifest.kind, manifest.metadata?.namespace, manifest.subjects])).toEqual([
       ['RoleBinding', 'website', [{ kind: 'ServiceAccount', name: 'admin', namespace: 'factory' }]],
     ]);
-    // And the admin service's account holds no other right, anywhere.
+    // And the admin service's account holds no other right, anywhere, but its Role on `flags` (flag-fences.test.ts).
     const admins = all.filter(({ manifest }) =>
       manifest.subjects?.some((s) => s.kind === 'ServiceAccount' && s.name === 'admin' && s.namespace === 'factory'),
     );
-    expect(admins.map(({ manifest }) => manifest.roleRef?.name)).toEqual(['admin-controls-release']);
+    expect(admins.map(({ manifest }) => manifest.roleRef?.name).sort()).toEqual([
+      'admin-controls-release',
+      'admin-stages-flags',
+    ]);
   });
 
   it('holds the admin service’s every change to the Rollout to the fields the controls set', async () => {
