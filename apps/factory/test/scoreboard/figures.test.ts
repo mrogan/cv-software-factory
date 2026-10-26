@@ -136,7 +136,7 @@ describe('a ticket’s life', () => {
     expect(tickets(events).map((t) => t.verifiedAt && (t.verifiedAt - t.startedAt) / 60_000)).toEqual([90, null]);
   });
 
-  it('starts at its first signal, or at its opening when it has none', () => {
+  it('starts at its first signal, or at its opening when that is sooner or it has none', () => {
     const fp = { route: '/a', class: 'server-error' } as const;
     const events: ScoreEvent[] = [
       { ts: at(0), work_item: '1', type: 'signal.received' },
@@ -144,10 +144,15 @@ describe('a ticket’s life', () => {
       { ts: at(20), work_item: '1', type: 'ticket.opened', payload: { fingerprint: fp } },
       { ts: at(7), work_item: '2', type: 'ticket.opened', payload: { fingerprint: fp } },
       { ts: at(9), work_item: '3', type: 'signal.received' }, // a work item with no ticket is not one
+      // A ticket Martin approved, with no signal until one joins it after its close.
+      { ts: at(10), work_item: '4', type: 'ticket.opened', payload: { fingerprint: fp } },
+      { ts: at(30), work_item: '4', type: 'work-item.closed', payload: { outcome: 'verified' } },
+      { ts: at(50), work_item: '4', type: 'signal.received' },
     ];
     expect(tickets(events).map((t) => [t.startedAt, t.openedAt].map((ms) => (ms - T0) / 60_000))).toEqual([
       [0, 20],
       [7, 7],
+      [10, 10],
     ]);
   });
 });

@@ -11,8 +11,9 @@
  *   Martin approved closes as verified with no verification, and counts. A reopened ticket drops out until it is
  *   verified again.
  * - **median:** for each verified entry, the quickest of its verified tickets, from the first signal on the ticket's
- *   work item (or its `ticket.opened`, with none) to its verified close; the median of those, in milliseconds. The
- *   signal's time is triage's, when it made the event: a sense saw it moments before.
+ *   work item, or its `ticket.opened` when that is sooner (a ticket Martin approved has no signal until one joins it,
+ *   maybe after its close), to its verified close; the median of those, in milliseconds. The signal's time is
+ *   triage's, when it made the event: a sense saw it moments before.
  * - **false positives:** tickets that found no entry. They are never published as they change, which would say of
  *   each new ticket whether it was real; `factory scoreboard --print` prints them for the results.
  */
@@ -42,7 +43,7 @@ export const SCORE_TYPES = [
 export interface Ticket {
   fingerprint: PayloadOf<'ticket.opened'>['fingerprint'];
   openedAt: number;
-  /** Its first signal, or its opening when it has none: where its time to a fix starts. */
+  /** Its first signal, or its opening when that is sooner or it has none: where its time to a fix starts. */
   startedAt: number;
   /** Its verified close while it counts as verified, or null. */
   verifiedAt: number | null;
@@ -80,7 +81,7 @@ export function tickets(events: readonly ScoreEvent[]): Ticket[] {
           {
             fingerprint: opened.fingerprint,
             openedAt: opened.at,
-            startedAt: firstSignal ?? opened.at,
+            startedAt: Math.min(firstSignal ?? opened.at, opened.at),
             verifiedAt: end?.verified && !dryRun ? end.at : null,
             everVerified,
           },
