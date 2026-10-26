@@ -9,12 +9,70 @@ Ship improvements switched off; a kill switch without a rollback. Part of the [r
 - **flagd 0.17, alone in `flagd`,** not in the app's pod or beside it in `website` (`deploy/base/flagd`). The app's pods hold no token and no route to the Kubernetes API, and nothing the app's repository may write in `website` can touch flagd, its service account or its state.
 - **The state of every flag is one `FeatureFlag`, `flags` in `flagd`,** which flagd watches through the Kubernetes API. Only the kind's definition is installed, vendored from OpenFeature's operator at the API version flagd builds against, not the operator itself. In Git it has no flags. Argo CD makes it before flagd starts, and leaves its flags alone ([GitOps](GITOPS.md#syncing)).
 - **flagd reads, and writes nothing.** Its watch lists the whole namespace, so its Role may get, list and watch `featureflags` in `flagd`, with no names. Admission keeps `flags` the only one there and refuses its deletion, since flagd keeps serving the last flags it read when its resource goes ([admission control](ADMISSION-CONTROL.md#flags)). Nothing of ours may write `flags` yet.
-- **The app's pods reach flagd's sync port (8015) and its health port (8014), and nothing else of it** ([network policies](NETWORK-POLICIES.md#flagd)). flagd reaches the Kubernetes API, DNS and the collector, where its traces and metrics go; its logs are its container's.
+- **The app's pods reach flagd's sync port (8015) and its health port (8014), and nothing else of it** ([network policies](NETWORK-POLICIES.md#flagd)). The app uses the sync port alone: its [flag context](#the-apps-flag-context) streams the flag set from it and evaluates each request itself. flagd reaches the Kubernetes API, DNS and the collector, where its traces and metrics go; its logs are its container's.
 - **Its image is admitted by digest** in a copy of admission control of its own, `flagd-images`, so `website-images` still admits no third-party image.
 
 ## Readiness
 
-flagd reads `flags` before it serves anything, and exits if it cannot: with the resource missing, its Role or binding missing, or the API out of reach, it restarts until it can, and is never ready. A first flag set it refuses leaves it unready. Once ready it stays ready: at 0.17 its readiness follows its first read, not its watch, which it retries for ever when broken, while it serves the last flags it took. A watch broken after start is caught from outside instead: the admin service compares the revision in `flags` with the one the app reports, every 60 seconds, and Martin is alerted when they have differed for more than 5 minutes (milestone 7, task 16, not built yet).
+flagd reads `flags` before it serves anything, and exits if it cannot: with the resource missing, its Role or binding missing, or the API out of reach, it restarts until it can, and is never ready. A first flag set it refuses leaves it unready. Once ready it stays ready: at 0.17 its readiness follows its first read, not its watch, which it retries for ever when broken, while it serves the last flags it took. A watch broken after start is caught from outside instead: every 60 seconds the admin service sends the app a marked request, reads the [revision](#the-revision) the app holds from its `x-flags-revision`, and compares it with the one in `flags`; Martin is alerted when they have differed for more than 5 minutes (milestone 7, task 16, not built yet).
+
+## The app's flag context
+
+The app asks whether a flag is on through one module, its flag context (`src/flags/` in the app's repository), the only code there that may import OpenFeature or flagd's provider. The provider runs in-process: it streams the flag set from flagd's sync port and evaluates each request in the app, so no request waits on flagd. The module is code-owned in the app's repository, since it decides who is a check, a previewer or in a share. What the factory reads of it, and writes for it, is the contract below: the context's names, which the admin service's stages target (milestone 7, task 16); the revision, which its probe reads; and the variant on a request's span, which Verify reads (task 17).
+
+### The evaluation context
+
+Each request is evaluated with four names, and nothing else: what flagd's sync stream sends beside the flags is kept out of the context.
+
+| Name | Value |
+|---|---|
+| `marked` | `true` when the request carries `x-unmeasured`, whatever its value ([the mark](ADMISSION-CONTROL.md#the-mark)); `false` otherwise |
+| `preview` | The flags its [preview cookie](#the-preview-cookie) names, with those this request asks for when the ask counts: a list of names, `[]` for none |
+| `targetingKey` | Its share id, only when its [signature](#the-shares-signed-ids) checks out; absent otherwise |
+| `signed` | `true` exactly when it has a `targetingKey` |
+
+A flag's name is lower-case letters and digits, in words joined by hyphens. A flag named otherwise is always off, and is never evaluated.
+
+### Failing off
+
+A flag is on only when flagd says so. It is off on an error, for a flag flagd does not know, for a value that is not a boolean, and before the app has its first flag set. The provider keeps serving its last flag set while flagd is away, so a kill switch would not reach it: every flag is off once the provider has been without flagd for a minute (it has reported its flag set stale or in error, and not been back in step since), or has heard nothing from flagd for a stream's length and a minute more. Each stream to flagd lasts a minute and the provider then opens another, so a healthy sync is heard from at least every minute, and a connection that died silently is caught within two. Every flag stays off until the provider is in step again.
+
+### The revision
+
+The flag set's revision is a flag of its own, `flag-set-revision`: a string flag with one static variant, whose value names the flag set. Whoever writes `flags` sets it with every change: the admin service (task 16), and by hand until then. It is not a feature: it is never on, never previewable, and evaluating it as one gives off.
+
+The app tells it only to a marked request, on every response, whatever the path, in `x-flags-revision`:
+
+| Value | When |
+|---|---|
+| the revision | The flag's value, when it is visible ASCII (`!` to `~`) of 1 to 128 characters |
+| `none` | There is no such flag, the app has no sync address, or it has not yet had a flag set |
+| `stale` | Every flag is off, as above, because the flag set is stale |
+| `invalid` | Any other value, or the flag cannot be read as a string |
+
+An unmarked request never gets the header.
+
+### On the request's span
+
+Each evaluation of a feature is an event, `feature_flag.evaluation`, on the request's span, named as OpenTelemetry's semantic conventions for feature flags name it. Only a request the app records has a span ([whose requests are judged](PROGRESSIVE-DELIVERY.md#whose-requests-are-judged)), so a marked request's evaluations are not recorded, and the traffic generator's are.
+
+| Attribute | Value |
+|---|---|
+| `feature_flag.key` | The flag |
+| `feature_flag.provider.name` | `flagd` |
+| `feature_flag.result.variant` | The variant flagd chose, when it chose one |
+| `feature_flag.result.value` | Whether the flag is on for the request: `false` whenever it fails off |
+| `feature_flag.result.reason` | flagd's reason, in lower case (`targeting_match`, `static`, `error`); `stale` when the flag set is stale or the app has none yet, and flagd is not asked |
+| `error.type` | The error, in lower case (`flag_not_found`, `type_mismatch`), only on one |
+
+The event never carries the context: `feature_flag.context.id` would be the share id, and nothing of the app's logs, traces or metrics holds the id or its signature.
+
+### Its settings
+
+On the app's Rollout, in its repository:
+
+- **`FLAGS_SYNC`**, flagd's sync address, `host:port` in plaintext inside the cluster: `flagd.flagd:8015`. Without it, or with one that is not `host:port`, every flag is off. The provider's own `FLAGD_*` variables are overridden, so none set on the pod changes where the flags come from.
+- **`SHARE_PUBLIC_KEY_FILE`**, the share's public key: `/etc/share-key/public-key`, from the ConfigMap `share-key`, mounted whole, read-only and optional, so a pod starts without it and a key written after it starts reaches it. The app reads the file for a request that carries all three share headers, at most once a minute. With no file, or one that is not an Ed25519 public key, nothing is signed.
 
 ## The preview cookie
 
@@ -28,7 +86,7 @@ The app sets the cookie exactly as this says, and the `/device` check holds ever
 
 | | |
 |---|---|
-| When | Only on a request whose `?preview=` names a flag flagd knows. One that names any other changes nothing, and the app never echoes the parameter. |
+| When | Only on a `GET` (or `HEAD`) of one of the app's routes, not a file, `/health` or `/version`, whose `?preview=` names only flags flagd knows, in a flag set that is not stale ([failing off](#failing-off)). One that names any other changes nothing, and the app never echoes the parameter. An answer that sets it is `Cache-Control: private, no-store`. |
 | Name | `preview` |
 | Value | The flags asked for, each once, in the order asked, joined by `.`: `dark-mode.big-buttons`. Each ask adds its flag to those the cookie already names that flagd still knows. A flag's name is lower-case letters and digits, in words joined by hyphens; a flag named otherwise cannot be previewed. |
 | `Path` | `/` |
@@ -74,7 +132,7 @@ The message is six fields, in this order, each its UTF-8 bytes after its length 
 5. the method, in upper case: `GET`, the only one the generator sends;
 6. the path: the request target as sent on the request line, the path and its query, percent-encoding and all (`/search?q=glove`), and no fragment.
 
-The app accepts a signature when every one of the three headers is there, once; the time is all digits; with `now` its own clock in whole seconds, `0 <= now - time < 60`; and the signature verifies, with the public key in `share-key`, over the message it builds from those headers and its own view of the request: its `Host`, method and request target, not anything the request says about itself elsewhere. Anything else and the request is not signed, and the id is not its targeting key.
+The app accepts a signature when every one of the three headers is there, once, and `Host` once; the time is all digits; the signature is the one base64url spelling of its 64 bytes; with `now` its own clock in whole seconds, `0 <= now - time < 60`; and the signature verifies, with the public key in `share-key`, over the message it builds from those headers and its own view of the request: its `Host`, method and request target, not anything the request says about itself elsewhere. Anything else and the request is not signed, and the id is not its targeting key.
 
 ### Test vector
 
