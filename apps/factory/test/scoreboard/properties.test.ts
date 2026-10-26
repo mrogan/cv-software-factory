@@ -23,7 +23,11 @@ describe('the key', () => {
     .array(fc.webSegment(), { maxLength: 4 })
     .map((segments) => `/${MARK}${segments.join('/')}`.slice(0, 200));
   // Any code points, so that a passage's case is tried beyond ASCII; each takes at most two of the 200 a passage may.
-  const passage = fc.string({ unit: 'binary', maxLength: 90 }).map((s) => `${MARK}${s}`);
+  // Space either side, which the key trims.
+  const space = fc.constantFrom('', ' ', '\t', '\n ', '\u00a0');
+  const passage = fc
+    .tuple(space, fc.string({ unit: 'binary', maxLength: 85 }), space)
+    .map(([before, s, after]) => `${before}${MARK}${s}${after}`);
   const fingerprint: fc.Arbitrary<Fingerprint> = fc.oneof(
     fc.record({ route: fc.oneof(path, fc.constant('*')), class: fc.constantFrom(...SYMPTOM_CLASSES) }),
     fc.record({ page: path, text: passage }),
@@ -49,6 +53,7 @@ describe('the key', () => {
     secret.map((s) => (e: KeyEntry) => ({ ...e, fingerprint: { page: s, text: s } })), // a page that is no path
     secret.map((s) => (e: KeyEntry) => ({ ...e, fingerprint: { page: '/', text: s.repeat(201) } })), // too long
     secret.map((s) => (e: KeyEntry) => ({ ...e, fingerprint: { route: '/', class: 'server-error', text: s } })),
+    space.map((s) => (e: KeyEntry) => ({ ...e, fingerprint: { page: '/', text: ` ${s} ` } })), // a blank passage
     fc.constant((e: KeyEntry) => ({ ...e, id: '' })),
     fc.constant((e: KeyEntry) => ({ id: e.id })),
     fc.constant((e: KeyEntry) => [e.id, e.fingerprint]),
@@ -129,7 +134,10 @@ describe('the figures', () => {
     }),
   ) as fc.Arbitrary<Fingerprint>;
   const key = fc
-    .array(fingerprint, { maxLength: 6 })
+    .uniqueArray(fingerprint, {
+      maxLength: 6,
+      selector: (f) => ('route' in f ? `route ${f.route} ${f.class}` : `page ${f.page} ${f.text.toLowerCase()}`),
+    })
     .map((fs) => fs.map((f, i): KeyEntry => ({ id: `${i}`, fingerprint: f })));
 
   /** What happens to a work item after its ticket opens, in any order the line could put it. */
@@ -173,16 +181,20 @@ describe('the figures', () => {
   const published = (events: readonly ScoreEvent[], entries: readonly KeyEntry[]) =>
     figures(tickets(events), entries, lastBoundary(Date.parse(events.at(-1)?.ts ?? new Date(T0).toISOString())));
 
-  it('never count more verified than found, nor more found than there are entries', () => {
+  it('never count more verified than found, nor more found than there are entries, nor a fix in less than no time', () => {
     fc.assert(
       fc.property(log, key, (events, entries) => {
+        // A fix's time starts no later than its ticket opened, whenever its first signal comes.
+        for (const { verifiedAt, startedAt, openedAt } of tickets(events)) {
+          expect(startedAt).toBeLessThanOrEqual(openedAt);
+          if (verifiedAt !== null) expect(verifiedAt).toBeGreaterThanOrEqual(startedAt);
+        }
         const { entries: count, found, verified, medianMs, falsePositives } = published(events, entries);
         expect(count).toBe(entries.length);
         expect(verified).toBeLessThanOrEqual(found);
         expect(found).toBeLessThanOrEqual(count);
         expect(falsePositives).toBeLessThanOrEqual(tickets(events).length);
         expect(medianMs === null).toBe(verified === 0);
-        if (medianMs !== null) expect(medianMs).toBeGreaterThanOrEqual(0);
       }),
     );
   });
@@ -206,11 +218,17 @@ describe('the figures', () => {
 
   it('do not depend on the order the tickets are counted in', () => {
     fc.assert(
-      fc.property(log, key, fc.integer({ min: T0, max: END }), (events, entries, foundBefore) => {
-        const all = tickets(events);
-        const reversed = [...all].reverse();
-        expect(figures(reversed, entries, foundBefore)).toEqual(figures(all, entries, foundBefore));
-      }),
+      fc.property(
+        log.chain((events) => {
+          const all = tickets(events);
+          return fc.tuple(fc.constant(all), fc.shuffledSubarray(all, { minLength: all.length }));
+        }),
+        key,
+        fc.integer({ min: T0, max: END }),
+        ([all, shuffled], entries, foundBefore) => {
+          expect(figures(shuffled, entries, foundBefore)).toEqual(figures(all, entries, foundBefore));
+        },
+      ),
     );
   });
 

@@ -38,7 +38,7 @@ One pass runs at a time, and a wake during a pass runs one more after it (`score
 | The key's entries | Yes | |
 | Found | Yes | On a cadence of `SCOREBOARD.foundEveryHours` (6): an entry matched by a ticket opened before the last boundary counts, and one verified fixed counts at once, so found is never below verified fixed |
 | Verified fixed | Yes | As it changes |
-| The median from a ticket's first signal (or its `ticket.opened`, with none) to its verified close | Yes | As it changes |
+| The median from a ticket's first signal (or its `ticket.opened`, when that is sooner or it has none) to its verified close | Yes | As it changes |
 | False positives | Never | |
 
 A ticket is verified fixed while its last close is as verified on a real look: Verify's after its own fix's release, or a look again that found its signal cleared on a release that carried another's fix ([held and waiting work items](RELEASE-AND-VERIFY.md#held-and-waiting-work-items)). One a dry run verified, whose fix never shipped, is not.

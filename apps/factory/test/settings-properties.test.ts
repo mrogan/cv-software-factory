@@ -82,7 +82,10 @@ describe('the settings in force, whatever the payload', () => {
           expect(bounds.models).toContain(given.model);
           expect(MODELS[p].models.find((m) => m.model === given.model)?.provider).toBe(given.provider);
           if (given.provider === 'local') expect(given).not.toHaveProperty('effort');
-          else expect(EFFORTS.indexOf(given.effort)).toBeLessThanOrEqual(EFFORTS.indexOf(bounds.maxEffort));
+          else {
+            expect(EFFORTS).toContain(given.effort);
+            expect(EFFORTS.indexOf(given.effort)).toBeLessThanOrEqual(EFFORTS.indexOf(bounds.maxEffort));
+          }
         }
         for (const field of CAPS) {
           const usd = caps[field];
