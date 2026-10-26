@@ -47,7 +47,7 @@ import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
 import type { Prometheus } from '../clients/prometheus.ts';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
-import { DEPLOYS, DeployRefused, deployedImage } from '../github/deploys.ts';
+import { DEPLOYS } from '../github/deploys.ts';
 import { GitHubWorkerError } from '../github/worker-client.ts';
 import {
   figuresAt,
@@ -310,12 +310,8 @@ export class Releases {
   /** What a release starting needs read: its image's commit and signature, and the work items it carries. */
   async #start(start: NonNullable<Needs['start']>): Promise<Start | undefined> {
     const { github, repo, log } = this.#o;
-    const deployed = DEPLOYS.find((t) => t.repo === repo)?.pins.find((p) => !p.what)?.images[0]?.image;
-    if (!deployed) return undefined;
-    // The image the Rollout runs, when it is one the deploy pins, under the repository's owner or its former one: an
-    // image pinned before the repositories moved (ADR 0014) is under the old one. Anything else is asked for as the
-    // deploy names it.
-    const image = start.image && isDeployed(repo, start.image) ? start.image : deployed;
+    const image = DEPLOYS.find((t) => t.repo === repo)?.pins.find((p) => !p.what)?.images[0]?.image;
+    if (!image) return undefined;
     const commit = await github.read('imageRevision', repo, { image, digest: start.digest });
     if (!commit) {
       log.warn({ release: start.release, digest: start.digest }, 'the release’s image names no commit: not recorded');
@@ -579,14 +575,3 @@ const FOLDED = [
   'release.aborted',
   'release.errored',
 ];
-
-/** Whether a repository's deploys pin the image, under its owner or its former one. */
-function isDeployed(repo: string, image: string): boolean {
-  try {
-    deployedImage(repo, image);
-    return true;
-  } catch (error) {
-    if (error instanceof DeployRefused) return false;
-    throw error;
-  }
-}

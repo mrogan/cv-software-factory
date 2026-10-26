@@ -248,7 +248,7 @@ export interface Facts {
 /** What the line must read before it can draft: a release to start, and the step and failed runs to draw. */
 export interface Needs {
   /** A release to start recording, and how: watched from the version the line knows, or found live. */
-  start?: { release: string; digest: string; image: string | undefined; found: boolean; previous: Started | undefined };
+  start?: { release: string; digest: string; found: boolean; previous: Started | undefined };
   steps: AnalysisRun[];
   failures: AnalysisRun[];
   /** Whether a release was aborted, so the line must say by whom. */
@@ -418,17 +418,17 @@ function forTarget(
 /** What a release's first events would need: the start, if it is to be recorded now, as `releaseEvents` decides. */
 function startOfRelease(o: Observed, names: Named, recorded: Recorded): Needs['start'] {
   const { current, stable } = names;
-  const { digest, image } = o;
+  const { digest } = o;
   if (!current || !stable || !digest || recorded.has(current)) return undefined;
   const before = recorded.get(stable);
   if (current === stable) {
     // A stable version the line has no record of, and nothing in flight: found live.
-    return o.aborted ? undefined : { release: current, digest, image, found: true, previous: undefined };
+    return o.aborted ? undefined : { release: current, digest, found: true, previous: undefined };
   }
   // A release in flight is recorded from the version it replaces, once its pods were admitted or refused.
   const previous = before && [...before.values()].at(-1)?.started;
   if (!previous || o.admitted === undefined) return undefined;
-  return { release: current, digest, image, found: false, previous };
+  return { release: current, digest, found: false, previous };
 }
 
 /** What the line must read before `releaseEvents` can say all it has to. */

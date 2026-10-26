@@ -17,10 +17,10 @@ import {
   deployWatch,
   newerBuild,
   type Pin,
+  PinFileError,
   repin,
   SIGNING_GRACE_MS,
   scratchBranch,
-  signerOf,
   withCarries,
 } from '../../src/github/deploys.ts';
 import { type Registry, RegistryError } from '../../src/github/registry.ts';
@@ -851,64 +851,47 @@ describe('what a deploy carries', () => {
   });
 });
 
-describe('pins made before the repositories moved (ADR 0014)', () => {
-  const OLD_FACTORY_PIN = pinFile([
-    ['factory', digest('1'), 'mrogan/cv-software-factory/factory'],
-    ['factory-browser', digest('2'), 'mrogan/cv-software-factory/factory-browser'],
-  ]);
-
-  it("reads the pinned digest's commit where the pin file says it is, and new builds under the new owner", async () => {
-    const asked: string[] = [];
-    const registry = ghcr((image) => {
-      asked.push(image);
-      return commit('a');
-    });
-    const proposal = await newerBuild(
-      { registry },
-      FACTORY_PINS,
-      OLD_FACTORY_PIN,
-      ['c', 'b', 'a'].map((c) => ({ sha: commit(c) })),
-    );
-    expect(asked).toEqual(['mrogan/cv-software-factory/factory']);
-    expect(proposal).toMatchObject({ commit: commit('b'), pinned: commit('a') });
-    expect(proposal?.digests.map((d) => d.image)).toEqual([
+describe('the images a repository deploys', () => {
+  it("knows a deployed image only under the repository's owner", () => {
+    const repo = 'the-roganator/cv-worlds-worst-website';
+    expect(deployedImage(repo, 'the-roganator/cv-worlds-worst-website')).toBe('the-roganator/cv-worlds-worst-website');
+    for (const image of [
+      'mrogan/cv-worlds-worst-website',
+      'someone/cv-worlds-worst-website',
       'the-roganator/cv-software-factory/factory',
-      'the-roganator/cv-software-factory/factory-browser',
-    ]);
+      'mrogan/cv-software-factory/factory',
+    ]) {
+      expect(() => deployedImage(repo, image)).toThrow(DeployRefused);
+    }
   });
 
-  it('moves each pin to the new owner with its digest, the whole line, and nothing else', () => {
-    const moved = repin(OLD_FACTORY_PIN, {
-      commit: commit('b'),
-      digests: [
-        { name: 'factory', image: 'the-roganator/cv-software-factory/factory', digest: digest('7') },
-        { name: 'factory-browser', image: 'the-roganator/cv-software-factory/factory-browser', digest: digest('8') },
-      ],
-    });
-    expect(moved).toBe(
+  it('moves only the digests of a pin file, the layout kept', () => {
+    expect(
+      repin(FACTORY_PIN, {
+        commit: commit('b'),
+        digests: [
+          { name: 'factory', image: 'the-roganator/cv-software-factory/factory', digest: digest('7') },
+          { name: 'factory-browser', image: 'the-roganator/cv-software-factory/factory-browser', digest: digest('8') },
+        ],
+      }),
+    ).toBe(
       pinFile([
         ['factory', digest('7'), 'the-roganator/cv-software-factory/factory'],
         ['factory-browser', digest('8'), 'the-roganator/cv-software-factory/factory-browser'],
       ]),
     );
-    // A pin already under the new owner moves its digest alone.
-    expect(
-      repin(CONSOLE_PIN_FILE, {
+  });
+
+  it('refuses a pin file that names an image under another owner, rather than look it up or move it there', async () => {
+    const elsewhere = pinFile([['console', digest('3'), 'mrogan/cv-software-factory/console']]);
+    expect(() =>
+      repin(elsewhere, {
         commit: commit('c'),
         digests: [{ name: 'console', image: 'the-roganator/cv-software-factory/console', digest: digest('9') }],
       }),
-    ).toBe(pinFile([['console', digest('9'), 'the-roganator/cv-software-factory/console']]));
-  });
-
-  it("knows a deployed image under either owner, signed by build.yml of the repository under the image's owner", () => {
-    const repo = 'the-roganator/cv-worlds-worst-website';
-    expect(signerOf(repo, 'the-roganator/cv-worlds-worst-website')).toEqual(pipeline(repo));
-    expect(signerOf(repo, 'mrogan/cv-worlds-worst-website')).toEqual(pipeline('mrogan/cv-worlds-worst-website'));
-    for (const image of ['someone/cv-worlds-worst-website', 'mrogan/cv-software-factory/factory', 'mrogan/other']) {
-      expect(() => deployedImage(repo, image)).toThrow(DeployRefused);
-    }
-    expect(deployedImage('the-roganator/cv-software-factory', 'mrogan/cv-software-factory/factory-runner')).toBe(
-      'mrogan/cv-software-factory/factory-runner',
+    ).toThrow(PinFileError);
+    await expect(newerBuild({ registry: ghcr() }, CONSOLE_PIN, elsewhere, [{ sha: commit('c') }])).rejects.toThrow(
+      PinFileError,
     );
   });
 });

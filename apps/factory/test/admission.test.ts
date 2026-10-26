@@ -10,15 +10,8 @@ import { GITHUB_ACTIONS, pipeline } from '../src/github/signatures.ts';
 
 /** Admission control as deploy/base/admission declares it (ADR 0010), and the refusals the cluster gave. */
 
-/**
- * The owners whose GHCR images, signed by build.yml on main of the repository under them, are ours: Martin's account
- * and the organisation the repositories moved to, while images built before the move still run (ADR 0014).
- */
-const OWNERS = ['mrogan', 'the-roganator'];
-/** An image name of ours under each owner: `cv-software-factory/factory` becomes both owners' `ghcr.io/…`. */
-const underEach = (name: string) => OWNERS.map((owner) => `ghcr.io/${owner}/${name}`);
-/** A repository under each owner, by its name without its owner. */
-const ownersOf = (repo: string) => OWNERS.map((owner) => `${owner}/${repo.split('/')[1]}`);
+/** Where our images are in GHCR: under the owner of both repositories. */
+const OURS = `ghcr.io/${REPOSITORIES[0].split('/')[0]}/`;
 
 const DEPLOY = fileURLToPath(new URL('../../../deploy/', import.meta.url));
 const read = (path: string) => readFile(join(DEPLOY, path), 'utf-8');
@@ -109,9 +102,7 @@ async function thirdParty(dirs: string[], files: string[]) {
   for (const file of files) for (const doc of parseAllDocuments(await read(file))) named(doc.toJS(), images);
   // A bare name with no digest (`factory`) is ours, pinned by the profile's kustomize `images:`; one with a digest
   // (`postgres:<tag>@<digest>`) is Docker Hub's, and one with a registry (`quay.io/...`) is that registry's.
-  return [...images]
-    .filter((i) => (i.includes('/') || i.includes('@')) && !OWNERS.some((o) => i.startsWith(`ghcr.io/${o}/`)))
-    .sort();
+  return [...images].filter((i) => (i.includes('/') || i.includes('@')) && !i.startsWith(OURS)).sort();
 }
 
 /** Which of the policy's checks refuses each kept case. */
@@ -123,22 +114,15 @@ const REFUSED_BY: Record<string, string> = {
 };
 
 describe('admission control', () => {
-  it("trusts each repository's build.yml on main, under either owner, by its whole identity", async () => {
+  it("trusts each repository's build.yml on main, by its whole identity, as the deploy watch does", async () => {
     const { spec } = await policy();
-    // Each repository's under the organisation, then the same repository's under Martin's account, for images built
-    // before the move: one attestor each.
-    expect(spec.attestors.map((a) => [a.name, a.cosign.keyless.identities])).toEqual(
-      REPOSITORIES.flatMap((repo) => {
-        const name = repo === REPOSITORIES[0] ? 'factory' : 'website';
-        return ownersOf(repo)
-          .reverse()
-          .map((under, i) => [
-            i === 0 ? name : `${name}Former`,
-            [{ issuer: GITHUB_ACTIONS, subject: pipeline(under).identity }],
-          ]);
-      }),
+    const identities = spec.attestors.flatMap((a) => a.cosign.keyless.identities);
+    expect(identities).toEqual(
+      REPOSITORIES.map((repo) => ({ issuer: GITHUB_ACTIONS, subject: pipeline(repo).identity })),
     );
-    expect(REPOSITORIES.map((repo) => ownersOf(repo).at(-1))).toEqual([...REPOSITORIES]);
+    expect(spec.attestors.map((a) => a.name)).toEqual(['factory', 'website']);
+    // One owner holds both repositories, whose GHCR the policy takes for ours.
+    expect(REPOSITORIES.map((repo) => `ghcr.io/${repo.split('/')[0]}/`)).toEqual([OURS, OURS]);
     // The copies set the first three variables by position.
     expect(spec.variables.slice(0, 3).map((v) => v.name)).toEqual([
       'allowed',
@@ -151,10 +135,10 @@ describe('admission control', () => {
     expect(variable('websiteImages')).toContain('variables.websiteRepositories.exists(');
     const expression = variable('unsigned')?.replace(/\s+/g, ' ') ?? '';
     expect(expression).toMatch(
-      /variables\.factoryImages\.filter\([^+]*verifyImageSignatures\(i, \[attestors\.factory, attestors\.factoryFormer\]\) == 0\)/,
+      /variables\.factoryImages\.filter\([^+]*verifyImageSignatures\(i, \[attestors\.factory\]\) == 0\)/,
     );
     expect(expression).toMatch(
-      /variables\.websiteImages\.filter\([^+]*verifyImageSignatures\(i, \[attestors\.website, attestors\.websiteFormer\]\) == 0\)/,
+      /variables\.websiteImages\.filter\([^+]*verifyImageSignatures\(i, \[attestors\.website\]\) == 0\)/,
     );
     expect(expression).not.toMatch(/factoryImages[^+]*attestors\.website|websiteImages[^+]*attestors\.factory/);
   });
@@ -177,27 +161,25 @@ describe('admission control', () => {
     expect(several, 'Kyverno: "multiple identities are not supported at this time"').toEqual([]);
   });
 
-  it('takes the same images for ours in its globs, its `ours` and make admission-ready, under either owner', async () => {
+  it('takes the same images for ours in its globs, its `ours` and make admission-ready', async () => {
     const source = parse(await read('base/admission/images/policy.yaml')) as {
       spec: { matchImageReferences: { glob: string }[]; variables: { name: string; expression: string }[] };
     };
-    const globs = OWNERS.flatMap((owner) => [
-      `ghcr.io/${owner}/cv-software-factory/*@*`,
-      `ghcr.io/${owner}/cv-worlds-worst-website@*`,
-      `ghcr.io/${owner}/cv-worlds-worst-website:*@*`,
+    expect(source.spec.matchImageReferences.map((m) => m.glob)).toEqual([
+      `${OURS}cv-software-factory/*@*`,
+      `${OURS}cv-worlds-worst-website@*`,
+      `${OURS}cv-worlds-worst-website:*@*`,
     ]);
-    expect(source.spec.matchImageReferences.map((m) => m.glob)).toEqual(globs);
     const ours = source.spec.variables.find((v) => v.name === 'ours')?.expression ?? '';
-    expect(listed(ours)).toEqual(
-      OWNERS.flatMap((owner) => [
-        `ghcr.io/${owner}/cv-software-factory/`,
-        `ghcr.io/${owner}/cv-worlds-worst-website`,
-        `ghcr.io/${owner}/cv-worlds-worst-website:`,
-        `ghcr.io/${owner}/cv-worlds-worst-website@`,
-      ]),
-    );
+    expect(listed(ours)).toEqual([
+      `${OURS}cv-software-factory/`,
+      `${OURS}cv-worlds-worst-website`,
+      `${OURS}cv-worlds-worst-website:`,
+      `${OURS}cv-worlds-worst-website@`,
+    ]);
     const ready = readFileSync(fileURLToPath(new URL('../../../scripts/admission-ready.sh', import.meta.url)), 'utf-8');
-    expect(ready).toContain(`owners=(${OWNERS.join(' ')})`);
+    expect(ready).toContain(`${OURS}cv-software-factory/* | ${OURS}cv-worlds-worst-website)`);
+    expect(ready).toContain(`https://github.com/${OURS.split('/')[1]}/$1/.github/workflows/build.yml@refs/heads/main`);
   });
 
   it('verifies the signature only: the deploy checks require the SBOM, which is too large to parse at admission', async () => {
@@ -222,27 +204,21 @@ describe('admission control', () => {
   });
 
   it('admits in each namespace only the images of ours that run there', async () => {
-    // The factory's namespaces: every image the profile pins from build.yml, under whichever owner it is pinned
-    // (ADR 0014), and none of the app's.
+    // The factory's namespaces: every image the profile pins from build.yml, and none of the app's.
     const pinned = [...named(parse(await read('overlays/local/factory-image/kustomization.yaml')), new Set())];
     pinned.push(...named(parse(await read('overlays/local/console-image/kustomization.yaml')), new Set()));
-    const ours = pinned.flatMap((i) =>
-      OWNERS.filter((o) => i.startsWith(`ghcr.io/${o}/cv-software-factory/`)).map((o) =>
-        i.slice(`ghcr.io/${o}/`.length),
-      ),
-    );
-    expect(pinned.filter((i) => !OWNERS.some((o) => i.startsWith(`ghcr.io/${o}/cv-software-factory/`)))).toEqual([]);
+    expect(pinned.filter((i) => !i.startsWith(`${OURS}cv-software-factory/`))).toEqual([]);
     const factory = await copy('factory');
-    expect(factory.factory.sort()).toEqual(ours.flatMap(underEach).sort());
+    expect(factory.factory.sort()).toEqual(pinned.sort());
     expect(factory.website).toEqual([]);
     // The app's namespace: the app, and the factory's browser for the analysis Job that walks a canary's journeys.
     const website = await copy('website');
-    expect(website.factory).toEqual(underEach('cv-software-factory/factory-browser'));
-    expect(website.website).toEqual(underEach('cv-worlds-worst-website'));
+    expect(website.factory).toEqual([`${OURS}cv-software-factory/factory-browser`]);
+    expect(website.website).toEqual([`${OURS}cv-worlds-worst-website`]);
     // The scoreboard's namespace, beside the answer key: the factory's own image, which the scoreboard runs, alone.
     const scoreboard = await copy('scoreboard');
     expect(scoreboard.namespaces).toEqual(['scoreboard']);
-    expect(scoreboard.factory).toEqual(underEach('cv-software-factory/factory'));
+    expect(scoreboard.factory).toEqual([`${OURS}cv-software-factory/factory`]);
     expect(scoreboard.website).toEqual([]);
     const deployment = parse(await read('base/scoreboard/deployment.yaml')) as {
       spec: { template: { spec: { containers: { image: string }[]; initContainers?: unknown[] } } };

@@ -6,11 +6,6 @@
 # 3. and, if ours, signed by `build.yml` on `main` of the repository that builds it, keyless, with GitHub's OIDC
 #    identity compared whole, never as a pattern.
 #
-# The repositories moved from `mrogan` to the organisation `the-roganator` (ADR 0014). GitHub redirects their
-# URLs, but not GHCR's image names or the identity cosign certifies, so while images built before the move still run,
-# "ours" is either owner's: an image under either name, signed by `build.yml` on `main` of the repository under either
-# owner. Martin alone can make a repository under either.
-#
 # The SBOM that workflow attests is not checked here: the deploy pull requests' checks require it of every pin, and
 # verifying it here would mean parsing the whole SPDX document as pods start (ADR 0010).
 #
@@ -76,9 +71,6 @@ spec:
   # of ours that a copy does not run is refused before its signature is looked at, too. These globs, the `ours`
   # variable below and scripts/admission-ready.sh must agree on what is ours.
   matchImageReferences:
-    - glob: ghcr.io/mrogan/cv-software-factory/*@*
-    - glob: ghcr.io/mrogan/cv-worlds-worst-website@*
-    - glob: ghcr.io/mrogan/cv-worlds-worst-website:*@*
     - glob: ghcr.io/the-roganator/cv-software-factory/*@*
     - glob: ghcr.io/the-roganator/cv-worlds-worst-website@*
     - glob: ghcr.io/the-roganator/cv-worlds-worst-website:*@*
@@ -87,9 +79,8 @@ spec:
     mutateDigest: false
     verifyDigest: false
     required: false
-  # One identity each: Kyverno verifies no attestor that has several ("multiple identities are not supported at this
-  # time"), and refuses every image it checks against one. Each repository has one attestor per owner instead, and an
-  # image is signed if either verifies it.
+  # One attestor per repository, with one identity: Kyverno verifies no attestor that has several ("multiple
+  # identities are not supported at this time"), and refuses every image it checks against one.
   attestors:
     - name: factory
       cosign:
@@ -97,24 +88,12 @@ spec:
           identities:
             - issuer: https://token.actions.githubusercontent.com
               subject: https://github.com/the-roganator/cv-software-factory/.github/workflows/build.yml@refs/heads/main
-    - name: factoryFormer
-      cosign:
-        keyless:
-          identities:
-            - issuer: https://token.actions.githubusercontent.com
-              subject: https://github.com/mrogan/cv-software-factory/.github/workflows/build.yml@refs/heads/main
     - name: website
       cosign:
         keyless:
           identities:
             - issuer: https://token.actions.githubusercontent.com
               subject: https://github.com/the-roganator/cv-worlds-worst-website/.github/workflows/build.yml@refs/heads/main
-    - name: websiteFormer
-      cosign:
-        keyless:
-          identities:
-            - issuer: https://token.actions.githubusercontent.com
-              subject: https://github.com/mrogan/cv-worlds-worst-website/.github/workflows/build.yml@refs/heads/main
   variables:
     # Third-party images this copy admits, each by its exact reference, digest and all. Set by each copy.
     - name: allowed
@@ -145,13 +124,10 @@ spec:
       expression: >-
         variables.images.filter(i, variables.websiteRepositories.exists(r,
         i == r || i.startsWith(r + ':') || i.startsWith(r + '@')))
-    # Images from our GHCR, under either owner: the factory's repositories, and the app's one.
+    # Images from our GHCR: the factory's repositories, and the app's one.
     - name: ours
       expression: >-
-        variables.images.filter(i, i.startsWith('ghcr.io/mrogan/cv-software-factory/') ||
-        i == 'ghcr.io/mrogan/cv-worlds-worst-website' || i.startsWith('ghcr.io/mrogan/cv-worlds-worst-website:') ||
-        i.startsWith('ghcr.io/mrogan/cv-worlds-worst-website@') ||
-        i.startsWith('ghcr.io/the-roganator/cv-software-factory/') ||
+        variables.images.filter(i, i.startsWith('ghcr.io/the-roganator/cv-software-factory/') ||
         i == 'ghcr.io/the-roganator/cv-worlds-worst-website' ||
         i.startsWith('ghcr.io/the-roganator/cv-worlds-worst-website:') ||
         i.startsWith('ghcr.io/the-roganator/cv-worlds-worst-website@'))
@@ -160,14 +136,13 @@ spec:
     - name: misplaced
       expression: >-
         variables.ours.filter(i, !(i in variables.factoryImages) && !(i in variables.websiteImages))
-    # Each image is checked against its own repository's identities, under either owner, and only once it is known to
-    # be by digest. verifyImageSignatures counts the attestors that verified it: one is enough.
+    # Each image is checked against its own repository's identity, and only once it is known to be by digest.
     - name: unsigned
       expression: >-
         variables.factoryImages.filter(i, !(i in variables.undigested) &&
-        verifyImageSignatures(i, [attestors.factory, attestors.factoryFormer]) == 0) +
+        verifyImageSignatures(i, [attestors.factory]) == 0) +
         variables.websiteImages.filter(i, !(i in variables.undigested) &&
-        verifyImageSignatures(i, [attestors.website, attestors.websiteFormer]) == 0)
+        verifyImageSignatures(i, [attestors.website]) == 0)
   validations:
     - expression: size(variables.undigested) == 0
       messageExpression: >-

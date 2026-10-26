@@ -98,7 +98,7 @@ flowchart TD
 - **Never at main's head.** The deploy branch is never at main's head, where GitHub would close the pull request for having nothing to merge.
 - **Closed unmerged.** A build whose pull request was closed unmerged is not proposed again, alone or beside another; the next build of that pin file is.
 - **Main moves on.** When main moves on with no newer build, the commit is made again on main's new head the same way, unless Martin has approved the pull request.
-- **Pins from before the move.** New builds are under `the-roganator` in GHCR. A pin made before the repositories moved (ADR 0014) names its image under `mrogan`: the watch reads that digest's commit there, and the pull request moves the pin's `newName` to the new owner with its digest. The release watch reads the image the app's Rollout runs, under whichever owner, and checks its signature against `build.yml` of the repository under that owner.
+- **One owner.** Every image is under `the-roganator` in GHCR, the repositories' owner (ADR 0014), and signed by `build.yml` on `main` of the repository there; an image under any other name is not one the repository deploys, and is refused.
 - **One writer.** The deploy branch has this one writer.
 - **One head.** A pass reads everything at one head of main.
 - **In memory.** Which deploy pull request is open is kept in memory, so a restarted worker knows it after its first pass. The line reads the app's, to say what it carries, and to record where it stands for each held work item it carries ([its state](RELEASE-AND-VERIFY.md#the-deploy-pull-requests-state)), from `pullRequest` and `checkRuns`: the worker keeps no state of it beyond the proposal.

@@ -362,13 +362,13 @@ describe('the worker over HTTP, for the line', () => {
       signed: true,
       reason: null,
     });
-    // An image built before the repositories moved (ADR 0014), signed by the repository under its former owner.
-    expect(await worker.read('imageRevision', REPO, { image: 'mrogan/cv-worlds-worst-website', digest })).toBe(SHA);
-    await worker.read('imageSigned', REPO, { image: 'mrogan/cv-worlds-worst-website', digest });
     expect(signers).toEqual([
       'https://github.com/the-roganator/cv-worlds-worst-website/.github/workflows/build.yml@refs/heads/main',
-      'https://github.com/mrogan/cv-worlds-worst-website/.github/workflows/build.yml@refs/heads/main',
     ]);
+    // The same image under another owner is not one the repository deploys.
+    await expect(
+      worker.read('imageSigned', REPO, { image: 'mrogan/cv-worlds-worst-website', digest }),
+    ).rejects.toMatchObject({ status: 422, kind: 'deploy-refused' });
     expect(await worker.read('deployProposal', REPO, { branch: 'deploy/local' })).toBeNull();
     await expect(
       worker.read('imageRevision', REPO, { image: 'the-roganator/cv-software-factory/factory', digest }),
