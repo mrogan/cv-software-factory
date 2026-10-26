@@ -10,10 +10,17 @@
 const LONG_NUMBER = /\+?\d(?:[\s-]?\d){5,}/g;
 /** A date is a fact about the page, which a content report may be about, not a visitor's detail. */
 const DATE = /^(?:\d{4}-\d{2}-\d{2}|\d{2}-\d{2}-\d{4})$/;
-/** What an address's local part is made of: letters and digits in any script, and the punctuation people use. */
-const LOCAL = /[\p{L}\p{M}\p{N}._%+'-]/u;
-/** What a domain is made of. Whatever follows it in prose (a quote, a bracket, a dash, an emoji) ends it. */
-const DOMAIN = /[\p{L}\p{M}\p{N}.-]/u;
+/**
+ * What an address's local part may be made of: letters and digits in any script, and the punctuation an address
+ * allows there. Markup or a word glued on in front (`**`, `and/`) goes with it: taking too much is the safe side.
+ */
+const LOCAL = /[\p{L}\p{M}\p{N}\p{Cf}!#$%&'*+/=?^_`{|}~.-]/u;
+/**
+ * What a domain may be made of, `_` too. Whatever follows it in prose (a quote, a bracket, a dash, an emoji) ends it.
+ * Both take in the invisible format characters (a zero-width space, a soft hyphen), which would otherwise split an
+ * address that looks whole.
+ */
+const DOMAIN = /[\p{L}\p{M}\p{N}\p{Cf}._-]/u;
 /** A domain's last label begins with two letters: `example.com`, `example.co.uk`, not `1.2.3` or a host alone. */
 const TOP_LABEL = /^\p{L}{2}/u;
 /** Letters and digits in any script, which an address and its domain begin with. */
@@ -31,14 +38,9 @@ function withoutEmails(text: string): string {
   let out = '';
   let done = 0;
   for (let at = text.indexOf('@'); at !== -1; at = text.indexOf('@', at + 1)) {
-    let start = at;
-    while (start > done && LOCAL.test(text.charAt(start - 1))) start--;
-    // An address begins with a letter or a digit: a quote or a dot before it wraps it.
-    while (start < at && !ALPHANUMERIC.test(text.charAt(start))) start++;
-    let end = at + 1;
-    while (end < text.length && DOMAIN.test(text.charAt(end))) end++;
-    let next = end;
-    while (next < text.length && LOCAL.test(text.charAt(next))) next++;
+    const start = forward(text, back(text, at, done, LOCAL), at, ALPHANUMERIC, true);
+    const end = forward(text, at + 1, text.length, DOMAIN);
+    const next = forward(text, end, text.length, LOCAL);
     const length = domainIn(text.slice(at + 1, end), text.charAt(next) === '@');
     if (start === at || length === 0) continue;
     out += `${text.slice(done, start)}[email]`;
@@ -50,27 +52,56 @@ function withoutEmails(text: string): string {
 
 /**
  * How much of what follows an `@` is a domain, or 0 if none is: the longest run of labels, from the first, whose last
- * begins with two letters. What is left after it (a full stop, a dash, `.5`) is not the address's. Where the run goes
- * on into another address's local part with no space between, its last label begins that local part, and is left to
- * it if the labels before it are a domain.
+ * begins with two letters. What is left after it (a full stop, a dash, an underscore, `.5`) is not the address's. Where the run goes
+ * on into another address's local part with no space between, what follows its last `.`, `-` or `_` begins that local
+ * part, and is left to it if what comes before is a domain.
  */
 function domainIn(run: string, beforeAnother: boolean): number {
-  if (!ALPHANUMERIC.test(run.charAt(0))) return 0;
+  if (run === '' || forward(run, 0, run.length, ALPHANUMERIC, true) !== 0) return 0;
+  if (!beforeAnother) return longestDomain(run, run.length);
+  // Where its last letter or digit ends: the run begins with one, so there is one.
   let last = run.length;
-  while (!ALPHANUMERIC.test(run.charAt(last - 1))) last--;
-  const shorter = beforeAnother ? longestDomain(run, run.lastIndexOf('.', last - 1)) : 0;
-  return shorter || longestDomain(run, run.length);
+  while (!ALPHANUMERIC.test(charBefore(run, last))) last -= charBefore(run, last).length;
+  const cut = Math.max(...[...'.-_'].map((mark) => run.lastIndexOf(mark, last - 1)));
+  return longestDomain(run, cut) || longestDomain(run, run.length);
 }
 
 /** The length of the longest domain at the start of a run, up to `cut`, or 0. */
 function longestDomain(run: string, cut: number): number {
   let end = cut;
-  while (end > 0 && '.-'.includes(run.charAt(end - 1))) end--;
+  while (end > 0 && '.-_'.includes(run.charAt(end - 1))) end--;
   for (let dot = run.lastIndexOf('.', end - 1); dot > 0; dot = run.lastIndexOf('.', end - 1)) {
     if (TOP_LABEL.test(run.slice(dot + 1, end))) return end;
     end = dot;
   }
   return 0;
+}
+
+/**
+ * Where a scan forward from `from` stops: at the first character that is not of `kind` (or, with `until`, the first
+ * that is), or at `to`. A character is a code point, so a letter outside the Basic Multilingual Plane is one letter.
+ */
+function forward(text: string, from: number, to: number, kind: RegExp, until = false): number {
+  let i = from;
+  while (i < to) {
+    const char = String.fromCodePoint(text.codePointAt(i) ?? 0);
+    if (kind.test(char) === until) break;
+    i += char.length;
+  }
+  return i;
+}
+
+/** Where a scan back from `from` over characters of `kind` stops, never before `to`. */
+function back(text: string, from: number, to: number, kind: RegExp): number {
+  let i = from;
+  while (i > to && kind.test(charBefore(text, i))) i -= charBefore(text, i).length;
+  return i;
+}
+
+/** The code point that ends just before `i`: both halves of a surrogate pair, or one character. */
+function charBefore(text: string, i: number): string {
+  const pair = text.slice(Math.max(i - 2, 0), i);
+  return pair.length === 2 && String.fromCodePoint(pair.codePointAt(0) ?? 0) === pair ? pair : text.charAt(i - 1);
 }
 
 /** The page a report names, without its query or fragment: those are typed by the visitor, so they are theirs. */
@@ -93,22 +124,21 @@ export function privatePath(page: string): string {
 }
 
 /**
- * A segment as a person would read it. Where its escapes are not all valid, each run that is still decodes, and in a
- * run that is not, its ASCII escapes do: a malformed escape beside an address must not hide the `@` encoded in it.
+ * A segment as a browser would show it. Where its escapes are not all UTF-8, each run of them is read as bytes and the
+ * ones that are not UTF-8 shown as a replacement character, so a stray `%ZZ` or a lone byte beside an address cannot
+ * hide the `%40` in it, or keep the rest of its domain encoded.
  */
 function readable(segment: string): string {
   try {
     return decodeURIComponent(segment);
   } catch {
-    return segment.replace(/(?:%[0-9a-f]{2})+/gi, (run) => {
-      try {
-        return decodeURIComponent(run);
-      } catch {
-        return run.replace(/%[0-7][0-9a-f]/gi, decodeURIComponent);
-      }
-    });
+    return segment.replace(/(?:%[0-9a-f]{2})+/gi, (run) =>
+      UTF8.decode(Uint8Array.from(run.slice(1).split('%'), (hex) => Number.parseInt(hex, 16))),
+    );
   }
 }
+
+const UTF8 = new TextDecoder();
 
 /** A page or route short enough for a title or a summary: a long one keeps its start, and says it was cut. */
 export const shortPath = (path: string, max = 60) => (path.length <= max ? path : `${path.slice(0, max - 1)}…`);

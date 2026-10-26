@@ -82,8 +82,15 @@ describe('what leaves the cluster of a report', () => {
       "[email]'s inbox, [email]—or [email]…",
     );
     expect(scrub('jo@example.com,jane@example.org/ann@example.net')).toBe('[email],[email]/[email]');
-    expect(scrub('jo@example.com.jane@example.org')).toBe('[email].[email]');
+    expect(scrub('jo@example.com.jane@example.org, jo@example.com-jane@example.org')).toBe(
+      '[email].[email], [email]-[email]',
+    );
     expect(scrub('email:jo@example.com')).toBe('email:[email]');
+    expect(scrub('first/last@example.com, jo&jane@example.com, a=b@example.com')).toBe('[email], [email], [email]');
+    expect(scrub('jo𝐡n@example.com or john@ex𝐚mple.com')).toBe('[email] or [email]');
+    expect(scrub('bob@my_host.example.com, jo\u200b@example.com, jo@exam\u00adple.com')).toBe(
+      '[email], [email], [email]',
+    );
   });
 
   it('leaves a version or a host, which is not an address', () => {
@@ -113,6 +120,7 @@ describe('what leaves the cluster of a report', () => {
     expect(privatePath('/account/jane.doe%40example.com/orders?x=1')).toBe('/account/[email]/orders');
     expect(privatePath('/track/447700900123')).toBe('/track/[number]');
     expect(privatePath('/account/jane.doe%40example.com%ZZ')).toBe('/account/[email]%ZZ');
+    expect(privatePath('/account/%E0jo%40ex%C3%A4mple.com')).toBe('/account/\ufffd[email]');
     expect(privatePath('/products/brass-doorstop')).toBe('/products/brass-doorstop');
     expect(privatePath(`/${'a'.repeat(300)}`)).toHaveLength(200);
   });

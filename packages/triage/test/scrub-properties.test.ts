@@ -3,8 +3,9 @@
  * `routing.test.ts` holds the examples; these hold what must be true of any text, since a stranger writes it.
  *
  * What counts as an email address or a long number is the code's own rule, not RFC 5322: an address is a local part
- * of letters, digits and `._%+-'`, an `@`, and a domain of labels whose last begins with two letters; a long number
- * is six digits or more with at most one space or dash between each, unless it is shaped like a date.
+ * of letters, digits and the punctuation an address allows, an `@`, and a domain of labels whose last begins with
+ * two letters; a long number is six digits or more with at most one space or dash between each, unless it is shaped
+ * like a date.
  *
  * A failure prints the seed and the shrunk text that broke the property: `fc.assert(..., { seed, path })` replays it.
  */
@@ -17,16 +18,16 @@ const lower = 'abcdefghijklmnopqrstuvwxyz';
 const alnum = `${lower}ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789`;
 
 /** Letters from other scripts, which an address may hold and prose around it often does. */
-const unicodeLetters = 'éüßøñçжйдзαβλ東京連絡先';
+const unicodeLetters = 'éüßøñçжйдзαβλ東京連絡先𝐡𝐚𠀋';
 
 /** An address as people write them: dotted, tagged, hyphenated, in any case, with a long or a country TLD. */
 const email = fc
   .record({
     first: chars(alnum + unicodeLetters),
-    local: fc.string({ unit: chars(`${alnum}._%+-'`), maxLength: 12 }),
+    local: fc.string({ unit: chars(`${alnum}${unicodeLetters}!#$%&'*+/=?^_\`{|}~.-`), maxLength: 12 }),
     labels: fc.array(
       fc
-        .tuple(chars(alnum), fc.string({ unit: chars(`${alnum}-`), maxLength: 8 }), chars(alnum))
+        .tuple(chars(alnum), fc.string({ unit: chars(`${alnum}${unicodeLetters}-`), maxLength: 8 }), chars(alnum))
         .map(([a, b, c]) => a + b + c),
       { minLength: 1, maxLength: 3 },
     ),
@@ -35,9 +36,9 @@ const email = fc
   .map(({ first, local, labels, tld }) => ({ local: first + local, domain: [...labels, tld].join('.') }))
   .map(({ local, domain }) => ({ local, domain, address: `${local}@${domain}` }));
 
-/** What may sit right after an address in prose or markup: none of it can continue the domain. */
+/** What may sit right after an address in prose or markup: a dash may run on into the next address. */
 const after = fc.oneof(
-  fc.constantFrom(' ', '\n', '\t', ' ', ',', ';', ':', '.', '!', '?', ')', ']', '>', '"', "'", '’', '”'),
+  fc.constantFrom('-', ' ', '\n', '\t', ' ', ',', ';', ':', '.', '!', '?', ')', ']', '>', '"', "'", '’', '”'),
   fc.constantFrom('*', '**', '_', '~', '`', '|', '/', '\\', '—', '–', '…', '。', '，', '🙂', '.\n', "'s", '),'),
 );
 
@@ -45,7 +46,7 @@ const after = fc.oneof(
 const prose = fc.string({ unit: 'grapheme', maxLength: 20 });
 
 /**
- * Text with addresses in it, each followed by something that cannot continue it, and anything at all before it, or
+ * Text with addresses in it, each followed by something that ends it, and anything at all before it, or
  * nothing, so that addresses often run together with only a full stop or a comma between.
  */
 const textWithEmails = fc
@@ -220,8 +221,8 @@ describe('the page a report names, as triage may use it, whatever the page', () 
   const segmentWithEmail = fc
     .tuple(
       around,
-      // An address with a `%` in it is another address once a path is decoded.
-      email.filter((found) => !found.address.includes('%')),
+      // A `%` in an address is another address once a path is decoded, and `/`, `?` or `#` ends the segment.
+      email.filter((found) => !/[%/?#]/.test(found.address)),
       after.filter((s) => !/[/?#]/.test(s)),
       around,
     )
@@ -231,15 +232,25 @@ describe('the page a report names, as triage may use it, whatever the page', () 
 
   const query = fc.string({ maxLength: 12 }).map((s) => s.replace(/[\d@]/g, ''));
 
-  /** The path as a person would read it: each run of escapes decoded, or, where it is not UTF-8, its ASCII ones. */
-  const readable = (path: string) =>
-    path.replace(/(?:%[0-9a-f]{2})+/gi, (run) => {
-      try {
-        return decodeURIComponent(run);
-      } catch {
-        return run.replace(/%[0-7][0-9a-f]/gi, decodeURIComponent);
+  /**
+   * The path as a browser would show it, written from the rule rather than the code: every escape a byte, every other
+   * character its UTF-8, and bytes that are not UTF-8 shown as a replacement character, so what is valid still reads.
+   */
+  const readable = (path: string) => {
+    const bytes: number[] = [];
+    for (let i = 0; i < path.length; ) {
+      const isEscape = /^%[0-9a-f]{2}/i.test(path.slice(i, i + 3));
+      if (isEscape) {
+        bytes.push(Number.parseInt(path.slice(i + 1, i + 3), 16));
+        i += 3;
+      } else {
+        const char = String.fromCodePoint(path.codePointAt(i) ?? 0);
+        bytes.push(...new TextEncoder().encode(char));
+        i += char.length;
       }
-    });
+    }
+    return new TextDecoder().decode(new Uint8Array(bytes));
+  };
 
   it('has no email address in any segment, however it is encoded, and none of the query or fragment', () => {
     fc.assert(
