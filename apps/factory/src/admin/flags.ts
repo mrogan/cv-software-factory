@@ -179,7 +179,7 @@ export class FlagStages {
         now.workItem,
       ),
     );
-    await this.#write(read, rendered, revision);
+    await this.#write(read, rendered, revision, flag, to);
     if (dropped.length) this.#log.warn({ dropped }, 'dropped flags held in no stage’s shape, turning them off');
     await this.#record(event);
     this.#log.info({ flag, from: stage, to, revision }, `Martin's ${action} of a flag`);
@@ -251,9 +251,16 @@ export class FlagStages {
 
   /**
    * Replaces `flags` with these flags, conditional on the object as it was read. A write whose answer never came, or
-   * came as a server error, may have been made: `flags` is read again, and counts as made if it holds this revision.
+   * came as a server error, may have been made: `flags` is read again, and counts as made if it holds this revision,
+   * with the flag at its stage.
    */
-  async #write(read: FeatureFlag, flags: Record<string, unknown>, revision: string): Promise<void> {
+  async #write(
+    read: FeatureFlag,
+    flags: Record<string, unknown>,
+    revision: string,
+    flag: string,
+    to: Stage,
+  ): Promise<void> {
     const body = { ...read, spec: { ...read.spec, flagSpec: { ...read.spec.flagSpec, flags } } };
     try {
       await this.#kube.replace(this.#path, body);
@@ -262,8 +269,11 @@ export class FlagStages {
         if (error.status === 409) throw error;
         throw new Refused('kubernetes', 502, 'Kubernetes refused the change, and nothing was done.');
       }
+      // Made only if `flags` holds this revision with this flag at its stage: another move, of another flag, could
+      // have written the same revision meanwhile.
       const now = await this.#kube.get(this.#path, featureFlag).catch(() => undefined);
-      if (!now || readFlags(now.spec).revision !== revision) throw error;
+      const back = now && readFlags(now.spec);
+      if (!back || back.revision !== revision || !sameStage(back.stages[flag] ?? null, to)) throw error;
     }
   }
 
