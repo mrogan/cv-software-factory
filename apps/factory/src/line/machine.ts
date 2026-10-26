@@ -315,8 +315,8 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         state.gatesPassed = false;
         state.review = undefined;
         break;
-      // A run on a newer commit of the same push (GitHub bringing the branch up to date with main) replaces the run
-      // before once it ends: until then, gates that passed still stand, and the work item waits where it is.
+      // A run on a newer commit of the same push (main merged into the branch, as to resolve a conflict) replaces the
+      // run before once it ends: until then, gates that passed still stand, and the work item waits where it is.
       case 'gates.started':
         state.gates = { commit: event.payload.commit, conclusion: undefined, failed: [] };
         break;
@@ -324,8 +324,8 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         if (state.gates?.commit === event.payload.commit) {
           state.gates = { ...state.gates, conclusion: event.payload.conclusion, failed: event.payload.failed };
           state.gatesPassed = event.payload.conclusion === 'passed';
-          // Gates that pass answer the failure that sent the work back, whoever moved the branch: GitHub's update
-          // with main, or a check run again. The coder has nothing left to put right.
+          // Gates that pass answer the failure that sent the work back, whoever moved the branch: main merged into
+          // it, or a check run again. The coder has nothing left to put right.
           if (state.gatesPassed && state.rebuild?.from === 'gates') state.rebuild = undefined;
           // Gates that fail after they passed end the wait for Martin's merge, which GitHub would refuse, whether the
           // hold still stands or he answered it to wait: the failure sends the work back to Build, as on the push's

@@ -7,22 +7,22 @@
  * or more pin files, each pinning images that are built together from one commit: the app's one image; this
  * repository's console, and its factory images. The pull request moves each pin file whose images main has a newer
  * build of, to the newest commit on main that every one of them was built from: one pin file when only one has a
- * newer build, all of them, each at its own commit, when they all have. One pull request, not one each, because the
- * ruleset merges only a branch that is up to date with main: a second pull request would fall behind as the first
- * merged, and wait to be pinned again, checked again and approved again. In one commit they also deploy together, and
- * in the order Argo CD's sync waves give them. When a newer build is found, the new digests are committed on main's
- * head (signed, through the API), the branch is moved to that commit, and the pull request is opened, or retitled if
- * it was for older builds or other pin files.
+ * newer build, all of them, each at its own commit, when they all have. One pull request, not one each: in one commit
+ * they deploy together, in the order Argo CD's sync waves give them, for one approval and one run of the merge queue's
+ * checks, which run in full for every pull request it merges. When a newer build is found, the new digests are
+ * committed on main's head (signed, through the API), the branch is moved to that commit, and the pull request is
+ * opened, or retitled if it was for older builds or other pin files.
  *
  * The branch is never at main's head itself, even for a moment: GitHub closes a pull request whose branch has nothing
  * to merge, and would close the one for the older build, as the App. So the commit is made on a scratch branch of
  * the factory's (`factory/` and the deploy branch's name), started at main's head, and the deploy branch is moved to
  * it in one forced update. The commit goes through `createCommitOnBranch` like every other, so GitHub signs it.
  *
- * The deploy branch is this watch's alone: the watch that keeps the App's pull requests current leaves it be
- * (`current.ts`). When main moves on and the build is still the newest (a merge that built no image), the branch is
- * behind main, and the ruleset will not merge it; so the pin commit is made again, the same way, on main's new head.
- * Not once Martin has approved, as for the App's other pull requests: a push would make his approval stale.
+ * The deploy branch is this watch's alone. When main moves on and the build is still the newest (a merge that built no
+ * image), the branch is left behind main: the merge queue tests it on main as it will be, so it merges as it is. Only
+ * when it conflicts with main, which the queue cannot take (main's pin file changed by other means), is the pin commit
+ * made again, the same way, on main's new head, approved or not: a conflict merges with no approval, and Martin's
+ * approval counts only on the commit it was given to.
  *
  * Its title names each pin file's commit, as the build workflow's `changes` job reads them back: `chore(deploy): run
  * console 1f14f44 and the factory 9e0b2d1 on the local cluster`. A build Martin closed a pull request for without
@@ -406,12 +406,11 @@ const PULLS = z.array(
     state: z.string(),
     merged_at: z.string().nullable(),
     labels: z.array(z.object({ name: z.string() })),
-    head: z.object({ sha: z.string() }),
     body: z.string().nullable().optional(),
   }),
 );
-const COMPARISON = z.object({ behind_by: z.number().int().nonnegative() });
-const REVIEWS = z.array(z.object({ state: z.string() }));
+// GitHub works out whether a pull request merges cleanly after it is asked, and says null until it has.
+const MERGEABLE = z.object({ mergeable: z.boolean().nullable() });
 
 /**
  * The newest of main's commits (newest first, from the head a pass reads) that every image the pin file pins was
@@ -490,14 +489,10 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
     return 'signed';
   };
 
-  /** Whether a deploy pull request's branch is behind main's head and nobody has approved it, so it is the watch's to move. */
-  const behind = async (number: number, sha: string, head: string): Promise<boolean> => {
-    const { body: comparison } = await github.poll(repo, `/repos/${repo}/compare/${head}...${sha}`, COMPARISON);
-    if (comparison.behind_by === 0) return false;
-    const { body: reviews } = await github.poll(repo, `/repos/${repo}/pulls/${number}/reviews?per_page=100`, REVIEWS);
-    if (!reviews.some((r) => r.state === 'APPROVED')) return true;
-    log.info({ repo, number, behind: comparison.behind_by }, 'left an approved deploy pull request behind main');
-    return false;
+  /** Whether a deploy pull request conflicts with main, or GitHub has yet to say. */
+  const conflicts = async (number: number): Promise<boolean | undefined> => {
+    const { body: pull } = await github.poll(repo, `/repos/${repo}/pulls/${number}`, MERGEABLE);
+    return pull.mergeable === null ? undefined : !pull.mergeable;
   };
 
   return async () => {
@@ -570,7 +565,10 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
       // Opened by an earlier pass that did not get as far as its label.
       if (!existing.labels.some((l) => l.name === label)) await actions.addLabels(repo, existing.number, [label]);
       proposals.set(target, open(existing.number));
-      if (!(await behind(existing.number, existing.head.sha, head))) {
+      const conflicting = await conflicts(existing.number);
+      // Not known yet: the next pass asks again.
+      if (conflicting === undefined) return;
+      if (!conflicting) {
         proposed = { found: all, title, head };
         return;
       }
@@ -599,7 +597,10 @@ export function deployWatch(deps: Dependencies, target: DeployTarget): Watch {
     await actions.setBranch(repo, target.branch, pins, { force: true });
     await actions.deleteBranch(repo, scratch);
     if (existing?.title === title) {
-      log.info({ repo, number: existing.number, commits: built }, 'brought the deploy pull request up to date');
+      log.info(
+        { repo, number: existing.number, commits: built },
+        'made the deploy pull request again on main, as it conflicted',
+      );
     } else if (existing) {
       // Moved, it keeps what the line said it carries, which the newer build carries too, until the line says again.
       const body = deployBody(target, moves, existing.body);

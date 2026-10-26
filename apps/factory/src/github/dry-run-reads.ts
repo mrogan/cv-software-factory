@@ -18,8 +18,7 @@
  */
 import { createHash } from 'node:crypto';
 import { structuredPatch } from 'diff';
-import type { DryRunActions, DryRunPull } from './actions.ts';
-import { APP_LOGIN } from './current.ts';
+import { APP_LOGIN, type DryRunActions, type DryRunPull } from './actions.ts';
 import type { DeployProposal } from './deploys.ts';
 import type { Checkout, CheckRun, Commits, Comparison, PullRequestState, Reads, Signed } from './reads.ts';
 

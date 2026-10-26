@@ -15,7 +15,7 @@
  * it waits for his approval, which comes after the gates.
  */
 import { type EventType, type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
-import { APP_LOGIN } from '../github/current.ts';
+import { APP_LOGIN } from '../github/actions.ts';
 import type { CheckRun, PullRequestState } from '../github/reads.ts';
 import { whatClearedOnLook } from './verify.ts';
 
@@ -97,6 +97,7 @@ export function gateEvents(
   // GitHub can say a pull request merged before it names the merge commit: the next read records the merge.
   if (pr.merged && !pr.mergeCommit) return [];
   if (pr.merged && pr.mergeCommit) {
+    // Through the merge queue, GitHub names as the merger whoever added the pull request to it, not the queue.
     const by = pr.mergedBy === APP_LOGIN ? 'factory' : 'martin';
     // What the gates on the pull request's head did since the last read comes first: a merge soon after they pass
     // would otherwise leave their round unfinished for good, since nothing reads the pull request after it.

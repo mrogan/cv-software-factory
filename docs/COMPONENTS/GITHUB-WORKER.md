@@ -76,7 +76,7 @@ A poller runs watches once a minute with conditional requests, so an unchanged a
 
 Each change goes to whatever waits for it, and one a handler failed on is handed over again, without holding back the rest. Watches act on what they see, in both repositories.
 
-Three watches act on their own: deploys, releases, and keeping pull requests current. None runs without the key.
+Two watches act on their own: deploys and releases. Neither runs without the key.
 
 ### Deploys
 
@@ -93,11 +93,11 @@ flowchart TD
 ```
 
 - **The pull request** is labelled with the profile, names each pin file's commit in its title (`run console 1f14f44 and the factory 9e0b2d1 on the local cluster`), and links the changes since each commit pinned now.
-- **One, not one each.** The ruleset merges only a branch that is up to date with main, so a second pull request would fall behind when the first merged, and wait to be pinned again, checked again and approved again. Together they deploy in the order of Argo CD's sync waves: the console's image runs the store's migrations before the factory starts.
+- **One, not one each.** One pull request waits for one approval, and takes one run of the merge queue's checks, which run in full for every pull request it merges. Together they deploy in the order of Argo CD's sync waves: the console's image runs the store's migrations before the factory starts.
 - **Waits for every signature.** While one pin file's build waits to be signed, none is proposed, so the pull request does not open for the others only to move a minute later. A build still being pushed is not seen yet: the pull request opens without it, and moves once it is there. A build signed by anyone else, or never, is left out; when the open pull request runs an older build of that pin file, it stays as it is rather than drop it.
 - **Never at main's head.** The deploy branch is never at main's head, where GitHub would close the pull request for having nothing to merge.
 - **Closed unmerged.** A build whose pull request was closed unmerged is not proposed again, alone or beside another; the next build of that pin file is.
-- **Main moves on.** When main moves on with no newer build, the commit is made again on main's new head the same way, unless Martin has approved the pull request.
+- **Main moves on.** When main moves on with no newer build, the branch is left behind it: the merge queue tests the pull request on main as it will be. Only when it conflicts with main, as when main's pin file changed by other means, is the commit made again on main's new head the same way, approved or not, since a conflict cannot merge either way.
 - **One owner.** Every image is under `the-roganator` in GHCR, the repositories' owner (ADR 0014), and signed by `build.yml` on `main` of the repository there; an image under any other name is not one the repository deploys, and is refused.
 - **One writer.** The deploy branch has this one writer.
 - **One head.** A pass reads everything at one head of main.
@@ -125,17 +125,13 @@ A deploy pull request's body ends with what it carries, between markers: each wo
 
 `github/releases.ts`. Each time main moves, release-please, run as a library with the App's token, tags and publishes a merged release and keeps the release pull request current. Releases do not run in a dry run.
 
-### Keeping pull requests current
-
-`github/current.ts`. An App pull request that has fallen behind main and that nobody has approved is updated, since an update after approval would make the approval stale (ADR 0009). A deploy pull request is left to the deploy watch.
-
 ## Without a key
 
 With no key it runs read-only, and says so:
 
 - it still serves the line's reads, unauthenticated, which reach public repositories and nothing more;
 - a write fails before it is sent;
-- the deploy, release and current-pull-request watches do not run.
+- the deploy and release watches do not run.
 
 ## Dry run
 
