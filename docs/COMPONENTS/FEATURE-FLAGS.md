@@ -14,7 +14,7 @@ Ship improvements switched off; a kill switch without a rollback. Part of the [r
 
 ## The stages
 
-Martin stages each flag from the console, and the admin service writes his stages into `flags` (milestone 7, task 16; the console's controls and the service's endpoint are not built yet). It writes typed stages, never flagd's own JSON: `policy/flags.ts` renders them, and nothing else. Each stage keeps the ones before it, and is a fixed shape of flagd's targeting over the [evaluation context](#the-evaluation-context); the share is the only parameter. A feature is `ENABLED`, with two variants, `on` (`true`) and `off` (`false`):
+Martin stages each flag from the console, and the [admin service](ADMIN-SERVICE.md#the-flags-stages) writes his stages into `flags` (milestone 7, task 16; the console's controls are not built yet). It writes typed stages, never flagd's own JSON: `policy/flags.ts` renders them, and nothing else. Each stage keeps the ones before it, and is a fixed shape of flagd's targeting over the [evaluation context](#the-evaluation-context); the share is the only parameter. A feature is `ENABLED`, with two variants, `on` (`true`) and `off` (`false`):
 
 | Stage | Default | On, by its targeting, for |
 |---|---|---|
@@ -28,7 +28,7 @@ A flag `flags` does not name is off, by its default in the app. Beside the featu
 
 - **Only the admin service writes them.** Its service account holds one Role in `flagd` (`deploy/base/flagd/admin-stages-flags.yaml`): get `flags`, and update it, by name, and nothing else. It writes the whole spec, rendered from every flag's stage, conditional on the resourceVersion it read. flagd's own Role stays read-only.
 - **Admission holds it to the shapes.** A Role names objects, not fields, so `flagd-flag-stages` refuses any change of the admin service's to `flags` in which a flag is not a feature, named as the app names them, at one of these stages, or the revision in its one shape, never `none`, `stale` or `invalid`; and any change to the rest of `flags` ([admission control](ADMISSION-CONTROL.md#the-admin-services-hold-on-flags)). So the service, or anyone holding its token, can stage a flag and nothing more: no other variable of the request, no other value, no other share.
-- **Which stage may follow which is the service's.** Widening one stage at a time, the share stage only between canaries and for one flag at a time, and everyone only after Verify's comparison are its own rules, from Martin's events, not admission's.
+- **Which stage may follow which is the service's,** not admission's: `policy/flag-moves.ts`, which the console draws its slider from too. Widening one stage at a time but Preview, which may be skipped; Share only between canaries and for one flag at a time; Everyone only once Verify's comparison at Share has passed (`flag.compared`), or straight back for a flag turned off from Everyone; narrowing and Off at any time. Off to Checks asks for no passkey; every other widening does. Each move is `flag.staged`, one of [Martin's commands](EVENT-STORE.md#martins-commands), on the work item whose improvement's spec names the flag ([the admin service](ADMIN-SERVICE.md#the-flags-stages)).
 - **Argo CD and an administrator are not held.** Argo CD makes `flags` and leaves its flags alone; an administrator may still write them by hand, as `flagd-flags` allows.
 
 ## Readiness
