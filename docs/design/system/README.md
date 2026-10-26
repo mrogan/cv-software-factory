@@ -180,7 +180,7 @@ Top to bottom, and nothing else:
 1. **Category and kind** on the left (glyph, `t-label` caps, then the kind in `t-caption`); **outcome** on the right: dot and word, in the outcome's tone. Work a visitor started says so ("Injected by a visitor", "Red-team attack by a visitor"), never which visitor.
 2. **The picture**, 16:10. See below.
 3. **Title** in Instrument Serif 28, and a description clamped to two lines.
-4. **One line of facts** in `t-data`: number, version (a pill), pull request, start, duration, model spend. Before a release, the pill says what a sense saw it on ("seen on v0.9.3") or, for a visitor's report, the page it came from at its path only ("from /about"). After a release that did not ship, rolled back or aborted, the pill strikes its version through and points to the one the app stayed on (~~v0.9.11~~ → v0.9.10), with how it ended in visually hidden text for a screen reader; the sheet's Version fact spells it out: "v0.9.10 · rolled back · stayed on v0.9.9", "v0.9.11 · stopped with the line · stayed on v0.9.10" or "v0.9.11 · aborted by Martin · stayed on v0.9.10". Work that called no model says "no model", not "$0.00".
+4. **One line of facts** in `t-data`: number, an improvement's flag glyph and its stage ("⚑ preview", or "off"), version (a pill), pull request, start, duration, model spend. Before a release, the pill says what a sense saw it on ("seen on v0.9.3") or, for a visitor's report, the page it came from at its path only ("from /about"). After a release that did not ship, rolled back or aborted, the pill strikes its version through and points to the one the app stayed on (~~v0.9.11~~ → v0.9.10), with how it ended in visually hidden text for a screen reader; the sheet's Version fact spells it out: "v0.9.10 · rolled back · stayed on v0.9.9", "v0.9.11 · stopped with the line · stayed on v0.9.10" or "v0.9.11 · aborted by Martin · stayed on v0.9.10". Work that called no model says "no model", not "$0.00".
 5. **Eight segments**, one per stage: `ok` for passed, a dashed outline for skipped, a solid `text-muted` outline for queued (a ticket waiting for the planner, or a merged fix waiting for a release), `signal` (blinking) for now, `attn` where it stopped or waits on a human, `text-muted` where triage closed it. The segments have an accessible label such as "Stopped at Release".
 
 The outcomes, each a word and a tone. Work nobody needs to act on is in the quiet tone:
@@ -199,6 +199,8 @@ The outcomes, each a word and a tone. Work nobody needs to act on is in the quie
 | A report that described nothing wrong | Closed · no ticket | `text-muted` |
 | A report that gave orders to the system | Quarantined | `text-muted`: a guardrail worked, and nobody needs to act |
 | A visitor's suggestion, parked for Martin | Needs you | `attn`, flashing; Triage says "needs you" too |
+| An improvement whose flag Verify has checked at its stage, waiting for Martin to widen it | Needs you | `attn`, flashing; Verify says "needs you" too |
+| An improvement turned off before everyone had it | Turned off | `text-muted`: Martin's choice, and nothing failed |
 
 ### The picture
 
@@ -264,7 +266,7 @@ Where the tool is already drawn in the picture (Trivy over an image scan, OpenTe
 ### The sheet
 
 - Rises from the bottom to 90% of the viewport height (94% on a phone) over a `scrim`, with `--shadow-popover` and 14px top corners. Escape, the close button or the scrim close it, and focus returns to where it was. Previous and next step between work items, and the reel follows behind.
-- **Main column:** a paragraph saying what happened, and who wrote it once the describer has. A summary says nothing of where the work item stands, so once it closes the console ends the paragraph with a sentence of its own, from the events: verified on which version by which check ("It was verified on v0.9.8 by the probe's check “the contact form sends”, and closed."), closed with the reason Martin or the line gave, or closed with its pull request unmerged; a summary written at the close says so itself, and gets none; for a visitor's report, the report (below); **How it went**, the stage scrubber with the site's screenshot at each step; **Evidence**, the problem's own evidence at full size (while the card shows what Martin is asked to decide, the sheet still shows what was wrong) and the screenshots captured at signal, canary and rollout; **Release and Verify**, each release that carried it and every page compared with the version before (see Shipping); **The spec** (or **The change**, where there is no spec), **Rounds** and **Review** (below).
+- **Main column:** a paragraph saying what happened, and who wrote it once the describer has. A summary says nothing of where the work item stands, so once it closes the console ends the paragraph with a sentence of its own, from the events: verified on which version by which check ("It was verified on v0.9.8 by the probe's check “the contact form sends”, and closed."), closed with the reason Martin or the line gave, or closed with its pull request unmerged; a summary written at the close says so itself, and gets none; for a visitor's report, the report (below); for an improvement, **the request** in Martin's words (see "Improvements and flags"); **How it went**, the stage scrubber with the site's screenshot at each step; **Evidence**, the problem's own evidence at full size (while the card shows what Martin is asked to decide, the sheet still shows what was wrong) and the screenshots captured at signal, canary and rollout; **Release and Verify**, each release that carried it and every page compared with the version before (see Shipping); for an improvement, **The flag** in its place; **The spec** (or **The change**, where there is no spec), **Rounds** and **Review** (below).
 - **Side column:** the facts (including "Code written by humans: 0 lines"), **Agents and models** (each agent's model, settings, steps, calls, tokens and cost, with a total), and **Gates** (each check, its result and time).
 - Each evidence block ends with a one-line **Source**: where the factory got it.
 
@@ -334,8 +336,8 @@ Each panel does one job:
 - **Captions under stations:** the name and one line: state word and one figure. Descriptions belong in the stage panel, switches in Controls.
 - **The reel:** every work item, oldest to now. Watching the app change says more than a list; what waits on Martin is also listed in Needs you.
 - **The sheet:** one work item in full: the stage scrubber and the site at each step, the evidence, the change, the model calls and the gates.
-- **Needs you:** one card per hold, the line's and triage's (a spec and the planner's question on it are one decision), each answer beside what it does. Requesting an improvement lives on the Plan station, not here.
-- **Controls:** autonomy, three switches, what the line takes, and spend against the day's, the month's and a work item's caps; the models and the caps themselves are on the settings page. Guardrails that can't be switched off are not drawn as switches; one line says so.
+- **Needs you:** one card per hold, the line's and triage's (a spec and the planner's question on it are one decision), and each flag that waits for Martin to widen it, each answer beside what it does. Requesting an improvement lives on the Plan station, not here.
+- **Controls:** autonomy, three switches, what the line takes, the flags, and spend against the day's, the month's and a work item's caps; the models and the caps themselves are on the settings page. Guardrails that can't be switched off are not drawn as switches; one line says so.
 - **Left out on purpose:** placeholders for other apps, a live-feed ticker (the stations and the reel already show what is happening), an always-on feedback loop under the belt (production feeding Sense is a return like any other), sparklines, and help text that repeats itself.
 
 ## Sensing and triage (milestone 4)
@@ -429,7 +431,7 @@ Yellow stays the Release station's bird. Moving is ink, a measure that passed an
 
 ## Admin (milestone 7)
 
-What Martin does from the console, and what a visitor sees of it, agreed as a set: the bottom row (Needs you and Controls), sign-in and enrolment, the account menu, the passkey asked again (step-up), the settings, the audit log, the Canary panel's controls, stopping and starting the line, and Preview as visitor. The mockup draws each (`?view=`, `?dialog=`, `?mode=visitor` and the rest in its comment). Requesting an improvement (the "+" on Plan) and the flags are Part B's, and are designed when it is detailed.
+What Martin does from the console, and what a visitor sees of it, agreed as a set: the bottom row (Needs you and Controls), sign-in and enrolment, the account menu, the passkey asked again (step-up), the settings, the audit log, the Canary panel's controls, stopping and starting the line, and Preview as visitor. The mockup draws each (`?view=`, `?dialog=`, `?mode=visitor` and the rest in its comment). Requesting an improvement (the "+" on Plan) and the flags are in "Improvements and flags", below.
 
 Everything Martin can change, a visitor can see. The console draws both from the same table, `policy/access.ts`, so every control has a read-only form, and the two never drift apart.
 
@@ -532,6 +534,84 @@ From the account menu. A green banner across the top says: "Previewing as a visi
 ### Dialogs
 
 A dialog is a `raised` card on a `scrim`, 480px wide in the middle of the screen on a laptop, and a bottom sheet with 14px top corners on a phone, its buttons side by side and full width. Escape, Cancel or the scrim close it, and focus goes to its title. Toasts are still not used: what happened shows where it happened (an answered card moves to Answered today, the canary's kicker changes).
+
+## Improvements and flags (milestone 7, Part B)
+
+Martin asks for an improvement with the "+" on Plan. It goes down the same line as a fix, and ships behind a feature flag of its own, off; he then widens the flag from Controls a stage at a time, and Verify checks each stage. A visitor sees all of it: the "+" and its form, every improvement's request, spec and progress, and the flags and their stages, read-only, by the rules in "Read only" above. The mockup draws each (`?dialog=improve`, `?flag=`, `?sync=behind` and the rest in its comment), with #1316, "Delivery dates on each product", part way out.
+
+### The stages
+
+A flag has four stages, and off. Each stage keeps the ones before it, and off beats them all, a preview too. The console names them in these words everywhere:
+
+| Stage | Who gets it on | What Verify checks there |
+|---|---|---|
+| **Off** | Nobody. The code is in the app, and nothing runs it. | — |
+| **Checks** | The factory's own checks: the probes, the crawler and the canary's journeys, by the header only they can send. | The journeys and the device check pass with it on, and the probes take the pictures of the pages the spec names, off and on. |
+| **Preview** | And anyone who asks to preview it, in their own browser. | A probe asks for the preview, and the device check finds the preview cookie and nothing else. |
+| **Share** | And a share of the traffic generator's requests (10, 25 or 50%), so Verify can compare the two sides. Visitors still don't see it. | Flag on against flag off, on errors and latency, from the generator's own figures, with the canary's thresholds and enough requests on each side. |
+| **Everyone** | Every visitor. | The journeys still pass. |
+
+A stage is drawn as a track of four stops, Checks to Everyone (`.ftrack`): the stops passed filled in `signal` and joined by a `signal` line, the stage it stands at ringed like the Canary panel's current step, the rest hollow on a `line` rail. Share carries its share in `text-muted` ("Share 50%"). Off leaves every stop hollow, and the word beside the flag says OFF. The same track is in Controls and on the sheet.
+
+### The "+" and the form
+
+The "+" stays where it is, a `signal` disc on the Plan station, and Plan's panel ends with **Request an improvement**. Both open a dialog, as the other dialogs (centred on a laptop, a bottom sheet on a phone):
+
+- **An improvement** in `t-label` with the improvement glyph, and the title **Request an improvement**, then: "Say what should change, in your own words. The planner turns it into a spec, which waits for you before any code is written."
+- **In a few words** (one line, 80 characters), which titles the work item, and **What you want** (600 characters, counted). Both are required; an empty one takes the focus back.
+- A box of three facts: it waits behind every open ticket (how many now), oldest first, and Just one in Controls takes it at once; it ships behind a flag of its own, off, widened a stage at a time from Controls; visitors see the words, with anything shaped like a secret left out.
+- **Use your passkey and ask**, with the key (**Ask** while the passkey is fresh), and under it why: asking widens what the line does, so it asks for the passkey again, and tells his phone.
+
+Once asked, the work item is a row at the top of Plan's panel ("asked just now · waiting behind the open tickets"), and a card on the reel. Nothing else announces it.
+
+**For a visitor** the "+" is there too, titled "How Martin asks for an improvement", and Plan's panel's button says the same. It opens the same dialog, **How Martin asks**, read-only: the fields hold Martin's latest request, disabled, with when he asked; the facts speak of him ("he widens it"), and the last one says that a suggestion sent from the app reaches Martin and never starts work by itself; **Ask** is a label beside "Martin asks, signed in, with his passkey again: it widens what the line does", and the only button is Close.
+
+### An improvement's card and sheet
+
+The card is a work item's card. Its picture, once its flag reaches Checks, is the wipe between the pages the spec names with the flag off, from the release, and on, from Checks ("FLAG OFF · v0.9.12" and "FLAG ON · checks"), the new thing marked in `ok` as the spec names it. Its line of facts gains the flag glyph and its stage. Waiting for Martin to widen, its outcome is Needs you; turned off, Turned off.
+
+The sheet, top to bottom:
+
+1. **The request:** "The request · in Martin's words" and when, then his words in Instrument Serif 22 in quotation marks, ruled on the left in 2px `text` like his rows in the audit log, and a line saying it was asked with the "+", with his passkey, and that a visitor's suggestion never starts work by itself.
+2. **How it went:** the scrubber's chapters are REQUEST, SPEC, APPROVED, PR, GATES, REVIEW, MERGED (Martin approved the pull request: an improvement's waits for him in every mode), RELEASED (with the flag off), then one for each stage Martin set (CHECKS, PREVIEW, SHARE, EVERYONE, or OFF) and each check Verify made at one (CHECKED, PREVIEWED, COMPARED, VERIFIED). Each widening's event says it was given with the passkey.
+3. **Evidence:** the wipe at full size, its source "Playwright screenshots by the probes: the release, with the flag off, and the Checks stage, with it on".
+4. **The flag**, in place of Release and Verify: the flag's name in code and a sentence saying the stage it is at, in the table's words, and that each stage is Martin's, from Controls; the track; then one block per stage it reached, newest first, the older folded, drawn as a release's block is (a `raised` card, a `t-label` head and the outcome's word):
+   - **Released · v0.9.12:** shipped with the flag off, so nobody saw a change; its release and when it was promoted.
+   - **Checks:** the journeys' and the device check's result, then the pages the spec names, off and on, side by side, each captioned "flag off" or "flag on · intended", and why they are there: the probes are written from the spec, blind, and know no new feature, so the pictures are for Martin to judge when he widens, and the spec's criteria were proved by the pull request's own tests.
+   - **Preview:** that a probe asked for the preview, and the cookie the device check found, on the station face; and, while it is at Preview or wider, **Preview it on the app ↗**.
+   - **Share · 50%:** how the comparison is made, in one sentence (the generator's own figures, by the id each request carried, each id's side worked out with flagd's own rule, so the app labels nothing it is judged on); a measures table as the Canary panel's, flag on against flag off: requests against the least a side needs, errors and p99, each with its rule and verdict; and a line under it: how many requests each side has while it compares, or when it was judged, and the minutes a canary was in flight, set aside. Its word is Comparing (`signal`), Passed (`ok`), Failed (`attn`), or Stopped when it was turned off first.
+   - **Everyone:** when, and that off is still one press in Controls, reaching the app in seconds with no deploy.
+   - **Off:** Martin's reason, on the station face; that the app had it seconds later, as the admin service checked; and that the work item closed as turned off, its code still in the app, off, nothing rolled back, and the "+" is how to try again.
+5. **The spec** (before code) or **The change:** a box of what it changes, its flag ("`delivery-dates`, off until Martin widens it") and the pages it changes; then the acceptance criteria, each saying under it whether it is tested with the flag on or off; then the files.
+
+The facts gain **Flag**: its name and stage ("delivery-dates · preview", or "price-sort · not built yet" while its spec waits).
+
+### The flags in Controls
+
+A group of its own, **Flags**, between What the line takes and Spend, with how many flags the app has. One block per flag, under a hairline:
+
+- its name in code, its work item as a link that opens the sheet, and its stage as a word on the right: the stage in `signal`, Everyone in `ok`, Off and Turned off in `text-muted`;
+- the track, and a line saying who gets it on, in the table's words;
+- its actions as answer rows, as in Needs you, each a button beside what it does:
+  - **Widen to** the next stage, with the key: it shows a change to more people. To Checks, Preview and Everyone it is the passkey's dialog, saying what the stage does; to Share it is a dialog of its own, **Widen delivery-dates to Share**, that asks how big a share (10, 25 or 50%, 50 chosen, since half and half fills both sides soonest), and its button is "Use your passkey and widen".
+  - **Narrow to** the stage before, from Preview up: at once, with no passkey and no dialog.
+  - **Turn off**, outlined in `attn` as Stop the line is: a dialog saying it is off for everyone within seconds, a preview too, with no deploy and no rollback; that the work item closes as turned off (or, once it is done, that it can be turned back on here); that the admin service asks the app for the flags it holds, and tells his phone if it has not taken the change within a minute; and a **Reason**, required, for the audit log and the work item. No passkey: off only ever tightens.
+  - **Preview it ↗**, from Preview up: it opens the app with `?preview=` on the page the spec names, which sets the preview cookie in that browser for a day.
+  - **Turn back on**, with the key, for a flag that was on for everyone and turned off: back to Everyone at once.
+- **Why a stage cannot be taken now** is said where the button's sentence would be, in `text`, and the button is drawn with a dashed outline, in `text-muted`, and cannot be pressed: "Share waits while a canary is in flight: v0.9.13 is at 50%, and its two versions would mix the two sides. It can be taken once the canary ends."; "Share waits while show-stock is at it: one flag at a time, so each comparison varies one thing."; "Everyone waits for Verify's comparison: each side needs 300 requests, and has 236 and 229."
+- A flag turned off before everyone had it keeps its block, with no actions, and a line: turned off, its work item closed, its code still in the app, off, and the "+" is how to try again.
+
+Under the flags, under a hairline, whether **the app holds the flags as set**: a tick and "The app holds every flag as set here: revision r7, checked 40s ago"; while a change is being taken, a ring and that the admin service is asking; and when the app's revision has lagged, in `attn`, which revision it holds and since when, that his phone hears at five minutes, and that in a minute more every flag fails off. With no flag yet, the group says an improvement ships behind one, off, and it shows here once its release is out.
+
+### In Needs you
+
+When Verify has checked a flag at its stage, the flag waits for Martin, and Needs you has a card for it, oldest first with the others: **Ready to widen** (or **Shipped behind its flag**, released and still off), "#1316 · Verify · Preview · 1h", the title, and the one thing he should know before widening: at Checks, the pictures off and on, side by side, and that no probe knows a new feature, so he judges them; at Preview, that a probe's preview kept only its cookie, and Preview it; at Share, the comparison's figures in a sentence. Its answers are the flag's own actions, drawn and worded as in Controls, and a stage that cannot be taken says why there too. While Verify is still comparing, there is no card.
+
+An improvement's spec is a hold like any other, **An improvement's spec**, with the flag it names and the pages it changes in its evidence; Approve carries the key, since approving it sets the line building something new, and says that the coder starts with tests, with the flag on and off, and that its pull request waits for him too.
+
+### For visitors
+
+The same views, read-only, by the rules above: the "+" and its form as described; Controls' flags with their tracks and words, every action a label beside what it does, and a stage that cannot be taken saying why; Needs you's flag cards under "Waiting on Martin". **Preview it** stays a link for a visitor: a preview is the app's own feature, sets only the cookie they asked for, and shows the change in their own browser alone. The audit log has each request and each stage, with Martin's words and whether the passkey was given (`improvement.requested`, `flag.staged`).
 
 ## Not decided yet
 

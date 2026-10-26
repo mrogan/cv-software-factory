@@ -15,6 +15,10 @@
     ?enrol=code (default) | passkey (the code took; make the passkey) | done | wrong | spent (expired, used or out of tries)
     ?dialog=stop | start | stepup | abort (open one, as a click would)   ?fresh (the passkey was given in the last five minutes)
     ?needs=none (nothing waits)   ?menu (the account menu open)   ?profile=local (default) | cloud (no local model to choose)
+  Improvements and flags (README, "Improvements and flags"):
+    ?dialog=improve (the "+" on Plan's form; a visitor's is read-only) | widen (to Share, with its share) | flagoff
+    ?flag=preview (default) | shipped (released, still off) | checks | share (Verify comparing) | compared | everyone | off
+          | busy (another flag holds Share)   where delivery-dates (#1316) stands   ?sync=behind (the app's flags lag)
   The states shipping brings (README, "Shipping"):
     ?canary=flight (default) | line (no work item) | promoted | rolledback | early (rolled back before a step) | stopped | dry | idle | none
             | paused (by Martin) | aborted (by Martin)
@@ -214,6 +218,8 @@ button.srow:hover { background: var(--surface); }
 .meta b { font-weight: 400; color: var(--text); }
 .meta .ver { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--text); }
 .meta .ver s { color: var(--text-muted); }
+.meta .flagm { display: inline-flex; align-items: center; gap: 5px; color: var(--text); }
+.meta .flagm .glyph { width: 13px; height: 13px; }
 .card-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .open-hint { font: 11px/1 var(--font-mono); letter-spacing: 1px; color: var(--text-muted); white-space: nowrap; }
 
@@ -289,6 +295,7 @@ button.srow:hover { background: var(--surface); }
 .shot .product h4 { margin-top: 0; }
 .shot .facts { display: flex; gap: 2cqw; margin-bottom: 1.4cqw; font-size: 1.6cqw; color: #5b6357; }
 .shot .facts b { color: #1f3d2b; }
+.shot .deliv span { display: inline-block; padding: .4cqw 1.2cqw; border-radius: .6cqw; background: #e7eedd; color: #1f3d2b; font-size: 1.6cqw; font-weight: 600; }
 .shot .notes { padding-left: 1.6cqw; border-left: .4cqw solid #d9d2bd; font-style: italic; font-family: var(--serif); }
 
 /* Marks drawn by the factory over a screenshot: dashed ember for the problem, solid green for the fix. */
@@ -425,6 +432,28 @@ body.still .sheet, body.still .scrim, body.still .reel.anim .card, body.still .r
 .files div { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; padding: 8px 14px; border-top: 1px solid var(--line); font: 12px/1.4 var(--font-mono); }
 .files div:first-child { border-top: 0; }
 .files .plus { color: var(--ok); } .files .minus { color: var(--attn); }
+/* An improvement: Martin's request, its spec, and its flag (README, "Improvements and flags"). */
+.request { margin: 0; padding: 14px 18px; max-width: 760px; background: var(--raised); border: 1px solid var(--line); border-left: var(--stroke-rule) solid var(--text); border-radius: var(--radius-rule) var(--radius-card) var(--radius-card) var(--radius-rule); display: flex; flex-direction: column; gap: 8px; }
+.request blockquote { margin: 0; font: 400 22px/1.3 var(--font-display); }
+.request blockquote::before { content: "“"; } .request blockquote::after { content: "”"; }
+.spec-dl { margin: 0 0 12px; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 18px; padding: 14px 16px; background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-card); font-size: 13.5px; }
+.spec-dl dt { color: var(--text-muted); }
+.spec-dl dd { margin: 0; }
+.criteria small.side { display: block; margin-top: 3px; font: 11px/1.3 var(--font-mono); color: var(--text-muted); }
+code.flagname { font: 12.5px var(--font-mono); padding: 1px 6px; border-radius: var(--radius-small); background: var(--surface); color: var(--text); white-space: nowrap; }
+.regress .row.pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* A flag's four stages, filled to where it stands; off leaves every stop open. */
+.ftrack { list-style: none; margin: 0 0 14px; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.ftrack li { position: relative; display: flex; flex-direction: column; gap: 7px; font: 11.5px/1.2 var(--font-mono); color: var(--text-muted); }
+.ftrack li:not(:last-child)::after { content: ""; position: absolute; top: 7px; left: 16px; right: 2px; height: 2px; border-radius: 1px; background: var(--line); }
+.ftrack li.done::after { background: var(--signal); }
+.ftrack i { position: relative; z-index: 1; width: 16px; height: 16px; border-radius: 8px; border: 1.5px solid var(--line-strong); background: var(--surface); display: grid; place-items: center; }
+.ftrack li.done i { border-color: var(--signal); background: var(--signal); }
+.ftrack li.now i { border-color: var(--signal); box-shadow: 0 0 0 3px var(--signal-wash); }
+.ftrack li.now i::after { content: ""; width: 6px; height: 6px; border-radius: 3px; background: var(--signal); }
+.ftrack li.now, .ftrack li.done { color: var(--text); }
+.ftrack small { margin-left: 5px; color: var(--text-muted); }
+.ftrack.is-off li { color: var(--text-muted); }
 table.models { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .models th { text-align: left; font: 10px/1.4 var(--font-mono); letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); font-weight: 400; padding: 0 0 8px; border-bottom: 1px solid var(--line); }
 .models td { padding: 10px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -630,6 +659,29 @@ select.field:disabled, input.field:disabled { color: var(--text-muted); backgrou
 .canary-controls dl { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 14px; align-items: center; font-size: 12.5px; color: var(--text-2); }
 .canary-controls dd { margin: 0; }
 
+/* Flags in Controls: one block per flag, its stages, and its actions as answer rows. */
+.flag { display: flex; flex-direction: column; gap: 8px; padding: 12px 0 4px; border-top: 1px solid var(--line); }
+.flag:first-of-type { border-top: 0; padding-top: 2px; }
+.flag-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; font-size: 13px; }
+.flag-top .word { margin-left: auto; }
+.flag .ftrack { margin: 4px 0 0; }
+.flag .answers { margin-top: 0; }
+.answers p.why { color: var(--text); }
+.answers .btn:disabled { border-style: dashed; color: var(--text-muted); }
+.answers a.btn { min-height: 36px; padding: 0 12px; font-size: 13px; justify-content: flex-start; color: var(--text); text-decoration: none; }
+.sync { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.5; color: var(--text-muted); }
+.sync .glyph { width: 14px; height: 14px; margin-top: 2px; color: var(--ok); }
+.sync.tone-attn { color: var(--attn); } .sync.tone-attn .glyph { color: var(--attn); }
+.pair-mini { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pair-mini figure { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.pair-mini figcaption { font: 11px/1.3 var(--font-mono); color: var(--text-muted); }
+.ev a.inline { white-space: nowrap; }
+.dialog ul.what.plain { margin: 0; padding: 10px 14px 10px 30px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.45; color: var(--text-2); }
+.dialog input.field { min-height: 40px; }
+.dialog .seg { align-self: flex-start; }
+.dialog .answers { border-top: 0; padding-top: 0; }
+.dialog p.help { font-size: 12px; color: var(--text-muted); }
+
 /* The account menu, top right. */
 .account { position: relative; }
 .account-btn { min-height: 40px; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px 0 6px; border: 1px solid var(--line-strong); border-radius: var(--radius-card); background: transparent; cursor: pointer; font-size: 13px; }
@@ -804,7 +856,9 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
   .rel { padding: 14px; }
   .try-grid { grid-template-columns: 1fr; }
   .answers { grid-template-columns: 1fr; gap: 4px; }
-  .answers .btn, .answers .ro { justify-self: stretch; justify-content: center; }
+  .answers .btn, .answers .ro, .answers a.btn { justify-self: stretch; justify-content: center; }
+  .flag-top .word { margin-left: 0; }
+  .pair-mini { gap: 8px; }
   .answers p { margin-bottom: 8px; }
   .canary-controls .row .btn { flex: 1 1 40%; }
   .canary-controls dl { grid-template-columns: 1fr; gap: 2px; }
@@ -948,6 +1002,7 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
         <div class="switches" id="switches"></div>
       </div>
       <div class="take" id="take"></div>
+      <div class="ctl-group" id="flags"></div>
       <div class="ctl-group" id="spend"></div>
       <p class="help" id="controls-help"></p>
       <div class="links"><a href="?view=settings">Models and spend caps</a><a href="?view=audit">Audit log</a></div>
@@ -1019,7 +1074,7 @@ const LINE = [
   { kind: 'gates',   status: 'blocked', fig: '1 held' },
   { kind: 'review',  status: 'idle',    fig: 'none' },
   { kind: 'release', status: 'working', beacon: 'needs-you', fig: '50% · 1 waiting' },
-  { kind: 'verify',  status: 'passing', fig: '1 today' },
+  { kind: 'verify',  status: 'passing', beacon: 'needs-you', fig: '1 waiting' },
 ];
 
 // What each stage holds. Row: [id, title, note, tone, work item to open or null, age, state], in the panel's order:
@@ -1047,7 +1102,8 @@ const STAGES = {
     // A release with no work item is a row too; it opens nothing, and the Canary panel below has it.
     ['v0.9.10', 'A release with no work item', 'rolled back at 25% · opened #1308', 'attn', null, '2h', 'held']] },
   // One row per work item: an earlier state it went through today is kept in the row, struck through (#209).
-  verify:  { blurb: 'Has the original signal cleared in production? New problems it finds go back to Sense.', foot: 'and 6 more verified this week', rows: [
+  verify:  { blurb: 'Has the original signal cleared in production? New problems it finds go back to Sense. An improvement is checked here at each stage of its flag.', foot: 'and 6 more verified this week', rows: [
+    ['#1316', 'Delivery dates on each product', 'flag at Preview · checked · waiting for Martin to widen', 'attn', '1316', '1h', 'held'],
     ['#1312', 'Server errors on /', [['sent back', true], ['verified', true], ['reopened', false]], '', '1312', '20m', 'back'],
     ['#1310', 'Errors logged on every search', [['sent back to Plan · the errors persist', false]], '', '1310', '25m', 'back'],
     ['#1296', 'Prices go negative', 'verified in 23min', 'ok', '1296', '7h', 'verified']] },
@@ -1114,9 +1170,10 @@ const PAGES = {
     <div class="search"><span>${q}</span><em>Search</em></div>
     <p style="display: inline-block" ${marked(o.markCount ?? null)}>${slugs.length} ${slugs.length === 1 ? 'result' : 'results'} for “${q}”</p>
     <div class="grid">${slugs.map((s) => shopCard(s, o)).join('')}</div>`),
-  product: (slug) => { const [name, price, stock, d] = PROD[slug]; return shot('/products/clock-stopped', 'Products', `
+  product: (slug, o = {}) => { const [name, price, stock, d] = PROD[slug]; return shot('/products/clock-stopped', 'Products', `
     <div class="product"><div class="drawing">${svgDraw(d)}</div><div><h4>${name}</h4>
     <div class="facts"><span>Item 2</span><b>${pounds(price)}</b><span>${stock} in stock</span></div>
+    ${o.delivery ? `<p class="deliv"><span ${marked(o.mark ?? null)}>Order today, with you on Tuesday 6 October</span></p>` : ''}
     <p>A wall clock showing ten past four. Correct twice daily, which is more than can be said for some.</p>
     <p class="notes">It has shown ten past four since it arrived. For best results, consult it at ten past four.</p></div></div>`); },
   contact: (o = {}) => shot('/contact', 'Contact', `<h4>Write to us</h4>
@@ -1146,6 +1203,7 @@ const G = {
   // Admin: the passkey (step-up), a person, an agent at work and a model call.
   key: '<circle cx="4.5" cy="8" r="2.75"/><path d="M7.25 8H14.25 M11.75 8v2.5 M14 8v2"/>',
   person: '<circle cx="8" cy="5.25" r="2.75"/><path d="M2.75 14c.7-2.9 2.8-4.5 5.25-4.5s4.55 1.6 5.25 4.5"/>',
+  flag: '<path d="M3.75 14.25V2.25 M3.75 2.75h8.5l-2 3 2 3h-8.5"/>',
   chip: '<rect x="4" y="4" width="8" height="8" rx="1.5"/><path d="M6.5 1.75V4 M9.5 1.75V4 M6.5 12v2.25 M9.5 12v2.25 M1.75 6.5H4 M1.75 9.5H4 M12 6.5h2.25 M12 9.5h2.25"/>',
 };
 const glyph = (k, cls = 'glyph') => `<svg class="${cls}" viewBox="0 0 16 16" aria-hidden="true">${G[k]}</svg>`;
@@ -1155,6 +1213,7 @@ const END = {
   verified: ['Verified', 'ok'], rolledback: ['Rolled back', 'attn'], blocked: ['Held for a human', 'attn', true],
   closed: ['Closed · no change', 'faint'], waiting: ['Needs you', 'attn', true], live: ['In progress', 'signal'],
   planner: ['Waiting for the planner', 'faint'], deploy: ['Needs you', 'attn', true],
+  flag: ['Needs you', 'attn', true], off: ['Turned off', 'faint'],
 };
 const STAGES_IN_ORDER = ['Sense', 'Triage', 'Plan', 'Build', 'Gates', 'Review', 'Release', 'Verify'];
 
@@ -1182,19 +1241,52 @@ function lineChart({ series, yMax, ticks, xLabels, marker, objective, unit }) {
 
 // prog: one character per stage. o passed, s skipped, n now, x stopped there, w waiting on a human, k closed, ' ' not reached.
 // ch: [label, clock, actor, what happened, % along, which screenshot the site showed: 'a' | 'b' | null]
+/* ==== Flags: an improvement ships behind one, off, and Martin widens it a stage at a time ============
+   The state of every flag is the one FeatureFlag resource, `flags` (FEATURE-FLAGS.md). Each stage keeps the ones
+   before it, and off beats them all, a preview too. ?flag= picks where delivery-dates stands; ?sync= the app's revision. */
+const FLAG_STAGES = [
+  ['off', 'Off', () => 'Off for everyone, a preview too. The code is in the app, and nothing runs it.'],
+  ['checks', 'Checks', () => 'On for the factory’s own checks alone: the probes, the crawler and the canary’s journeys. Nobody else sees it.'],
+  ['preview', 'Preview', () => 'On for the checks, and for anyone who asks to preview it, in their own browser.'],
+  ['share', 'Share', (f) => `On for the checks, a preview, and ${f.share}% of the traffic generator’s requests, so Verify can compare the two sides. Visitors still don’t see it.`],
+  ['everyone', 'Everyone', () => 'On for every visitor.'],
+];
+const FLAG_AT = Object.fromEntries(FLAG_STAGES.map(([k], i) => [k, i]));
+const flagQ = new URLSearchParams(location.search);
+// ?flag= checks | preview (default) | share (Verify comparing) | compared (ready for everyone) | everyone | off (turned off)
+//        | shipped (released, still off) | busy (another flag is at Share)
+const FLAG_SCENE = flagQ.get('flag') || 'preview';
+const FLAGSET = {
+  'delivery-dates': { item: '1316', title: 'Delivery dates on each product', page: '/products/clock-stopped',
+    stage: { shipped: 'off', compared: 'share', busy: 'preview' }[FLAG_SCENE] ?? FLAG_SCENE, share: 50, turnedOff: FLAG_SCENE === 'off' },
+  'show-stock': { item: '1271', title: 'How many are left on each card', page: '/products', stage: FLAG_SCENE === 'busy' ? 'share' : 'everyone', share: 50 },
+};
+// What Verify has found at the stage a flag stands at: whether it is ready for Martin to widen.
+const flagReady = (name) => name !== 'delivery-dates' || FLAG_SCENE !== 'share';
+// The app's copy of the flag set: in step (ok), taking a change Martin just made (taking), or behind (?sync=behind).
+const FLAG_SYNC = { state: flagQ.get('sync') === 'behind' ? 'behind' : 'ok', revision: 'r7' };
+STAGES.verify.rows[0][2] = { checks: 'flag at Checks · checked · waiting for Martin to widen', preview: 'flag at Preview · checked · waiting for Martin to widen',
+  busy: 'flag at Preview · checked · Share waits for another flag', shipped: 'released with its flag off · waiting for Martin', share: 'flag at Share · Verify is comparing',
+  compared: 'flag at Share · compared · waiting for Martin', everyone: 'on for everyone · verified', off: 'turned off · closed' }[FLAG_SCENE];
+if (['everyone', 'off', 'share'].includes(FLAG_SCENE)) STAGES.verify.rows[0][3] = '', STAGES.verify.rows[0][6] = FLAG_SCENE === 'share' ? 'hand' : 'verified';
+
 const ITEMS = [
-  { id: '1271', cat: 'improvement', kind: 'Improvement requested by Martin', end: 'verified', title: 'Show how many are left on each card',
-    desc: 'Every product card now says how many are left. It shipped behind a flag and was switched on once the canary passed.',
-    lead: 'Martin asked for stock levels on the product cards, so nobody has to open a product to find it is the last one. The planner wrote a spec with three acceptance criteria, Martin approved it, and the change shipped behind the show-stock flag. The canary passed, the flag went on, and the acceptance criteria passed in production.',
-    ver: ['v0.8.4', 'v0.9.0'], live: 'v0.9.0', pr: '1273', day: 'Thu 1 Oct', time: '16:20', dur: '31min', found: 'Martin, from the console', prog: 'ssoooooo',
-    vis: { type: 'wipe', at: 52, a: ['BEFORE · v0.8.4', 'faint', () => PAGES.products()], b: ['AFTER · v0.9.0', 'ok', () => PAGES.products({ left: true, markLeft: (s) => ['good', s === 'ladder' ? 'New: stock on every card' : ''] })] },
+  { id: '1271', cat: 'improvement', kind: 'Improvement requested by Martin', end: 'verified', flag: 'show-stock', title: 'Show how many are left on each card',
+    desc: 'Every product card now says how many are left. It went out behind its flag a stage at a time, and is on for everyone.',
+    lead: 'Martin asked for stock levels on the product cards, so nobody has to open a product to find it is the last one. The planner wrote a spec naming its flag, show-stock, with three acceptance criteria proved by the pull request’s tests with the flag on and off. Martin approved the spec and the pull request, it shipped in v0.9.0 with the flag off, and he widened it a stage at a time until it was on for everyone.',
+    request: { words: 'Show how many are left on each product card, so nobody opens a product to find it is the last one.', at: 'Thu 1 Oct, 16:20' },
+    ver: ['v0.8.4', 'v0.9.0'], live: 'v0.9.0', pr: '1273', day: 'Thu 1 Oct', time: '16:20', dur: '1d 2h', found: 'Martin, from the console', prog: 'ssoooooo',
+    vis: { type: 'wipe', at: 52, a: ['FLAG OFF · v0.9.0', 'faint', () => PAGES.products()], b: ['FLAG ON · everyone', 'ok', () => PAGES.products({ left: true, markLeft: (s) => ['good', s === 'ladder' ? 'New: stock on every card' : ''] })] },
     afterProducts: () => PAGES.products({ left: true }),
-    ch: [['REQUEST', 'T+00:00', 'martin', 'Improvement requested from the console', 0, 'a'], ['SPEC', 'T+03:10', 'planner', 'Spec: three acceptance criteria, behind a flag', 14, 'a'],
-      ['APPROVED', 'T+05:00', 'martin', 'Martin approved the spec', 22, 'a'], ['PR', 'T+14:30', 'coder', 'Tests first, then the change · PR #1273', 44, 'a'],
-      ['GATES', 'T+18:10', 'actions', 'All 11 required checks passed', 58, 'a'], ['REVIEW', 'T+19:40', 'reviewer', 'Approved, one suggestion taken', 66, 'a'],
-      ['PROMOTED', 'T+24:05', 'rollouts', 'v0.9.0 promoted to 100%; flag switched on', 82, 'b'], ['VERIFIED', 'T+31:20', 'probe', 'Acceptance criteria pass in production', 100, 'b']],
-    criteria: [['Given', 'a product with one left, the card says “Only 1 left”'], ['Given', 'a product with more, the card gives the number'], ['Given', 'the flag is off, every card is as before']],
-    files: [['src/pages/products.ts', 18, 3], ['src/flags.ts', 9, 0], ['public/site.css', 12, 0], ['test/pages-products.test.ts', 41, 0]],
+    ch: [['REQUEST', 'T+00:00', 'martin', 'Improvement requested from the console, with his passkey', 0, 'a'], ['SPEC', 'T+03:10', 'planner', 'Spec: the flag show-stock, one page, three criteria', 9, 'a'],
+      ['APPROVED', 'T+05:00', 'martin', 'Martin approved the spec, with his passkey', 18, 'a'], ['PR', 'T+14:30', 'coder', 'Tests first, with the flag on and off · PR #1273', 27, 'a'],
+      ['GATES', 'T+18:10', 'actions', 'All 11 required checks passed', 36, 'a'], ['REVIEW', 'T+19:40', 'reviewer', 'Approved, one suggestion taken', 45, 'a'],
+      ['RELEASED', 'T+1:24:05', 'rollouts', 'v0.9.0 promoted to 100%, the flag off', 55, 'a'], ['CHECKS', 'T+1:30:00', 'martin', 'Widened to Checks; the journeys pass with it on', 64, 'b'],
+      ['PREVIEW', 'T+2:10:00', 'martin', 'Widened to Preview; a preview kept only its cookie', 73, 'b'], ['SHARE', 'T+18:00:00', 'martin', 'Widened to Share at 50%', 82, 'b'],
+      ['COMPARED', 'T+23:40:00', 'verify', 'Flag on against off: errors and p99 within the canary’s thresholds', 91, 'b'], ['EVERYONE', 'T+26:00:00', 'martin', 'Widened to Everyone', 100, 'b']],
+    spec: { changes: 'Each product card says how many are left, and “Only 1 left” for the last one.', pages: ['Products', 'Search'] },
+    criteria: [['Given', 'a product with one left, the card says “Only 1 left”', 'on'], ['Given', 'a product with more, the card gives the number', 'on'], ['Given', 'the flag is off, every card is as before', 'off']],
+    files: [['src/pages/products.ts', 18, 3], ['public/site.css', 12, 0], ['test/pages-products.test.ts', 41, 0]],
     regress: { Products: ['4.6%', 'meant'], Home: ['2.1%', 'meant'] },
     models: [['planner', 1.3], ['coder', 1.6], ['reviewer', 1.1]], gates: 'pass' },
 
@@ -1300,15 +1392,59 @@ const ITEMS = [
     regress: { Products: ['3.8%', 'meant'], 'A product': ['0.9%', 'meant'] },
     models: [['jev', 1], ['planner', 1], ['coder', 1], ['reviewer', 1]], gates: 'pass' },
 
-  { id: '1300', cat: 'improvement', kind: 'Improvement requested by Martin', end: 'waiting', title: 'Sort products by price',
+  { id: '1300', cat: 'improvement', kind: 'Improvement requested by Martin', end: 'waiting', flag: 'price-sort', title: 'Sort products by price',
     desc: 'The spec is written and waiting for Martin, with one question from the planner. Nothing is built until he approves it.',
-    lead: 'Martin asked for a way to sort products by price. The planner wrote a spec with three acceptance criteria and one question it could not settle alone. No code is written until Martin answers and approves.',
+    lead: 'Martin asked for a way to sort products by price. The planner wrote a spec naming its flag, the pages it changes and three acceptance criteria, and asked one question it could not settle alone. No code is written until Martin approves the spec, with his passkey.',
+    request: { words: 'Let people sort the products by price, cheapest first or dearest first.', at: 'Sat 3 Oct, 09:40' },
+    spec: { changes: 'A “Sort by” choice on the products page and the search results: as now, price low to high, or high to low.', pages: ['Products', 'Search'] },
     ver: null, live: 'v0.9.7', pr: null, day: 'Sat 3 Oct', time: '09:40', dur: '7h so far', found: 'Martin, from the console', prog: 'ssw     ',
     vis: { type: 'spec' },
-    ch: [['REQUEST', 'T+00:00', 'martin', 'Improvement requested from the console', 0, null], ['SPEC', 'T+02:40', 'planner', 'Spec written with three acceptance criteria', 45, null],
+    ch: [['REQUEST', 'T+00:00', 'martin', 'Improvement requested from the console, with his passkey', 0, null], ['SPEC', 'T+02:40', 'planner', 'Spec: the flag price-sort, two pages, three criteria', 45, null],
       ['QUESTION', 'T+03:10', 'planner', 'Asked: where do out-of-stock products sort?', 75, null], ['WAITING', 'T+03:12', 'console', 'Waiting for Martin to approve the spec', 100, null]],
-    criteria: [['Given', 'the products page, choosing “Price, low to high” puts the cheapest first'], ['Given', 'a department is chosen, the sort applies within it'], ['Given', 'the flag is off, the page is unchanged']],
+    criteria: [['Given', 'the flag is on, choosing “Price, low to high” puts the cheapest first', 'on'], ['Given', 'a department is chosen, the sort applies within it', 'on'], ['Given', 'the flag is off, the page is unchanged', 'off']],
     models: [['planner', 1.4]], gates: 'none' },
+
+  // An improvement part way out behind its flag: where it stands is ?flag=.
+  (() => {
+    const at = FLAG_AT[FLAGSET['delivery-dates'].stage], off = FLAG_SCENE === 'off', done = FLAG_SCENE === 'everyone';
+    const story = [
+      ['REQUEST', 'T+00:00', 'martin', 'Improvement requested from the console, with his passkey', 'a'],
+      ['SPEC', 'T+03:40', 'planner', 'Spec: the flag delivery-dates, one page, four criteria', 'a'],
+      ['APPROVED', 'T+21:00', 'martin', 'Martin approved the spec, with his passkey', 'a'],
+      ['PR', 'T+38:10', 'coder', 'Tests first, with the flag on and off · PR #1317', 'a'],
+      ['GATES', 'T+42:30', 'actions', 'All 11 required checks passed', 'a'],
+      ['REVIEW', 'T+44:00', 'reviewer', 'Approved', 'a'],
+      ['MERGED', 'T+1:02:00', 'martin', 'Martin approved the pull request, and it merged', 'a'],
+      ['RELEASED', 'T+2:10:00', 'rollouts', 'v0.9.12 promoted to 100%, the flag off', 'a'],
+      ...(at >= 1 || off ? [['CHECKS', 'T+2:14:00', 'martin', 'Widened to Checks, with his passkey', 'b'],
+        ['CHECKED', 'T+2:20:00', 'verify', 'Journeys and the device check pass with it on; pictures taken', 'b']] : []),
+      ...(at >= 2 || off ? [['PREVIEW', 'T+2:31:00', 'martin', 'Widened to Preview, with his passkey', 'b'],
+        ['PREVIEWED', 'T+2:34:00', 'probe', 'A preview kept the preview cookie and nothing else', 'b']] : []),
+      ...(at >= 3 || off ? [['SHARE', 'T+3:05:00', 'martin', 'Widened to Share at 50%, with his passkey', 'b']] : []),
+      ...(off ? [['OFF', 'T+3:20:00', 'martin', 'Turned off: “The date is wrong on Sundays”', 'a']] : []),
+      ...(['compared', 'everyone'].includes(FLAG_SCENE) ? [['COMPARED', 'T+4:05:00', 'verify', 'Flag on against off: errors and p99 within the canary’s thresholds', 'b']] : []),
+      ...(done ? [['EVERYONE', 'T+4:20:00', 'martin', 'Widened to Everyone, with his passkey', 'b'], ['VERIFIED', 'T+4:50:00', 'verify', 'On for everyone, and the journeys still pass', 'b']] : []),
+    ];
+    const ch = story.map(([a, b, c, d, e], k) => [a, b, c, d, Math.round((k / (story.length - 1)) * 100), e]);
+    const name = FLAG_STAGES[at][1];
+    return { id: '1316', cat: 'improvement', kind: 'Improvement requested by Martin', flag: 'delivery-dates', title: 'Delivery dates on each product',
+      end: off ? 'off' : done ? 'verified' : FLAG_SCENE === 'share' ? 'live' : 'flag',
+      desc: off ? 'Turned off at the Share stage: the date was wrong on Sundays. Its code stays in the app, off, and nothing was rolled back.'
+        : done ? 'Every product page says when it would arrive. It went out behind its flag a stage at a time, and is on for everyone.'
+        : `On behind its flag at ${name}: ${at === 0 ? 'released, still off for everyone' : at === 1 ? 'only the factory’s own checks see it' : at === 2 ? 'the checks, and anyone who asks for a preview' : 'Verify is comparing flag on against flag off'}.`,
+      lead: 'Martin asked for each product page to say when an order would arrive. The planner wrote a spec naming its flag, delivery-dates, the one page it changes and four acceptance criteria, proved by the pull request’s own tests with the flag on and off. Martin approved the spec and the pull request, and it shipped in v0.9.12 with the flag off. Since then it has gone out a stage at a time, each one Martin’s.',
+      request: { words: 'On each product page, say when it would arrive if you ordered it today.', at: 'Sat 3 Oct, 10:12' },
+      ver: ['v0.9.11', 'v0.9.12'], live: 'v0.9.12', pr: '1317', day: 'Sat 3 Oct', time: '10:12', dur: done || off ? (off ? '3h 20min' : '4h 50min') : '4h so far', found: 'Martin, from the console',
+      prog: done ? 'ssoooooo' : off ? 'ssoooook' : FLAG_SCENE === 'share' ? 'ssooooon' : 'ssooooow',
+      vis: { type: 'wipe', at: 50, a: ['FLAG OFF · v0.9.12', 'faint', () => PAGES.product('clock')],
+        b: [`FLAG ON · ${done ? 'everyone' : 'checks'}`, 'ok', () => PAGES.product('clock', { delivery: true, mark: ['good', 'New: when it would arrive'] })] },
+      ch,
+      spec: { changes: 'Each product page says when an order placed today would arrive, from the shop’s dispatch days.', pages: ['A product'] },
+      criteria: [['Given', 'the flag is on, a product page says when an order today would arrive', 'on'], ['Given', 'it is Friday after noon, the date given is Tuesday', 'on'],
+        ['Given', 'a product that is out of stock, no date is given', 'on'], ['Given', 'the flag is off, every product page is as before', 'off']],
+      files: [['src/pages/product.ts', 22, 2], ['src/delivery.ts', 31, 0], ['public/site.css', 6, 0], ['test/delivery.test.ts', 58, 0]],
+      models: [['planner', 1.2], ['coder', 1.4], ['reviewer', 1]], gates: 'pass' };
+  })(),
 
   { id: '1312', cat: 'functional', kind: 'Ticket from the logs', end: 'live', reopened: 'Sat 15:58 · logs, a new error pattern on / from v0.9.11', title: 'Server errors on /',
     desc: 'Verified at the second pass, then the same fingerprint came back from a later release. The ticket, its issue and the work item are open again.',
@@ -1750,8 +1886,9 @@ function renderLine() {
   $('stations').innerHTML = LINE.map((s, i) => {
     const status = S.stopped ? 'blocked' : s.status;
     const [word, tone] = S.stopped ? ['stopped', 'attn'] : s.beacon ? ['needs you', 'attn'] : STATE[status];
-    const add = STAGES[s.kind].add && !S.visitor
-      ? `<button type="button" class="add" data-add title="Request an improvement" aria-label="Request an improvement"><span><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.5 V10.5 M1.5 6 H10.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span></button>` : '';
+    // A visitor has the "+" too: it opens the same form, read-only.
+    const add = STAGES[s.kind].add
+      ? `<button type="button" class="add" data-add title="${S.visitor ? 'How Martin asks for an improvement' : 'Request an improvement'}" aria-label="${S.visitor ? 'How Martin asks for an improvement' : 'Request an improvement'}"><span><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.5 V10.5 M1.5 6 H10.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span></button>` : '';
     return `<div class="cell"><button type="button" class="stage" data-i="${i}" aria-expanded="${S.stage === i}" aria-controls="stage-panel"
         aria-label="${STAGE_NAME[s.kind]}: ${word}, ${esc(s.fig)}. Show what is in this stage">
       <sf-station kind="${s.kind}" status="${status}" ${s.beacon && !S.stopped ? `beacon="${s.beacon}"` : ''} decorative ${still() ? 'motion="off"' : ''}></sf-station>
@@ -1807,7 +1944,7 @@ function renderStagePanel() {
     ${st.foot ? `<div class="srow" style="display: block"><span class="aside">${esc(st.foot)}</span></div>` : ''}
     ${st.sources ? `<div class="ref"><div class="sources"><span class="label">Takes work from</span>${st.sources.map(([nm, live]) =>
       `<span class="src ${live ? '' : 'off'}">${nm}${live ? '' : ' <em>not in the demo</em>'}</span>`).join('')}</div></div>` : ''}
-    ${st.add && !S.visitor ? `<button type="button" class="btn small" data-add style="width: 100%; margin: 6px 0 8px"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.5 V10.5 M1.5 6 H10.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Request an improvement</button>` : ''}`;
+    ${st.add ? `<button type="button" class="btn small" data-add style="width: 100%; margin: 6px 0 8px"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.5 V10.5 M1.5 6 H10.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>${S.visitor ? 'How Martin asks for an improvement' : 'Request an improvement'}</button>` : ''}`;
   panel.hidden = false;
   // Desktop: under the stage, clamped to the line. Phone: a bottom sheet (CSS).
   const line = $('line'), btn = stageBtn(S.stage);
@@ -1886,7 +2023,7 @@ function card(it, i) {
       <span class="ends">${again}<span class="out tone-${tone}"><span class="dot ${it.end === 'live' ? 'blink' : it.end === 'planner' ? 'hollow' : needs ? 'ring alarm' : tone === 'attn' ? 'ring' : ''}"></span>${word}</span></span></div>
     ${visual(it)}
     <div><h3>${it.title}</h3><p class="desc">${it.desc}</p></div>
-    <div class="meta"><b>#${it.id}</b>${ver}${it.pr ? `<span class="opt">PR #${it.pr}</span>` : ''}<span>${it.day.slice(0, 3)} ${it.time}</span><span>${it.dur}</span><span>${it.models.length ? money(spend(it)) : 'no model'}</span></div>
+    <div class="meta"><b>#${it.id}</b>${it.flag && FLAGSET[it.flag] ? `<span class="flagm">${glyph('flag')}${FLAGSET[it.flag].turnedOff ? 'off' : FLAG_STAGES[FLAG_AT[FLAGSET[it.flag].stage]][1].toLowerCase()}</span>` : ''}${ver}${it.pr ? `<span class="opt">PR #${it.pr}</span>` : ''}<span>${it.day.slice(0, 3)} ${it.time}</span><span>${it.dur}</span><span>${it.models.length ? money(spend(it)) : 'no model'}</span></div>
     <div class="card-foot"><span class="prog" role="img" aria-label="${progLabel(it)}">${prog}</span><span class="open-hint">OPEN ↑</span></div>
   </article>`;
 }
@@ -2135,6 +2272,71 @@ function releaseSection(it) {
     <div class="rels">${blocks.join('')}</div></section>`;
 }
 
+/* The flag's section of an improvement's sheet: where it stands, then each stage it reached, newest first, the older
+   ones folded, each with what Verify found there. */
+function flagTrack(f) {
+  const at = f.turnedOff ? 0 : FLAG_AT[f.stage];
+  return `<ol class="ftrack ${f.turnedOff ? 'is-off' : ''}" aria-label="Its stages: ${f.turnedOff ? 'off' : FLAG_STAGES[at][1]}">${FLAG_STAGES.slice(1).map(([k, label], j) => {
+    const i = j + 1;
+    return `<li class="${i < at ? 'done' : i === at ? 'now' : ''}" ${i === at ? 'aria-current="step"' : ''}><i></i><span>${label}${k === 'share' ? `<small>${f.share}%</small>` : ''}</span></li>`;
+  }).join('')}</ol>`;
+}
+const FLAG_TIMES = {
+  'delivery-dates': { day: 'Sat', version: 'v0.9.12', release: '3b7e90c1d4-871', page: 'A product', released: '12:22', checks: '12:26', checked: '12:32', preview: '12:43', previewed: '12:46', share: '13:17', off: '13:32', compared: '14:17', everyone: '14:32',
+    shot: (on) => PAGES.product('clock', on ? { delivery: true, mark: ['good', 'New: when it would arrive'] } : {}) },
+  'show-stock': { day: 'Thu', version: 'v0.9.0', release: '9a02c7e5b1-614', page: 'Products', released: '17:44', checks: '17:50', checked: '17:56', preview: '18:30', previewed: '18:33', share: '10:20', compared: '16:00', everyone: '18:20',
+    shot: (on) => PAGES.products(on ? { left: true, markLeft: (s) => ['good', s === 'ladder' ? 'New: stock on every card' : ''] } : {}) },
+};
+function flagBlocks(it) {
+  const f = FLAGSET[it.flag], t = FLAG_TIMES[it.flag], at = FLAG_AT[f.stage], name = it.flag;
+  const compared = it.flag === 'show-stock' || ['compared', 'everyone'].includes(FLAG_SCENE);
+  const pv = `<a href="http://mossop.localhost${f.page}?preview=${name}" target="_blank" rel="noopener">Preview it on the app<span aria-hidden="true"> ↗</span></a>`;
+  const block = (label, at, word, tone, body) => ({ head: `<span class="label">${label} · ${t.day} ${at}</span><span class="word tone-${tone}"><span class="dot tone-${tone}"></span>${word}</span>`, body });
+  const out = [];
+  out.push(block(`Released · ${t.version}`, t.released, 'Off', 'faint',
+    `<p class="rel-end">Shipped in ${t.version} with the flag off, so nobody saw a change: release ${t.release}, promoted at ${t.released}. The flag waited for Martin to widen it.</p>`));
+  if (at >= 1 || f.turnedOff) out.push(block('Checks', t.checks, 'Passed', 'ok',
+    `<p class="rel-end">On for the factory’s own checks, by the header only they can send. At ${t.checked} the journeys passed with it on, 6 of 6, and the device check found nothing kept.</p>
+    <div class="regress" style="margin-top: 0"><span class="label">${t.page}, the flag off and on</span><div class="row pair">
+      <figure><div class="vis">${t.shot(false)}</div><figcaption><span>${t.page}</span><span class="mono same">flag off</span></figcaption></figure>
+      <figure><div class="vis">${t.shot(true)}</div><figcaption><span>${t.page}</span><span class="mono meant">flag on · intended</span></figcaption></figure></div>
+      <p class="pages-note">The pages the spec names, from the release and from this stage. The probes are written from the spec, blind, and know no new feature: these pictures are for Martin to judge when he widens. The spec’s criteria were proved by the pull request’s own tests, with the flag on and off.</p></div>`));
+  if (at >= 2 || (f.turnedOff && FLAG_TIMES[name].preview)) out.push(block('Preview', t.preview, 'Passed', 'ok',
+    `<p class="rel-end">Also on for anyone who asks to preview it. At ${t.previewed} a probe asked for the preview on ${f.page}, and the device check found the preview cookie and nothing else:</p>
+    <p class="words">preview=${name} · Path=/ · Max-Age=86400 · HttpOnly · SameSite=Lax</p>
+    ${!f.turnedOff ? `<p class="pages-note">${pv}: it sets the same cookie in your browser, for a day, and shows you only this flag.</p>` : ''}`));
+  if (at >= 3 || f.turnedOff) {
+    const r = compared ? { on: [412, 0.0097, 41], off: [398, 0.0101, 40] } : { on: [236, 0.0085, 42], off: [229, 0.0087, 40] };
+    const need = 300, enough = r.on[0] >= need && r.off[0] >= need;
+    const rows = [
+      ['Requests', `enough to judge: at least ${need} a side`, count(r.on[0]), count(r.off[0]), enough ? 'passed' : 'measuring'],
+      ['Errors', 'share of 5xx answers · fails more than a point above', share(r.on[1]), share(r.off[1]), enough ? 'passed' : 'waiting'],
+      ['Latency', 'p99 · fails a quarter and 100 ms above', r.on[2] + ' ms', r.off[2] + ' ms', enough ? 'passed' : 'waiting']];
+    const table = `<table class="measures figs"><thead><tr><th>Measure</th><th class="num">Flag on</th><th class="num">Flag off</th><th>Verdict</th></tr></thead><tbody>
+      ${rows.map(([m, rule, a, b, v]) => `<tr><td>${m}<small>${rule}</small></td><td class="num">${a}</td><td class="num base">${b}</td><td>${verdict(v)}</td></tr>`).join('')}</tbody></table>`;
+    const word = f.turnedOff ? ['Stopped', 'faint'] : compared ? ['Passed', 'ok'] : ['Comparing', 'signal'];
+    out.push(block(`Share · ${f.share}%`, t.share, word[0], word[1],
+      `<p class="rel-end">Also on for ${f.share}% of the traffic generator’s requests. Verify compares the two sides from the generator’s own figures, by the id each request carried, and works out each id’s side with flagd’s own rule: the app labels nothing it is judged on.</p>
+      ${f.turnedOff ? '' : table}
+      <p class="pages-note">${f.turnedOff ? 'Turned off before Verify had enough requests to judge.' : compared ? `Judged at ${t.compared}, with the canary’s thresholds.` : `Each side needs ${need} requests: ${r.on[0]} and ${r.off[0]} so far.`} ${it.flag === 'delivery-dates' && S.canary !== 'none' && !f.turnedOff ? 'The minutes a canary was in flight, 13:41 to 13:52, are set aside: its two versions would mix the sides.' : ''}</p>`));
+  }
+  if (f.turnedOff) out.push(block('Off', t.off, 'Turned off', 'faint',
+    `<p class="words">“The date is wrong on Sundays.”</p>
+    <p class="rel-end">Turned off by Martin at the Share stage, for everyone, a preview too. The app had it 2s later, as the admin service checked. #${it.id} closed as turned off: its code stays in the app, off, and nothing was rolled back. To try again, Martin asks with the “+”.</p>`));
+  if (at === 4) out.push(block('Everyone', t.everyone, 'On for everyone', 'ok',
+    `<p class="rel-end">On for every visitor, widened by Martin with his passkey${it.flag === 'delivery-dates' ? ', and at 15:02 the journeys still passed' : ''}. Turning it off is still one press in Controls, and reaches the app in seconds, with no deploy.</p>`));
+  return out.reverse();
+}
+function flagSection(it) {
+  if (!it.flag || !FLAGSET[it.flag]) return '';
+  const f = FLAGSET[it.flag], at = FLAG_AT[f.stage];
+  const blocks = flagBlocks(it).map((b, k) => k === 0
+    ? `<article class="rel"><div class="rel-head">${b.head}</div>${b.body}</article>`
+    : `<details class="rel"><summary>${b.head}<span class="more">Show this stage</span></summary>${b.body}</details>`).join('');
+  return `<section class="sec"><h3>The flag</h3><p class="help"><code class="flagname">${it.flag}</code> ${f.turnedOff ? 'is off, and #' + it.id + ' is closed.' : `is at ${FLAG_STAGES[at][1]}: ${FLAG_STAGES[at][2](f).replace(/^./, (c) => c.toLowerCase())}`} Each stage is Martin’s, from Controls; widening asks for his passkey.</p>
+    ${flagTrack(f)}<div class="rels">${blocks}</div></section>`;
+}
+
 function renderSheet() {
   const it = ITEMS[S.sheet], i = S.sheet, [word, tone, needs] = END[it.end];
   $('sheet-head').innerHTML = `<div style="min-width: 0">
@@ -2147,9 +2349,10 @@ function renderSheet() {
       <button type="button" class="icon-btn" data-close aria-label="Close" style="margin-left: 8px"><svg class="glyph" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
     </div>`;
 
-  const rows = modelRows(it), total = spend(it), ongoing = ['live', 'waiting', 'planner', 'deploy'].includes(it.end);
+  const rows = modelRows(it), total = spend(it), ongoing = ['live', 'waiting', 'planner', 'deploy', 'flag'].includes(it.end);
   const ver = it.seen ? `seen on ${it.seen}` : it.ver ? (it.burnt ? `${it.ver[0]} · rolled back to ${it.ver[1]}` : it.reopened ? `${it.ver[0]} → ${it.ver[1]} · back on ${it.live}` : it.end === 'live' && it.id === '1302' ? `broken in ${it.ver[0]} · fix is ${it.ver[1]}` : `${it.ver[0]} → ${it.ver[1]}`) : 'No release';
   const facts = [['Work item', '#' + it.id], ['Found by', it.found], ['Version', ver], ...(it.reopened ? [['Reopened', it.reopened]] : []), ['Pull request', it.pr ? `<a href="#">#${it.pr}</a>` : '—'],
+    ...(it.flag ? [['Flag', FLAGSET[it.flag] ? `${it.flag} · ${FLAGSET[it.flag].turnedOff ? 'off' : FLAG_STAGES[FLAG_AT[FLAGSET[it.flag].stage]][1].toLowerCase()}` : `${it.flag} · not built yet`]] : []),
     ['Started', `${it.day}, ${it.time}`], [ongoing ? 'So far' : 'Start to finish', it.dur.replace(' so far', '')], ['Model spend', it.models.length ? money(total) : 'none'], ['Code written by humans', '0 lines']];
 
   const gates = it.gates === 'none' ? '<p class="help">No pull request, so no gates ran.</p>' : `<div class="gates">${GATES.map(([g, d]) => {
@@ -2163,31 +2366,39 @@ function renderSheet() {
     <tfoot><tr><td>Total${ongoing ? ' so far' : ''}</td><td class="num">${rows.reduce((s, r) => s + r.calls, 0)}</td><td></td><td class="num">${money(total)}</td></tr></tfoot></table>`;
 
   const pageShot = { Home: () => PAGES.home(), Products: () => (it.afterProducts ?? PAGES.products)(), 'A product': () => PAGES.product('clock'), Search: () => PAGES.search('ladder', ['ladder']) };
-  const regress = it.ver && !it.burnt && !ongoing && !it.rels ? `<div class="regress"><span class="label">After rollout, against ${it.id === '1296' ? 'v0.9.5, before the injection' : 'the version before'}</span>
+  const regress = it.ver && !it.burnt && !ongoing && !it.rels && !it.flag ? `<div class="regress"><span class="label">After rollout, against ${it.id === '1296' ? 'v0.9.5, before the injection' : 'the version before'}</span>
     <div class="row">${Object.keys(pageShot).map((p) => { const [d, k] = it.regress?.[p] ?? ['0.0%', 'same'];
       return `<figure><div class="vis">${pageShot[p]()}</div><figcaption><span>${p}</span><span class="mono ${k}">${d}${k === 'meant' ? ' · intended' : ' · same'}</span></figcaption></figure>`; }).join('')}</div>
     <p class="source">Playwright screenshots of each page at full rollout, compared pixel by pixel with the version before.</p></div>` : '';
 
   const captures = it.captures ? `<div class="captures">${it.captures.map(([l, t, s]) => `<figure><div class="vis">${(s === 'a' ? it.vis.a : it.vis.b)[2]()}<span class="wtag l"><span class="dot tone-${l.startsWith('SEEN') ? 'attn' : l.startsWith('FIXED') ? 'ok' : 'signal'}"></span>${l}</span></div><figcaption><span>${t.split(' · ')[0]}</span><span class="mono">${t.split(' · ')[1]}</span></figcaption></figure>`).join('')}</div>` : '';
-  const source = { wipe: 'Playwright screenshots, taken when the signal fired and after rollout. The marks are drawn from the elements the probe checked.', perf: 'Prometheus, snapshotted into the event at verify, so the graph outlives the metrics’ retention.',
+  const source = { wipe: it.flag ? 'Playwright screenshots by the probes: the release, with the flag off, and the Checks stage, with it on. The mark is drawn from the element the spec names.' : 'Playwright screenshots, taken when the signal fired and after rollout. The marks are drawn from the elements the probe checked.', perf: 'Prometheus, snapshotted into the event at verify, so the graph outlives the metrics’ retention.',
     canary: 'Argo Rollouts’ analysis run, with the series it compared.', package: 'The lockfile diff, and the image scan of both images in the pipeline.', refusal: 'The check run’s output, stored with the event when the gate failed.',
     judgement: 'The Jev request in the event’s payload: question set, model version and every answer with its probability.', logs: 'Loki and Tempo, excerpted into the event at signal and at verify.',
     deploy: 'A Playwright screenshot, taken by the contact journey when it failed. The mark is drawn from the element it checked.',
     logsPair: 'Loki, excerpted into the signal’s event and the verification’s.', canaryTicket: 'The canary’s signal: the analysis’s words and the routes where the canary did worse, from Prometheus.' }[it.vis.type];
 
-  const change = it.criteria || it.files ? `<section class="sec"><h3>${it.end === 'waiting' ? 'The spec' : 'The change'}</h3><p class="help">${it.end === 'waiting' ? 'Acceptance criteria the planner proposes. Nothing is built until Martin approves.' : 'What the spec asked for, and what the pull request touched.'}</p>
-    ${it.criteria ? `<ul class="criteria">${it.criteria.map(([k, v]) => `<li>${glyph(ongoing ? 'dash' : 'check')}<span><em>${k.toUpperCase()}</em>${v}</span></li>`).join('')}</ul>` : ''}
+  // An improvement's spec: what it changes, its flag, the pages it changes, and criteria its own tests prove with the
+  // flag on and off.
+  const spec = it.spec ? `<dl class="spec-dl"><dt>What it changes</dt><dd>${esc(it.spec.changes)}</dd><dt>Its flag</dt><dd><code class="flagname">${it.flag}</code>, off until Martin widens it</dd>
+    <dt>Pages it changes</dt><dd>${it.spec.pages.join(', ')}</dd></dl>` : '';
+  const change = it.criteria || it.files ? `<section class="sec"><h3>${it.end === 'waiting' ? 'The spec' : 'The change'}</h3><p class="help">${it.end === 'waiting' ? (it.spec ? 'What the planner proposes. Nothing is built until Martin approves it, with his passkey.' : 'Acceptance criteria the planner proposes. Nothing is built until Martin approves.') : it.spec ? 'What the spec asked for, proved by the pull request’s own tests with the flag on and off, and what it touched.' : 'What the spec asked for, and what the pull request touched.'}</p>
+    ${spec}
+    ${it.criteria ? `<ul class="criteria">${it.criteria.map(([k, v, side]) => `<li>${glyph((it.spec ? it.end === 'waiting' : ongoing) ? 'dash' : 'check')}<span><em>${k.toUpperCase()}</em>${v}${side ? `<small class="side">tested with the flag ${side}</small>` : ''}</span></li>`).join('')}</ul>` : ''}
     ${it.files ? `<div class="files">${it.files.map(([f, a, d]) => `<div><span>${f}</span><span class="plus">+${a}</span><span class="minus">−${d}</span></div>`).join('')}</div>` : ''}
   </section>` : '';
 
   $('sheet-body').innerHTML = `
     <div class="sheet-main">
       <p class="lead">${it.lead}</p>
+      ${it.request ? `<figure class="request"><span class="label">The request · in Martin’s words · ${it.request.at}</span><blockquote>${esc(it.request.words)}</blockquote>
+        <p class="help">Asked with the “+” on Plan, with his passkey. An improvement starts only from Martin: a visitor’s suggestion never starts work by itself.</p></figure>` : ''}
       ${reportBlock(it)}
       <section class="sec"><h3>How it went</h3><p class="help">Step through the stages. The console shows only what had happened by then: replay and the live view are the same code.</p><div id="sheet-replay"></div></section>
       ${it.vis.type === 'spec' ? '' : `<section class="sec"><h3>Evidence</h3><p class="help">Captured when it happened, because the sources expire.</p>
         <div class="evidence-big">${visual(it.problem ? { ...it, vis: it.problem } : it)}</div><p class="source">${source}</p>${captures}${regress}</section>`}
       ${releaseSection(it)}
+      ${flagSection(it)}
       ${change}
     </div>
     <aside class="sheet-side">
@@ -2275,9 +2486,9 @@ const HOLDS = [
     answers: [['approved', 'Approve', 'Sends it back to the coder for one more round, past the gates’ limit.', true],
       ['answered', 'Answer in words', 'Sends it back to the coder, with your words as the reason.'],
       ['rejected', 'Reject', 'Closes #1279 and its pull request, unmerged.']] },
-  { id: '1300', cause: 'question', kicker: 'The planner asks', stage: 'Plan', age: '50min', title: 'Sort products by price',
-    ev: `<p class="ev">The spec is written, with three acceptance criteria. <q>Should out-of-stock products sort last?</q></p>`,
-    answers: [['approved', 'Approve', 'The line carries on with the spec as it stands.'],
+  { id: '1300', cause: 'spec', kicker: 'An improvement’s spec', stage: 'Plan', age: '50min', title: 'Sort products by price',
+    ev: `<p class="ev">The spec names its flag, <code class="flagname">price-sort</code>, two pages and three acceptance criteria, and the planner asks: <q>Should out-of-stock products sort last?</q></p>`,
+    answers: [['approved', 'Approve', 'The coder starts: tests first, with the flag on and off. Its pull request waits for you too.', true],
       ['answered', 'Answer in words', 'The planner reads your answer and writes the spec again.'],
       ['rejected', 'Reject', 'Closes #1300. Nothing is built.']] },
   { id: '1314', cause: 'deploy', kicker: 'Waiting for your deploy', stage: 'Release', age: '25min', title: 'The contact form loses your message',
@@ -2300,10 +2511,11 @@ const DECIDED = { approved: 'Approved', answered: 'Answered in words', rejected:
 
 function renderNeeds() {
   const el = $('needs'), v = S.visitor;
-  const holds = q.get('needs') === 'none' ? [] : HOLDS.filter((h) => !S.answered[h.id]);
+  const all = [...HOLDS.slice(0, 1), ...flagHolds(), ...HOLDS.slice(1)];
+  const holds = q.get('needs') === 'none' ? [] : all.filter((h) => !S.answered[h.id]);
   const done = [...S.kept.map(([id, w]) => ['now', id, 'Answered in words, still held', `“${w}”`, true]).reverse(), ...HOLDS.filter((h) => S.answered[h.id]).map((h) => ['now', h.id, DECIDED[S.answered[h.id]], S.said[h.id] ? `“${S.said[h.id]}”` : '', true]), ...ANSWERED];
   const cards = holds.map((h) => {
-    const rows = h.answers.map(([d, label, what, key]) => {
+    const rows = h.rows ? h.rows : h.answers.map(([d, label, what, key]) => {
       const control = v ? `<span class="ro">${label}</span>`
         : d === 'answered' ? `<button type="button" class="btn" data-words="${h.id}" aria-expanded="${S.words === h.id}">${label}</button>`
         : `<button type="button" class="btn" data-answer="${h.id}:${d}">${label}${keyIf(key && !S.fresh)}</button>`;
@@ -2326,6 +2538,84 @@ function renderNeeds() {
     `<div><span class="mono">${here ? 'now' : t}</span><span>#${id} · ${how}${said === null && !here ? '. His words stay his: the hold was about a visitor’s report.' : said ? `. ${said.startsWith('“') ? `<q>${esc(said.slice(1, said.lastIndexOf('”')))}</q>${esc(said.slice(said.lastIndexOf('”') + 1))}` : esc(said)}` : ''}</span></div>`).join('')}</div>` : '';
   el.innerHTML = `<div class="panel-head"><h2 id="needs-title">${v ? 'Waiting on Martin' : 'Needs you'}</h2>${holds.length ? `<span class="count-attn">${holds.length} waiting</span>` : ''}</div>
     ${holds.length ? `<div class="needs-list">${cards}</div>` : empty}${answered}`;
+}
+
+/* ==== Flags in Controls, and in Needs you ==================================================== */
+
+// Why the next stage cannot be taken now, or null. One flag at the share stage at a time, and none while a canary is
+// in flight: its two versions would mix the two sides. Everyone waits for Verify's comparison.
+function flagWhyNot(name) {
+  const f = FLAGSET[name], next = FLAG_STAGES[FLAG_AT[f.stage] + 1];
+  if (!next || f.turnedOff) return null;
+  if (!flagReady(name)) return 'Everyone waits for Verify’s comparison: each side needs 300 requests, and has 236 and 229.';
+  if (next[0] === 'share') {
+    const r = canaryScenario(S.canary);
+    if (!r.end && !r.idle && !r.none && !r.dry) return `Share waits while a canary is in flight: ${r.version} is at ${r.now}%, and its two versions would mix the two sides. It can be taken once the canary ends.`;
+    const other = Object.entries(FLAGSET).find(([k, g]) => k !== name && g.stage === 'share');
+    if (other) return `Share waits while ${other[0]} is at it: one flag at a time, so each comparison varies one thing.`;
+  }
+  return null;
+}
+const WIDEN = {
+  checks: 'Verify runs the journeys and the device check with it on, and takes the pictures, off and on.',
+  preview: 'Anyone who asks can preview it in their own browser, and a probe checks a preview keeps only its cookie.',
+  share: 'Asks how big a share. Verify then compares flag on against flag off on the traffic generator’s requests.',
+  everyone: 'On for every visitor.',
+};
+// A flag's actions: [kind, label, what it does, asks for the passkey, disabled]. Martin's are buttons; a visitor's,
+// labels beside what each does.
+function flagActions(name) {
+  const f = FLAGSET[name], at = FLAG_AT[f.stage], it = ITEMS[indexOf(f.item)], done = it?.end === 'verified';
+  if (f.turnedOff) return [];
+  if (at === 0 && f.was) return [['on', 'Turn back on', `Back to ${FLAG_STAGES[f.was][1]} at once, as it was.`, true]];
+  const next = FLAG_STAGES[at + 1], why = flagWhyNot(name), A = [];
+  if (next) A.push(['widen', `Widen to ${next[1]}`, why ?? WIDEN[next[0]], true, !!why]);
+  if (at >= 2) A.push(['narrow', `Narrow to ${FLAG_STAGES[at - 1][1]}`, `Back to ${FLAG_STAGES[at - 1][1]} at once. Narrowing never asks for the passkey.`]);
+  if (at >= 1) A.push(['off', 'Turn off', done ? 'Off for everyone within seconds, a preview too. You can turn it back on here.' : `Off for everyone within seconds, a preview too. Closes #${f.item} as turned off; nothing is rolled back.`]);
+  return A;
+}
+const previewLink = (name) => `<a class="btn small" href="http://mossop.localhost${FLAGSET[name].page}?preview=${name}" target="_blank" rel="noopener">Preview it<span aria-hidden="true">↗</span><span class="sr"> (opens the app)</span></a>`;
+function flagRows(name, { hold = false } = {}) {
+  const v = S.visitor, f = FLAGSET[name];
+  const rows = flagActions(name).map(([k, label, what, key, off]) => {
+    const control = v ? `<span class="ro">${label}</span>`
+      : `<button type="button" class="btn ${k === 'off' ? 'attn-line' : ''}" data-flag="${k}:${name}" ${off ? 'disabled' : ''}>${label}${keyIf(key && !S.fresh && !off)}</button>`;
+    return `${control}<p class="${off ? 'why' : ''}">${what}</p>`;
+  });
+  if (FLAG_AT[f.stage] >= 2 && !f.turnedOff && !hold) rows.push(`${previewLink(name)}<p>Sets the app’s preview cookie in your browser, for a day: you see this flag on, and nobody else does.</p>`);
+  return rows.join('');
+}
+function renderFlags() {
+  const v = S.visitor, names = Object.keys(FLAGSET);
+  const sync = { ok: [glyph('check'), '', `The app holds every flag as set here: revision ${FLAG_SYNC.revision}, checked 40s ago.`],
+    taking: [glyph('ring'), '', 'The app is taking the change: the admin service asks it for its revision, and tells Martin’s phone if it has not got it within a minute.'],
+    behind: [glyph('cross'), 'attn', `The app still holds r6, 3min after ${FLAG_SYNC.revision} was set: flagd may have stopped watching. Martin’s phone hears at 5min, and in a minute more every flag fails off.`] }[FLAG_SYNC.state];
+  $('flags').innerHTML = `<span class="label"><span>Flags</span><span>${names.length} in the app</span></span>
+    ${names.length ? names.map((name) => {
+      const f = FLAGSET[name], at = FLAG_AT[f.stage], [, stage, says] = FLAG_STAGES[at];
+      const word = f.turnedOff ? ['Turned off', 'faint'] : at === 0 ? ['Off', 'faint'] : at === 4 ? ['Everyone', 'ok'] : [stage, 'signal'];
+      return `<div class="flag">
+        <div class="flag-top"><code class="flagname">${name}</code><button type="button" class="linkish" data-open="${f.item}">#${f.item} ${esc(f.title)}</button>
+          <span class="word tone-${word[1]}"><span class="dot tone-${word[1]}"></span>${word[0]}</span></div>
+        ${flagTrack(f)}
+        <p class="help">${f.turnedOff ? `Turned off at Share, and #${f.item} closed. Its code stays in the app, off; to try again, ask with the “+”.` : says(f)}</p>
+        ${f.turnedOff ? '' : `<div class="answers" role="group" aria-label="${v ? 'What Martin can do with ' : 'Stages for '}${name}">${flagRows(name)}</div>`}
+      </div>`; }).join('')
+    : '<p class="help">No flag yet. An improvement ships behind one, off, and it shows here once its release is out.</p>'}
+    <p class="sync ${sync[1] ? 'tone-' + sync[1] : ''}">${sync[0]}<span>${sync[2]}</span></p>`;
+}
+// A flag that Verify has checked at its stage waits for Martin to widen it: a hold in Needs you, answered with the
+// same controls as in Controls.
+function flagHolds() {
+  return Object.entries(FLAGSET).filter(([name, f]) => ITEMS[indexOf(f.item)]?.end === 'flag' && !f.turnedOff && FLAG_AT[f.stage] < 4).map(([name, f]) => {
+    const at = FLAG_AT[f.stage], t = FLAG_TIMES[name];
+    const ev = at === 0 ? `<p class="ev">Released in ${t.version} with <code class="flagname">${name}</code> off. Widening to Checks lets Verify see it on, where only the factory’s checks can.</p>`
+      : at === 1 ? `<p class="ev">With it on, the journeys passed and the device check found nothing kept. No probe knows a new feature: judge the pictures before you widen.</p>
+        <div class="pair-mini"><figure><div class="vis">${t.shot(false)}</div><figcaption>flag off</figcaption></figure><figure><div class="vis">${t.shot(true)}</div><figcaption>flag on</figcaption></figure></div>`
+      : at === 2 ? `<p class="ev">A probe’s preview kept the preview cookie and nothing else. ${previewLink(name).replace('btn small', 'inline')}</p>`
+      : `<p class="ev">Flag on against off, on the traffic generator’s requests: errors 0.97% and 1.01%, p99 41 ms and 40 ms, over 412 and 398 requests. Within the canary’s thresholds.</p>`;
+    return { id: f.item, kicker: at === 0 ? 'Shipped behind its flag' : 'Ready to widen', stage: `Verify · ${FLAG_STAGES[at][1]}`, age: '1h', title: f.title, ev, rows: flagRows(name, { hold: true }) };
+  });
 }
 
 // The line's take: LINE_TAKE and LINE_ONLY as settings. Taking more than now asks for the passkey.
@@ -2358,6 +2648,7 @@ function renderControls() {
     <div class="seg ${v ? 'ro-seg' : ''}" role="group" aria-label="What the line takes">${TAKES.map(([k, label]) =>
       `<button type="button" data-take="${k}" aria-pressed="${t.mode === k}" ${v ? 'disabled' : ''}>${label}${keyIf(!v && !S.fresh && takeSize(k) > takeSize(t.mode))}</button>`).join('')}</div>
     ${field}<p class="help">${takeHelp}</p>`;
+  renderFlags();
   $('spend').innerHTML = `<span class="label"><span>Spend</span><span>resets at 00:00 UTC</span></span>
     <div class="meter"><div><span>Models today</span><span class="mono">$3.40 <span class="muted">of $10</span></span></div><div class="bar ink"><i style="width: 34%"></i></div></div>
     <div class="meter"><div><span>This month</span><span class="mono">$41.20 <span class="muted">of $60</span></span></div><div class="bar ink"><i style="width: 69%"></i></div></div>
@@ -2399,6 +2690,8 @@ const STEPUP = {
   answer: ['Approve past a guardrail', null, 'A gate held this, and approving overrides it'],
   save: ['Save the settings', '<b>The coder’s effort goes from medium to high</b>, from its next step.', 'This raises spend'],
   revoke: ['Revoke a passkey', null, 'Revoking a passkey'],
+  widen: ['Widen a flag', null, 'Widening shows a change to more people'],
+  on: ['Turn a flag back on', null, 'Turning a flag on shows a change to more people'],
 };
 
 function openDialog(kind, ctx = {}) {
@@ -2418,6 +2711,46 @@ function openDialog(kind, ctx = {}) {
   else if (kind === 'abort') { const r = canaryScenario(S.canary); el.innerHTML = `<h2 id="dialog-title" tabindex="-1">Abort the canary</h2>
     <p>${r.previous}, the version before, takes all the traffic at once. Nothing failed, so it opens no ticket${r.carries.length ? `, and ${r.carries.map((id) => '#' + id).join(' and ')} waits for your retry or the next deploy` : ''}.</p>
     <div class="row">${cancel}<button type="button" class="btn attn" data-dialog-ok>Abort</button></div>`; }
+  else if (kind === 'improve') {
+    // The "+" on Plan. A visitor sees the same form read-only, holding Martin's latest request.
+    const v = S.visitor, last = ITEMS[indexOf('1316')], open = ITEMS.filter((i) => ['live', 'planner', 'waiting', 'deploy'].includes(i.end)).length;
+    el.innerHTML = `<div class="kickline">${glyph('improvement')}<span class="label">${v ? 'How Martin asks' : 'An improvement'}</span></div>
+      <h2 id="dialog-title" tabindex="-1">Request an improvement</h2>
+      <p>${v ? 'Martin asks here, in his own words. The planner turns it into a spec, which waits for him before any code is written.' : 'Say what should change, in your own words. The planner turns it into a spec, which waits for you before any code is written.'}</p>
+      <label class="label" for="imp-title">In a few words</label>
+      <input class="field" id="imp-title" maxlength="80" ${v ? `disabled value="${esc(last.title)}"` : 'placeholder="Delivery dates on each product"'}>
+      <label class="label" for="imp-words">What ${v ? 'he wants' : 'you want'}</label>
+      ${v ? `<textarea id="imp-words" disabled>${esc(last.request.words)}</textarea><p class="help">His latest request, ${last.request.at}.</p>`
+        : '<textarea id="imp-words" maxlength="600" placeholder="What should change, for whom, and why"></textarea><span class="chars">0 / 600</span>'}
+      <ul class="what plain">
+        <li>It waits behind every open ticket, ${open} now, oldest first. ${v ? 'Martin can take it at once with Just one.' : 'To take it at once, choose Just one in Controls.'}</li>
+        <li>It ships behind a flag of its own, off, and ${v ? 'he widens' : 'you widen'} it a stage at a time from Controls.</li>
+        <li>${v ? 'A suggestion you send from the app reaches Martin, and never starts work by itself.' : 'Visitors see your words, with anything shaped like a secret left out.'}</li></ul>
+      ${v ? `<div class="answers"><span class="ro">Ask${glyph('key', 'key')}</span><p>Martin asks, signed in, with his passkey again: it widens what the line does.</p></div>
+        <div class="row"><button type="button" class="btn" data-dialog-close>Close</button></div>`
+      : `<div class="row">${cancel}<button type="button" class="btn primary" data-dialog-ok>${fresh ? 'Ask' : `Use your passkey and ask${glyph('key', 'key')}`}</button></div>
+        <p class="help">Asking widens what the line does, so it asks for your passkey again, and tells your phone.</p>`}`;
+  }
+  else if (kind === 'widen') {
+    // Widening to Share asks how big a share; every other widening is the plain step-up dialog.
+    const f = FLAGSET[ctx.flag];
+    el.innerHTML = `${fresh ? '' : `<div class="kickline">${glyph('key', 'key')}<span class="label">Your passkey, again</span></div>`}
+      <h2 id="dialog-title" tabindex="-1">Widen ${ctx.flag} to Share</h2>
+      <p>A share of the traffic generator’s requests get it on, so Verify can compare flag on against flag off, on errors and latency. Visitors still don’t see it.</p>
+      <span class="label" id="share-label">Share of the generator’s requests</span>
+      <div class="seg" role="group" aria-labelledby="share-label">${[10, 25, 50].map((x) => `<button type="button" data-share="${x}" aria-pressed="${f.share === x}">${x}%</button>`).join('')}</div>
+      <p class="help">Half and half fills both sides soonest: each needs 300 requests. A smaller share keeps more of the generator’s requests as they were.</p>
+      ${fresh ? '' : '<p>Widening shows a change to more of the traffic, so it needs your passkey again.</p>'}
+      <div class="row">${cancel}<button type="button" class="btn primary" data-dialog-ok>${fresh ? 'Widen' : `Use your passkey and widen${glyph('key', 'key')}`}</button></div>`;
+  }
+  else if (kind === 'flagoff') {
+    const f = FLAGSET[ctx.flag], done = ITEMS[indexOf(f.item)]?.end === 'verified';
+    el.innerHTML = `<h2 id="dialog-title" tabindex="-1">Turn off ${ctx.flag}</h2>
+      <p>Off for everyone within seconds, a preview too, with no deploy and no rollback. ${done ? `#${f.item} stays done, and you can turn it back on from Controls.` : `#${f.item} closes as turned off: its code stays in the app, off.`}</p>
+      <p>The admin service then asks the app for the flags it holds, and tells your phone if it has not taken this within a minute.</p>
+      ${reason('off-reason', 'Why, for the audit log and the work item')}
+      <div class="row">${cancel}<button type="button" class="btn attn" data-dialog-ok>Turn off</button></div>`;
+  }
   else {
     const [title, what, why] = STEPUP[ctx.action] ?? STEPUP.switch;
     el.innerHTML = `<div class="kickline">${glyph('key', 'key')}<span class="label">Your passkey, again</span></div>
@@ -2445,6 +2778,12 @@ function closeDialog() {
   setTimeout(() => (back.isConnected ? back : sel && document.querySelector(sel))?.focus());
 }
 
+// A change to a flag's stage: the app is asked for its revision until it has it.
+function setStage(name, stage) {
+  FLAGSET[name].stage = stage; FLAG_SYNC.revision = 'r' + (+FLAG_SYNC.revision.slice(1) + 1); FLAG_SYNC.state = 'taking';
+  setTimeout(() => { FLAG_SYNC.state = 'ok'; renderControls(); }, still() ? 0 : 2500);
+}
+
 // Run an action, asking for the passkey first when it needs it and none was given in the last five minutes.
 function keyed(needs, action, ctx, run) {
   if (!needs || S.fresh) return run();
@@ -2453,11 +2792,21 @@ function keyed(needs, action, ctx, run) {
 function confirmDialog() {
   const d = S.dialog;
   if (!d) return;
-  const why = $('stop-reason') ?? $('start-reason');
+  const why = $('stop-reason') ?? $('start-reason') ?? $('off-reason');
   if (why && !why.value.trim()) return why.focus();
+  if (d.kind === 'improve') {
+    const title = $('imp-title'), words = $('imp-words');
+    if (!title.value.trim()) return title.focus();
+    if (!words.value.trim()) return words.focus();
+    giveKey();
+    STAGES.plan.rows.unshift(['#1320', title.value.trim(), 'asked just now · waiting behind the open tickets', '', null, 'now', 'wait']);
+  }
+  else if (d.kind === 'widen') { giveKey(); setStage(d.flag, 'share'); }
+  else if (d.kind === 'flagoff') { const f = FLAGSET[d.flag]; if (ITEMS[indexOf(f.item)]?.end === 'verified') f.was = FLAG_AT[f.stage]; else f.turnedOff = true; setStage(d.flag, 'off'); }
   if (d.kind === 'stop') { S.stopped = true; S.stopReason = $('stop-reason').value.trim(); const r = canaryScenario(S.canary); if (!r.end && !r.idle && !r.none && !r.dry) S.canary = 'stopped'; }
   else if (d.kind === 'start') { giveKey(); S.stopped = false; }
   else if (d.kind === 'abort') S.canary = 'aborted';
+  else if (['improve', 'widen', 'flagoff'].includes(d.kind)) { /* done above */ }
   else { giveKey(); d.then?.(); }
   renderAll(); retIndex = 0; cycleReturns();
   closeDialog();
@@ -2570,6 +2919,9 @@ const AUDIT = [
   ['Today', '16:20:40', 'triage', 'model', '1306', 'Jev 1.13.0 · TypeSafe · triage/v2', '4 questions · <$0.01'],
   ['Today', '16:12:00', 'Martin', 'admin', '1310', 'Answered the hold in words', '“Keep the old error page; fix the logging only.”'],
   ['Today', '15:58:30', 'Martin', 'admin', '', 'Raised the day’s cap from $5 to $10', 'passkey given at 15:58'],
+  ['Today', '12:43:02', 'Martin', 'admin', '1316', 'Widened delivery-dates to Preview', 'flag.staged · checks → preview · passkey given at 12:42'],
+  ['Today', '12:26:15', 'Martin', 'admin', '1316', 'Widened delivery-dates to Checks', 'flag.staged · off → checks · passkey given at 12:25'],
+  ['Today', '10:12:04', 'Martin', 'admin', '1316', 'Asked for an improvement: “Delivery dates on each product”', 'improvement.requested · passkey given at 10:11'],
   ['Today', '15:40:12', 'Martin', 'admin', '', 'Signed in', 'with a passkey'],
   ['Yesterday', '21:40:05', 'Martin', 'admin', '', 'Stopped the line', '“Going out; nothing to land tonight.”'],
   ['Yesterday', '21:02:44', 'Martin', 'admin', '', 'Signed in', 'with a passkey'],
@@ -2637,7 +2989,16 @@ document.addEventListener('click', (e) => {
   }
   const d = t.dataset;
   if (t.classList.contains('stage')) return openStage(+d.i);
-  if ('add' in d) return;   // opens the improvement form (not drawn in this mockup)
+  if ('add' in d) { if (S.stage !== null) openStage(S.stage); return openDialog('improve'); }
+  if (d.share) { FLAGSET[S.dialog.flag].share = +d.share; return openDialog('widen', { flag: S.dialog.flag }); }
+  if (d.flag) {
+    const [k, name] = d.flag.split(':'), f = FLAGSET[name], at = FLAG_AT[f.stage], next = FLAG_STAGES[at + 1];
+    if (k === 'narrow') { setStage(name, FLAG_STAGES[at - 1][0]); return renderAll(); }
+    if (k === 'off') return openDialog('flagoff', { flag: name });
+    if (k === 'on') return keyed(true, 'on', { what: `<b>${name} goes back to ${FLAG_STAGES[f.was][1]}.</b>` }, () => { setStage(name, FLAG_STAGES[f.was][0]); f.was = null; renderAll(); });
+    if (next[0] === 'share') return openDialog('widen', { flag: name });
+    return keyed(true, 'widen', { what: `<b>${name} goes from ${FLAG_STAGES[at][1]} to ${next[1]}.</b> ${FLAG_STAGES[at + 1][2](f)}` }, () => { setStage(name, next[0]); renderAll(); });
+  }
   if ('closeStage' in d) return openStage(S.stage);
   if (d.open) { if (S.stage !== null) openStage(S.stage); return openSheet(indexOf(d.open)); }
   if (t.id === 'prev') return go(cur() - 1);
@@ -2700,7 +3061,7 @@ $('scrim').addEventListener('click', closeSheet);
 $('dialog-scrim').addEventListener('click', closeDialog);
 document.addEventListener('input', (e) => {
   const t = e.target;
-  if (t.matches('textarea')) { const c = t.parentElement.querySelector('.chars'); if (c) c.textContent = `${t.value.length} / 300`; }
+  if (t.matches('textarea')) { const c = t.parentElement.querySelector('.chars'); if (c) c.textContent = `${t.value.length} / ${t.maxLength}`; }
   if (t.matches('[data-audit-item]')) { S.audit.item = t.value.trim(); $('audit-rows').innerHTML = auditRows(); $('audit-caption').textContent = auditCaption(); }
 });
 document.addEventListener('change', (e) => {
@@ -2758,6 +3119,7 @@ setTheme(q.get('theme') === 'ink' ? 'ink' : 'paper');
 setMotion(!(q.get('motion') === 'off' || matchMedia('(prefers-reduced-motion: reduce)').matches));
 renderAll(); renderScore(); cycleReturns();
 if (q.get('dialog') === 'stepup') openDialog('stepup', { action: 'promote-all' });
+else if (['widen', 'flagoff'].includes(q.get('dialog'))) openDialog(q.get('dialog'), { flag: 'delivery-dates' });
 else if (q.get('dialog')) { if (q.get('dialog') === 'start') { S.stopped = true; S.canary = 'stopped'; renderAll(); } openDialog(q.get('dialog')); }
 reel.innerHTML = ITEMS.map(card).join('');
 buildRail(); layout(); renderRail(); fitHeight();
