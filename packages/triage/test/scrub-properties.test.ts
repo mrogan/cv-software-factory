@@ -41,14 +41,19 @@ const after = fc.oneof(
   fc.constantFrom('*', '**', '_', '~', '`', '|', '/', '\\', '—', '–', '…', '。', '，', '🙂', '.\n', "'s", '),'),
 );
 
-/** Anything at all, in any script, as long as it has no address or long number of its own to muddy the count. */
+/** Anything at all, in any script, `@` and digits included: the properties below allow for what it holds. */
 const prose = fc.string({ unit: 'grapheme', maxLength: 20 });
 
-/** Text with addresses in it, each followed by something that cannot continue it, and anything at all before it. */
-const textWithEmails = fc.array(fc.tuple(prose, email, after), { minLength: 1, maxLength: 4 }).map((parts) => ({
-  emails: parts.map(([, found]) => found),
-  text: parts.map(([before, found, end]) => before + found.address + end).join(''),
-}));
+/**
+ * Text with addresses in it, each followed by something that cannot continue it, and anything at all before it, or
+ * nothing, so that addresses often run together with only a full stop or a comma between.
+ */
+const textWithEmails = fc
+  .array(fc.tuple(fc.oneof(fc.constant(''), prose), email, after), { minLength: 1, maxLength: 4 })
+  .map((parts) => ({
+    emails: parts.map(([, found]) => found),
+    text: parts.map(([before, found, end]) => before + found.address + end).join(''),
+  }));
 
 const count = (text: string, char: string) => text.split(char).length - 1;
 const digits = (text: string) => text.replace(/\D/g, '').length;
@@ -258,7 +263,7 @@ describe('the page a report names, as triage may use it, whatever the page', () 
   it('is never longer than a route may be, and is the path itself when it has nothing private', () => {
     fc.assert(
       fc.property(
-        fc.array(fc.string({ unit: chars(`${lower}-._~`), maxLength: 30 }), { maxLength: 12 }),
+        fc.array(fc.string({ unit: chars(`${lower}-._~`), maxLength: 40 }), { maxLength: 12, size: 'max' }),
         (segments) => {
           const page = `/${segments.join('/')}`;
           const path = privatePath(page);
@@ -271,7 +276,7 @@ describe('the page a report names, as triage may use it, whatever the page', () 
 
   it('is never longer than a route may be, whatever it is given', () => {
     fc.assert(
-      fc.property(fc.string({ unit: 'grapheme', maxLength: 400 }), (page) => {
+      fc.property(fc.string({ unit: 'grapheme', maxLength: 600, size: 'max' }), (page) => {
         expect(privatePath(page).length).toBeLessThanOrEqual(200);
       }),
     );
