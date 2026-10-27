@@ -11,6 +11,9 @@
  * - RELEASE_ROLLOUT: the app's Rollout, as `<namespace>/<name>`, as the line is given it: the one the Canary panel's
  *   controls change, through the admin service's own Role (deploy/base/analysis/admin-controls-release.yaml). Unset,
  *   the controls are refused, and nothing here reaches Kubernetes.
+ * - FEATURE_FLAGS: the FeatureFlag flagd watches, as `<namespace>/<name>` (`flagd/flags`): the one Martin's stages are
+ *   written to, through the admin service's own Role (deploy/base/flagd/admin-stages-flags.yaml). Unset, every move of
+ *   a flag is refused. Moving a flag into Share reads RELEASE_ROLLOUT's canary too, and without it is refused.
  * - FACTORY_PROFILE: local, do or aws (default local), as the gateway's and the line's: the bounds Martin's settings
  *   are held to (`policy/settings.ts`), and their defaults.
  * - GRAFANA_URL, ARGOCD_URL: this deployment's Grafana and Argo CD, each an http or https address, which Martin's
@@ -30,6 +33,8 @@ export interface AdminConfig {
   port: number;
   /** The app's Rollout, which the release controls change; none, and they are refused. */
   rollout?: RolloutRef;
+  /** The FeatureFlag Martin's stages are written to; none, and every move is refused. */
+  flags?: RolloutRef;
   /** The profile whose policy Martin's settings are held to. */
   profile: Profile;
   /** This deployment's tools, for Martin's account menu. */
@@ -69,6 +74,10 @@ export function configFromEnv(env: NodeJS.ProcessEnv): AdminConfig {
       `RELEASE_ROLLOUT is ${JSON.stringify(env.RELEASE_ROLLOUT)}; it must be <namespace>/<name>, or unset.`,
     );
   }
+  const flags = rolloutRefOf(env.FEATURE_FLAGS ?? '');
+  if (flags === undefined) {
+    throw new Error(`FEATURE_FLAGS is ${JSON.stringify(env.FEATURE_FLAGS)}; it must be <namespace>/<name>, or unset.`);
+  }
   const profile = (env.FACTORY_PROFILE || 'local').trim() as Profile;
   if (!PROFILES.includes(profile)) {
     throw new Error(`FACTORY_PROFILE is ${JSON.stringify(profile)}; it must be one of ${PROFILES.join(', ')}.`);
@@ -82,6 +91,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv): AdminConfig {
     port,
     profile,
     ...(rollout && { rollout }),
+    ...(flags && { flags }),
     tools: { ...(grafana && { grafana }), ...(argocd && { argocd }) },
   };
 }

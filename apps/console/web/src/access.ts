@@ -5,6 +5,7 @@
  * the table.
  */
 import type { HoldCause, ReleaseControl } from '@software-factory/events';
+import type { FlagAction } from '../../../../policy/flag-moves.ts';
 import type { ControlAction } from '../../../../policy/line.ts';
 
 /** How long a session lasts from sign-in, however busy: `SESSION.minutes`. */
@@ -68,4 +69,17 @@ export const CONTROL_STEP_UP: Record<ControlAction, boolean> = {
   'auto-merge.off': false,
   'take.widen': true,
   'take.narrow': false,
+};
+
+/**
+ * Which moves of a feature flag's stage ask for the passkey again: every widening past Checks (`flag.widen`) and
+ * turning a flag back on for everyone (`flag.back-on`); Off to Checks, narrowing and Off never do. Which action a move
+ * is, is `flagAction`'s in `policy/flag-moves.ts`, which the admin service decides by too.
+ */
+export const FLAG_STEP_UP: Record<FlagAction, boolean> = {
+  'flag.to-checks': false,
+  'flag.widen': true,
+  'flag.back-on': true,
+  'flag.narrow': false,
+  'flag.off': false,
 };

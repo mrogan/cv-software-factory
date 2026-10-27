@@ -5,6 +5,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
+import { validate } from '@software-factory/events/schemas';
 import { DiskArtifacts, EventWriter } from '@software-factory/store';
 import type { Sql, TransactionSql } from 'postgres';
 import { ENROLMENT_CODE, PASSKEYS, STEP_UP } from '../../../../policy/access.ts';
@@ -16,6 +17,7 @@ export type AdminEvent =
   | 'admin.signed-out'
   | 'admin.stepped-up'
   | 'controls.changed'
+  | 'flag.staged'
   | 'line.started'
   | 'line.stopped'
   | 'passkey.enrolled'
@@ -261,12 +263,17 @@ export async function appendMartins(sql: Sql, tx: TransactionSql, events: NewEve
   await writer.appendWithin(tx, events);
 }
 
-/** One of Martin's events, now. */
-export function adminEvent<K extends AdminEvent>(type: K, summary: string, payload: PayloadOf<K>): NewEvent {
+/** One of Martin's events, now: on the line, or on the work item given. */
+export function adminEvent<K extends AdminEvent>(
+  type: K,
+  summary: string,
+  payload: PayloadOf<K>,
+  workItem: string | null = null,
+): NewEvent {
   return {
     id: randomUUID(),
     ts: new Date().toISOString(),
-    work_item: null,
+    work_item: workItem,
     type,
     version: VERSIONS[type],
     actor: 'martin',
@@ -281,7 +288,7 @@ export function adminEvent<K extends AdminEvent>(type: K, summary: string, paylo
  * `STEP_UP.minutes`, by the store's clock, as the action is taken: asked again after the lock an action takes, as the
  * passkey given may have gone stale while it waited.
  */
-export async function steppedUpNow(tx: TransactionSql, session: Session): Promise<boolean> {
+export async function steppedUpNow(tx: Sql | TransactionSql, session: Session): Promise<boolean> {
   const [fresh] = await tx`
     select 1 from sessions s join passkeys p on p.id = s.passkey
     where s.id_sha256 = ${session.hash} and s.ended_at is null and s.expires_at > now()
@@ -291,3 +298,32 @@ export async function steppedUpNow(tx: TransactionSql, session: Session): Promis
 
 /** The hash the store keeps of a session's id. */
 export const sessionHash = (id: string) => sha256(id);
+
+/**
+ * An event checked as the store will check it, for an action made outside the store (a patch of the Rollout, a write
+ * of `flags`): checked before the action, so one whose event the store would refuse is a fault here, and nothing is
+ * done.
+ */
+export function checked(event: NewEvent): NewEvent {
+  const valid = validate(event);
+  if (!valid.ok) throw new Error(`${event.type} is not valid: ${valid.problems.join('; ')}`);
+  return event;
+}
+
+/**
+ * The event of an action made outside the store, appended once it is made, in a transaction of its own, so no
+ * connection to the store waits on Kubernetes; once more if that fails. Its id is the same each time, so one that did
+ * commit after all is found, and recorded once. Throws the second failure.
+ */
+export async function appendMade(sql: Sql, event: NewEvent): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await sql.begin((tx) => appendMartins(sql, tx, [event]));
+      return;
+    } catch (error) {
+      const recorded = await sql`select 1 from events where id = ${event.id}`.catch(() => []);
+      if (recorded.length) return;
+      if (attempt >= 2) throw error;
+    }
+  }
+}

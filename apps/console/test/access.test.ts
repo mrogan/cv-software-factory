@@ -17,14 +17,15 @@ import {
   SESSION,
   STEP_UP,
 } from '../../../policy/access.ts';
-import { CONTROL_STEP_UP, LINE_STEP_UP, SESSION_MINUTES } from '../web/src/access.ts';
+import { CONTROL_STEP_UP, FLAG_STEP_UP, LINE_STEP_UP, SESSION_MINUTES } from '../web/src/access.ts';
 
 const entries = Object.entries(ACCESS) as [Name, Access][];
 const doc = (path: string) => readFileSync(new URL(`../../../${path}`, import.meta.url), 'utf-8');
 
 /**
- * Each thing spec section 5.4 says needs the passkey again, and the entries that are it. A flag's stage is Part B's,
- * so its entry joins the table with the flags.
+ * Each thing spec section 5.4 says needs the passkey again, and the entries that are it. Widening a flag's stage is
+ * every widening but Off to Checks (`flag.to-checks`), which shows a change to nobody but the factory's own checks, as
+ * the plan's list says, and turning a flag back on for everyone.
  */
 const SPEC_STEP_UP: Record<string, Name[]> = {
   'raising a cap or a setting that raises spend': ['caps.raise', 'agent.raise', 'take.widen'],
@@ -32,7 +33,7 @@ const SPEC_STEP_UP: Record<string, Name[]> = {
   'turning auto-merge on or auto-rollback off': ['auto-merge.on', 'auto-rollback.off'],
   'starting the line': ['line.start'],
   'promoting a canary or retrying a stopped release': ['release.promote', 'release.retry'],
-  "widening a flag's stage": [],
+  "widening a flag's stage": ['flag.widen', 'flag.back-on'],
   'approving a hold whose cause is a guardrail': ['hold.approve-guardrail'],
   'revoking a passkey': ['passkey.revoke'],
 };
@@ -64,12 +65,15 @@ describe('the access table', () => {
   });
 
   it('is copied into the console where it marks the line’s controls with the key', () => {
-    for (const [name, asks] of Object.entries({ ...LINE_STEP_UP, ...CONTROL_STEP_UP })) {
+    for (const [name, asks] of Object.entries({ ...LINE_STEP_UP, ...CONTROL_STEP_UP, ...FLAG_STEP_UP })) {
       expect(ACCESS[name as Name]?.stepUp, name).toBe(asks);
     }
     // Every action of the line's controls the table names, but auto-rollback's, which has no control until Part C.
     const named = Object.keys(ACCESS).filter((name) => /^(autonomy|new-work|auto-merge|take)\./.test(name));
     expect(Object.keys(CONTROL_STEP_UP).sort()).toEqual(named.sort());
+    // Every move of a flag's stage the table names, but the one route that is each of them.
+    const moves = Object.keys(ACCESS).filter((name) => name.startsWith('flag.') && name !== 'flag.stage');
+    expect(Object.keys(FLAG_STEP_UP).sort()).toEqual(moves.sort());
   });
 
   it('holds the plan’s figures: 30 minutes a session with no idle timeout, five minutes a passkey given again', () => {

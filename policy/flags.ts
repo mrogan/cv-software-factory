@@ -3,8 +3,8 @@
  * the console; the admin service writes his stages into the one FeatureFlag, `flags` in `flagd`, rendered here and
  * nowhere else, so it writes typed stages and never flagd's own JSON. The `flagd-flag-stages` admission policy
  * (deploy/base/admission/flagd/flag-stages.yaml) admits the admin service's change only when every flag in it is one of
- * these shapes, and `apps/factory/test/flag-fences.test.ts` holds the cluster's answers to what this renders, so the two
- * cannot drift apart.
+ * these shapes, and the fence test (apps/factory/test/flag-fences.test.ts) holds the cluster's answers to what this
+ * renders, so the two cannot drift apart.
  *
  * Each stage keeps the ones before it, and is a fixed shape of flagd's targeting over the app's evaluation context
  * (docs/COMPONENTS/FEATURE-FLAGS.md, "The evaluation context"):

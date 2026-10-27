@@ -174,6 +174,33 @@ serverFiles:
             annotations:
               summary: "The line takes less"
               description: "What the line takes was narrowed in the console."
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"flag-widened\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "notify"
+              kind: "flag-widened"
+            annotations:
+              summary: "A feature flag was widened"
+              description: "A feature flag's stage was widened in the console, or a flag turned back on for everyone."
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"flag-narrowed\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "inform"
+              kind: "flag-narrowed"
+            annotations:
+              summary: "A feature flag was narrowed"
+              description: "A feature flag's stage was narrowed in the console."
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"flag-off\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "inform"
+              kind: "flag-off"
+            annotations:
+              summary: "A feature flag was turned off"
+              description: "A feature flag was turned off for everyone in the console."
           - alert: SecurityEventsUncounted
             expr: "(count(last_over_time(line_security_events_total{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[6h])) unless count(line_security_events_total{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"})) or max(line_security_events_counting{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}) == 0"
             for: 5m

@@ -84,9 +84,9 @@ export type Level = (typeof LEVELS)[keyof typeof LEVELS];
 
 /**
  * How loudly each kind of security event reaches Martin. What loosens a guardrail, or changes who can sign in, pages
- * him; what widens what the line does, or acts on a release, notifies him; what tightens, or only records his own use,
- * informs him, but for tightening autonomy, which notifies him. Every kind still reaches his phone: only how loudly
- * changes.
+ * him; what widens what the line does, acts on a release, or widens a feature flag, notifies him; what tightens, or
+ * only records his own use, informs him, but for tightening autonomy, which notifies him. Every kind still reaches his
+ * phone: only how loudly changes.
  */
 export const SECURITY_LEVELS: Record<SecurityKind, Level> = {
   'autonomy-loosened': LEVELS.page,
@@ -96,6 +96,7 @@ export const SECURITY_LEVELS: Record<SecurityKind, Level> = {
   'autonomy-tightened': LEVELS.notify,
   'auto-merge-on': LEVELS.notify,
   'take-widened': LEVELS.notify,
+  'flag-widened': LEVELS.notify,
   'release-control': LEVELS.notify,
   'setting-changed': LEVELS.notify,
   'line-started': LEVELS.notify,
@@ -105,6 +106,8 @@ export const SECURITY_LEVELS: Record<SecurityKind, Level> = {
   'new-work-off': LEVELS.inform,
   'auto-merge-off': LEVELS.inform,
   'take-narrowed': LEVELS.inform,
+  'flag-narrowed': LEVELS.inform,
+  'flag-off': LEVELS.inform,
 };
 
 /** What an alert says of each kind of security event: its title, and a line more. Never anything of the session. */
@@ -157,6 +160,18 @@ const SECURITY_WORDS: Record<SecurityKind, { summary: string; description: strin
   'take-narrowed': {
     summary: 'The line takes less',
     description: 'What the line takes was narrowed in the console.',
+  },
+  'flag-widened': {
+    summary: 'A feature flag was widened',
+    description: "A feature flag's stage was widened in the console, or a flag turned back on for everyone.",
+  },
+  'flag-narrowed': {
+    summary: 'A feature flag was narrowed',
+    description: "A feature flag's stage was narrowed in the console.",
+  },
+  'flag-off': {
+    summary: 'A feature flag was turned off',
+    description: 'A feature flag was turned off for everyone in the console.',
   },
 };
 

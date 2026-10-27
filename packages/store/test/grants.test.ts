@@ -325,11 +325,11 @@ describe('each worker', () => {
 });
 
 /** One of Martin's commands, as `actor: martin`. A command added to ADMIN_TYPES needs its payload here. */
-const command = (type: EventType, workItem: string | null = null): NewEvent =>
+const command = (type: EventType, workItem: string | null = '3200'): NewEvent =>
   ({
     id: crypto.randomUUID(),
     ts: new Date().toISOString(),
-    work_item: type === 'hold.answered' ? workItem : null,
+    work_item: ON_WORK_ITEM.includes(type) ? workItem : null,
     type,
     version: VERSIONS[type],
     actor: 'martin',
@@ -337,6 +337,9 @@ const command = (type: EventType, workItem: string | null = null): NewEvent =>
     payload: PAYLOADS[type] ?? {},
     artifacts: [],
   }) as NewEvent;
+
+/** Martin's commands that are on a work item: the rest are the line's. */
+const ON_WORK_ITEM: readonly EventType[] = ['hold.answered', 'flag.staged'];
 
 /** A payload for each of Martin's commands that has one to give. */
 const PAYLOADS: Partial<Record<EventType, object>> = {
@@ -362,6 +365,14 @@ const PAYLOADS: Partial<Record<EventType, object>> = {
     autoMerge: false,
     take: null,
     change: { control: 'autonomy', before: 'supervised', after: 'guarded' },
+  },
+  'flag.staged': {
+    flag: 'delivery-dates',
+    from: { stage: 'checks' },
+    to: { stage: 'share', share: 50 },
+    action: 'flag.widen',
+    revision: 'r3',
+    steppedUp: true,
   },
 };
 
@@ -467,8 +478,8 @@ describe('signing in', () => {
     );
     // Of the events, it appends the passkeys it revokes, and reads back only those.
     await expect(writer(db.enrol).append(opened('3300'))).rejects.toThrow('row-level security');
-    // A hold's answer is refused sooner: the enrolment cannot see the work item it answers.
-    for (const type of ADMIN_TYPES.filter((t) => t !== 'passkey.revoked' && t !== 'hold.answered')) {
+    // A command on a work item is refused sooner: the enrolment cannot see the work item it is on.
+    for (const type of ADMIN_TYPES.filter((t) => t !== 'passkey.revoked' && !ON_WORK_ITEM.includes(t))) {
       await expect(writer(db.enrol).append(command(type)), type).rejects.toThrow('row-level security');
     }
     const [revoked] = await writer(db.enrol).append(command('passkey.revoked'));

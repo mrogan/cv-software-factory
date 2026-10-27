@@ -104,6 +104,7 @@ describe('migrations', () => {
       { version: 30, name: 'line-controls' },
       { version: 31, name: 'session-30-minutes' },
       { version: 32, name: 'forget-reports' },
+      { version: 33, name: 'flag-stages' },
     ]);
   });
 });

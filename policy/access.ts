@@ -89,6 +89,7 @@ export const ACCESS = {
   // Views every visitor sees, drawn from the public events.
   'audit-log': read('Every agent action, model call and admin action, newest first'),
   settings: read("Each agent's model and effort, and spend against the caps"),
+  flags: read("Each feature flag and its stage, and why a stage can't be taken now"),
 
   // Martin's own reads.
   'full-events': {
@@ -206,6 +207,24 @@ export const ACCESS = {
     ...admin('Retry a release that was stopped', true),
     server: 'admin',
     routes: ['POST /admin/release/retry'],
+  },
+
+  // The feature flags' stages (`flag-moves.ts`), each written to `flags` (`flags.ts`). A move is one route, and is the
+  // one of the actions below that it does, from the stage `flags` holds as it is taken, never the request's word: the
+  // admin service asks for the passkey again when that one needs it. Off to Checks shows a change to nobody but the
+  // factory's own checks, so it asks for nothing; narrowing and Off only tighten.
+  'flag.to-checks': admin("Widen a flag from Off to Checks, which shows it to nobody but the factory's own checks"),
+  'flag.widen': admin("Widen a flag's stage past Checks, a stage at a time but Preview, or to a larger share", true),
+  'flag.back-on': admin('Turn a flag that was on for everyone, and turned off, straight back on for everyone', true),
+  'flag.narrow': admin("Narrow a flag's stage, or its share, short of Off"),
+  'flag.off': admin('Turn a flag off for everyone, with a reason'),
+  'flag.stage': {
+    ...admin(
+      "Set a flag's stage: as `flag.to-checks`, `flag.widen`, `flag.back-on`, `flag.narrow` or `flag.off`, by the " +
+        'move from the stage `flags` holds, with the passkey again when that one needs it',
+    ),
+    server: 'admin',
+    routes: ['POST /admin/flags/:flag/stage'],
   },
 
   // Models and spend, within policy (`settings.ts`). A save is one route, and is each of the four below that it does:

@@ -28,10 +28,12 @@ import {
   SESSION,
   STEP_UP,
 } from '../../../../policy/access.ts';
+import { flagsSpec, readFlags } from '../../../../policy/flags.ts';
 import { CONTENT_SECURITY_POLICY, COOKIE } from '../../src/admin/app.ts';
 import type { AdminConfig } from '../../src/admin/config.ts';
 import { proxies } from '../../src/admin/config.ts';
 import { described, enrol } from '../../src/admin/enrol.ts';
+import { nextRevision } from '../../src/admin/flags.ts';
 import { refuseWrite } from '../../src/admin/guard.ts';
 import { NO_ROLLOUT, NOT_ABORTED } from '../../src/admin/line.ts';
 import { STILL_PAUSED } from '../../src/admin/rollout.ts';
@@ -520,6 +522,7 @@ const WRITES: [string, Body][] = [
   ['/admin/holds/1/approve', { hold: crypto.randomUUID() }],
   ['/admin/holds/1/reject', { hold: crypto.randomUUID() }],
   ['/admin/holds/1/answer', { hold: crypto.randomUUID(), words: 'Go on' }],
+  ['/admin/flags/delivery-dates/stage', { from: { stage: 'off' }, to: { stage: 'checks' } }],
 ];
 
 describe('every write route', () => {
@@ -806,6 +809,9 @@ class RolloutKube implements KubeWriter {
    * (`omitempty`), so a patch that sets one false leaves it absent.
    */
   dropsFalse = false;
+  /** Whether a patch that fails leaves the API out of reach for the next read too. */
+  unreadableAfter = false;
+  #unreadable = false;
   /** What the controller does to the Rollout as soon as a patch is made, before anyone reads it again. */
   controller: ((object: Record<string, unknown>) => Record<string, unknown>) | undefined;
 
@@ -815,13 +821,20 @@ class RolloutKube implements KubeWriter {
   }
 
   async get<T>(_path: string, schema: { parse(v: unknown): T }): Promise<T> {
+    if (this.#unreadable) {
+      this.#unreadable = false;
+      throw new Error('connect ECONNREFUSED');
+    }
     const object = this.object as { metadata: object };
     return schema.parse({ ...object, metadata: { ...object.metadata, resourceVersion: String(this.version) } });
   }
 
   async patch(path: string, body: unknown): Promise<void> {
     const failing = this.failing.shift();
-    if (typeof failing === 'number') throw new KubeError(failing, `PATCH ${path} answered ${failing}`);
+    if (typeof failing === 'number') {
+      this.#unreadable = this.unreadableAfter;
+      throw new KubeError(failing, `PATCH ${path} answered ${failing}`);
+    }
     const { metadata, ...rest } = body as { metadata?: { resourceVersion?: string } };
     if (metadata?.resourceVersion && metadata.resourceVersion !== String(this.version)) {
       throw new KubeError(409, 'the object has been modified');
@@ -839,6 +852,7 @@ class RolloutKube implements KubeWriter {
   text = async () => undefined;
   create = async () => {};
   remove = async () => {};
+  replace = async () => {};
 }
 
 /** The Rollout's spec and status with each flag that is false left out, as `omitempty` leaves it out. */
@@ -1082,6 +1096,25 @@ describe('the release controls', () => {
     expect(await controls()).toHaveLength(before + 2);
   });
 
+  it('answers a patch that failed as not made, and one it cannot read back as not known, recording neither', async () => {
+    const before = (await controls()).length;
+    const kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    const { browser } = await signedIn();
+    kube.failing.push(503);
+    expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({
+      status: 502,
+      body: { refused: 'kubernetes', message: 'Kubernetes failed the change, and nothing was done.' },
+    });
+    // Failed, and the API out of reach for the read back after it.
+    kube.failing.push(503);
+    kube.unreadableAfter = true;
+    const res = await browser.post('/admin/release/pause', { release: RELEASE });
+    expect(res).toMatchObject({ status: 504, body: { refused: 'kubernetes' } });
+    expect(res.body.message).toMatch(/can't be told/);
+    expect(kube.patches).toEqual([]);
+    expect(await controls()).toHaveLength(before);
+  });
+
   it('reads a flag Argo Rollouts leaves out when false as false, when a patch’s answer was lost', async () => {
     const before = (await controls()).length;
     const { browser, passkey } = await signedIn();
@@ -1097,7 +1130,10 @@ describe('the release controls', () => {
     expect(kube.object.status).not.toHaveProperty('controllerPause');
     // One that was not made is still not made: a pause, answered with a server error, reads back as no pause.
     kube.failing.push(503);
-    expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({ status: 500 });
+    expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({
+      status: 502,
+      body: { refused: 'kubernetes' },
+    });
     // One that was made, answered with a server error, is read back too.
     kube.failing.push('made-504');
     expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({ status: 200 });
@@ -2093,6 +2129,436 @@ describe('Needs you', () => {
       expect(read.find((e) => e.work_item === workItem && e.payload?.decision)).toBeDefined();
       expect(JSON.stringify(read)).not.toContain('Search should keep them');
     }
+  });
+});
+
+/**
+ * `flags`, as Kubernetes keeps it for the admin service: read, and replaced whole, each write conditional on the
+ * `resourceVersion` it names, as the API server makes it. The app's Rollout, when given, answers beside it.
+ */
+class FlagsKube implements KubeWriter {
+  object: Record<string, unknown> = {
+    apiVersion: 'core.openfeature.dev/v1beta1',
+    kind: 'FeatureFlag',
+    metadata: { name: 'flags', namespace: 'flagd', annotations: { 'argocd.argoproj.io/sync-wave': '0' } },
+    spec: { flagSpec: { flags: {} } },
+  };
+  version = 1;
+  readonly writes: Record<string, unknown>[] = [];
+  /** Answers the next writes with these statuses, in turn, or makes one and loses its answer (`lost`). */
+  readonly failing: (number | 'lost' | undefined)[] = [];
+  /** How many of the next reads of `flags` fail, as an API server out of reach fails them. */
+  failingReads = 0;
+  /** Whether a failed write leaves the API out of reach for the next read too. */
+  unreadableAfter = false;
+  /** Another writer, changing `flags` once just after the admin service reads it. */
+  meanwhile: ((flags: Record<string, unknown>) => Record<string, unknown>) | undefined;
+  rollout: RolloutKube | undefined;
+
+  get flags(): Record<string, unknown> {
+    return (this.object.spec as { flagSpec: { flags: Record<string, unknown> } }).flagSpec.flags;
+  }
+
+  set flags(flags: Record<string, unknown>) {
+    this.object = { ...this.object, spec: { flagSpec: { flags } } };
+    this.version += 1;
+  }
+
+  async get<T>(path: string, schema: { parse(v: unknown): T }): Promise<T | undefined> {
+    if (path.includes('/rollouts/')) return this.rollout?.get(path, schema);
+    if (this.failingReads > 0) {
+      this.failingReads -= 1;
+      throw new Error('connect ECONNREFUSED');
+    }
+    const object = this.object as { metadata: object };
+    const read = schema.parse({ ...object, metadata: { ...object.metadata, resourceVersion: String(this.version) } });
+    const change = this.meanwhile;
+    this.meanwhile = undefined;
+    if (change) this.flags = change(this.flags);
+    return read;
+  }
+
+  async replace(path: string, body: unknown): Promise<void> {
+    const failing = this.failing.shift();
+    if (typeof failing === 'number') {
+      if (this.unreadableAfter) this.failingReads = 1;
+      throw new KubeError(failing, `PUT ${path} answered ${failing}`);
+    }
+    const { metadata, ...rest } = body as { metadata: { resourceVersion?: string } };
+    if (metadata.resourceVersion !== String(this.version)) throw new KubeError(409, 'the object has been modified');
+    const { resourceVersion: _, ...kept } = metadata;
+    this.object = { ...rest, metadata: kept };
+    this.writes.push(this.object);
+    this.version += 1;
+    if (failing === 'lost') throw new Error('socket hang up');
+  }
+
+  patch = async (path: string, body: unknown) => this.rollout?.patch(path, body);
+  text = async () => undefined;
+  create = async () => {};
+  remove = async () => {};
+}
+
+describe('the flags’ stages', () => {
+  const FLAGS = { namespace: 'flagd', name: 'flags' };
+  const ROLLOUT = { namespace: 'website', name: 'website' };
+  const event = (workItem: string | null, type: string, actor: string, payload: object) =>
+    ({
+      id: crypto.randomUUID(),
+      ts: new Date().toISOString(),
+      work_item: workItem,
+      type,
+      version: VERSIONS[type as keyof typeof VERSIONS],
+      actor,
+      summary: `${type} for the test`,
+      payload,
+      artifacts: [],
+    }) as NewEvent;
+  const append = (sql: Sql, events: NewEvent[]) =>
+    new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts('/nonexistent') }).append(events);
+
+  // Events are append-only, so each test's flag is a flag of its own.
+  let n = 0;
+  let FLAG = 'delivery-dates-0';
+  let kube: FlagsKube;
+
+  /** An improvement whose spec names the flag, as triage opens it and the line records the planner's spec. */
+  async function improvement(flag: string, kind = 'improvement'): Promise<string> {
+    const workItem = await nextWorkItem(db.as.triage);
+    await append(db.as.triage, [
+      event(workItem, 'work-item.opened', 'martin', { kind, title: 'Delivery dates', sample: false }),
+    ]);
+    await append(db.as.line, [
+      event(workItem, 'spec.written', 'planner', {
+        outcome: 'Each product says when it would arrive',
+        criteria: [{ given: 'a product page', when: 'it is shown', expect: 'it says when it would arrive' }],
+        scope: ['src/pages/product.ts'],
+        risks: [],
+        rollout: 'Behind its flag',
+        flag,
+      }),
+    ]);
+    return workItem;
+  }
+
+  /** Verify's comparison of the flag at a share, as the line appends it, or as another role would. */
+  const compared = (workItem: string, share: number, outcome: 'passed' | 'failed', sql = db.as.line) =>
+    append(sql, [
+      event(workItem, 'flag.compared', 'factory', {
+        flag: FLAG,
+        share,
+        window: { from: new Date(Date.now() - 3_600_000).toISOString(), to: new Date().toISOString() },
+        setAsideMinutes: 0,
+        outcome,
+        sides: { on: { requests: 900, errorRate: 0, p99Ms: 140 }, off: { requests: 880, errorRate: 0, p99Ms: 135 } },
+      }),
+    ]);
+
+  const move = (browser: Browser, from: object | null, to: object, more: Body = {}, flag = FLAG) =>
+    browser.post(`/admin/flags/${flag}/stage`, { from, to, ...more });
+
+  const staged = () =>
+    db.owner<{ work_item: string; actor: string; appended_by: string; summary: string; payload: Body; public: Body }[]>`
+      select work_item, actor, appended_by, summary, payload, public from events
+      where type = 'flag.staged' and payload->>'flag' = ${FLAG} order by seq`;
+
+  /** The stage `flags` holds the flag at, read back through the module. */
+  const held = (flag = FLAG) => readFlags(kube.object.spec).stages[flag];
+
+  /** The service, with `flags` empty, and the app's Rollout in this state (none: not there): by default, no canary out. */
+  const withFlags = async (
+    rollout: RolloutKube | null = new RolloutKube({ current: STABLE, stable: STABLE, revision: 7 }),
+    config: Partial<AdminConfig> = { flags: FLAGS, rollout: ROLLOUT },
+  ) => {
+    kube = new FlagsKube();
+    kube.rollout = rollout ?? undefined;
+    await service.stop();
+    await start(config, kube);
+  };
+
+  beforeEach(async () => {
+    n += 1;
+    FLAG = `delivery-dates-${n}`;
+    await withFlags();
+  });
+
+  const off = { stage: 'off' };
+  const checks = { stage: 'checks' };
+  const preview = { stage: 'preview' };
+  const share = (s: number) => ({ stage: 'share', share: s });
+  const everyone = { stage: 'everyone' };
+
+  it('widens to Checks with no passkey, writes the flag set with a new revision, and records it as Martin’s', async () => {
+    const workItem = await improvement(FLAG);
+    const { browser } = await signedIn();
+    const res = await move(browser, off, checks);
+    expect(res, JSON.stringify(res.body)).toMatchObject({
+      status: 200,
+      body: { staged: { flag: FLAG, from: off, to: checks, action: 'flag.to-checks', revision: 'r1' } },
+    });
+    expect(held()).toEqual(checks);
+    expect(readFlags(kube.object.spec).revision).toBe('r1');
+    // A name longer than the events take is no flag of the app's.
+    expect(await move(browser, off, checks, {}, 'a'.repeat(101))).toMatchObject({ status: 404 });
+    // The rest of `flags` is as it was read.
+    expect((kube.object.metadata as Body).annotations).toEqual({ 'argocd.argoproj.io/sync-wave': '0' });
+    const [recorded] = await staged();
+    expect(recorded).toMatchObject({
+      work_item: workItem,
+      actor: 'martin',
+      appended_by: 'factory_admin',
+      summary: `Martin widened ${FLAG} from Off to Checks`,
+      payload: { flag: FLAG, from: off, to: checks, revision: 'r1', steppedUp: false },
+    });
+    expect(recorded?.public).toMatchObject({ payload: recorded?.payload });
+    // To where it is already: nothing written, nothing recorded.
+    expect(await move(browser, checks, checks)).toMatchObject({ status: 200, body: { staged: null } });
+    expect(await move(browser, off, off, {}, `${FLAG}-never-on`)).toMatchObject({
+      status: 200,
+      body: { staged: null },
+    });
+    expect(kube.writes).toHaveLength(1);
+    expect(await staged()).toHaveLength(1);
+  });
+
+  it('asks for the passkey again to widen past Checks and to turn back on, and never to narrow or turn off', async () => {
+    const workItem = await improvement(FLAG);
+    const { browser, passkey } = await signedIn();
+    expect((await move(browser, off, checks)).status).toBe(200);
+    expect(await move(browser, checks, share(50))).toMatchObject({ status: 403, body: { refused: 'step-up' } });
+    expect(held()).toEqual(checks);
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect((await move(browser, checks, share(50))).status).toBe(200);
+    await compared(workItem, 50, 'passed');
+    expect((await move(browser, share(50), everyone)).status).toBe(200);
+
+    // The passkey gone stale: narrowing and turning off still go ahead; turning back on does not.
+    await db.owner`update sessions set stepped_up_at = now() - interval '6 minutes' where id_sha256 = ${sessionOf(browser)}`;
+    expect(await move(browser, everyone, off)).toMatchObject({ status: 400, body: { refused: 'body' } });
+    expect((await move(browser, everyone, off, { reason: 'Dates are wrong on sale items' })).status).toBe(200);
+    expect(await move(browser, off, everyone)).toMatchObject({ status: 403, body: { refused: 'step-up' } });
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect(await move(browser, off, everyone)).toMatchObject({
+      status: 200,
+      body: { staged: { action: 'flag.back-on', revision: 'r5' } },
+    });
+    await db.owner`update sessions set stepped_up_at = now() - interval '6 minutes' where id_sha256 = ${sessionOf(browser)}`;
+    expect((await move(browser, everyone, preview)).status).toBe(200);
+
+    expect((await staged()).map((e) => [e.summary, e.payload.steppedUp, e.payload.reason])).toEqual([
+      [`Martin widened ${FLAG} from Off to Checks`, false, undefined],
+      [`Martin widened ${FLAG} from Checks to Share 50%`, true, undefined],
+      [`Martin widened ${FLAG} from Share 50% to Everyone`, true, undefined],
+      [`Martin turned ${FLAG} off, from Everyone`, false, 'Dates are wrong on sale items'],
+      [`Martin turned ${FLAG} back on for everyone`, true, undefined],
+      [`Martin narrowed ${FLAG} from Everyone to Preview`, false, undefined],
+    ]);
+  });
+
+  it('refuses a skipped stage but Preview, and turning back on a flag not turned off from Everyone', async () => {
+    await improvement(FLAG);
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    for (const to of [preview, share(50), everyone]) {
+      expect(await move(browser, off, to), JSON.stringify(to)).toMatchObject({
+        status: 409,
+        body: { refused: 'stage' },
+      });
+    }
+    expect((await move(browser, off, checks)).status).toBe(200);
+    expect((await move(browser, checks, everyone)).body.message).toMatch(/stage at a time/);
+    expect((await move(browser, checks, share(30))).body.message).toBe('A share is 10, 25 or 50%.');
+    expect((await move(browser, checks, share(25))).status).toBe(200);
+    expect((await move(browser, share(25), off, { reason: 'Not yet' })).status).toBe(200);
+    expect((await move(browser, off, everyone)).body.message).toMatch(/Only a flag turned off from Everyone/);
+    expect(held()).toEqual(off);
+  });
+
+  it('refuses Everyone until the line’s comparison at the flag’s share since its last move has passed', async () => {
+    const workItem = await improvement(FLAG);
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect((await move(browser, off, checks)).status).toBe(200);
+    expect((await move(browser, checks, share(50))).status).toBe(200);
+    expect((await move(browser, share(50), everyone)).body.message).toMatch(/still comparing/);
+    // A comparison any other role appended is no comparison of Verify's.
+    await compared(workItem, 50, 'passed', db.as.triage);
+    expect((await move(browser, share(50), everyone)).body.message).toMatch(/still comparing/);
+    await compared(workItem, 50, 'failed');
+    expect((await move(browser, share(50), everyone)).body.message).toMatch(/failed/);
+    await compared(workItem, 50, 'passed');
+    // Moved since, the comparison is of the flag as it was.
+    expect((await move(browser, share(50), share(25))).status).toBe(200);
+    expect((await move(browser, share(25), everyone)).body.message).toMatch(/still comparing/);
+    await compared(workItem, 25, 'passed');
+    expect((await move(browser, share(25), everyone)).status).toBe(200);
+  });
+
+  it('refuses Share while a canary is in flight, or that can’t be told, or another flag is at Share', async () => {
+    await improvement(FLAG);
+    const other = await improvement(`${FLAG}-other`);
+    expect(other).toBeTruthy();
+    await withFlags(new RolloutKube({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25, revision: 40 }));
+    kube.flags = flagsSpec({ [FLAG]: { stage: 'checks' } }, 'r1').flagSpec.flags;
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect((await move(browser, checks, share(50))).body.message).toMatch(
+      /is at 25%, and its two versions would mix the two sides\. Share can be taken once it ends\.$/,
+    );
+    // With no Rollout to read, or none named, whether a canary is in flight can't be told.
+    for (const config of [{ flags: FLAGS }, { flags: FLAGS, rollout: ROLLOUT }]) {
+      await withFlags(null, config);
+      kube.flags = flagsSpec({ [FLAG]: { stage: 'checks' } }, 'r1').flagSpec.flags;
+      expect((await move(browser, checks, share(50))).body.message).toMatch(/can't be told/);
+    }
+    // A canary-free cluster, and another flag at Share.
+    await withFlags();
+    kube.flags = flagsSpec(
+      { [FLAG]: { stage: 'checks' }, [`${FLAG}-other`]: { stage: 'share', share: 10 } },
+      'r1',
+    ).flagSpec.flags;
+    expect((await move(browser, checks, share(50))).body.message).toBe(
+      `${FLAG}-other is at Share: one flag at a time, so each comparison varies one thing.`,
+    );
+    expect(held()).toEqual(checks);
+    expect(await staged()).toEqual([]);
+  });
+
+  it('refuses a flag no improvement’s spec names, and a move from a stage other than the one `flags` holds', async () => {
+    await improvement(FLAG, 'defect-fix');
+    const { browser } = await signedIn();
+    expect((await move(browser, off, checks)).body.message).toMatch(/No improvement's spec names/);
+    expect((await move(browser, off, checks, {}, 'never-specced')).body.message).toMatch(/No improvement's spec/);
+    expect(await move(browser, off, checks, {}, 'flag-set-revision')).toMatchObject({ status: 404 });
+    expect(await move(browser, off, checks, {}, 'Not_A_Flag')).toMatchObject({ status: 404 });
+    await improvement(FLAG);
+    expect(await move(browser, checks, preview)).toMatchObject({ status: 409, body: { refused: 'flag' } });
+    expect((await move(browser, checks, preview)).body.message).toBe(`${FLAG} is at Off now, not Checks: look again.`);
+    expect(await move(browser, off, { stage: 'nowhere' })).toMatchObject({ status: 400 });
+    expect(kube.writes).toEqual([]);
+  });
+
+  it('keeps every other flag at its stage, drops one in no stage’s shape, and counts the revision on', async () => {
+    await improvement(FLAG);
+    kube.flags = {
+      ...flagsSpec({ 'price-sort': { stage: 'preview' } }, 'r7').flagSpec.flags,
+      'by-hand': {
+        state: 'ENABLED',
+        variants: { on: true, off: false },
+        defaultVariant: 'off',
+        targeting: { if: [{ '==': [{ var: 'email' }, 'martin@example.com'] }, 'on', 'off'] },
+      },
+    };
+    const { browser } = await signedIn();
+    expect(await move(browser, off, checks)).toMatchObject({
+      status: 200,
+      body: { staged: { revision: 'r8' }, dropped: ['by-hand'] },
+    });
+    // The move that dropped it says so, for Martin and the audit log.
+    expect((await staged()).map((e) => [e.summary, e.payload.dropped])).toEqual([
+      [`Martin widened ${FLAG} from Off to Checks, and dropped 1 set by hand`, ['by-hand']],
+    ]);
+    expect(readFlags(kube.object.spec)).toEqual({
+      stages: { 'price-sort': { stage: 'preview' }, [FLAG]: { stage: 'checks' } },
+      revision: 'r8',
+      outside: [],
+    });
+  });
+
+  it('reads `flags` again and judges again when it changed meanwhile, so two moves at once lose neither', async () => {
+    await improvement(FLAG);
+    kube.flags = flagsSpec({ [FLAG]: { stage: 'checks' } }, 'r1').flagSpec.flags;
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    // Another tab puts another flag at Share between this move's read and its write.
+    kube.meanwhile = (flags) => ({
+      ...flags,
+      ...flagsSpec({ 'price-sort': { stage: 'share', share: 50 } }, 'r2').flagSpec.flags,
+    });
+    expect((await move(browser, checks, share(50))).body.message).toMatch(/price-sort is at Share/);
+    kube.meanwhile = (flags) => ({ ...flags, ...flagsSpec({ 'price-sort': { stage: 'off' } }, 'r3').flagSpec.flags });
+    expect((await move(browser, checks, preview)).status).toBe(200);
+    expect(readFlags(kube.object.spec).stages).toEqual({
+      'price-sort': { stage: 'off' },
+      [FLAG]: { stage: 'preview' },
+    });
+  });
+
+  it('records nothing when Kubernetes refuses the write, and counts a write whose answer was lost as made', async () => {
+    await improvement(FLAG);
+    const { browser } = await signedIn();
+    kube.failing.push(403);
+    expect(await move(browser, off, checks)).toMatchObject({ status: 502, body: { refused: 'kubernetes' } });
+    expect(await staged()).toEqual([]);
+    kube.failing.push('lost');
+    expect((await move(browser, off, checks)).status).toBe(200);
+    expect(held()).toEqual(checks);
+    expect(await staged()).toHaveLength(1);
+  });
+
+  it('turns off a flag staged before, once no spec names it, on the work item it was staged on', async () => {
+    const workItem = await improvement(FLAG);
+    const { browser } = await signedIn();
+    expect((await move(browser, off, checks)).status).toBe(200);
+    // The planner's next spec renames the flag.
+    await append(db.as.line, [
+      event(workItem, 'spec.written', 'planner', {
+        outcome: 'Each product says when it would arrive',
+        criteria: [{ given: 'a product page', when: 'it is shown', expect: 'it says when it would arrive' }],
+        scope: ['src/pages/product.ts'],
+        risks: [],
+        rollout: 'Behind its flag',
+        flag: `${FLAG}-renamed`,
+      }),
+    ]);
+    expect((await move(browser, checks, preview)).body.message).toMatch(/No improvement's spec names/);
+    expect((await move(browser, checks, off, { reason: 'Renamed' })).status).toBe(200);
+    expect((await staged()).map((e) => [e.work_item, e.payload.action])).toEqual([
+      [workItem, 'flag.to-checks'],
+      [workItem, 'flag.off'],
+    ]);
+  });
+
+  it('turns a flag off from the stage `flags` holds, whatever the slider showed, and holds every other move to it', async () => {
+    await improvement(FLAG);
+    const { browser, passkey } = await signedIn();
+    expect((await move(browser, off, checks)).status).toBe(200);
+    // A move made and never recorded: `flags` holds Preview, and the events still say Checks.
+    kube.flags = flagsSpec({ [FLAG]: { stage: 'preview' } }, 'r9').flagSpec.flags;
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect(await move(browser, checks, share(50))).toMatchObject({ status: 409, body: { refused: 'flag' } });
+    expect((await move(browser, checks, off, { reason: 'Something is wrong' })).status).toBe(200);
+    expect(held()).toEqual(off);
+    expect((await staged()).at(-1)?.payload).toMatchObject({ from: preview, to: off, action: 'flag.off' });
+  });
+
+  it('answers a write that failed as not made, and one it cannot read back as not known', async () => {
+    await improvement(FLAG);
+    const { browser } = await signedIn();
+    kube.failing.push(503);
+    expect(await move(browser, off, checks)).toMatchObject({ status: 502, body: { refused: 'kubernetes' } });
+    // Failed, and the API out of reach for the read back after it.
+    kube.failing.push(503);
+    kube.unreadableAfter = true;
+    const res = await move(browser, off, checks);
+    expect(res).toMatchObject({ status: 504, body: { refused: 'kubernetes' } });
+    expect(res.body.message).toMatch(/can't be told/);
+    expect(held()).toBeUndefined();
+    expect(await staged()).toEqual([]);
+  });
+
+  it('starts the revision from the time when `flags` holds flags but no revision it can read', () => {
+    expect(nextRevision(undefined, 1_761_500_000_000, true)).toBe('r1');
+    expect(nextRevision(undefined, 1_761_500_000_000)).toBe('r1761500000000');
+    expect(nextRevision('2026-10-26', 1_761_500_000_000)).toBe('r1761500000000');
+    expect(nextRevision('r41')).toBe('r42');
+  });
+
+  it('refuses every move when the admin service has no flags to stage', async () => {
+    await improvement(FLAG);
+    await withFlags(null, {});
+    const { browser } = await signedIn();
+    expect(await move(browser, off, checks)).toMatchObject({ status: 503, body: { refused: 'flags' } });
   });
 });
 

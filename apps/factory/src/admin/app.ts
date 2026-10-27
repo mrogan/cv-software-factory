@@ -16,6 +16,8 @@
  *   or what the line takes, within policy, with the passkey again when it loosens.
  * - The settings (`settings.ts`): `POST /admin/settings` with what the save changes, each agent's model and effort and
  *   the spend caps, within policy, with the passkey again when anything in it raises.
+ * - The feature flags' stages (`flags.ts`): `POST /admin/flags/:flag/stage` with the stage the slider showed, the one
+ *   chosen and, to turn it off, Martin's reason, with the passkey again when the move widens past Checks.
  * - Needs you (`holds.ts`): `POST /admin/holds/:workItem/approve`, `/reject` and `/answer` (with his words), each
  *   naming the hold the card showed, with the passkey again to approve a guardrail's.
  * - `GET /admin/session`, with the token the session's writes carry and the deployment's tools Martin's menu links to,
@@ -33,6 +35,7 @@ import { ACCESS, ENROLMENT_CODE, PASSKEYS, routeOf, SESSION, type ServedBy } fro
 import type { Logger } from '../log.ts';
 import { clientAddress, LIMITS, RateLimit } from './client.ts';
 import type { AdminConfig } from './config.ts';
+import { type FlagStages, MOVE } from './flags.ts';
 import { fromConsole, type Guard, guardOf, refuseWrite } from './guard.ts';
 import { ANSWER, answerHold, WORK_ITEM } from './holds.ts';
 import { CHANGE, changeControls, REASON, startLine, stopLine } from './line.ts';
@@ -91,6 +94,8 @@ export interface AdminAppOptions {
   log: Logger;
   /** The controls of the app's Rollout; without them, every control is refused. */
   controls?: ReleaseControls;
+  /** The feature flags' stages; without them, every move is refused. */
+  flags?: FlagStages;
   /** The clock the rate limits count by. */
   now?: () => number;
 }
@@ -125,6 +130,7 @@ export function createAdminApp({
   events,
   log,
   controls,
+  flags,
   now = Date.now,
 }: AdminAppOptions): RequestListener {
   const limits = { enrol: new RateLimit(LIMITS.enrol, now), 'sign-in': new RateLimit(LIMITS['sign-in'], now) };
@@ -382,6 +388,13 @@ export function createAdminApp({
       const given = SAVE.safeParse(body);
       if (!given.success) return refused(400, 'body', 'Send the settings the save changes.');
       return { status: 200, body: await saveSettings(store, config.profile, session as Session, given.data) };
+    },
+
+    'flag.stage': async ({ values, body, session }) => {
+      const given = MOVE.safeParse(body);
+      if (!given.success) return refused(400, 'body', 'Send the stage the slider shows, and the one chosen.');
+      if (!flags) return refused(503, 'flags', 'The admin service has no flags to stage.');
+      return { status: 200, body: await flags.stage(session as Session, values.flag ?? '', given.data) };
     },
 
     'hold.approve': (context) => answer('approved', context),

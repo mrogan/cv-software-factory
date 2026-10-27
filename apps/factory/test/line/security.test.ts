@@ -100,6 +100,11 @@ describe('the count of Martin’s security events', () => {
     });
     await append(admin, 'controls.changed', { change: { control: 'take', before: null, after: { kind: 'every' } } });
     await append(admin, 'controls.changed', { change: { control: 'new-work', before: true, after: false } });
+    await append(admin, 'flag.staged', { from: { stage: 'off' }, to: { stage: 'checks' } });
+    await append(admin, 'flag.staged', { from: { stage: 'checks' }, to: { stage: 'share', share: 50 } });
+    await append(admin, 'flag.staged', { from: { stage: 'share', share: 50 }, to: { stage: 'preview' } });
+    await append(admin, 'flag.staged', { from: { stage: 'preview' }, to: { stage: 'off' } });
+    await append(admin, 'flag.staged', { from: { stage: 'everyone' }, to: { stage: 'everyone' } });
     await append(database.as.line, 'model.called', {});
 
     const tally = await readOn(database.as.line, emptyTally());
@@ -120,6 +125,9 @@ describe('the count of Martin’s security events', () => {
       'auto-merge-off': 0,
       'take-widened': 1,
       'take-narrowed': 0,
+      'flag-widened': 2,
+      'flag-narrowed': 1,
+      'flag-off': 1,
     });
   });
 
@@ -235,6 +243,8 @@ describe('what counts as a security event', () => {
       'auto-merge.on': 'auto-merge-on',
       'auto-rollback.off': 'no event yet',
       'take.widen': 'take-widened',
+      'flag.widen': 'flag-widened',
+      'flag.back-on': 'flag-widened',
     };
     const marked = Object.entries(ACCESS as Record<string, { stepUp: boolean }>)
       .filter(([, access]) => access.stepUp)
@@ -245,6 +255,23 @@ describe('what counts as a security event', () => {
     for (const kind of Object.values(counted).filter((kind) => kind !== 'no event yet')) {
       expect(SECURITY_KINDS).toContain(kind);
     }
+  });
+
+  it('counts every move of a flag’s stage, as the action it is, from its stages alone', () => {
+    const moved = (from: object | null, to: object) => countAs({ type: 'flag.staged', staged: { from, to } });
+    expect(moved({ stage: 'off' }, { stage: 'checks' })).toEqual({ kind: 'flag-widened' });
+    expect(moved({ stage: 'checks' }, { stage: 'share', share: 25 })).toEqual({ kind: 'flag-widened' });
+    expect(moved({ stage: 'share', share: 10 }, { stage: 'share', share: 50 })).toEqual({ kind: 'flag-widened' });
+    expect(moved({ stage: 'off' }, { stage: 'everyone' })).toEqual({ kind: 'flag-widened' });
+    expect(moved(null, { stage: 'checks' })).toEqual({ kind: 'flag-widened' });
+    expect(moved({ stage: 'everyone' }, { stage: 'preview' })).toEqual({ kind: 'flag-narrowed' });
+    expect(moved({ stage: 'share', share: 50 }, { stage: 'share', share: 10 })).toEqual({ kind: 'flag-narrowed' });
+    expect(moved({ stage: 'everyone' }, { stage: 'off' })).toEqual({ kind: 'flag-off' });
+    expect(moved(null, { stage: 'off' })).toEqual({ kind: 'flag-off' });
+    // No move, or none the event's schema allows: nothing.
+    expect(moved({ stage: 'checks' }, { stage: 'checks' })).toBeNull();
+    expect(moved({ stage: 'off' }, { stage: 'share', share: 30 })).toBeNull();
+    expect(countAs({ type: 'flag.staged' })).toBeNull();
   });
 
   it('counts every change of the line’s controls, as the action it is, from its before and after alone', () => {

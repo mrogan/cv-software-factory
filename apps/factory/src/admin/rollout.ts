@@ -40,11 +40,14 @@
  * any resume, in a transaction of its own, so a patch that fails leaves no event, no connection to the store waits on
  * Kubernetes, and the line finds the control as soon as the Rollout acts on it. A patch whose answer never came is
  * read back, and counts as made if the Rollout shows it, or shows the controller has acted on it (a promotion's
- * canary at or past its step, or all of the traffic). An append that fails is tried once more, and if that fails too,
- * the control is logged as made without its event.
+ * canary at or past its step, or all of the traffic). An append that fails is tried once more (`appendMade`), and if
+ * that fails too, the control is logged as made without its event. The feature flags' stages are written and recorded
+ * the same way (`flags.ts`).
+ *
+ * **A canary in flight** is also what a feature flag waits for before it may go to Share (`inFlight`): the two
+ * versions would mix the flag's two sides.
  */
 import type { NewEvent, ReleaseControl } from '@software-factory/events';
-import { validate } from '@software-factory/events/schemas';
 import { lineStopped } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
@@ -61,7 +64,7 @@ import {
 import { namedReleases, observe, podHashes, rolloutSchema } from '../release/rollout.ts';
 import type { RolloutRef } from '../release/rollout-ref.ts';
 import { KubeError, type KubeWriter } from '../runners/kube.ts';
-import { adminEvent, appendMartins, Refused } from './store.ts';
+import { adminEvent, appendMade, checked, Refused } from './store.ts';
 
 /**
  * The Rollout, as the line reads it (`release/rollout.ts`), and what the controls read besides: what a conditional patch
@@ -398,7 +401,8 @@ export class ReleaseControls {
    * applied to a release that moved on.
    *
    * A patch whose answer never came (the connection failed, or timed out), or came as a server error, may have been
-   * made: the Rollout is read again, and counts as made if it shows the patch.
+   * made: the Rollout is read again, and counts as made if it shows the patch; as not made (502) if it does not; and,
+   * when it can't be read back either, the answer says whether it was made can't be told (504).
    */
   async #first(plan: Plan, canary: Canary): Promise<void> {
     const precondition = { metadata: { resourceVersion: canary.resourceVersion } };
@@ -409,7 +413,19 @@ export class ReleaseControls {
       await this.#kube.patch(path, { ...precondition, [part]: set });
     } catch (error) {
       const answered = error instanceof KubeError && error.kind !== 'server';
-      if (answered || !(await this.#shows(set, part))) throw kubeRefusal(error) ?? error;
+      if (answered) throw kubeRefusal(error) ?? error;
+      const shows = await this.#shows(set, part);
+      if (shows === true) return;
+      if (shows === undefined) {
+        this.#log.error({ err: error }, 'patched the Rollout, and could neither hear the answer nor read it back');
+        throw new Refused(
+          'kubernetes',
+          504,
+          "Kubernetes didn't answer, and whether the change was made can't be told: look again before trying again.",
+        );
+      }
+      this.#log.error({ err: error }, 'patched the Rollout, and Kubernetes failed the patch');
+      throw new Refused('kubernetes', 502, 'Kubernetes failed the change, and nothing was done.');
     }
   }
 
@@ -434,7 +450,7 @@ export class ReleaseControls {
         const conflict = error instanceof KubeError && error.status === 409;
         if (conflict && attempt < TRIES) continue;
         const unanswered = !(error instanceof KubeError) || error.kind === 'server';
-        if (!conflict && unanswered && (await this.#shows(spec, 'spec'))) return true;
+        if (!conflict && unanswered && (await this.#shows(spec, 'spec')) === true) return true;
         this.#log.error({ err: error }, 'made a control of the canary, and could not resume it: it stays paused');
         return false;
       }
@@ -444,10 +460,16 @@ export class ReleaseControls {
   /**
    * Whether the Rollout now shows a patch to its spec or its status: each field it sets, as it sets it. The controller
    * acts on a promotion at once, so one shows by where the canary is: at or past the step it moved to, whatever the
-   * pauses there say now, or, promoted fully, already all of the traffic, which clears `promoteFull`.
+   * pauses there say now, or, promoted fully, already all of the traffic, which clears `promoteFull`. Undefined when
+   * the Rollout can't be read: whether it shows the patch can't be told.
    */
-  async #shows(set: Record<string, unknown>, part: 'spec' | 'status'): Promise<boolean> {
-    const now = await this.#kube.get(this.#path, rolloutRaw).catch(() => undefined);
+  async #shows(set: Record<string, unknown>, part: 'spec' | 'status'): Promise<boolean | undefined> {
+    const read = await this.#kube.get(this.#path, rolloutRaw).then(
+      (rollout) => ({ rollout }),
+      () => undefined,
+    );
+    if (!read) return undefined;
+    const now = read.rollout;
     if (!now) return false;
     const { status } = now;
     if (part === 'status' && typeof set.currentStepIndex === 'number') {
@@ -464,18 +486,23 @@ export class ReleaseControls {
    * so one that did commit after all is found, and recorded once.
    */
   async #record(event: NewEvent): Promise<void> {
-    for (let attempt = 1; ; attempt++) {
-      try {
-        await this.#sql.begin((tx) => appendMartins(this.#sql, tx, [event]));
-        return;
-      } catch (error) {
-        const recorded = await this.#sql`select 1 from events where id = ${event.id}`.catch(() => []);
-        if (recorded.length) return;
-        if (attempt < 2) continue;
-        this.#log.error({ err: error, event }, 'made a control of the canary, and could not record it');
-        throw new Refused('record', 500, 'Done, but not recorded: the store did not take the event. Look in the logs.');
-      }
+    try {
+      await appendMade(this.#sql, event);
+    } catch (error) {
+      this.#log.error({ err: error, event }, 'made a control of the canary, and could not record it');
+      throw new Refused('record', 500, 'Done, but not recorded: the store did not take the event. Look in the logs.');
     }
+  }
+
+  /**
+   * The canary in flight now, as a move of a feature flag into Share is judged (`flags.ts`): its version, as the line
+   * recorded its release, or the release's name, and its weight; none when no canary is out. Throws when the Rollout
+   * can't be read, isn't there, or is between releases: whether one is in flight can't be told.
+   */
+  async inFlight(): Promise<{ version: string; weight: number } | undefined> {
+    const { canary, record } = await this.#read();
+    if (!canary.inFlight) return undefined;
+    return { version: record ? short(record.started.version) : canary.release, weight: canary.weight };
   }
 }
 
@@ -513,13 +540,6 @@ function kubeRefusal(error: unknown): Refused | undefined {
     return new Refused('kubernetes', 502, 'Kubernetes refused the change, and nothing was done.');
   }
   return undefined;
-}
-
-/** A control's event, checked as the store will check it: one it would refuse is a fault here, and nothing is done. */
-function checked(event: NewEvent): NewEvent {
-  const valid = validate(event);
-  if (!valid.ok) throw new Error(`a control's event is not valid: ${valid.problems.join('; ')}`);
-  return event;
 }
 
 /** The summary of Stop the line's abort, in the console's words. */
