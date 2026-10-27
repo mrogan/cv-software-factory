@@ -53,9 +53,11 @@ export default defineConfig({
     { port: FIXTURE_PORT, log: 'test/fixture/log', now: FIXTURE_END },
   ].map(({ port, log, now }) => ({
     command: 'node src/server.ts',
-    url: `http://localhost:${port}/health`,
+    // On 127.0.0.1 alone, and asked there: another program holding the port fails the run rather than answering it.
+    url: `http://127.0.0.1:${port}/health`,
     env: {
       PORT: String(port),
+      HOST: '127.0.0.1',
       EVENT_LOG: log,
       EVENT_LOG_NOW: new Date(now).toISOString(),
       NODE_ENV: 'production',
