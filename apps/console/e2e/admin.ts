@@ -72,7 +72,7 @@ export async function startHarness(
       profile: 'local',
       ...(release && { rollout: release.rollout }),
     },
-    { sql: database.admin, port: 0, ...(release && { kube: release.kube }) },
+    { sql: database.admin, port: 0, host: '127.0.0.1', ...(release && { kube: release.kube }) },
   );
   const adminPort = (admin.server.address() as AddressInfo).port;
 
