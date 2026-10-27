@@ -13,7 +13,9 @@
  * pattern that shares a path with one, each entry that takes in a protected path or a file in a protected folder, and
  * each entry it refused before overlap was exact.
  *
- * A failure prints the seed and the shrunk counterexample: `fc.assert(..., { seed, path })` replays it.
+ * Most properties run 500 or 1,000 times rather than fast-check's 100, as several test only the pairs that happen to
+ * share a path, and the file still takes a fraction of a second. A failure prints the seed and the shrunk
+ * counterexample: `fc.assert(..., { seed, path })` replays it.
  */
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
@@ -91,7 +93,8 @@ const pair = fc.oneof(
 
 /**
  * `touches` as it read before `sharedPath`: the entry tried as text against each path, and a sample of each path, its
- * `*` as `x`, tried against the entry. Kept here to hold the planner to refusing every scope it refused then, and the line to every overlap it saw.
+ * `*` as `x`, tried against the entry. Kept here to hold the planner to refusing every scope it refused then, and the
+ * line to every overlap it saw.
  */
 function touchedBefore(entry: string, paths: readonly string[]): boolean {
   const asText = (p: string) => new RegExp(pattern(p).source.replaceAll('(?:.*/)?', '.*'), 's');
