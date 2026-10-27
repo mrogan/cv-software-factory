@@ -28,7 +28,10 @@ export function plainPath(path: string): boolean {
 /** Where GitHub looks for a CODEOWNERS file. */
 export const CODEOWNERS_PATHS = ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS'];
 
-/** The scope's path rule, shared with the console, which marks each path a spec's scope allows. */
+/**
+ * The scope's path rule (`inScope`, shared with the console, which marks each path a spec's scope allows), and one
+ * entry's test of a path (`pattern`).
+ */
 export { inScope, pattern };
 
 /**

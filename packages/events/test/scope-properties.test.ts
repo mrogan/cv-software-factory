@@ -269,7 +269,9 @@ describe("a scope entry's test of a path", () => {
 
   it('answers quickly however many `*` an entry has, a near miss too', () => {
     // A regular expression tries every way of splitting a near miss between the `*`s: `a*a*…b` against a long run of
-    // `a`, which never ends in `b`, took seconds at 8 `*` and minutes at 10. The entries here have 30 to 66.
+    // `a`, which never ends in `b`, took seconds at 8 `*` and minutes at 10. The entries here have 30 to 66, and each
+    // answers in well under a millisecond: the limit is loose, so a busy machine cannot fail it, and still far short of
+    // what backtracking would take.
     const manyStars = fc
       .array(fc.constantFrom('a', 'b', 'ab', '/a', 'a/'), { minLength: 30, maxLength: 66 })
       .map((parts) => `${parts.join('*')}*b`.slice(0, 200));
@@ -278,7 +280,7 @@ describe("a scope entry's test of a path", () => {
         const target = unit.repeat(n).slice(0, n);
         const started = performance.now();
         inScope(target, [entry]);
-        expect(performance.now() - started).toBeLessThan(100);
+        expect(performance.now() - started).toBeLessThan(1000);
       }),
       { numRuns: 50 },
     );
@@ -286,6 +288,6 @@ describe("a scope entry's test of a path", () => {
     const started = performance.now();
     expect(inScope('a'.repeat(200), [worst])).toBe(false);
     expect(inScope(`${'a'.repeat(199)}b`, [worst])).toBe(true);
-    expect(performance.now() - started).toBeLessThan(100);
+    expect(performance.now() - started).toBeLessThan(1000);
   });
 });

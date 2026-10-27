@@ -113,18 +113,29 @@ export const answersTo = (cause: HoldCause): HoldAnswer[] =>
  * A scope entry as a pattern: a file (`src/money.ts`), a folder ending in `/` (`test/`), or a pattern with `*` (one
  * path segment, or part of one) or `**` (as a segment of its own, any number of whole segments: `**` followed by `/`
  * stands for none or some folders, so `**` followed by `/test.ts` is `test.ts` in any folder, never `latest.ts`; within
- * a segment it is any text, slashes too). `*` and `**` take in any character, a line or paragraph separator too, so
- * none can slip a path past a folder or a `**`.
+ * a segment it is any text, slashes too). `*` takes in any character but `/`, and `**` any at all: a line or paragraph
+ * separator in a path is a character like any other, so none can slip it past a folder or a `**`.
  *
  * It tests a path by stepping it through the entry's automaton (`automatonOf`) a character at a time, keeping every
  * state the characters so far could have reached: at most the path's length times the entry's steps, whatever the
  * entry. A backtracking regular expression would try every way of splitting a near miss between the `*`s, which grows
  * exponentially with them: the planner writes scopes from strangers' reports, and must not be able to stall the fence.
+ * The last few hundred entries' automata are kept, as a scope is tested against each path of a patch in turn.
  */
 export function pattern(entry: string): { test: (path: string) => boolean } {
-  const automaton = automatonOf(entry);
-  return { test: (path) => takesIn(automaton, path) };
+  let automaton = kept.get(entry);
+  if (!automaton) {
+    if (kept.size >= KEPT) kept.clear();
+    automaton = automatonOf(entry);
+    kept.set(entry, automaton);
+  }
+  const made = automaton;
+  return { test: (path) => takesIn(made, path) };
 }
+
+/** The automata `pattern` has made, by entry: no more than `KEPT`, so a long-running line holds no more. */
+const kept = new Map<string, Automaton>();
+const KEPT = 512;
 
 /** A scope entry's parts: `**` followed by `/` as a segment of its own, `**` and `*` anywhere else, and the text between. */
 // `**` followed by `/` stands for folders only as a segment of its own: in `a**/b` it is any text, then the slash.
@@ -150,8 +161,9 @@ interface Automaton {
 
 /**
  * A scope entry as a small automaton that reads a path a character at a time, ending at `end` on each path the entry
- * takes in (`pattern` tests a path on it): a state per character of text, a loop for `*` and `**`, and for `**` followed by `/` a way past it and a way
- * through any folders, or, read `asText`, a loop for any text. Plain text (`literal`) is a state per character alone.
+ * takes in (`pattern` tests a path on it): a state per character of text, a loop for `*` and `**`, and for `**`
+ * followed by `/` a way past it and a way through any folders, or, read `asText`, a loop for any text. Plain text
+ * (`literal`) is a state per character alone.
  */
 function automatonOf(entry: string, read: 'pattern' | 'asText' | 'literal' = 'pattern'): Automaton {
   const moves: Move[][] = [[]];
@@ -194,8 +206,9 @@ function takesIn({ moves, end }: Automaton, path: string): boolean {
   // The step at which each state was last taken, so a state joins a step's set once.
   const taken = new Int32Array(moves.length).fill(-1);
   let states: number[] = [];
+  const stack: number[] = [];
   const take = (into: number[], state: number, step: number) => {
-    const stack = [state];
+    stack.push(state);
     for (let at = stack.pop(); at !== undefined; at = stack.pop()) {
       if (taken[at] === step) continue;
       taken[at] = step;
