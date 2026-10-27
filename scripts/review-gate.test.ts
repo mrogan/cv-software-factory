@@ -1,10 +1,21 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { MARTIN, type PullRequest, pick, QUEUE_BRANCH, type Review, target, verdict } from './review-gate.ts';
+import {
+  MARTIN,
+  type PullRequest,
+  pick,
+  QUEUE_BRANCH,
+  type Review,
+  target as targetIn,
+  verdict,
+} from './review-gate.ts';
 
 const HEAD = 'a'.repeat(40);
 const EARLIER = 'b'.repeat(40);
 const APP = 1_234_567;
+/** This repository, as a run's pull requests name it. */
+const HERE = { url: 'https://api.github.com/repos/o/r' };
+const target = (name: string, event: Parameters<typeof targetIn>[1]) => targetIn(name, event, 'o/r');
 
 const pr = (author: number | null): PullRequest => ({
   number: 7,
@@ -80,8 +91,8 @@ describe('the review gate (ADR 0014)', () => {
             ...run,
             event,
             pull_requests: [
-              { number: 8, base: { ref: 'other' } },
-              { number: 7, base: { ref: 'main' } },
+              { number: 8, base: { ref: 'other', repo: HERE } },
+              { number: 7, base: { ref: 'main', repo: HERE } },
             ],
           },
         }),
@@ -89,9 +100,12 @@ describe('the review gate (ADR 0014)', () => {
       // A stacked pull request, into the branch below it.
       expect(
         target('workflow_run', {
-          workflow_run: { ...run, event, pull_requests: [{ number: 8, base: { ref: 'fix/below' } }] },
+          workflow_run: { ...run, event, pull_requests: [{ number: 8, base: { ref: 'fix/below', repo: HERE } }] },
         }),
       ).toEqual({ kind: 'pull-request', number: 8 });
+      // A fork's own pull request, which a run from its branch can name, is not this repository's.
+      const theirs = { number: 3, base: { ref: 'main', repo: { url: 'https://api.github.com/repos/someone/r' } } };
+      expect(target('workflow_run', { workflow_run: { ...run, event, pull_requests: [theirs] } }).kind).toBe('find');
       // A fork's: GitHub names no pull request, so it is found by its branch and commit.
       expect(target('workflow_run', { workflow_run: { ...run, event, pull_requests: [] } })).toEqual({
         kind: 'find',

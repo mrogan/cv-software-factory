@@ -13,7 +13,8 @@
  * - for a pull request opened, pushed to, reopened, made ready or edited, and for a review of one: the check goes on the
  *   pull request's head as it is now;
  * - for the merge queue: the check goes on the merge group's commit, judged on the pull request it was made for, which
- *   the queue names in its branch. A branch the gate does not know fails the check there, naming the branch.
+ *   the queue names in its branch, which must be into main. A branch the gate does not know, or one that names a pull
+ *   request into another branch, fails the check there, saying which.
  *
  * A pull request it finds open always gets a verdict, passing or failing, so a missing check never hides why a pull
  * request waits.
@@ -105,7 +106,7 @@ interface Event {
     head_branch: string | null;
     head_sha: string;
     head_repository?: { owner: { login: string } } | null;
-    pull_requests?: { number: number; base: { ref: string } }[];
+    pull_requests?: { number: number; base: { ref: string; repo?: { url: string } } }[];
   };
 }
 
@@ -118,8 +119,10 @@ export function pick<T extends { base: { ref: string } }>(prs: readonly T[] | un
   return prs?.find((p) => p.base.ref === 'main') ?? prs?.[0];
 }
 
-/** The pull request a run is about, from the event GitHub handed the workflow. */
-export function target(name: string, event: Event): Target {
+/**
+ * The pull request a run is about, from the event GitHub handed the workflow, for the repository `repo` (`owner/name`).
+ */
+export function target(name: string, event: Event, repo: string): Target {
   const run = event.workflow_run;
   if (name !== 'workflow_run' || !run) return { kind: 'none', reason: `nothing to do on ${name}` };
   if (run.event === 'merge_group') {
@@ -136,7 +139,9 @@ export function target(name: string, event: Event): Target {
   if (run.event === 'pull_request' || run.event === 'pull_request_review') {
     // GitHub names the pull request only when its branch is in this repository and still at the run's commit; a fork's,
     // or a branch that has moved since, is found by its branch.
-    const number = pick(run.pull_requests)?.number;
+    // Only this repository's: a run from a fork's branch can name the fork's own pull requests too.
+    const here = run.pull_requests?.filter((p) => p.base.repo?.url.endsWith(`/repos/${repo}`));
+    const number = pick(here)?.number;
     if (number) return { kind: 'pull-request', number };
     const owner = run.head_repository?.owner.login;
     if (!owner || !run.head_branch) return { kind: 'none', reason: `the ${run.event} names no pull request` };
@@ -198,7 +203,7 @@ async function main(): Promise<void> {
   const { GH_TOKEN: read = '', CHECKS_TOKEN: token = '', GITHUB_REPOSITORY: repo = '' } = process.env;
   const name = process.env.GITHUB_EVENT_NAME ?? '';
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf-8')) as Event;
-  let asked = target(name, event);
+  let asked = target(name, event, repo);
   if (asked.kind === 'find') {
     // The open pull request from that branch, wherever its head is now: the run that asked may be for an older push,
     // and the verdict goes on the head as it is now.
@@ -227,8 +232,23 @@ async function main(): Promise<void> {
     console.log(`#${pr.number} is ${pr.state}: nothing to judge.`);
     return;
   }
-  const said = verdict(pr, await reviewsOf(repo, pr.number, read));
   const commit = asked.commit ?? pr.head.sha;
+  // The queue's commit merges into main, so it is judged only on a pull request into main: one into another branch,
+  // a stacked one's, vouches for its own change and not for those below it, which the commit carries too.
+  if (asked.kind === 'queue' && pr.base.ref !== 'main') {
+    const title = `The merge queue's branch names #${pr.number}, which is into ${pr.base.ref}, not main`;
+    say(`Nothing to judge: ${title}.`);
+    await post(
+      repo,
+      token,
+      commit,
+      false,
+      title,
+      `The merge queue's commit is judged on a pull request into main. ${RULE}`,
+    );
+    return;
+  }
+  const said = verdict(pr, await reviewsOf(repo, pr.number, read));
   const where = asked.kind === 'queue' ? `the merge queue's ${short(commit)}` : short(commit);
   say(`#${pr.number} into ${pr.base.ref}, on ${where}: ${said.pass ? `passes: ${said.title}` : said.title}.`);
   await post(repo, token, commit, said.pass, said.title, `${RULE} Judged on #${pr.number} at ${short(pr.head.sha)}.`);
