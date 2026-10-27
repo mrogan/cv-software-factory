@@ -93,7 +93,10 @@ function means(scopeEntry: string, target: string): boolean {
   );
 }
 
-/** The segments of a path a scope entry is likely to match: each `*` filled in, each `**` some segments, a folder's file beneath it. */
+/**
+ * The segments of a path a scope entry is likely to match: each `*` filled in, each `**` some segments, a folder's file
+ * beneath it.
+ */
 const namesFor = (scopeEntry: string) => {
   const folder = scopeEntry.endsWith('/');
   const globs = (folder ? scopeEntry.slice(0, -1) : scopeEntry).split('/');
@@ -164,8 +167,8 @@ const wild = (name: string) =>
 /**
  * A CODEOWNERS path that gives a person `target`, written one of the ways GitHub reads: from the root (`/src/a.ts`, or
  * `src/a.ts`, since a slash within anchors it), anywhere (`a.ts`, or a path after `**`), naming the file or a folder
- * above it (`/src`, `/src/`), with wildcards for some of it. A folder's entry ends in a name: GitHub gives `docs/*` the files in
- * `docs/` only, not those further down.
+ * above it (`/src`, `/src/`), with wildcards for some of it. A folder's entry ends in a name: GitHub gives `docs/*` the
+ * files in `docs/` only, not those further down.
  */
 const owning = segments.chain((names) =>
   fc.record({ k: fc.integer({ min: 1, max: names.length }), from: fc.nat(names.length - 1) }).chain(({ k, from }) => {
