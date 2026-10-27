@@ -41,6 +41,8 @@ describe('the files a release changes', () => {
       // Invented work items, whose changed files are named and whose releases have versions.
       'packages/samples/src/items/1262-pino.ts',
       'packages/samples/src/items/1276-otel-rollback.ts',
+      // package.json's packageManager, beside mise.lock's pnpm, and not its version line.
+      'scripts/toolchain.test.ts',
     ]);
   });
 });

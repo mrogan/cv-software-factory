@@ -264,7 +264,7 @@ describe('what the browser tests run', () => {
       ),
     ).toEqual([]);
     const uses = browser.flatMap((job) => [...job.matchAll(/uses: ([\w/-]+)@/g)].map(([, action = '']) => action));
-    // ZAP's scan runs on the runner, with the toolchain mise.toml pins.
+    // ZAP's scan runs on the runner, with the toolchain mise.lock holds.
     expect(new Set(uses)).toEqual(new Set(['actions/checkout', 'actions/upload-artifact', 'jdx/mise-action']));
     expect(new Set(runs)).toEqual(
       new Set([
