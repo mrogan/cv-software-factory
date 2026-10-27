@@ -37,7 +37,7 @@ export interface StoredFlagCheck {
 export interface FlagEvents {
   /** Each flag an improvement's latest spec names, and that improvement's work item. */
   named: Record<string, string>;
-  /** Martin's moves, and Verify's comparisons and its checks at Checks and Preview, oldest first. */
+  /** Martin's moves, and Verify's comparisons, checks and baselines, oldest first. */
   records: StoredFlagRecord[];
   /** Verify's checks with the probes, the baselines with the flag off too, oldest first. */
   checked: StoredFlagCheck[];
@@ -102,20 +102,20 @@ export async function flagEvents(sql: Sql | TransactionSql, flag?: string): Prom
   const records = rows.flatMap(({ seq, ts: at, type, work_item, payload }): StoredFlagRecord[] => {
     const ts = at.toISOString();
     if (type === 'flag.checked') {
-      // The baseline with the flag off holds nothing back; a check at Checks or Preview holds back a widening past it.
+      // A baseline lets Checks be taken for its improvement; a check at Checks or Preview, a widening past it.
       const check = payload as PayloadOf<'flag.checked'>;
-      if (check.stage === 'off') return [];
-      return [{ type, seq, ts, flag: check.flag, stage: check.stage, outcome: check.outcome }];
+      if (check.stage === 'off') return [{ type, seq, ts, flag: check.flag, stage: 'off', workItem: work_item }];
+      const { flag, stage, outcome, moveRevision } = check;
+      return [{ type, seq, ts, flag, stage, outcome, moveRevision }];
     }
     if (type === 'flag.staged') {
-      const { flag, from, to, reason } = payload as Pick<
-        Extract<FlagRecord, { type: 'flag.staged' }>,
-        'flag' | 'from' | 'to'
-      > & { reason?: string };
-      return [{ type, seq, ts, flag, workItem: work_item, from, to, ...(reason !== undefined && { reason }) }];
+      const { flag, from, to, revision, reason } = payload as PayloadOf<'flag.staged'>;
+      return [
+        { type, seq, ts, flag, workItem: work_item, from, to, revision, ...(reason !== undefined && { reason }) },
+      ];
     }
-    const { flag, share, outcome } = payload as Omit<Extract<FlagRecord, { type: 'flag.compared' }>, 'type'>;
-    return [{ type, seq, ts, flag, share, outcome }];
+    const { flag, share, outcome, moveRevision } = payload as PayloadOf<'flag.compared'>;
+    return [{ type, seq, ts, flag, share, outcome, moveRevision }];
   });
   return {
     named: Object.fromEntries(named.map((row) => [row.flag, row.work_item])),

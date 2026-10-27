@@ -41,7 +41,13 @@ const SHARE = { stage: 'share', share: 50 } as const;
 const EVERYONE = { stage: 'everyone' } as const;
 
 let seq = 0;
-const staged = (flag: string, workItem: string, from: Stage | null, to: Stage, reason?: string): StoredFlagRecord => ({
+const staged = (
+  flag: string,
+  workItem: string,
+  from: Stage | null,
+  to: Stage,
+  reason?: string,
+): Extract<StoredFlagRecord, { type: 'flag.staged' }> => ({
   type: 'flag.staged',
   seq: String(++seq),
   ts: new Date(Date.parse('2026-10-27T09:00:00Z') + seq * 60_000).toISOString(),
@@ -49,6 +55,7 @@ const staged = (flag: string, workItem: string, from: Stage | null, to: Stage, r
   workItem,
   from,
   to,
+  revision: `r${seq}`,
   ...(reason && { reason }),
 });
 
@@ -115,7 +122,13 @@ describe('what the flag pass decides', () => {
     const move = records[1] as StoredFlagRecord;
     const flags = told({ dates: '7' }, records);
     expect(flagsNext({ flags, items: { '7': open }, only: null })).toEqual([
-      { do: 'compare', flag: 'dates', workItem: '7', share: 50, move: { seq: move.seq, ts: move.ts } },
+      {
+        do: 'compare',
+        flag: 'dates',
+        workItem: '7',
+        share: 50,
+        move: { seq: move.seq, ts: move.ts, revision: `r${move.seq}` },
+      },
     ]);
     const compared: StoredFlagRecord = {
       type: 'flag.compared',
@@ -124,6 +137,7 @@ describe('what the flag pass decides', () => {
       flag: 'dates',
       share: 50,
       outcome: 'passed',
+      moveRevision: `r${move.seq}`,
     };
     expect(
       flagsNext({ flags: { ...flags, records: [...records, compared] }, items: { '7': open }, only: null }),
@@ -224,11 +238,15 @@ describe('which checks of a flag the pass asks the probes for', () => {
         stage: 'checks',
         revision: 'r9',
         move: toChecks.seq,
+        moveRevision: toChecks.revision,
         base,
         pages: ['/'],
       },
     ]);
-    const done = { ...flags, checked: [base, check('7', { stage: 'checks' })] };
+    // A check that names an earlier move is none of this one's, however late it came.
+    const stale = { ...flags, checked: [base, check('7', { stage: 'checks', moveRevision: 'r0' })] };
+    expect(flagsNext({ flags: stale, items: { '7': open }, only: null })).toMatchObject([{ stage: 'checks' }]);
+    const done = { ...flags, checked: [base, check('7', { stage: 'checks', moveRevision: toChecks.revision })] };
     expect(flagsNext({ flags: done, items: { '7': open }, only: null })).toEqual([]);
     // Preview is a move of its own; a check at Checks before it is not one at Preview.
     const toPreview = staged('dates', '7', CHECKS, PREVIEW);
@@ -1026,13 +1044,14 @@ describe('the flag pass, against the store', () => {
       await move(other, 'wraps', OFF, CHECKS);
       // Asked of one flag, the flag set is still the one the latest move of any wrote.
       expect((await flagEvents(database.as.line, 'dates')).revision).toBe(`r${seq}`);
-      // A check at Checks is a record a widening waits on, as a comparison is; the baseline is none.
+      // A check at Checks is a record a widening waits on, as a comparison is; a baseline lets Checks be taken.
       await writer(database.as.line).append([
         event(other, 'flag.checked', {
           stage: 'checks',
           flag: 'wraps',
           version: V1,
           revision: `r${seq}`,
+          moveRevision: `r${seq}`,
           against: null,
           outcome: 'unsure',
           journeys: { base: null, change: { passed: 1, ran: 1 } },
@@ -1042,8 +1061,10 @@ describe('the flag pass, against the store', () => {
       ]);
       const { records } = await flagEvents(database.as.line);
       expect(records.filter((r) => r.type === 'flag.checked')).toMatchObject([
-        { flag: 'wraps', stage: 'checks', outcome: 'unsure' },
+        { flag: 'dates', stage: 'off', workItem },
+        { flag: 'wraps', stage: 'checks', outcome: 'unsure', moveRevision: `r${seq}` },
       ]);
+      expect(flagsFrom(records, { dates: workItem }).dates?.baseline).toBe(true);
       expect(flagsFrom(records).wraps?.checked).toEqual({ stage: 'checks', outcome: 'unsure' });
     });
 

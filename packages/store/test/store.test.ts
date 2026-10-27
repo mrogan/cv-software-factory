@@ -216,6 +216,7 @@ describe('appending', () => {
         flag: 'last-one',
         version: 'v0.9.5',
         revision: 'r1',
+        moveRevision: 'r1',
         against: null,
         outcome: 'unsure',
         journeys: { base: null, change: { passed: 1, ran: 1 } },

@@ -35,17 +35,30 @@ function improvement(number: string, flag: string, released = true) {
       watched: true,
       dryRun: false,
     });
+    // Verify's run with the flag off, which Checks waits for.
+    item.add(61, 'flag.checked', 'factory', {
+      stage: 'off',
+      flag,
+      version: 'v1.0.0',
+      revision: 'none',
+      journeys: { passed: 23, ran: 24 },
+      notClean: [],
+      pages: [],
+    });
   }
   return item;
 }
 
 type Staged = PayloadOf<'flag.staged'>;
+/** The revision a move to a stage wrote, in these tests: one per stage, and per share. */
+const moved = (to: Staged['to']) => `r-${to.stage}${to.stage === 'share' ? `-${to.share}` : ''}`;
 const staged = (flag: string, from: Staged['from'], to: Staged['to'], action: Staged['action'], reason?: string) => ({
   flag,
   from,
   to,
   action,
-  revision: 'r1',
+  // Each move's revision its own, as the admin service writes them: named by where it went.
+  revision: moved(to),
   steppedUp: action === 'flag.widen' || action === 'flag.back-on',
   ...(reason && { reason }),
 });
@@ -69,6 +82,7 @@ function checked(flag: string, stage: 'checks' | 'preview', outcome: 'passed' | 
     flag,
     version: 'v1.0.0',
     revision: 'r1',
+    moveRevision: moved({ stage }),
     against: 'v1.0.0',
     outcome,
     journeys: { base: { passed: 23, ran: 24 }, change: { passed: 23, ran: 24 } },
@@ -108,6 +122,15 @@ describe('a flag', () => {
       { flag: 'new-thing', kicker: 'Shipped behind its flag', widen: { to: { stage: 'checks' } } },
     ]);
     expect(needs[0]?.turnOff).toBeUndefined();
+  });
+
+  it('waits at Off for Verify’s run with the flag off before Checks can be taken', () => {
+    const events = improvement('2016', 'unseen').events.filter((event) => event.type !== 'flag.checked');
+    const { flags, needs } = viewOf(events);
+    expect(flags[0]?.stops.find((stop) => stop.stage === 'checks')?.move.refused).toMatch(
+      /^Verify has no picture of the app with the flag off yet/,
+    );
+    expect(needs[0]?.widen.refused).toMatch(/no picture of the app with the flag off/);
   });
 
   it('may skip Preview from Checks, and no other stage', () => {
@@ -153,6 +176,10 @@ describe('a flag', () => {
     expect(block()).toMatchObject({ checked: undefined });
     item.add(76, 'flag.checked', 'triage', checked('checked', 'checks', 'passed'));
     expect(viewOf(item.events).flags[0]?.check).toBe('checking');
+    // Nor one that names an earlier move, however late it comes.
+    item.add(77, 'flag.checked', 'factory', { ...checked('checked', 'checks', 'passed'), moveRevision: 'r-earlier' });
+    expect(viewOf(item.events).flags[0]?.check).toBe('checking');
+    expect(block()).toMatchObject({ checked: undefined });
 
     item.add(80, 'flag.checked', 'factory', {
       ...checked('checked', 'checks', 'passed'),
@@ -217,6 +244,7 @@ describe('a flag', () => {
     item.add(120, 'flag.compared', 'factory', {
       flag: 'shared',
       share: 25,
+      moveRevision: 'r-share-25',
       window: { from: new Date(START).toISOString(), to: new Date(START + 1).toISOString() },
       setAsideMinutes: 0,
       outcome: 'passed',

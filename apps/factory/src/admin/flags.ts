@@ -238,6 +238,8 @@ export class FlagStages {
       ...(current && { last: told.last }),
       ...(current && told.compared && { compared: told.compared }),
       ...(current && told.checked && { checked: told.checked }),
+      // A baseline is the improvement's, whatever its moves since.
+      ...(told?.baseline && { baseline: true }),
     };
   }
 

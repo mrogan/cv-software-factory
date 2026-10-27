@@ -39,6 +39,8 @@ export interface CheckAsked {
   revision: string;
   /** The place in the store of Martin's latest move of the flag, or null when he has never moved it. */
   move: string | null;
+  /** The revision that move wrote, which a check at Checks or Preview names as the move it judged. */
+  moveRevision?: string;
   /** At Off: the version a baseline was last taken of. */
   have?: string;
   /** At Checks and Preview: the latest baseline, or null when none was taken. */
@@ -121,6 +123,8 @@ export function checkedDraft(asked: CheckAsked, answer: Checked): Draft {
     flag,
     version,
     revision,
+    // The move judged: a check of no move would never count, and the pass asks at Checks and Preview only after one.
+    moveRevision: asked.moveRevision ?? 'none',
     against: off?.version ?? null,
     outcome,
     journeys: { base: off?.journeys ?? null, change: journeys },

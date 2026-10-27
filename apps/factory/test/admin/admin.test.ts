@@ -2235,8 +2235,11 @@ describe('the flags’ stages', () => {
   let FLAG = 'delivery-dates-0';
   let kube: FlagsKube;
 
-  /** An improvement whose spec names the flag, as triage opens it and the line records the planner's spec. */
-  async function improvement(flag: string, kind = 'improvement'): Promise<string> {
+  /**
+   * An improvement whose spec names the flag, as triage opens it and the line records the planner's spec, and Verify's
+   * run of it with the flag off, which Checks waits for, unless told there is none yet.
+   */
+  async function improvement(flag: string, kind = 'improvement', baseline = true): Promise<string> {
     const workItem = await nextWorkItem(db.as.triage);
     await append(db.as.triage, [
       event(workItem, 'work-item.opened', 'martin', { kind, title: 'Delivery dates', sample: false }),
@@ -2251,15 +2254,39 @@ describe('the flags’ stages', () => {
         flag,
       }),
     ]);
+    if (baseline) await baselineOf(workItem, flag);
     return workItem;
   }
 
+  /** Verify's run of the flag with it off, as the line appends it, or as another role would. */
+  const baselineOf = (workItem: string, flag = FLAG, sql = db.as.line) =>
+    append(sql, [
+      event(workItem, 'flag.checked', 'factory', {
+        stage: 'off',
+        flag,
+        version: 'v0.9.5',
+        revision: 'none',
+        journeys: { passed: 24, ran: 24 },
+        notClean: [],
+        pages: [],
+      }),
+    ]);
+
+  /** The revision Martin's latest move of a flag wrote, which Verify's judgement of it names. */
+  const lastMove = async (flag = FLAG) => {
+    const [row] = await db.owner<{ revision: string }[]>`
+      select payload->>'revision' as revision from events
+      where type = 'flag.staged' and payload->>'flag' = ${flag} order by seq desc limit 1`;
+    return row?.revision ?? 'none';
+  };
+
   /** Verify's comparison of the flag at a share, as the line appends it, or as another role would. */
-  const compared = (workItem: string, share: number, outcome: 'passed' | 'failed', sql = db.as.line) =>
+  const compared = async (workItem: string, share: number, outcome: 'passed' | 'failed', sql = db.as.line) =>
     append(sql, [
       event(workItem, 'flag.compared', 'factory', {
         flag: FLAG,
         share,
+        moveRevision: await lastMove(),
         window: { from: new Date(Date.now() - 3_600_000).toISOString(), to: new Date().toISOString() },
         setAsideMinutes: 0,
         outcome,
@@ -2268,11 +2295,11 @@ describe('the flags’ stages', () => {
     ]);
 
   /** Verify's check of the flag with the probes at Checks or Preview, as the line appends it, or as another role would. */
-  const checked = (
+  const checked = async (
     workItem: string,
     stage: 'checks' | 'preview',
     outcome: 'passed' | 'failed' | 'unsure',
-    { sql = db.as.line, flag = FLAG } = {},
+    { sql = db.as.line, flag = FLAG, moveRevision = undefined as string | undefined } = {},
   ) =>
     append(sql, [
       event(workItem, 'flag.checked', 'factory', {
@@ -2280,6 +2307,7 @@ describe('the flags’ stages', () => {
         flag,
         version: 'v0.9.5',
         revision: 'r1',
+        moveRevision: moveRevision ?? (await lastMove(flag)),
         against: 'v0.9.5',
         outcome,
         journeys: { base: { passed: 24, ran: 24 }, change: { passed: 24, ran: 24 } },
@@ -2441,8 +2469,10 @@ describe('the flags’ stages', () => {
       status: 409,
       body: { refused: 'stage', message: expect.stringMatching(/still checking the flag at Checks/) },
     });
-    // A check any other role appended is no check of Verify's.
+    // A check any other role appended is no check of Verify's, nor one that names another move.
     await checked(workItem, 'checks', 'passed', { sql: db.as.triage });
+    expect((await move(browser, checks, share(50))).body.message).toMatch(/still checking/);
+    await checked(workItem, 'checks', 'passed', { moveRevision: 'r0' });
     expect((await move(browser, checks, share(50))).body.message).toMatch(/still checking/);
     await checked(workItem, 'checks', 'unsure');
     expect((await move(browser, checks, share(50))).body.message).toMatch(/at Checks could not tell/);
@@ -2461,6 +2491,20 @@ describe('the flags’ stages', () => {
     expect((await move(browser, checks, preview)).status).toBe(200);
     await checked(workItem, 'preview', 'passed');
     expect((await move(browser, preview, share(50))).status).toBe(200);
+  });
+
+  it('refuses Checks until the line has taken a run of the flag off for the improvement', async () => {
+    const workItem = await improvement(FLAG, 'improvement', false);
+    const { browser } = await signedIn();
+    expect(await move(browser, off, checks)).toMatchObject({
+      status: 409,
+      body: { refused: 'stage', message: expect.stringMatching(/^Verify has no picture of the app with the flag off/) },
+    });
+    // Another role's is none of Verify's; the line's lets Checks be taken.
+    await baselineOf(workItem, FLAG, db.as.triage);
+    expect((await move(browser, off, checks)).status).toBe(409);
+    await baselineOf(workItem);
+    expect((await move(browser, off, checks)).status).toBe(200);
   });
 
   it('refuses Share while a canary is in flight, or that can’t be told, or another flag is at Share', async () => {

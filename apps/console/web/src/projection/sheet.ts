@@ -180,6 +180,8 @@ export type FlagBlock =
       dropped: string[];
       /** The move the flag stands at now. */
       current: boolean;
+      /** The revision the move wrote, which Verify's judgement of it names. */
+      revision: string;
       /** At Share, Verify's comparison there, if it has judged. */
       compared: Compared | undefined;
       /** At Checks or Preview, Verify's check there with the probes, if it has run. */
@@ -1118,7 +1120,7 @@ function flagBlocks(item: ItemState, row: FlagRow): FlagBlock[] {
   }
   for (const event of item.events) {
     if (event.type === 'flag.staged' && event.actor === 'martin' && event.payload.flag === row.name) {
-      const { to, from, action, steppedUp, reason, dropped = [] } = event.payload;
+      const { to, from, action, steppedUp, reason, revision, dropped = [] } = event.payload;
       blocks.push({
         kind: 'staged',
         at: Date.parse(event.ts),
@@ -1129,6 +1131,7 @@ function flagBlocks(item: ItemState, row: FlagRow): FlagBlock[] {
         reason,
         dropped,
         current: false,
+        revision,
         compared: undefined,
         checked: undefined,
       });
@@ -1140,7 +1143,8 @@ function flagBlocks(item: ItemState, row: FlagRow): FlagBlock[] {
       event.payload.flag === row.name &&
       last?.kind === 'staged' &&
       last.stage.stage === 'share' &&
-      last.stage.share === event.payload.share
+      last.stage.share === event.payload.share &&
+      last.revision === event.payload.moveRevision
     ) {
       last.compared = { ...event.payload, at: Date.parse(event.ts) };
     }
@@ -1149,7 +1153,9 @@ function flagBlocks(item: ItemState, row: FlagRow): FlagBlock[] {
       fromVerify(event) &&
       event.payload.flag === row.name &&
       last?.kind === 'staged' &&
-      last.stage.stage === event.payload.stage
+      last.stage.stage === event.payload.stage &&
+      event.payload.stage !== 'off' &&
+      last.revision === event.payload.moveRevision
     ) {
       last.checked = checkedOf(event);
     }

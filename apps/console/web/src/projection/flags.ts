@@ -171,22 +171,25 @@ export function specFlag(item: ItemState): string | undefined {
 }
 
 /**
- * The events a flag's state is read from: Martin's moves, which only his roles can append, and Verify's comparisons
- * and checks at Checks and Preview (its baseline with the flag off holds nothing back).
+ * The events a flag's state is read from: Martin's moves, which only his roles can append, and Verify's comparisons,
+ * its checks at Checks and Preview, and its baselines with the flag off, which let Checks be taken.
  */
 function records(events: readonly PublicEvent[]): FlagRecord[] {
   return events.flatMap((event): FlagRecord[] => {
     if (event.type === 'flag.staged' && event.actor === 'martin' && event.work_item) {
-      const { flag, from, to } = event.payload;
-      return [{ type: 'flag.staged', flag, workItem: event.work_item, from, to }];
+      const { flag, from, to, revision } = event.payload;
+      return [{ type: 'flag.staged', flag, workItem: event.work_item, from, to, revision }];
     }
     if (event.type === 'flag.compared' && fromVerify(event)) {
-      const { flag, share, outcome } = event.payload;
-      return [{ type: 'flag.compared', flag, share, outcome }];
+      const { flag, share, outcome, moveRevision } = event.payload;
+      return [{ type: 'flag.compared', flag, share, outcome, moveRevision }];
     }
-    if (event.type === 'flag.checked' && event.payload.stage !== 'off' && fromVerify(event)) {
-      const { flag, stage, outcome } = event.payload;
-      return [{ type: 'flag.checked', flag, stage, outcome }];
+    if (event.type === 'flag.checked' && fromVerify(event) && event.work_item) {
+      const check = event.payload;
+      if (check.stage === 'off')
+        return [{ type: 'flag.checked', flag: check.flag, stage: 'off', workItem: event.work_item }];
+      const { flag, stage, outcome, moveRevision } = check;
+      return [{ type: 'flag.checked', flag, stage, outcome, moveRevision }];
     }
     return [];
   });
@@ -235,11 +238,14 @@ function latest(events: readonly PublicEvent[], flag: string) {
       compared = undefined;
       checked = undefined;
     }
+    // Each judgement of the latest move alone, as `flagsFrom` counts them: by the revision the move wrote.
+    const judged = (moveRevision: string) => staged?.payload.revision === moveRevision;
     if (event.type === 'flag.compared' && fromVerify(event) && event.payload.flag === flag) {
-      compared = { ...event.payload, at: Date.parse(event.ts) };
+      if (judged(event.payload.moveRevision)) compared = { ...event.payload, at: Date.parse(event.ts) };
     }
     if (event.type === 'flag.checked' && fromVerify(event) && event.payload.flag === flag) {
-      checked = checkedOf(event) ?? checked;
+      const check = checkedOf(event);
+      if (check && judged(check.moveRevision)) checked = check;
     }
   }
   return { staged, compared, checked };

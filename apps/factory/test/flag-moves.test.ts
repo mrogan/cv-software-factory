@@ -23,7 +23,12 @@ const share = (s: 10 | 25 | 50): Stage => ({ stage: 'share', share: s });
 const everyone: Stage = { stage: 'everyone' };
 
 /** A flag an improvement ships behind, at a stage. */
-const at = (stage: Stage | null, more: Partial<FlagNow> = {}): FlagNow => ({ stage, workItem: '1316', ...more });
+const at = (stage: Stage | null, more: Partial<FlagNow> = {}): FlagNow => ({
+  stage,
+  workItem: '1316',
+  baseline: true,
+  ...more,
+});
 /** A flag at Checks or Preview whose check there since Martin's move has passed. */
 const checked = (stage: typeof checks | typeof preview, more: Partial<FlagNow> = {}): FlagNow =>
   at(stage, { checked: { stage: stage.stage as 'checks' | 'preview', outcome: 'passed' }, ...more });
@@ -154,6 +159,18 @@ describe('a move', () => {
     expect(refused(at(share(10)), share(50), { canary: { version: 'v0.9.13', weight: 50 } })).toBeUndefined();
   });
 
+  it('refuses Checks until Verify has a baseline of the improvement to compare its check there with', () => {
+    expect(refused(at(off, { baseline: false }), checks)).toBe(
+      'Verify has no picture of the app with the flag off yet: Checks can be taken once it has, so the check there has something to compare with.',
+    );
+    expect(refused(at(off), checks)).toBeUndefined();
+    // Turning back on from Everyone, Off and narrowing never wait for it.
+    const offFromEveryone = at(off, { baseline: false, stagedOn: '1316', last: { from: everyone, to: off } });
+    expect(refused(offFromEveryone, everyone)).toBeUndefined();
+    expect(refused(at(preview, { baseline: false }), checks)).toBeUndefined();
+    expect(refused(at(checks, { baseline: false }), off)).toBeUndefined();
+  });
+
   it('refuses a widening past Checks or Preview until Verify’s check there has passed', () => {
     expect(refused(at(checks), preview)).toBe(
       'Verify is still checking the flag at Checks: Preview can be taken once the check has passed.',
@@ -221,13 +238,14 @@ describe('a move', () => {
 });
 
 describe('a flag as its events tell it', () => {
-  it('is off once a spec names it, at the stage Martin last set, with Verify’s comparison since', () => {
+  it('is off once a spec names it, at the stage Martin last set, with Verify’s comparison of that move', () => {
     const flags = flagsFrom(
       [
-        { type: 'flag.staged', flag: 'delivery-dates', workItem: '1316', from: off, to: checks },
-        { type: 'flag.staged', flag: 'delivery-dates', workItem: '1316', from: checks, to: share(50) },
-        { type: 'flag.compared', flag: 'delivery-dates', share: 50, outcome: 'passed' },
-        { type: 'flag.staged', flag: 'old-banner', workItem: '1200', from: everyone, to: off },
+        { type: 'flag.checked', flag: 'delivery-dates', stage: 'off', workItem: '1316' },
+        { type: 'flag.staged', flag: 'delivery-dates', workItem: '1316', from: off, to: checks, revision: 'r1' },
+        { type: 'flag.staged', flag: 'delivery-dates', workItem: '1316', from: checks, to: share(50), revision: 'r2' },
+        { type: 'flag.compared', flag: 'delivery-dates', share: 50, outcome: 'passed', moveRevision: 'r2' },
+        { type: 'flag.staged', flag: 'old-banner', workItem: '1200', from: everyone, to: off, revision: 'r3' },
       ],
       { 'delivery-dates': '1316', 'price-sort': '1330' },
     );
@@ -238,6 +256,7 @@ describe('a flag as its events tell it', () => {
         stagedOn: '1316',
         last: { from: checks, to: share(50) },
         compared: { share: 50, outcome: 'passed' },
+        baseline: true,
       },
       'price-sort': { stage: off, workItem: '1330' },
       'old-banner': { stage: off, stagedOn: '1200', last: { from: everyone, to: off } },
@@ -248,27 +267,60 @@ describe('a flag as its events tell it', () => {
     expect(moveOf('old-banner', { stage: checks, stagedOn: '1200' }, off).refused).toBeUndefined();
   });
 
-  it('has Verify’s check at Checks or Preview since Martin’s move, and forgets it once he moves the flag again', () => {
+  it('has Verify’s check at Checks or Preview of Martin’s move, and forgets it once he moves the flag again', () => {
     const records = [
-      { type: 'flag.staged', flag: 'delivery-dates', workItem: '1316', from: off, to: checks },
-      { type: 'flag.checked', flag: 'delivery-dates', stage: 'checks', outcome: 'passed' },
+      { type: 'flag.staged', flag: 'delivery-dates', workItem: '1316', from: off, to: checks, revision: 'r1' },
+      { type: 'flag.checked', flag: 'delivery-dates', stage: 'checks', outcome: 'passed', moveRevision: 'r1' },
     ] as const;
     const flags = flagsFrom(records, { 'delivery-dates': '1316' });
     expect(flags['delivery-dates']?.checked).toEqual({ stage: 'checks', outcome: 'passed' });
     expect(moveOf('delivery-dates', flags['delivery-dates'] as FlagNow, preview).refused).toBeUndefined();
     const moved = flagsFrom(
-      [...records, { type: 'flag.staged', flag: 'delivery-dates', workItem: '1316', from: checks, to: preview }],
+      [
+        ...records,
+        { type: 'flag.staged', flag: 'delivery-dates', workItem: '1316', from: checks, to: preview, revision: 'r2' },
+      ],
       { 'delivery-dates': '1316' },
     );
     expect(moved['delivery-dates']?.checked).toBeUndefined();
     expect(moveOf('delivery-dates', moved['delivery-dates'] as FlagNow, share(50)).refused).toMatch(/still checking/);
   });
 
+  it('counts a judgement only for the move it names, however late it comes', () => {
+    // A check started at Checks (r1), appended after Martin went to Preview and back to Checks (r3): none of r3's.
+    const flags = flagsFrom([
+      { type: 'flag.staged', flag: 'dates', workItem: '1316', from: off, to: checks, revision: 'r1' },
+      { type: 'flag.staged', flag: 'dates', workItem: '1316', from: checks, to: preview, revision: 'r2' },
+      { type: 'flag.staged', flag: 'dates', workItem: '1316', from: preview, to: checks, revision: 'r3' },
+      { type: 'flag.checked', flag: 'dates', stage: 'checks', outcome: 'passed', moveRevision: 'r1' },
+      // So a comparison of an earlier move at the same share.
+      { type: 'flag.staged', flag: 'shared', workItem: '1317', from: checks, to: share(50), revision: 'r4' },
+      { type: 'flag.staged', flag: 'shared', workItem: '1317', from: share(50), to: checks, revision: 'r5' },
+      { type: 'flag.staged', flag: 'shared', workItem: '1317', from: checks, to: share(50), revision: 'r6' },
+      { type: 'flag.compared', flag: 'shared', share: 50, outcome: 'passed', moveRevision: 'r4' },
+    ]);
+    expect(flags.dates?.checked).toBeUndefined();
+    expect(flags.shared?.compared).toBeUndefined();
+    // Another flag's later move leaves this one's judgement standing: it names this flag's move.
+    const later = flagsFrom([
+      { type: 'flag.staged', flag: 'dates', workItem: '1316', from: off, to: checks, revision: 'r1' },
+      { type: 'flag.staged', flag: 'other', workItem: '1318', from: off, to: checks, revision: 'r2' },
+      { type: 'flag.checked', flag: 'dates', stage: 'checks', outcome: 'passed', moveRevision: 'r1' },
+    ]);
+    expect(later.dates?.checked).toEqual({ stage: 'checks', outcome: 'passed' });
+  });
+
+  it('has a baseline only for the improvement whose spec names it now', () => {
+    const records = [{ type: 'flag.checked', flag: 'dates', stage: 'off', workItem: '1316' }] as const;
+    expect(flagsFrom(records, { dates: '1316' }).dates?.baseline).toBe(true);
+    expect(flagsFrom(records, { dates: '1400' }).dates?.baseline).toBeUndefined();
+  });
+
   it('forgets a comparison once Martin moves the flag again', () => {
     const flags = flagsFrom([
-      { type: 'flag.staged', flag: 'delivery-dates', workItem: '1316', from: checks, to: share(50) },
-      { type: 'flag.compared', flag: 'delivery-dates', share: 50, outcome: 'passed' },
-      { type: 'flag.staged', flag: 'delivery-dates', workItem: '1316', from: share(50), to: share(25) },
+      { type: 'flag.staged', flag: 'delivery-dates', workItem: '1316', from: checks, to: share(50), revision: 'r1' },
+      { type: 'flag.compared', flag: 'delivery-dates', share: 50, outcome: 'passed', moveRevision: 'r1' },
+      { type: 'flag.staged', flag: 'delivery-dates', workItem: '1316', from: share(50), to: share(25), revision: 'r2' },
     ]);
     expect(flags['delivery-dates']?.compared).toBeUndefined();
   });

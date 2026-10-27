@@ -16,11 +16,14 @@
  *   once staged can always be turned off, on the work item it was staged on.
  * - **Share** is refused while a canary is in flight, whose two versions would mix the two sides, or can't be told to
  *   be, and while another flag is at Share: one at a time, so each comparison varies one thing.
+ * - **Checks** waits for Verify's baseline of the improvement, its run with the flag off (`flag.checked` at Off), so the
+ *   check at Checks has something to compare with: without one it could never tell, and from Checks only Off is lower,
+ *   which closes the work item.
  * - **Past Checks, and past Preview,** waits for Verify's check of the flag at that stage with the probes
- *   (`flag.checked`) since Martin last set its stage, so each stage is checked before the flag goes past it: from
+ *   (`flag.checked`) of Martin's latest move of it, so each stage is checked before the flag goes past it: from
  *   Checks, Preview and Share are refused while it is still checking, when it failed, and when it could not tell; from
  *   Preview, Share the same. The journeys at Checks must pass before the flag reaches anyone but the factory's checks.
- * - **Everyone** waits for Verify's comparison of the flag at Share (`flag.compared`) since Martin last set its stage:
+ * - **Everyone** waits for Verify's comparison of the flag at Share (`flag.compared`) of Martin's latest move of it:
  *   refused while it is still comparing, and when it failed.
  * - Only a flag an improvement's spec names is staged here, so each move is on that improvement's work item.
  *
@@ -50,6 +53,11 @@ export interface FlagNow {
   compared?: { share: Share; outcome: FlagComparison };
   /** Verify's latest check of it with the probes at Checks or Preview since that move, if there is one. */
   checked?: { stage: CheckedStage; outcome: FlagCheck };
+  /**
+   * Whether Verify has a picture of the app with it off (a baseline) for the improvement whose spec names it, which a
+   * check at Checks is compared with.
+   */
+  baseline?: boolean;
 }
 
 /** The stages Verify checks a flag at with the probes, and a widening past waits for. */
@@ -176,6 +184,11 @@ function refusalOf(
   if (action === 'flag.back-on' && !turnedOffFromEveryone(now)) {
     return 'Only a flag turned off from Everyone goes straight back to it: from Off, Checks comes first.';
   }
+  // A check at Checks with nothing to compare with could never tell, and Checks can't go back to Off without closing
+  // the work item: so Checks waits for the baseline.
+  if (action === 'flag.to-checks' && !now.baseline) {
+    return 'Verify has no picture of the app with the flag off yet: Checks can be taken once it has, so the check there has something to compare with.';
+  }
   const skips = rank(to.stage) - rank(from.stage) > 1;
   const skipsPreview = from.stage === 'checks' && to.stage === 'share';
   if (action === 'flag.widen' && skips && !skipsPreview) {
@@ -218,34 +231,51 @@ function refusalOf(
 
 /** One of the events a flag's state is read from, as each reader has it, oldest first. */
 export type FlagRecord =
-  | { type: 'flag.staged'; flag: string; workItem: string; from: Stage | null; to: Stage }
-  | { type: 'flag.compared'; flag: string; share: Share; outcome: FlagComparison }
-  | { type: 'flag.checked'; flag: string; stage: CheckedStage; outcome: FlagCheck };
+  | { type: 'flag.staged'; flag: string; workItem: string; from: Stage | null; to: Stage; revision: string }
+  | { type: 'flag.compared'; flag: string; share: Share; outcome: FlagComparison; moveRevision: string }
+  | { type: 'flag.checked'; flag: string; stage: CheckedStage; outcome: FlagCheck; moveRevision: string }
+  | { type: 'flag.checked'; flag: string; stage: 'off'; workItem: string };
 
 /**
- * Each flag as Martin's stages and Verify's comparisons and checks tell it, from their events oldest first (only those Martin's
- * roles appended, and Verify's, the line's), with the flags improvements' specs name and their work items: what the
- * console reads where the admin service reads `flags` itself. A flag named by a spec and never staged is off.
+ * Each flag as Martin's stages and Verify's comparisons and checks tell it, from their events oldest first (only those
+ * Martin's roles appended, and Verify's, the line's), with the flags improvements' specs name and their work items:
+ * what the console reads where the admin service reads `flags` itself. A flag named by a spec and never staged is off.
+ *
+ * A judgement counts only for the move it judged: the one whose revision it names, while that move is Martin's latest
+ * of the flag. Each write of the flag set has a revision of its own, so a comparison or check started for an earlier
+ * move, and appended after a later one, never counts for the later one. A baseline counts for the improvement it was
+ * taken for, whatever Martin has done since.
  */
 export function flagsFrom(
   records: readonly FlagRecord[],
   named: Readonly<Record<string, string>> = {},
 ): Record<string, FlagNow> {
   const flags: Record<string, FlagNow> = {};
+  /** The revision each flag's latest move wrote. */
+  const moved = new Map<string, string>();
+  /** The work items each flag has a baseline for. */
+  const baselines = new Map<string, Set<string>>();
   for (const [flag, workItem] of Object.entries(named)) flags[flag] = { stage: { stage: 'off' }, workItem };
   for (const record of records) {
+    const now = flags[record.flag];
     if (record.type === 'flag.staged') {
-      const { flag, workItem, from, to } = record;
+      const { flag, workItem, from, to, revision } = record;
       // A move clears the comparison and the check before it: Verify judges the flag as it stands.
       const spec = named[flag];
       flags[flag] = { stage: to, ...(spec && { workItem: spec }), stagedOn: workItem, last: { from, to } };
+      moved.set(flag, revision);
+    } else if (record.type === 'flag.checked' && record.stage === 'off') {
+      baselines.set(record.flag, (baselines.get(record.flag) ?? new Set()).add(record.workItem));
+    } else if (!now || moved.get(record.flag) !== record.moveRevision) {
+      // A judgement of no move, or of one Martin has made another since.
     } else if (record.type === 'flag.compared') {
-      const now = flags[record.flag] ?? { stage: { stage: 'off' } };
       flags[record.flag] = { ...now, compared: { share: record.share, outcome: record.outcome } };
     } else {
-      const now = flags[record.flag] ?? { stage: { stage: 'off' } };
       flags[record.flag] = { ...now, checked: { stage: record.stage, outcome: record.outcome } };
     }
+  }
+  for (const [flag, now] of Object.entries(flags)) {
+    if (now.workItem && baselines.get(flag)?.has(now.workItem)) flags[flag] = { ...now, baseline: true };
   }
   return flags;
 }

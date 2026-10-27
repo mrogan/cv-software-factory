@@ -1,16 +1,20 @@
 /**
  * An improvement turned off at Checks, and closed. Martin asked for a gift note in the basket; the planner named the
  * flag, `gift-note`, Martin approved the spec and the pull request, and it shipped in v0.9.7 beside #1302's fix, with
- * the flag off. He widened it to Checks, where only the factory's own checks see it, judged the pages off and
- * on, and turned it off with his reason. The line closed the work item as turned off: its code stays in the app, off,
- * and nothing was rolled back.
+ * the flag off. Verify took its run with the flag off, and Martin widened it to Checks, where only the factory's own
+ * checks see it. Verify's check there passed; its pictures are of the front page, the same off and on, as the change is
+ * to the basket. He turned it off with his reason. The line closed the work item as turned off: its code stays in the
+ * app, off, and nothing was rolled back.
  */
 import { commitFor, Item } from '../build.ts';
+import { shot } from '../captures.ts';
 import { V097 } from './1302-long-words.ts';
 
 /** The flag the spec names. */
 const FLAG = 'gift-note';
 const REASON = 'The note box covers the basket total on a phone';
+/** The front page, which the probes picture while a spec names no pages. */
+const HOME = shot('published/home', 'v0.9.7');
 
 export default new Item('1299', '2026-10-03T09:30:00+01:00')
   .at('0:00', 'work-item.opened', 'martin', 'Martin asked for an improvement from the console', {
@@ -74,6 +78,22 @@ export default new Item('1299', '2026-10-03T09:30:00+01:00')
   })
   // Out in v0.9.7 beside #1302's fix, with the flag off: nobody sees a change.
   .released('59:20', 'v0.9.7', 'v0.9.6', V097, { promotion: `v0.9.7 promoted to 100%, the ${FLAG} flag off` })
+  .at(
+    '1:06:00',
+    'flag.checked',
+    'factory',
+    `${FLAG} with the flag off, on v0.9.7: 24 of 24 checks passed`,
+    {
+      stage: 'off',
+      flag: FLAG,
+      version: 'v0.9.7',
+      revision: 'r6',
+      journeys: { passed: 24, ran: 24 },
+      notClean: [],
+      pages: [{ page: '/', route: '/', off: HOME.hash }],
+    },
+    [HOME],
+  )
   .at('4:30:00', 'flag.staged', 'martin', `Martin widened ${FLAG} from Off to Checks`, {
     flag: FLAG,
     from: { stage: 'off' },
@@ -82,6 +102,25 @@ export default new Item('1299', '2026-10-03T09:30:00+01:00')
     revision: 'r7',
     steppedUp: false,
   })
+  .at(
+    '4:36:00',
+    'flag.checked',
+    'factory',
+    `${FLAG} at Checks: passed`,
+    {
+      stage: 'checks',
+      flag: FLAG,
+      version: 'v0.9.7',
+      revision: 'r7',
+      moveRevision: 'r7',
+      against: 'v0.9.7',
+      outcome: 'passed',
+      journeys: { base: { passed: 24, ran: 24 }, change: { passed: 24, ran: 24 } },
+      regressions: [],
+      pages: [{ page: '/', route: '/', off: HOME.hash, on: HOME.hash, changed: 0 }],
+    },
+    [HOME],
+  )
   .at('4:30:01', 'work-item.summarised', 'factory', 'Summary written', {
     title: 'A gift note in the basket',
     description: 'The basket takes a note to print with the order, behind its flag. It shipped off, and is at Checks.',

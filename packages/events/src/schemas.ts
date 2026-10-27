@@ -79,7 +79,15 @@ const journeyCheck = z.strictObject({
   message: text(300).optional(),
 });
 /** What a flag's check at Checks or Preview judged its journeys on, against the run with the flag off. */
+/**
+ * The revision of the flag set that Martin's move of this flag wrote (`flag.staged`'s), which a judgement judges: it
+ * counts only while that move is his latest of the flag, and each write's revision is its own, so a judgement started
+ * for an earlier move never counts for a later one.
+ */
+const moveRevision = z.string().regex(/^[!-~]{1,128}$/, "the revision Martin's move of the flag wrote");
+
 const flagJourneys = {
+  moveRevision,
   /** The run with the flag off it was compared with: its version, or none when there was no such run. */
   against: appVersion.nullable(),
   outcome: z.enum(V.FLAG_CHECKS),
@@ -1129,12 +1137,13 @@ export const PAYLOADS = {
    * Verify compared a flag's two sides at the share stage (task 17): flag on against flag off, on the traffic
    * generator's own requests in the window, each id's side worked out with flagd's own rule, judged on errors and
    * latency with the canary's thresholds. `setAsideMinutes` is how much of the window a canary was in flight, left out.
-   * Until the latest comparison of a flag at its share, appended by the line since Martin last set its stage, has
-   * passed, the admin service refuses Everyone. On the work item whose improvement's spec names the flag.
+   * Until a comparison of a flag at its share, appended by the line, of Martin's latest move of it (`moveRevision`),
+   * has passed, the admin service refuses Everyone. On the work item whose improvement's spec names the flag.
    */
   'flag.compared': z.strictObject({
     flag: flagName,
     share: flagShare,
+    moveRevision,
     window: z.strictObject({ from: timestamp, to: timestamp }),
     setAsideMinutes: count,
     outcome: z.enum(V.FLAG_COMPARISONS),
@@ -1154,7 +1163,9 @@ export const PAYLOADS = {
    * - `preview`: at Preview, the same, after a probe asked to preview the flag: it passes only when the `/device` check
    *   allowed the preview cookie and kept nothing the run with the flag off did not.
    *
-   * One for each of Martin's moves to Checks or Preview; unsure when there was no run with the flag off to compare with.
+   * One for each of Martin's moves to Checks or Preview, naming the revision that move wrote (`moveRevision`), beside
+   * the revision the run saw (`revision`, which a later move of another flag makes newer); unsure when there was no run
+   * with the flag off to compare with, or one that names fewer of its failing checks than failed.
    */
   'flag.checked': z.discriminatedUnion('stage', [
     z.strictObject({

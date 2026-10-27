@@ -135,6 +135,7 @@ export default new Item('1271', '2026-10-01T10:05:00+01:00')
       flag: 'last-one',
       version: 'v0.9.0',
       revision: 'r1',
+      moveRevision: 'r1',
       against: 'v0.9.0',
       outcome: 'passed',
       journeys: { base: { passed: 24, ran: 24 }, change: { passed: 24, ran: 24 } },
@@ -156,6 +157,7 @@ export default new Item('1271', '2026-10-01T10:05:00+01:00')
     flag: 'last-one',
     version: 'v0.9.0',
     revision: 'r2',
+    moveRevision: 'r2',
     against: 'v0.9.0',
     outcome: 'passed',
     journeys: { base: { passed: 24, ran: 24 }, change: { passed: 25, ran: 25 } },
@@ -173,6 +175,7 @@ export default new Item('1271', '2026-10-01T10:05:00+01:00')
   .at('4:30:00', 'flag.compared', 'factory', 'last-one at Share 50%: flag on against off passed', {
     flag: 'last-one',
     share: 50,
+    moveRevision: 'r3',
     // From a minute after the move, the time the app has to hold it. Five requests a second for 7,140 s, split by
     // which of the generator's 101 ids flagd puts on each side of last-one at 50%: 46 on, 55 off.
     window: { from: '2026-10-01T11:36:00.000Z', to: '2026-10-01T13:35:00.000Z' },
