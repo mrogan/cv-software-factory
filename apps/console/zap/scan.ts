@@ -29,10 +29,11 @@ const ZAP_IMAGE =
 const PORT = 18_330;
 
 /**
- * ZAP's own proxy, through which zap-baseline.py drives it. On Linux ZAP shares the host's network, where the port zap-baseline.py picks for itself, at random from the range the kernel gives outgoing
- * connections, can be taken by one (ZAP's own, fetching add-ons as it starts) before ZAP listens on it. This one is
- * below that range as Linux, macOS and Windows set it by default, and clear of the harness's (`PORT` and the one after
- * it), so only a program listening on it could hold it, and then the scan stops at once (`hooks.py`).
+ * ZAP's own proxy, through which zap-baseline.py drives it. On Linux ZAP shares the host's network, where the port
+ * zap-baseline.py picks for itself, at random from the range the kernel gives outgoing connections, can be taken by one
+ * (ZAP's own, fetching add-ons as it starts) before ZAP listens on it. This one is below that range as Linux, macOS and
+ * Windows set it by default, and clear of the harness's (`PORT` and the one after it), so only a program listening on
+ * it could hold it, and then the scan stops at once (`hooks.py`).
  */
 const ZAP_PORT = 18_338;
 
