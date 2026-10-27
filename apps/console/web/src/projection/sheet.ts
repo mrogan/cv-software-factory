@@ -16,7 +16,16 @@ import { clearedOnWords, knownInScope, LIMITS, SENSES } from '@software-factory/
 import { FLAG_STEP_UP } from '../access.ts';
 import { clock, shortVersion } from '../format.ts';
 import { type Attempt, attempts, deployPicture, reviewThread, startsPass, type ThreadReview } from './fixing.ts';
-import { type Compared, type FlagRow, type Stage as FlagStage, itemFlag, STAGE_NAME } from './flags.ts';
+import {
+  type Checked,
+  type Compared,
+  checkedOf,
+  type FlagRow,
+  type Stage as FlagStage,
+  fromVerify,
+  itemFlag,
+  STAGE_NAME,
+} from './flags.ts';
 import { type Capture, clearanceWords, type Hold, type ItemState, summaryOf } from './items.ts';
 import { bySense, type Card, card, type Picture, picture, pictureOfSignal } from './reel.ts';
 import { endedWords, type Release, releases, type StoppedBy, stoppedBy } from './release.ts';
@@ -153,7 +162,7 @@ export interface SenseEvidence {
 
 /**
  * One block of an improvement's flag on its sheet: its release, with the flag off, and then each move Martin made of it,
- * with Verify's comparison at Share.
+ * with Verify's check at Checks and Preview, and its comparison at Share.
  */
 export type FlagBlock =
   | { kind: 'released'; at: number; version: string; release: string }
@@ -171,8 +180,12 @@ export type FlagBlock =
       dropped: string[];
       /** The move the flag stands at now. */
       current: boolean;
+      /** The revision the move wrote, which Verify's judgement of it names. */
+      revision: string;
       /** At Share, Verify's comparison there, if it has judged. */
       compared: Compared | undefined;
+      /** At Checks or Preview, Verify's check there with the probes, if it has run. */
+      checked: Checked | undefined;
     };
 
 /** An improvement's flag on its sheet, in place of Release and Verify: the slider, read-only, and a block per move. */
@@ -318,6 +331,10 @@ function closing(item: ItemState): string | undefined {
     const on = version ? ` on ${shortVersion(version)}` : '';
     return `It was verified${on} by ${sense ? CHECK_OF[sense] : 'the check'} “${check}”, and closed.`;
   }
+  // Martin's reason for turning its flag off, which the close gives.
+  if (close.payload.outcome === 'turned-off') {
+    return `Martin turned its flag off: ${close.payload.reason.replace(/\.$/, '')}. It closed as turned off, its code still in the app, off, and nothing rolled back.`;
+  }
   // GitHub's word that a pull request closed unmerged, which the line records as Martin's.
   const unmerged = /^Pull request #(\d+) was closed without being merged/.exec(close.payload.reason);
   if (close.payload.outcome === 'no-change' && close.actor === 'martin' && unmerged) {
@@ -402,10 +419,17 @@ function chapterOf(event: PublicEvent, item: ItemState): Pick<Chapter, 'label' |
       };
     case 'flag.compared':
       return { label: 'COMPARED', tone: event.payload.outcome === 'passed' ? 'ok' : 'attn' };
+    // Verify's checks with the probes at Checks and Preview; the baseline with the flag off moves nothing.
+    case 'flag.checked':
+      if (event.payload.stage === 'off') return undefined;
+      if (event.payload.outcome === 'unsure') return { label: 'CHECKED', tone: 'faint' };
+      return { label: 'CHECKED', tone: event.payload.outcome === 'passed' ? 'ok' : 'attn' };
     case 'work-item.closed':
       // A guardrail that worked needs nobody: quarantine is told in the quiet tone, as closed work is.
       if (event.payload.outcome === 'quarantined') return { label: 'QUARANTINED', tone: 'faint' };
-      return event.payload.outcome === 'no-change' || event.payload.outcome === 'discarded'
+      return event.payload.outcome === 'no-change' ||
+        event.payload.outcome === 'discarded' ||
+        event.payload.outcome === 'turned-off'
         ? { label: 'CLOSED', tone: 'faint' }
         : undefined;
     default:
@@ -1083,7 +1107,7 @@ function flagFact(item: ItemState): string | undefined {
   return `${flag.name} · ${stage ? STAGE_NAME[stage.stage].toLowerCase() : 'outside every stage'}`;
 }
 
-/** The flag's blocks on the sheet, newest first: its release, then each of Martin's moves, with Verify's comparison. */
+/** The flag's blocks on the sheet, newest first: its release, then each of Martin's moves, with Verify's judgement. */
 function flagBlocks(item: ItemState, row: FlagRow): FlagBlock[] {
   const blocks: FlagBlock[] = [];
   const promoted = item.events.find((event) => event.type === 'release.promoted');
@@ -1097,7 +1121,7 @@ function flagBlocks(item: ItemState, row: FlagRow): FlagBlock[] {
   }
   for (const event of item.events) {
     if (event.type === 'flag.staged' && event.actor === 'martin' && event.payload.flag === row.name) {
-      const { to, from, action, steppedUp, reason, dropped = [] } = event.payload;
+      const { to, from, action, steppedUp, reason, revision, dropped = [] } = event.payload;
       blocks.push({
         kind: 'staged',
         at: Date.parse(event.ts),
@@ -1108,18 +1132,33 @@ function flagBlocks(item: ItemState, row: FlagRow): FlagBlock[] {
         reason,
         dropped,
         current: false,
+        revision,
         compared: undefined,
+        checked: undefined,
       });
     }
     const last = blocks.at(-1);
     if (
       event.type === 'flag.compared' &&
+      fromVerify(event) &&
       event.payload.flag === row.name &&
       last?.kind === 'staged' &&
       last.stage.stage === 'share' &&
-      last.stage.share === event.payload.share
+      last.stage.share === event.payload.share &&
+      last.revision === event.payload.moveRevision
     ) {
       last.compared = { ...event.payload, at: Date.parse(event.ts) };
+    }
+    if (
+      event.type === 'flag.checked' &&
+      fromVerify(event) &&
+      event.payload.flag === row.name &&
+      last?.kind === 'staged' &&
+      last.stage.stage === event.payload.stage &&
+      event.payload.stage !== 'off' &&
+      last.revision === event.payload.moveRevision
+    ) {
+      last.checked = checkedOf(event);
     }
   }
   const last = blocks.at(-1);

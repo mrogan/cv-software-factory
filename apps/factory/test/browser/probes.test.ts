@@ -272,6 +272,27 @@ describe('what the pages leave on the device, for the gates', () => {
     }
   }, 120_000);
 
+  it('asks for a preview first when Verify checks a flag at its opt-in stage, and keeps what the device check allowed', async () => {
+    const shop = await startShop('keeps-cookie');
+    try {
+      const { seen } = await observeApp(shop.url, [{ sense: 'probe', check: 'home-leads-to-the-catalogue' }], {
+        store,
+        log,
+        limit: 10,
+        device: true,
+        preview: 'dark-mode',
+      });
+      const device = seen.filter((s) => s.check.endsWith('/device'));
+      expect(device.map((s) => [s.check, s.allowed, s.kept])).toEqual([
+        ['preview/device', ['cookie preview'], ['cookie visit']],
+        ['home-leads-to-the-catalogue/device', ['cookie preview'], ['cookie visit']],
+      ]);
+      expect(seen.find((s) => s.check === 'preview')).toMatchObject({ failed: false });
+    } finally {
+      await shop.close();
+    }
+  }, 60_000);
+
   describe('the preview cookie', () => {
     /** A check that asks for a preview, as the opt-in stage's probe will, and finds nothing wrong. */
     const asking = (flag: string): BrowserCheck<Shop> => ({

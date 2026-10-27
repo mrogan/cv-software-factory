@@ -682,6 +682,17 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
         await expect(section).toHaveScreenshot(`m07-sheet-flag-${item}-${width}.png`);
       });
     }
+
+    test('#1271’s sheet, its flag at Checks: the pages off and on', async ({ page }) => {
+      await page.goto(consoleUrl({ item: '1271', sheet: true }));
+      const checks = page.locator('.sheet details.rel', { hasText: /^Checks/ });
+      await checks.locator('summary').click();
+      await checks.scrollIntoViewIfNeeded();
+      await page.evaluate(() => document.fonts.ready);
+      await expect(checks.locator('img')).toHaveCount(2);
+      for (const img of await checks.locator('img').all()) await expect(img).toHaveJSProperty('complete', true);
+      await expect(checks).toHaveScreenshot(`m07-sheet-flag-checks-${width}.png`);
+    });
   });
 }
 

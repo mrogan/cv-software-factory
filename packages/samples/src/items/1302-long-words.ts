@@ -1,6 +1,21 @@
 /** A defect a visitor injected: sent back once by Gates, then fixed, rolled out and verified. */
-import { commitFor, Item, traceFor } from '../build.ts';
+import { commitFor, Item, type Step, traceFor } from '../build.ts';
 import { shot } from '../captures.ts';
+
+/** v0.9.7's steps, as each work item it carried records them. */
+export const V097: Step[] = [
+  {
+    errorRate: { canary: 0.002, baseline: 0.0022 },
+    p99Ms: { canary: 131, baseline: 134 },
+    journeys: { canary: [24, 24], baseline: [23, 24] },
+    artifacts: [shot('published/search', 'v0.9.7')],
+  },
+  {
+    errorRate: { canary: 0.0021, baseline: 0.0022 },
+    p99Ms: { canary: 132, baseline: 133 },
+    journeys: { canary: [24, 24], baseline: [23, 24] },
+  },
+];
 
 const JOURNEY_FAILED = `✕ End-to-end journeys             required check · failed in 1m 52s
   search journey
@@ -114,19 +129,7 @@ export default new Item('1302', '2026-10-03T10:12:00+01:00')
     commit: commitFor('1302/merge'),
     by: 'factory',
   })
-  .released('17:20', 'v0.9.7', 'v0.9.6', [
-    {
-      errorRate: { canary: 0.002, baseline: 0.0022 },
-      p99Ms: { canary: 131, baseline: 134 },
-      journeys: { canary: [24, 24], baseline: [23, 24] },
-      artifacts: [shot('published/search', 'v0.9.7')],
-    },
-    {
-      errorRate: { canary: 0.0021, baseline: 0.0022 },
-      p99Ms: { canary: 132, baseline: 133 },
-      journeys: { canary: [24, 24], baseline: [23, 24] },
-    },
-  ])
+  .released('17:20', 'v0.9.7', 'v0.9.6', V097)
   .verify('25:10', 'A search for sandpaper finds it; every page matches v0.9.5, before the injection', {
     check: 'A search for a nine-letter word finds it',
     against: 'v0.9.5',

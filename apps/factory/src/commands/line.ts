@@ -37,7 +37,8 @@
  * watcher's pattern through Loki at LOKI_URL, and its agreement check through Prometheus and Loki, with Tempo at
  * TEMPO_URL for the traces. A sense whose address is unset cannot look, and its work items wait at Verify; without
  * TEMPO_URL, a missing log is judged on the metrics and the log alone, and wrong metrics wait. A dry run's release is
- * verified by the dry run's word.
+ * verified by the dry run's word. A feature flag at the share stage has its two sides compared on the traffic
+ * generator's figures, through Prometheus at PROMETHEUS_URL too; unset, it waits.
  *
  * Before it deletes a step's Jobs, however the step ended, the line keeps each pod's log in the artifact store at
  * ARTIFACTS_DIR (`runners/logs.ts`); unset, it keeps none. Its step API serves a work item's, step by step, at
@@ -244,6 +245,8 @@ async function serve(): Promise<number> {
   const events = new EventWriter(sql, { kind: 'real', artifacts: new IndexedArtifacts(sql) });
   // A spend hold is appended by the same writer, under the lock a save of the settings takes too.
   const settings = lineSettings(new SettingsReader(sql, profile, { freshMs: 0 }), allLocal, { sql, events });
+  // Verify's probes: a ticket's check run again, and each improvement's flag checked at its stage.
+  const probes = env.PROBES_URL?.trim() ? new ProbesClient(env.PROBES_URL.trim()) : null;
   const line = new Line({
     sql,
     events,
@@ -267,11 +270,12 @@ async function serve(): Promise<number> {
     dryRun: mode === 'dry-run',
     dryRunReleaseMs: releaseSeconds * 1000,
     verify: {
-      probes: env.PROBES_URL?.trim() ? new ProbesClient(env.PROBES_URL.trim()) : null,
+      probes,
       prometheus: env.PROMETHEUS_URL?.trim() ? telemetryFrom(env).prometheus : null,
       loki: env.LOKI_URL?.trim() ? telemetryFrom(env).loki : null,
       tempo: env.TEMPO_URL?.trim() ? telemetryFrom(env).tempo : null,
     },
+    flagChecks: probes,
   });
   // Martin's security events and the holds waiting for him, from the store, whatever LINE_MODE is: the alerts that page
   // him read them (line/security.ts).

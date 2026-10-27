@@ -32,7 +32,7 @@
 import { context, ROOT_CONTEXT } from '@opentelemetry/api';
 import type { Evidence, PayloadOf, Sense, SignalSource, SymptomClass } from '@software-factory/events';
 import { clearedOnWords, SENSES, sameVersion } from '@software-factory/events';
-import { evidence as evidenceSchema } from '@software-factory/events/schemas';
+import { artifactRef, evidence as evidenceSchema } from '@software-factory/events/schemas';
 import { CANARY_ANY_ROUTE } from '@software-factory/triage';
 import { z } from 'zod';
 import { objectives as OBJECTIVES, type Objectives } from '../../../../policy/objectives.ts';
@@ -59,6 +59,7 @@ import {
 import { keptLine } from '../logs/errors.ts';
 import { sameError } from '../logs/patterns.ts';
 import { errorLogs, TIMING } from '../logs/watcher.ts';
+import type { FlagCheckAnswer, FlagCheckRequest } from '../probes/flag-check.ts';
 import type { VerifyAnswer, VerifyRequest } from '../probes/verify.ts';
 import { short } from '../release/recorded.ts';
 import { requestLogs, routeTemplates } from '../routes.ts';
@@ -98,6 +99,14 @@ export type Look =
 /** The probes worker, as Verify uses it: a ticket's check run again against the stable Service. */
 export interface ProbesPort {
   verify(request: VerifyRequest, signal?: AbortSignal): Promise<VerifyAnswer>;
+}
+
+/**
+ * The probes worker, as Verify by variant uses it: a feature flag checked at its stage (`probes/flag-check.ts`). Asked
+ * once for each of the line's passes, it answers null while the check runs, and its answer once it has one.
+ */
+export interface FlagChecksPort {
+  flagCheck(request: FlagCheckRequest, signal?: AbortSignal): Promise<FlagCheckAnswer | null>;
 }
 
 /** Where Verify looks. A sense whose backend is missing cannot look, and its work items wait at Verify. */
@@ -574,12 +583,49 @@ const verifyAnswer = z.object({
   evidence: z.unknown().optional(),
 }) as z.ZodType<VerifyAnswer>;
 
+/** A screenshot the probes name, as an event's artifacts take it. */
+const screenshot = artifactRef.options[0];
+/** A check the probes name: one that did not pass cleanly, or regressed. */
+const journeyCheck = z.strictObject({
+  sense: z.enum(['probe', 'crawler']),
+  check: z.string().min(1).max(120),
+  route: z.string().min(1).max(200),
+  failed: z.boolean(),
+  message: z.string().max(300).optional(),
+});
+
+/** A flag's check as the probes answered it, checked where it enters, as the event it makes is again when appended. */
+const flagCheckAnswer = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('have'), version: z.string() }),
+  z.strictObject({ kind: z.literal('not-held'), version: z.string().nullable(), message: z.string() }),
+  z.strictObject({
+    kind: z.literal('checked'),
+    version: z.string(),
+    revision: z.string(),
+    journeys: z.strictObject({ passed: z.number().int().min(0), ran: z.number().int().min(0) }),
+    notClean: z.array(journeyCheck),
+    regressions: z.array(journeyCheck).optional(),
+    device: z.strictObject({ allowed: z.array(z.string()), kept: z.array(z.string()) }),
+    pages: z.array(
+      z.strictObject({
+        path: z.string(),
+        route: z.string(),
+        off: screenshot.optional(),
+        on: screenshot.optional(),
+        changed: z.number().min(0).max(1).optional(),
+        diff: screenshot.optional(),
+      }),
+    ),
+  }),
+]) as z.ZodType<FlagCheckAnswer>;
+
 /**
  * The probes worker over HTTP. Asking starts the verification, and asking again collects its answer: a crawl run four
  * times takes longer than a request may wait. It asks every `pollMs` until there is an answer, or `deadlineMs` passes.
  * Only the first ask is traced, inside the look's span: asking again is polling, and a span for each would bury it.
+ * A flag's check is asked once a call, and the line's next pass asks again (`flagCheck`).
  */
-export class ProbesClient implements ProbesPort {
+export class ProbesClient implements ProbesPort, FlagChecksPort {
   readonly #url: string;
   readonly #fetch: typeof fetch;
   readonly #pollMs: number;
@@ -615,5 +661,24 @@ export class ProbesClient implements ProbesPort {
         });
       });
     }
+  }
+
+  /** Asks for a flag's check once: null while it runs, which asking again with the same request joins. */
+  async flagCheck(request: FlagCheckRequest, signal?: AbortSignal): Promise<FlagCheckAnswer | null> {
+    const response = await this.#fetch(`${this.#url}/v1/flag-check`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+    });
+    if (response.status === 202) {
+      await response.body?.cancel();
+      return null;
+    }
+    if (response.status !== 200) {
+      await response.body?.cancel();
+      throw new Error(`The probes answered a flag's check with ${response.status}`);
+    }
+    return flagCheckAnswer.parse(await response.json());
   }
 }

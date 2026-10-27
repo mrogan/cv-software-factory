@@ -3,9 +3,12 @@
 # (scripts/review-gate.ts), whatever the pull request's base: a stacked one, into the branch below it, is held to main's
 # required checks. A check on a commit is every open pull request's whose head it is, so the head is judged on all of
 # them, and passes only when each does, whichever pull request asked. A pull request it finds open always gets
-# a verdict. The queue's commit is judged only on a pull request into main, and a merge queue branch it cannot read, or
-# one naming a pull request into another branch, fails the queue's commit, saying which. The ruleset requires the check
-# from the review App alone, so no workflow, this one's own job included, can stand in for it.
+# a verdict. The queue's commit is judged on the pull request its branch names, down to main: a queued stack has an
+# entry for each pull request, with a branch of the ordinary name, built on the entry below it, so the commit for one
+# into another branch carries the changes below it, and is judged on it and every pull request below it, passing only
+# when each does. A merge queue branch it cannot read, or a stack it cannot follow down to main, fails the queue's
+# commit, saying why. The ruleset requires the check from the review App alone, so no workflow, this one's own job
+# included, can stand in for it.
 #
 # Only main's copy runs with the App's key. `workflow_run` runs the workflow as main has it, with GITHUB_REF main, and
 # the key is in the `review` environment, which only main may use: a run on any other ref, a pull request's merge ref

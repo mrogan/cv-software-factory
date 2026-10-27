@@ -49,7 +49,7 @@ function closed(
     ts: at,
     work_item: item,
     type: 'work-item.closed',
-    version: 1,
+    version: 2,
     actor: 'factory',
     summary: 'Closed for the next test',
     payload: { outcome, reason: 'The next test starts with no open tickets' },
@@ -943,6 +943,7 @@ describe('triage', () => {
         {
           ...closed(other),
           type: 'ticket.opened',
+          version: 1,
           payload: {
             title: 'A wrong result on /gift-wrap',
             category: 'functional',

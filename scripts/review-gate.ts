@@ -15,8 +15,11 @@
  *   on a commit is each one's. It passes only when each passes, and otherwise names those that do not, so every run
  *   that judges a commit, whichever pull request asked, says the same of it from the same reviews;
  * - for the merge queue: the check goes on the merge group's commit, judged on the pull request it was made for, which
- *   the queue names in its branch, which must be into main. A branch the gate does not know, or one that names a pull
- *   request into another branch, fails the check there, saying which.
+ *   the queue names in its branch. A queued stack has an entry for each of its pull requests, each with a branch of
+ *   that ordinary name and built on the entry below it, so an upper one's commit carries the changes below it too: one
+ *   into another branch is judged with every pull request below it, down to the one into main, and passes only when
+ *   each does. A branch the gate does not know, or a stack it cannot follow down to main, fails the check there,
+ *   saying why.
  *
  * A pull request it finds open always gets a verdict, passing or failing, so a missing check never hides why a pull
  * request waits. The verdict is in the check's title and the run's log; the gate writes no file.
@@ -49,7 +52,7 @@ export interface PullRequest {
   number: number;
   state: string;
   user: { id: number } | null;
-  head: { sha: string; repo: { full_name: string } | null };
+  head: { sha: string; ref: string; repo: { full_name: string } | null };
   base: { ref: string; repo: { full_name: string } };
 }
 
@@ -152,6 +155,50 @@ export function together(judged: readonly { number: number; said: Verdict }[]): 
   return { pass: false, title: `${names(held)} do not pass: each waits for Martin` };
 }
 
+/** The deepest stack the gate follows down from a queued pull request: one deeper fails, as a loop does. */
+export const STACK_LIMIT = 10;
+
+/** A queued pull request and those below it, down to the one into main, or why the gate cannot follow them. */
+export type Stack = { prs: PullRequest[]; reason?: undefined } | { reason: string; prs?: undefined };
+
+/**
+ * The stack a queued pull request heads, from the one into main up to `top`, following each base down to the open pull
+ * request here whose head it is. `below(branch)` lists the open pull requests from this repository's branch of that
+ * name. It fails unless each step finds exactly one, so a branch two pull requests come from, into different bases,
+ * names no stack; and when the pull request below has merged and the one above has not yet been retargeted to main, it
+ * finds none, and fails until the queue tries again.
+ */
+export async function stackOf(
+  top: PullRequest,
+  repo: string,
+  below: (branch: string) => Promise<PullRequest[]>,
+): Promise<Stack> {
+  const prs = [top];
+  for (let at = top; at.base.ref !== 'main'; ) {
+    if (prs.length >= STACK_LIMIT)
+      return {
+        reason: `the stack #${top.number} heads is longer than ${STACK_LIMIT} pull requests, which the gate follows`,
+      };
+    const base = at.base.ref;
+    const found = (await below(base)).filter(
+      (pr) =>
+        pr.state === 'open' &&
+        pr.head.ref === base &&
+        pr.head.repo?.full_name === repo &&
+        pr.base.repo.full_name === repo,
+    );
+    const [next, ...more] = found;
+    if (!next) return { reason: `#${at.number} is into ${base}, which no open pull request here comes from` };
+    if (more.length > 0)
+      return { reason: `#${at.number} is into ${base}, which ${names(found)} all come from: no one stack below it` };
+    if (prs.some((pr) => pr.number === next.number))
+      return { reason: `the stack below #${top.number} comes back to #${next.number}` };
+    prs.unshift(next);
+    at = next;
+  }
+  return { prs };
+}
+
 /**
  * The pull request a run is about, from the event GitHub handed the workflow, for the repository `repo` (`owner/name`).
  */
@@ -160,7 +207,8 @@ export function target(name: string, event: Event, repo: string): Target {
   if (name !== 'workflow_run' || !run) return { kind: 'none', reason: `nothing to do on ${name}` };
   if (run.event === 'merge_group') {
     const number = QUEUE_BRANCH.exec(run.head_branch ?? '')?.[2];
-    // A queued stack's branch is not documented: one the gate cannot read fails the queue's commit, naming the branch.
+    // A queued stack's entries have branches of this name too: one the gate cannot read fails the queue's commit, naming
+    // the branch.
     if (!number)
       return {
         kind: 'none',
@@ -208,6 +256,10 @@ async function paged<T>(path: string, token: string): Promise<T[]> {
   }
 }
 
+/** Every open pull request in `repo` from `owner`'s branch `branch`, into any base: all of them, so none is missed. */
+const openFrom = (repo: string, owner: string, branch: string, token: string) =>
+  paged<PullRequest>(`/repos/${repo}/pulls?state=open&head=${encodeURIComponent(`${owner}:${branch}`)}`, token);
+
 /** Every review of a pull request, oldest first. */
 const reviewsOf = (repo: string, number: number, token: string) =>
   paged<Review>(`/repos/${repo}/pulls/${number}/reviews`, token);
@@ -226,6 +278,19 @@ async function post(repo: string, token: string, commit: string, pass: boolean, 
     output: { title, summary },
   });
   console.log(`Posted ${CHECK}: ${pass ? 'success' : 'failure'} on ${commit}.`);
+}
+
+/** Each pull request judged by the rule, at its own head, each said in the run's log. */
+async function judgeEach(repo: string, read: string, prs: readonly PullRequest[]) {
+  const judged = [];
+  for (const each of prs) {
+    const said = verdict(each, await reviewsOf(repo, each.number, read));
+    console.log(
+      `#${each.number}, into ${each.base.ref}, at ${short(each.head.sha)}: ${said.pass ? `passes: ${said.title}` : said.title}.`,
+    );
+    judged.push({ number: each.number, said });
+  }
+  return judged;
 }
 
 const RULE = 'Passes when Martin opened the pull request, or approved its head after the last push (ADR 0014).';
@@ -256,15 +321,7 @@ async function judgeHead(repo: string, read: string, token: string, pr: PullRequ
     console.log(`#${pr.number} is ${pr.state}, and no open pull request has ${short(commit)}: nothing to judge.`);
     return;
   }
-  const judged = [];
-  for (const each of open) {
-    const said = verdict(each, await reviewsOf(repo, each.number, read));
-    console.log(
-      `#${each.number}, into ${each.base.ref}, at ${short(commit)}: ${said.pass ? `passes: ${said.title}` : said.title}.`,
-    );
-    judged.push({ number: each.number, said });
-  }
-  const said = together(judged);
+  const said = together(await judgeEach(repo, read, open));
   const numbers = open.map((each) => `#${each.number}`).join(', ');
   const line = `${short(commit)}, the head of ${numbers}: ${said.pass ? `passes: ${said.title}` : said.title}.`;
   console.log(line);
@@ -280,12 +337,7 @@ async function main(): Promise<void> {
     // The open pull request from that branch, wherever its head is now: the run that asked may be for an older push,
     // and the verdict goes on the head as it is now.
     const { owner, branch } = asked;
-    const open = await api<PullRequest[]>(
-      'GET',
-      `/repos/${repo}/pulls?state=open&per_page=100&head=${encodeURIComponent(`${owner}:${branch}`)}`,
-      read,
-    );
-    const found = open[0];
+    const found = (await openFrom(repo, owner, branch, read))[0];
     asked = found
       ? { kind: 'pull-request', number: found.number }
       : { kind: 'none', reason: `no open pull request has ${owner}:${branch}` };
@@ -298,7 +350,17 @@ async function main(): Promise<void> {
     }
     return;
   }
-  const pr = await api<PullRequest>('GET', `/repos/${repo}/pulls/${asked.number}`, read);
+  let pr: PullRequest;
+  try {
+    pr = await api<PullRequest>('GET', `/repos/${repo}/pulls/${asked.number}`, read);
+  } catch (error) {
+    // The queue's commit always gets a verdict: without the pull request, it fails, saying to re-run.
+    if (asked.kind !== 'queue') throw error;
+    console.log(`::warning::${error instanceof Error ? error.message : String(error)}`);
+    const title = `The gate could not read #${asked.number}, which the merge queue's branch names: re-run it`;
+    await post(repo, token, asked.commit, false, title, `No verdict without the pull request. ${RULE}`);
+    return;
+  }
   if (asked.kind === 'pull-request') {
     await judgeHead(repo, read, token, pr);
     return;
@@ -309,25 +371,37 @@ async function main(): Promise<void> {
     return;
   }
   const commit = asked.commit;
-  // The queue's commit merges into main, so it is judged only on a pull request into main: one into another branch,
-  // a stacked one's, vouches for its own change and not for those below it, which the commit carries too.
-  if (pr.base.ref !== 'main') {
-    const title = `The merge queue's branch names #${pr.number}, which is into ${pr.base.ref}, not main`;
-    console.log(`Nothing to judge: ${title}.`);
+  // The queue's commit merges into main, and carries every change below the pull request it was made for: a stacked
+  // one's approval vouches for its own change alone, so each pull request below it down to main is judged too.
+  // A pull request it finds open always gets a verdict: if GitHub cannot be read, the check fails, saying to re-run it.
+  let stack: Stack;
+  let judged: { number: number; said: Verdict }[] = [];
+  try {
+    stack = await stackOf(pr, repo, (branch) => openFrom(repo, repo.split('/')[0] ?? '', branch, read));
+    if (stack.prs) judged = await judgeEach(repo, read, stack.prs);
+  } catch (error) {
+    console.log(`::warning::${error instanceof Error ? error.message : String(error)}`);
+    stack = { reason: `the gate could not read the stack #${pr.number} heads, or its reviews: re-run it` };
+  }
+  if (stack.reason !== undefined) {
+    const title = stack.reason.charAt(0).toUpperCase() + stack.reason.slice(1);
+    console.log(`Nothing to judge on the merge queue's ${short(commit)}: ${title}.`);
     await post(
       repo,
       token,
       commit,
       false,
       title,
-      `The merge queue's commit is judged on a pull request into main. ${RULE}`,
+      `The merge queue's commit is judged on a stack down to main. ${RULE}`,
     );
     return;
   }
-  const said = verdict(pr, await reviewsOf(repo, pr.number, read));
-  const line = `#${pr.number} on the merge queue's ${short(commit)}: ${said.pass ? `passes: ${said.title}` : said.title}.`;
-  console.log(`${line} It is into ${pr.base.ref}.`);
-  await post(repo, token, commit, said.pass, said.title, `${RULE} Judged on #${pr.number} at ${short(pr.head.sha)}.`);
+  const said = together(judged);
+  const heads = stack.prs.map((each) => `#${each.number} at ${short(each.head.sha)}`).join(', ');
+  console.log(
+    `The merge queue's ${short(commit)}, for #${pr.number}: ${said.pass ? `passes: ${said.title}` : said.title}.`,
+  );
+  await post(repo, token, commit, said.pass, said.title, `${RULE} Judged on ${heads}.`);
 }
 
 if (import.meta.main) await main();

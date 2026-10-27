@@ -3,17 +3,20 @@
  * Martin set it at, and what each stop of its slider would take now, judged by the rules the admin service refuses a
  * move by (`policy/flag-moves.ts`), so the console says why a stop can't be taken in the service's own words.
  *
- * A flag's stage is read from Martin's `flag.staged` events, as the admin service records each move, and Verify's
- * `flag.compared`; which flag is whose, from the latest spec of each improvement. The service judges a move from the
- * stage `flags` holds, and refuses one that the events have run behind: the console only draws.
+ * A flag's stage is read from Martin's `flag.staged` events, as the admin service records each move, Verify's
+ * `flag.compared` at Share and its `flag.checked` at Checks and Preview; which flag is whose, from the latest spec of
+ * each improvement. The service judges a move from the stage `flags` holds, and refuses one that the events have run
+ * behind: the console only draws.
  *
  * A flag shows once its release is out, or once Martin has staged it. Waiting for Martin to widen, it is a card in
- * Needs you, but while Verify is still comparing its two sides at Share.
+ * Needs you, but while Verify is still checking it at Checks or Preview, or comparing its two sides at Share.
  */
-import type { PayloadOf, PublicEvent } from '@software-factory/events';
+import type { PayloadOf, PublicEvent, Screenshot } from '@software-factory/events';
 import {
   type Around,
+  type Check,
   type Comparison,
+  checkOf,
   comparisonOf,
   type FlagNow,
   type FlagRecord,
@@ -24,12 +27,13 @@ import {
   turnedOffFromEveryone,
 } from '../../../../../policy/flag-moves.ts';
 import { type Share, STAGES, type Stage, type StageName } from '../../../../../policy/flags.ts';
+import { controlsInForce } from '../../../../../policy/line.ts';
 import { shortVersion } from '../format.ts';
 import type { ItemState } from './items.ts';
 import { waited } from './needs.ts';
 import { inFlight, type Release } from './release.ts';
 
-export type { Comparison, Move } from '../../../../../policy/flag-moves.ts';
+export type { Check, Comparison, Move } from '../../../../../policy/flag-moves.ts';
 export type { Share, Stage, StageName } from '../../../../../policy/flags.ts';
 
 /** A stage's name, as the console says it everywhere. */
@@ -69,6 +73,27 @@ export interface Stop {
 /** Verify's latest comparison of a flag at Share since Martin last moved it, with when. */
 export type Compared = PayloadOf<'flag.compared'> & { at: number };
 
+/** Verify's check of a flag with the probes at Checks or Preview since Martin moved it there, with when and its pictures. */
+export type Checked = Exclude<PayloadOf<'flag.checked'>, { stage: 'off' }> & { at: number; shots: Screenshot[] };
+
+/** A check's payload and its event's screenshots, as the sheet and the card draw them. */
+export function checkedOf(event: PublicEvent & { type: 'flag.checked' }): Checked | undefined {
+  if (event.payload.stage === 'off') return undefined;
+  const shots = event.artifacts.filter((artifact): artifact is Screenshot => artifact.kind === 'screenshot');
+  return { ...event.payload, at: Date.parse(event.ts), shots };
+}
+
+/** A screenshot a check names by its hash, among its event's. */
+export const shotOf = (checked: Checked, hash: string | undefined): Screenshot | undefined =>
+  hash === undefined ? undefined : checked.shots.find((shot) => shot.hash === hash);
+
+/**
+ * Whether an event may be Verify's: the line appends its comparisons and checks as the factory. The public log does not
+ * say which role appended an event, as the store and the admin service read it, so another worker's under that actor
+ * is still drawn: the service refuses by the store's reading.
+ */
+export const fromVerify = (event: PublicEvent) => event.actor === 'factory';
+
 export interface FlagRow {
   name: string;
   /** The work item it ships on: the improvement whose spec names it, or the one it was staged on. */
@@ -84,12 +109,25 @@ export interface FlagRow {
   /** At Share, Verify's comparison as it stands. */
   comparison: Comparison | undefined;
   compared: Compared | undefined;
+  /** At Checks or Preview, Verify's check with the probes as it stands, and the check itself once it has run. */
+  check: Check | undefined;
+  checked: Checked | undefined;
   /** Turned off from Everyone: it may go straight back. */
   backOn: boolean;
   /** Turned off by Martin, rather than never widened. */
   turnedOff: boolean;
-  /** Turned off before everyone had it, and its work item closed: folded under Turned off and closed. */
+  /**
+   * Turned off before everyone had it, and its work item closed as turned off (the line closes it once Martin turns
+   * the flag off): folded under Turned off and closed. One turned off from Everyone may go straight back, so it stays.
+   */
   closed: boolean;
+  /** Its work item is still open: turning the flag off closes it. */
+  open: boolean;
+  /**
+   * The work item Martin's take of Just one names, when it is another: the line acts on that one alone, so it closes
+   * this one as turned off only once it takes more.
+   */
+  justOne: string | undefined;
   /** When it came to stand where it does: Martin's last move, or its release. */
   since: number;
   /** The release that shipped it, with the flag off. */
@@ -108,6 +146,8 @@ export interface FlagNeed {
   since: number;
   /** The one thing to know before widening, in a sentence. */
   evidence: string;
+  /** At Checks, the first page the probes pictured, with the flag off (none without a run to compare with) and on. */
+  pictures: { page: string; off: Screenshot | undefined; on: Screenshot } | undefined;
   /** The next stage, judged: Widen to it, or why it can't be taken now. */
   widen: Move;
   /** Turn off, when the flag is on for anyone. */
@@ -130,16 +170,26 @@ export function specFlag(item: ItemState): string | undefined {
   return spec?.type === 'spec.written' ? spec.payload.flag : undefined;
 }
 
-/** The events a flag's state is read from: Martin's moves, which only his roles can append, and Verify's comparisons. */
+/**
+ * The events a flag's state is read from: Martin's moves, which only his roles can append, and Verify's comparisons,
+ * its checks at Checks and Preview, and its baselines with the flag off, which let Checks be taken.
+ */
 function records(events: readonly PublicEvent[]): FlagRecord[] {
   return events.flatMap((event): FlagRecord[] => {
     if (event.type === 'flag.staged' && event.actor === 'martin' && event.work_item) {
-      const { flag, from, to } = event.payload;
-      return [{ type: 'flag.staged', flag, workItem: event.work_item, from, to }];
+      const { flag, from, to, revision } = event.payload;
+      return [{ type: 'flag.staged', flag, workItem: event.work_item, from, to, revision }];
     }
-    if (event.type === 'flag.compared' && event.actor !== 'martin' && event.actor !== 'visitor') {
-      const { flag, share, outcome } = event.payload;
-      return [{ type: 'flag.compared', flag, share, outcome }];
+    if (event.type === 'flag.compared' && fromVerify(event)) {
+      const { flag, share, outcome, moveRevision } = event.payload;
+      return [{ type: 'flag.compared', flag, share, outcome, moveRevision }];
+    }
+    if (event.type === 'flag.checked' && fromVerify(event) && event.work_item) {
+      const check = event.payload;
+      if (check.stage === 'off')
+        return [{ type: 'flag.checked', flag: check.flag, stage: 'off', workItem: event.work_item }];
+      const { flag, stage, outcome, moveRevision } = check;
+      return [{ type: 'flag.checked', flag, stage, outcome, moveRevision }];
     }
     return [];
   });
@@ -166,30 +216,39 @@ export function itemFlag(item: ItemState): { name: string; now: FlagNow; built: 
 
 /**
  * Whether an open improvement waits for Martin to widen its flag: built, short of Everyone, and not while Verify is
- * still comparing its two sides at Share. Its outcome is then Needs you.
+ * still checking it at Checks or Preview, or comparing its two sides at Share. Its outcome is then Needs you.
  */
 export function flagWaits(item: ItemState): boolean {
   const flag = itemFlag(item);
   // As its card in Needs you: only once its release is out.
   if (!flag || !releasedOf(item)) return false;
   const { now } = flag;
-  return now.stage?.stage !== 'everyone' && comparisonOf(now) !== 'comparing';
+  return now.stage?.stage !== 'everyone' && comparisonOf(now) !== 'comparing' && checkOf(now) !== 'checking';
 }
 
-/** The latest of a flag's moves on the events, and the comparisons since it. */
+/** The latest of a flag's moves on the events, and the comparison and the check since it. */
 function latest(events: readonly PublicEvent[], flag: string) {
   let staged: (PublicEvent & { type: 'flag.staged' }) | undefined;
   let compared: Compared | undefined;
+  let checked: Checked | undefined;
   for (const event of events) {
-    if (event.type === 'flag.staged' && event.actor === 'martin' && event.payload.flag === flag) {
+    // A move as `flagsFrom` counts it: Martin's, on a work item.
+    if (event.type === 'flag.staged' && event.actor === 'martin' && event.work_item && event.payload.flag === flag) {
       staged = event;
       compared = undefined;
+      checked = undefined;
     }
-    if (event.type === 'flag.compared' && event.actor !== 'martin' && event.payload.flag === flag) {
-      compared = { ...event.payload, at: Date.parse(event.ts) };
+    // Each judgement of the latest move alone, as `flagsFrom` counts them: by the revision the move wrote.
+    const judged = (moveRevision: string) => staged?.payload.revision === moveRevision;
+    if (event.type === 'flag.compared' && fromVerify(event) && event.payload.flag === flag) {
+      if (judged(event.payload.moveRevision)) compared = { ...event.payload, at: Date.parse(event.ts) };
+    }
+    if (event.type === 'flag.checked' && fromVerify(event) && event.payload.flag === flag) {
+      const check = checkedOf(event);
+      if (check && judged(check.moveRevision)) checked = check;
     }
   }
-  return { staged, compared };
+  return { staged, compared, checked };
 }
 
 /** The share a flag's Share stop shows: the one it is at or last went to, or 50, which fills both sides soonest. */
@@ -242,6 +301,8 @@ export function flagsView(
   });
   for (const { flag, number } of specs.sort((a, b) => a.seq - b.seq)) named[flag] = number;
   const all = flagsFrom(records(seen), named);
+  const chosen = seen.findLast((event) => event.type === 'controls.changed' && event.actor === 'martin');
+  const take = controlsInForce(chosen?.payload).take;
   const rows: FlagRow[] = [];
   for (const [name, now] of Object.entries(all)) {
     const workItem = now.workItem ?? now.stagedOn;
@@ -253,7 +314,7 @@ export function flagsView(
     const stage = now.stage ?? { stage: 'off' };
     const share = shareOf(seen, name, now);
     const moves = movesOf(name, now, aroundOf(all, name, shipped));
-    const { staged, compared } = latest(seen, name);
+    const { staged, compared, checked } = latest(seen, name);
     const at = rank(stage.stage);
     const backOn = turnedOffFromEveryone(now);
     const turnedOff = stage.stage === 'off' && now.last?.to.stage === 'off';
@@ -275,9 +336,13 @@ export function flagsView(
       moves,
       comparison: comparisonOf(now),
       compared: compared && stage.stage === 'share' && compared.share === stage.share ? compared : undefined,
+      check: checkOf(now),
+      checked: checked && checked.stage === stage.stage ? checked : undefined,
       backOn,
       turnedOff,
-      closed: stage.stage === 'off' && item.closedAt !== undefined && !backOn,
+      closed: stage.stage === 'off' && item.outcome === 'turned-off' && !backOn,
+      open: item.closedAt === undefined,
+      justOne: take?.kind === 'just-one' && take.workItem !== workItem ? take.workItem : undefined,
       since: staged ? Date.parse(staged.ts) : (released?.at ?? item.openedAt),
       released,
     });
@@ -295,6 +360,7 @@ export function flagsView(
           item?.closedAt === undefined &&
           row.stage.stage !== 'everyone' &&
           row.comparison !== 'comparing' &&
+          row.check !== 'checking' &&
           row.released
         );
       })
@@ -312,6 +378,21 @@ function nextOf(row: FlagRow): Stage {
 
 const percentOf = (rate: number | null) => (rate === null ? 'none' : `${(rate * 100).toFixed(2)}%`);
 
+/**
+ * A check's result in a sentence: "22 of 24 checks passed with it on, against 22 of 24 with it off: none that passed
+ * with it off failed", and at Preview what the device check found, unless the sheet draws that itself. Failed or
+ * unsure, Verify's own reason.
+ */
+export function checkedWords(checked: Checked, device = true): string {
+  const { change, base } = checked.journeys;
+  const counted = `${change.passed} of ${change.ran} checks passed with it on${base ? `, against ${base.passed} of ${base.ran} with it off` : ''}`;
+  if (checked.outcome !== 'passed') {
+    const why = checked.reason ?? (checked.outcome === 'failed' ? 'It failed.' : 'It could not tell.');
+    return `${counted}. ${why.replace(/([^.])$/, '$1.')}`;
+  }
+  return `${counted}: none that passed with it off failed${checked.stage === 'preview' && device ? ', and the device check found the preview cookie and nothing new kept' : ''}.`;
+}
+
 /** A comparison's figures in a sentence: "errors 0.97% and 1.01%, p99 41 ms and 40 ms, over 412 and 398 requests". */
 export function comparedWords({ sides: { on, off } }: Compared): string {
   const p99 = (ms: number | null) => (ms === null ? 'none' : `${ms} ms`);
@@ -328,12 +409,18 @@ function needOf(row: FlagRow, t: number): FlagNeed {
         ? `Turned off. ${row.backOn ? 'It was on for everyone, so it may go straight back.' : 'Widening it again starts at Checks.'}`
         : `Released in ${row.released ? shortVersion(row.released.version) : 'its release'} with ${row.name} off. At Checks, only the factory’s own checks see it on.`
       : stage.stage === 'checks'
-        ? 'Only the factory’s own checks see it on. No probe knows a new feature: judge the pages off and on before you widen.'
+        ? `${row.checked ? `${checkedWords(row.checked)} ` : ''}No probe knows a new feature: judge the pages off and on before you widen.`
         : stage.stage === 'preview'
-          ? 'Anyone who asks can preview it, in their own browser, with only the cookie they asked for.'
+          ? row.checked
+            ? checkedWords(row.checked)
+            : 'Anyone who asks can preview it, in their own browser, with only the cookie they asked for.'
           : row.compared
             ? `Flag on against off, on the traffic generator’s requests: ${comparedWords(row.compared)}. ${row.compared.outcome === 'passed' ? 'Within the canary’s thresholds.' : (row.compared.reason ?? 'It failed the canary’s thresholds.')}`
             : stageSays(stage);
+  // The first page pictured with the flag on.
+  const { checked } = row;
+  const page = checked?.stage === 'checks' ? checked.pages.find((p) => shotOf(checked, p.on) !== undefined) : undefined;
+  const on = page && checked && shotOf(checked, page.on);
   return {
     flag: row.name,
     workItem: row.workItem,
@@ -343,6 +430,7 @@ function needOf(row: FlagRow, t: number): FlagNeed {
     waited: waited(t - row.since),
     since: row.since,
     evidence,
+    pictures: page && on && row.checked ? { page: page.page, off: shotOf(row.checked, page.off), on } : undefined,
     widen,
     turnOff: stage.stage === 'off' ? undefined : moveTo(row.moves, { stage: 'off' }),
   };

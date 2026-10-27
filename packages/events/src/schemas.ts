@@ -63,6 +63,45 @@ const flagSide = z.strictObject({
   p99Ms: count.nullable(),
 });
 
+/** The flag set's revision as the app reported it (`x-flags-revision`): `none` when it held no flag set. */
+const flagRevision = z.string().regex(/^[!-~]{1,128}$/, "the flag set's revision, as the app reports it");
+/** How many of the journeys' checks ran in a run, and how many of those passed cleanly. */
+const journeysCount = z
+  .strictObject({ passed: count, ran: count })
+  .refine((c) => c.passed <= c.ran, { message: 'no more passed than ran', path: ['passed'] });
+/** One of the journeys' checks, as a flag's check names it: one that did not pass cleanly, or that regressed. */
+const journeyCheck = z.strictObject({
+  sense: z.enum(['probe', 'crawler']),
+  check: text(120),
+  route: routeOrEvery,
+  /** Whether it failed, rather than could not tell. */
+  failed: z.boolean(),
+  /** What it saw, or why it could not tell, in its own words. */
+  message: text(300).optional(),
+});
+/**
+ * The revision of the flag set that Martin's move of this flag wrote (`flag.staged`'s), which a judgement judges: it
+ * counts only while that move is his latest of the flag, and each write's revision is its own, so a judgement started
+ * for an earlier move never counts for a later one. `none`, which no write's revision is, names no move.
+ */
+const moveRevision = z.string().regex(/^[!-~]{1,128}$/, "the revision Martin's move of the flag wrote");
+
+/** What a flag's check at Checks or Preview judged its journeys on, against the run with the flag off. */
+const flagJourneys = {
+  moveRevision,
+  /** The run with the flag off it was compared with: its version, or none when there was no such run. */
+  against: appVersion.nullable(),
+  outcome: z.enum(V.FLAG_CHECKS),
+  /** The checks of the run with the flag off, and of this one. */
+  journeys: z.strictObject({ base: journeysCount.nullable(), change: journeysCount }),
+  /** Each check that passed cleanly with the flag off and failed, or could not finish, twice with it on. */
+  regressions: z.array(journeyCheck).max(8),
+  /** How many more regressed than are named. */
+  more: count.optional(),
+  /** Why it failed, or could not tell, in words. */
+  reason: text(300).optional(),
+};
+
 /** Where on a page something is, in CSS pixels from the top left of the screenshot. */
 const rect = {
   x: z.number().nonnegative(),
@@ -376,8 +415,12 @@ export const PAYLOADS = {
     story: text(1200),
   }),
   'work-item.closed': z.strictObject({
-    /** How it ended. Triage ends a report it quarantines or discards; anything else ends after the line. */
-    outcome: z.enum(['verified', 'rolled-back', 'no-change', 'quarantined', 'discarded']),
+    /**
+     * How it ended. Triage ends a report it quarantines or discards; anything else ends after the line. An improvement
+     * whose flag Martin turned off, at any stage, closes as turned off, with his reason: its code stays in the app, off,
+     * and nothing is rolled back.
+     */
+    outcome: z.enum(['verified', 'rolled-back', 'no-change', 'quarantined', 'discarded', 'turned-off']),
     reason: text(200),
   }),
   /**
@@ -1099,18 +1142,79 @@ export const PAYLOADS = {
    * Verify compared a flag's two sides at the share stage (task 17): flag on against flag off, on the traffic
    * generator's own requests in the window, each id's side worked out with flagd's own rule, judged on errors and
    * latency with the canary's thresholds. `setAsideMinutes` is how much of the window a canary was in flight, left out.
-   * Until the latest comparison of a flag at its share, appended by the line since Martin last set its stage, has
-   * passed, the admin service refuses Everyone. On the work item whose improvement's spec names the flag.
+   * Until a comparison of a flag at its share, appended by the line, of Martin's latest move of it (`moveRevision`),
+   * has passed, the admin service refuses Everyone. On the work item whose improvement's spec names the flag.
    */
   'flag.compared': z.strictObject({
     flag: flagName,
     share: flagShare,
+    moveRevision,
     window: z.strictObject({ from: timestamp, to: timestamp }),
     setAsideMinutes: count,
     outcome: z.enum(V.FLAG_COMPARISONS),
     sides: z.strictObject({ on: flagSide, off: flagSide }),
     reason: text(300).optional(),
   }),
+  /**
+   * Verify checked a flag with the probes (task 17), on the improvement's work item, against the stable Service, whose
+   * every probe request carries the mark and so sees the flag on from Checks; each run saw the flag set Martin's latest
+   * move wrote (`revision`), before and after. The journeys and the `/device` check, and pictures of the spec's pages
+   * (the front page, while a spec names none), the screenshots the event's artifacts:
+   *
+   * - `off`, the baseline: once for each stable version while the flag is at Off, the run the later stages compare with.
+   *   It names each check that did not pass cleanly, as the journeys gate's base.
+   * - `checks`: at Checks, the journeys compared with that run by the journeys gate's rule, the `/device` check among
+   *   them, and each page with the flag on against the page with it off. Its pictures are the work item's evidence.
+   * - `preview`: at Preview, the same, after a probe asked to preview the flag: it passes only when the `/device` check
+   *   allowed the preview cookie and kept nothing the run with the flag off did not.
+   *
+   * One for each of Martin's moves to Checks or Preview, naming the revision that move wrote (`moveRevision`), beside
+   * the revision the run saw (`revision`, which a later move of another flag makes newer); unsure when there was no run
+   * with the flag off to compare with, or one that names fewer of its failing checks than failed.
+   */
+  'flag.checked': z.discriminatedUnion('stage', [
+    z.strictObject({
+      stage: z.literal('off'),
+      flag: flagName,
+      version: appVersion,
+      revision: flagRevision,
+      journeys: journeysCount,
+      /** Each check that failed, or could not tell: the checks a later stage's regressions are not counted on. */
+      notClean: z.array(journeyCheck).max(200),
+      pages: z.array(z.strictObject({ page: route, route, off: sha256 })).max(6),
+    }),
+    z.strictObject({
+      stage: z.literal('checks'),
+      flag: flagName,
+      version: appVersion,
+      revision: flagRevision,
+      ...flagJourneys,
+      pages: z
+        .array(
+          z.strictObject({
+            /** The page's path. */
+            page: route,
+            route,
+            /** The page with the flag off, from the run compared with: none without one. */
+            off: sha256.optional(),
+            on: sha256,
+            /** The share of pixels that differ from the page with the flag off, and where: no diff when none do. */
+            changed: probability.optional(),
+            diff: sha256.optional(),
+          }),
+        )
+        .max(6),
+    }),
+    z.strictObject({
+      stage: z.literal('preview'),
+      flag: flagName,
+      version: appVersion,
+      revision: flagRevision,
+      ...flagJourneys,
+      /** What the `/device` check found: the preview cookie, allowed, and anything else kept, as `<kind> <name>`. */
+      device: z.strictObject({ allowed: z.array(text(200)).max(10), kept: z.array(text(200)).max(10) }),
+    }),
+  ]),
 } satisfies { [K in EventType]: z.ZodType };
 
 /** The envelope of an event about to be appended: everything but `seq` and `public`, which the store adds. */

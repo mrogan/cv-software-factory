@@ -171,9 +171,11 @@ export function FlagDialog({
         ) : off ? (
           <p>
             Off for everyone within seconds, a preview too, with no deploy and no rollback.{' '}
+            {row.open &&
+              `#${row.workItem} closes as turned off${row.justOne ? ` once the line takes more than #${row.justOne} alone` : ''}; its code stays in the app, off. `}
             {row.stage.stage === 'everyone'
               ? 'It can be turned straight back on here, with your passkey.'
-              : `#${row.workItem} closes as turned off; its code stays in the app, off.`}
+              : !row.open && 'Its code stays in the app, off.'}
           </p>
         ) : (
           <p>

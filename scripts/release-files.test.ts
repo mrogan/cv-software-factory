@@ -36,11 +36,15 @@ describe('the files a release changes', () => {
       /version/i.test(readFileSync(file, 'utf-8')),
     );
     expect(readers).toEqual([
+      // flagd's evaluation library's own package.json, for the version the sides were recorded with.
+      'apps/factory/test/line/compare.test.ts',
       // A package.json of its own, written for a scratch copy.
       'apps/runner/test/prepare.test.ts',
       // Invented work items, whose changed files are named and whose releases have versions.
       'packages/samples/src/items/1262-pino.ts',
       'packages/samples/src/items/1276-otel-rollback.ts',
+      // flagd's evaluation library's own package.json, as for the test above.
+      'scripts/flagd-sides.ts',
       // package.json's packageManager, beside mise.lock's pnpm, and not its version line.
       'scripts/toolchain.test.ts',
     ]);

@@ -245,6 +245,14 @@ export type FlagActionName = (typeof FLAG_ACTIONS)[number];
 export const FLAG_COMPARISONS = ['passed', 'failed'] as const;
 export type FlagComparison = (typeof FLAG_COMPARISONS)[number];
 
+/** The stages at which Verify checks a flag with the probes: Off, its baseline, and then Checks and Preview. */
+export const FLAG_CHECK_STAGES = ['off', 'checks', 'preview'] as const;
+export type FlagCheckStage = (typeof FLAG_CHECK_STAGES)[number];
+
+/** How Verify's check of a flag at Checks or Preview came out: unsure when it had nothing to compare with. */
+export const FLAG_CHECKS = ['passed', 'failed', 'unsure'] as const;
+export type FlagCheck = (typeof FLAG_CHECKS)[number];
+
 /** Tags that route a change to a human, depending on autonomy (docs/COMPONENTS/APPROVAL-ROUTING.md). */
 export const RISKS = ['test-loosening', 'dependency-change', 'security-headers', 'out-of-scope'] as const;
 export type Risk = (typeof RISKS)[number];

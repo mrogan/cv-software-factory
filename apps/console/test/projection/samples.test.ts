@@ -19,6 +19,7 @@ describe('the samples, projected', () => {
         'held',
         'closed',
         'no-ticket',
+        'turned-off',
         'needs-you',
         'waiting',
         'waits-on-work',

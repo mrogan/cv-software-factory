@@ -8,7 +8,7 @@ export const VERSIONS = {
   // A work item, from first event to last
   'work-item.opened': 2,
   'work-item.summarised': 1,
-  'work-item.closed': 1,
+  'work-item.closed': 2,
   'work-item.reopened': 3,
   // Before the line: what a visitor started
   'defect.injected': 1,
@@ -62,9 +62,11 @@ export const VERSIONS = {
   'settings.changed': 1,
   // Martin's controls of the line: the autonomy level, the switches, and what the line takes (the admin service)
   'controls.changed': 1,
-  // Martin's stage of a feature flag (the admin service), and Verify's comparison of its two sides at the share stage
+  // Martin's stage of a feature flag (the admin service), Verify's comparison of its two sides at the share stage, and
+  // its checks with the probes at Off, Checks and Preview
   'flag.staged': 1,
-  'flag.compared': 1,
+  'flag.compared': 2,
+  'flag.checked': 2,
 } as const;
 
 export type EventType = keyof typeof VERSIONS;

@@ -129,6 +129,8 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
   },
   // Version 2 adds the planner's findings to the kinds of work item; a version 1 work item reads as it was.
   'work-item.opened': { 1: (payload) => payload },
+  // Version 2 adds an improvement closed as its flag was turned off; a version 1 close reads as it was.
+  'work-item.closed': { 1: (payload) => payload },
   // Version 2 adds the planner to the sources of a signal; a version 1 signal reads as it was.
   // Version 3 adds the canary to the senses, and its analysis to the evidence; a version 2 signal reads as it was.
   // Version 4 adds how what the sense reads stood, as triage looked; a version 3 signal never said.
@@ -157,6 +159,11 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
     2: (payload) => payload,
     3: (payload) => payload,
   },
+  // Version 2 of Verify's judgements of a flag names the move each judged (`moveRevision`). A version 1 comparison, or
+  // check at Checks or Preview, never said, so it reads as judging no move (`none`, no write's revision), and counts
+  // for none: the move is judged afresh. A version 1 baseline, at Off, judges no move, and reads as it was.
+  'flag.compared': { 1: (payload) => ({ ...payload, moveRevision: 'none' }) },
+  'flag.checked': { 1: (payload) => (payload.stage === 'off' ? payload : { ...payload, moveRevision: 'none' }) },
 };
 
 export const CATALOGUE: Catalogue = { versions: VERSIONS, upcasters: UPCASTERS };
