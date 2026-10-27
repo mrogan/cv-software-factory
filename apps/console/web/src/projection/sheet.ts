@@ -12,7 +12,7 @@ import type {
   SignalSource,
   SymptomClass,
 } from '@software-factory/events';
-import { clearedOnWords, inScope, LIMITS, SENSES } from '@software-factory/events';
+import { clearedOnWords, knownInScope, LIMITS, SENSES } from '@software-factory/events';
 import { FLAG_STEP_UP } from '../access.ts';
 import { clock, shortVersion } from '../format.ts';
 import { type Attempt, attempts, deployPicture, reviewThread, startsPass, type ThreadReview } from './fixing.ts';
@@ -624,7 +624,7 @@ function earlierAttempts(list: readonly Attempt[]): string[] {
 function scopeOf(item: ItemState, spec: PayloadOf<'spec.written'>): Sheet['scope'] {
   let patches = 0;
   let of: ScopeOf;
-  let files: { path: string; added: number; removed: number }[] = [];
+  let files: { path: string; added: number; removed: number; cut?: true | undefined }[] = [];
   for (const event of item.events) {
     if (event.type === 'pull-request.pushed' && event.actor === 'coder') {
       patches += 1;
@@ -638,7 +638,7 @@ function scopeOf(item: ItemState, spec: PayloadOf<'spec.written'>): Sheet['scope
     }
   }
   const rows = spec.scope.map((entry): ScopeRow => {
-    const touched = files.filter((file) => inScope(file.path, [entry]));
+    const touched = files.filter((file) => knownInScope(file, [entry]));
     return {
       path: entry,
       added: touched.length ? touched.reduce((n, f) => n + f.added, 0) : undefined,
@@ -646,8 +646,9 @@ function scopeOf(item: ItemState, spec: PayloadOf<'spec.written'>): Sheet['scope
       outside: false,
     };
   });
+  // A path cut to what an event records is shown outside the scope unless what was kept of it shows it is in.
   const outside = files
-    .filter((file) => !inScope(file.path, spec.scope))
+    .filter((file) => !knownInScope(file, spec.scope))
     .map(({ path, added, removed }): ScopeRow => ({ path, added, removed, outside: true }));
   return { of, rows: [...rows, ...outside] };
 }

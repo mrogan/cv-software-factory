@@ -28,7 +28,7 @@
  * (`coder.ts`), and the GitHub worker refuses every protected file a patch changes, as the last word.
  */
 import type { InboxSignal, PayloadOf } from '@software-factory/events';
-import { RISKS, touches } from '@software-factory/events';
+import { PATH_CHARS, RISKS, touches } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
 import { z } from 'zod';
 import { NEVER, plainPath, protectedWords } from '../../github/paths.ts';
@@ -226,7 +226,7 @@ const SPEC_TEMPLATE = [
   '- `scope`: the files the coder may change, its tests among them, and no more than the fix needs: a path from the top of the repository, a folder ending in `/`, or a pattern with `*`.',
   `- \`risks\`: a list of tags, each exactly one of these words, for what the fix itself does; usually it is empty. ${RISKS.map((r) => `${r}: ${RISK_MEANINGS[r]}`).join('; ')}.`,
   '- `rollout`: a sentence or two on how the fix ships and what would show it worked.',
-  'Every string is a plain sentence or a path, at most 200 characters (the rollout 300).',
+  `Every string is a plain sentence or a path, at most ${PATH_CHARS} characters (the rollout 300).`,
 ];
 
 /**

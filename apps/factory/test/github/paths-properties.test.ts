@@ -10,6 +10,7 @@
  *
  * A failure prints the seed and the shrunk counterexample: `fc.assert(..., { seed, path })` replays it.
  */
+import { PATH_CHARS } from '@software-factory/events';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { guard } from '../../src/github/actions.ts';
@@ -275,7 +276,7 @@ describe('a plain path', () => {
     );
   });
 
-  it('is refused with a leading or trailing slash, an empty, `.` or `..` segment, a backslash, or a control, separator or format character', () => {
+  it('is refused with a leading or trailing slash, an empty, `.` or `..` segment, a backslash, a control, separator or format character, or more characters than an event records', () => {
     const control = fc.oneof(
       fc
         .oneof(fc.integer({ min: 0, max: 0x1f }), fc.integer({ min: 0x7f, max: 0x9f }))
@@ -295,6 +296,9 @@ describe('a plain path', () => {
         const at = i % (p.length + 1);
         return `${p.slice(0, at)}${bad}${p.slice(at)}`;
       }),
+      fc
+        .tuple(path, fc.integer({ min: 1, max: 4096 }))
+        .map(([p, over]) => `${p}/${'a'.repeat(Math.max(1, PATH_CHARS + over - p.length - 1))}`),
     );
     fc.assert(
       fc.property(spoilt, (p) => {

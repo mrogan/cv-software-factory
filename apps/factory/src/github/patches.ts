@@ -5,12 +5,13 @@
  *
  * Plain text changes only: a file added, changed or deleted, as an ordinary file (mode 100644), at a plain relative
  * path, once in the patch. A binary file, a rename, an executable or a symlink, a change of mode, a path `plainPath`
- * refuses (one with `..`, `.` or an empty segment, a backslash or a control character, among others), a file named
- * twice, a block with no change in it, hunks that overlap or are out of order, a git header that says otherwise than
- * the lines under it, text that is not a unified diff, and a patch that does not apply cleanly are refused, each with a
- * `PatchRefused`; so is a patch that changes no file, when it is to be applied. What applies is what the patch says,
- * line endings and all.
+ * refuses (one with `..`, `.` or an empty segment, a backslash or a control character, or one longer than an event
+ * records, among others), a file named twice, a block with no change in it, hunks that overlap or are out of order, a
+ * git header that says otherwise than the lines under it, text that is not a unified diff, and a patch that does not
+ * apply cleanly are refused, each with a `PatchRefused`; so is a patch that changes no file, when it is to be applied.
+ * What applies is what the patch says, line endings and all.
  */
+import { PATH_CHARS } from '@software-factory/events';
 import { applyPatch, parsePatch, type StructuredPatch } from 'diff';
 import type { FileChanges } from './actions.ts';
 import { plainPath } from './paths.ts';
@@ -74,6 +75,13 @@ export function filesIn(patch: string): FilePatch[] {
     const after = strip(p.newFileName, 'b');
     const path = after ?? before;
     if (!path) throw new PatchRefused('path', 'The patch names a file it does not say the path of.');
+    // Said first, and with the path cut short, between characters: the refusal reaches the coder's next try only in
+    // its first words.
+    if (path.length > PATH_CHARS)
+      throw new PatchRefused(
+        'path',
+        `The patch names a path of ${path.length} characters, longer than ${PATH_CHARS}, which is not a plain path: ${JSON.stringify(Array.from(path).slice(0, 60).join(''))}…`,
+      );
     if (!plainPath(path))
       throw new PatchRefused('path', `The patch names ${JSON.stringify(path)}, which is not a plain path.`);
     if (before && after && before !== after)

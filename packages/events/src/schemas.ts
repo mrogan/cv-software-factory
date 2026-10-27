@@ -4,6 +4,7 @@
  * Node only: the browser imports types from here, never values, so Zod stays out of the console's bundle.
  */
 import { z } from 'zod';
+import { PATH_CHARS } from './line.ts';
 import { type EventType, LINE_TYPES, RELEASE_TYPES, VERSIONS } from './versions.ts';
 import * as V from './vocabulary.ts';
 
@@ -531,7 +532,7 @@ export const PAYLOADS = {
       )
       .min(1)
       .max(12),
-    scope: z.array(text(200)).min(1).max(40),
+    scope: z.array(text(PATH_CHARS)).min(1).max(40),
     risks: z.array(z.enum(V.RISKS)).max(V.RISKS.length),
     rollout: text(300),
     flag: z
@@ -548,14 +549,18 @@ export const PAYLOADS = {
     testsFirst: z.boolean(),
     /** What this push changed: from its round's start, so a later round's are only what it added. */
     files: z
-      .array(z.strictObject({ path: text(200), added: count, removed: count }))
+      .array(z.strictObject({ path: text(PATH_CHARS), added: count, removed: count }))
       .min(1)
       .max(200),
     /**
      * The pull request's whole change after this push, as GitHub compares its head with main: what a merge would
-     * bring in, every round together. Empty when a round undid every other.
+     * bring in, every round together. Empty when a round undid every other. A path longer than an event records is
+     * `cut` to it, ending in `…`: one the coder's patch could not name, so another push put it there, and it is not
+     * known to be in the scope.
      */
-    whole: z.array(z.strictObject({ path: text(200), added: count, removed: count })).max(200),
+    whole: z
+      .array(z.strictObject({ path: text(PATH_CHARS), added: count, removed: count, cut: z.literal(true).optional() }))
+      .max(200),
   }),
   /**
    * The coder's answer to the suggestions of the review that sent the work back, which do not block: it took each, or
@@ -588,7 +593,7 @@ export const PAYLOADS = {
     /** The work items in flight it waits on: every one whose spec shares a file. */
     on: z.array(workItem).min(1).max(40),
     /** The entries of its scope that share a file with theirs. */
-    files: z.array(text(200)).min(1).max(40),
+    files: z.array(text(PATH_CHARS)).min(1).max(40),
     reason: text(300),
   }),
 
@@ -626,7 +631,7 @@ export const PAYLOADS = {
       .array(
         z
           .strictObject({
-            path: text(200),
+            path: text(PATH_CHARS),
             /** In the change's version of the file. */
             line: z.number().int().positive(),
             blocking: z.boolean(),
@@ -916,7 +921,7 @@ export const PAYLOADS = {
     output: z.string().min(1).max(4000),
     /** The scope fence's verdict on each file the patch changed, which its output prints. */
     files: z
-      .array(z.strictObject({ path: text(200), added: count, removed: count, allowed: z.boolean() }))
+      .array(z.strictObject({ path: text(PATH_CHARS), added: count, removed: count, allowed: z.boolean() }))
       .max(200)
       .optional(),
   }),

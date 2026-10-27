@@ -110,6 +110,14 @@ export const answersTo = (cause: HoldCause): HoldAnswer[] =>
   );
 
 /**
+ * The longest path an event records, in characters: a file a patch changes, a scope entry, a review finding's file. A
+ * patch that names a longer path is refused (`plainPath`), so a path the events could not record never reaches the
+ * scope fence, GitHub or the console from the coder, and `pattern` steps through no longer one from a patch. One
+ * another push put on a pull request's branch is cut to fit where a push records the whole change, and marked.
+ */
+export const PATH_CHARS = 200;
+
+/**
  * A scope entry as a pattern: a file (`src/money.ts`), a folder ending in `/` (`test/`), or a pattern with `*` (one
  * path segment, or part of one) or `**` (as a segment of its own, any number of whole segments: `**` followed by `/`
  * stands for none or some folders, so `**` followed by `/test.ts` is `test.ts` in any folder, never `latest.ts`; within
@@ -143,6 +151,28 @@ const partsOf = (entry: string) => entry.split(/((?<=^|\/)\*\*\/|\*\*|\*)/).filt
 
 /** Whether any entry of a scope matches a path: the scope fence's rule, and the GitHub worker's. */
 export const inScope = (path: string, scope: readonly string[]) => scope.some((entry) => pattern(entry).test(path));
+
+/**
+ * A path as an event records it where it may name a file the coder did not write: a pull request's whole change, as
+ * GitHub compares its head with main, names every file the branch changes, one pushed by hand included. One longer
+ * than `PATH_CHARS` is cut to fit, ending in `…`, and marked `cut` (`knownInScope`). It is cut between characters,
+ * never inside one, which the store would refuse.
+ */
+export function recordedPath(path: string): { path: string; cut?: true } {
+  if (path.length <= PATH_CHARS) return { path };
+  const kept = path.slice(0, PATH_CHARS - 1);
+  return { path: `${/[\uD800-\uDBFF]$/.test(kept) ? kept.slice(0, -1) : kept}…`, cut: true };
+}
+
+/**
+ * Whether a path `recordedPath` gave is known to be in a scope. A cut one is only when a folder entry with no `*`
+ * holds what was kept of it: whether a file entry or a pattern matches could turn on what was cut off.
+ */
+export function knownInScope(file: { path: string; cut?: true | undefined }, scope: readonly string[]): boolean {
+  if (!file.cut) return inScope(file.path, scope);
+  const kept = file.path.slice(0, -1);
+  return scope.some((entry) => entry.endsWith('/') && !entry.includes('*') && kept.startsWith(entry));
+}
 
 /**
  * One move of a scope entry's automaton, to state `to`: it reads one character (a string of one), any character but

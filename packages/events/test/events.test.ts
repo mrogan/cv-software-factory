@@ -3,6 +3,9 @@ import {
   ANSWERS,
   answersTo,
   inScope,
+  knownInScope,
+  PATH_CHARS,
+  recordedPath,
   returnWords,
   sameVersion,
   scopesOverlap,
@@ -14,7 +17,7 @@ import { PUBLIC_VIEWS, publicView, redactSecrets } from '../src/public.ts';
 import { validate, validateSignal } from '../src/schemas.ts';
 import type { NewEvent, PublicEvent } from '../src/types.ts';
 import { type Catalogue, upcast } from '../src/upcast.ts';
-import { EVENT_TYPES } from '../src/versions.ts';
+import { EVENT_TYPES, VERSIONS } from '../src/versions.ts';
 import { HOLD_CAUSES } from '../src/vocabulary.ts';
 import { gate, judgement, opened, REPORT_TEXT, signal, VISITOR_KEY } from './fixtures.ts';
 
@@ -758,11 +761,14 @@ describe('upcasting the real catalogue', () => {
     });
   });
 
-  it('reads version 1 of pull-request.pushed with its own files as the whole change', () => {
+  it('reads version 1 of pull-request.pushed with its own files as the whole change, and version 2 as it was', () => {
     const files = [{ path: 'src/search.ts', added: 3, removed: 5 }];
     const v1 = { number: 12, title: 'fix: search', branch: 'factory/1', attempt: 1, testsFirst: true, files };
     expect(upcast({ type: 'pull-request.pushed', version: 1, payload: v1 })).toMatchObject({
-      event: { version: 2, payload: { ...v1, whole: files } },
+      event: { version: 3, payload: { ...v1, whole: files } },
+    });
+    expect(upcast({ type: 'pull-request.pushed', version: 2, payload: { ...v1, whole: files } })).toMatchObject({
+      event: { version: 3, payload: { ...v1, whole: files } },
     });
   });
 
@@ -1108,6 +1114,48 @@ describe('a return in words', () => {
 });
 
 describe('a scope entry', () => {
+  it('records a path of the whole change longer than an event takes cut to fit, and marked, between characters', () => {
+    const fits = `src/${'a'.repeat(PATH_CHARS - 7)}.ts`;
+    expect(recordedPath(fits)).toEqual({ path: fits });
+    const long = `src/${'a'.repeat(PATH_CHARS)}/b.ts`;
+    const cut = recordedPath(long);
+    expect(cut).toEqual({ path: `${long.slice(0, PATH_CHARS - 1)}…`, cut: true });
+    expect(cut.path).toHaveLength(PATH_CHARS);
+    // A character outside the Basic Multilingual Plane across the cut is left out whole, not split.
+    const astral = `${'a'.repeat(PATH_CHARS - 2)}😀b`;
+    expect(recordedPath(astral)).toEqual({ path: `${'a'.repeat(PATH_CHARS - 2)}…`, cut: true });
+    const pushed = (path: string) =>
+      validate({
+        ...opened,
+        type: 'pull-request.pushed',
+        version: VERSIONS['pull-request.pushed'],
+        actor: 'coder',
+        payload: {
+          number: 12,
+          title: 'fix: a long path',
+          branch: 'factory/1-a-long-path',
+          attempt: 1,
+          testsFirst: true,
+          files: [{ path: 'src/money.ts', added: 1, removed: 1 }],
+          whole: [{ ...recordedPath(path), added: 1, removed: 0 }],
+        },
+      }).ok;
+    expect(pushed(long)).toBe(true);
+    expect(pushed(astral)).toBe(true);
+  });
+
+  it('knows a cut path is in a scope only when a folder entry holds what was kept of it', () => {
+    const cut = recordedPath(`docs/${'a'.repeat(PATH_CHARS)}/b.md`);
+    expect(knownInScope(cut, ['docs/'])).toBe(true);
+    // A file entry, or a pattern, could turn on what was cut off.
+    expect(knownInScope(cut, ['docs/*'])).toBe(false);
+    expect(knownInScope(cut, ['docs/**/b.md'])).toBe(false);
+    expect(knownInScope(cut, ['src/'])).toBe(false);
+    // `docs/*` takes in the kept part, one segment with no slash, but not the path it was cut from.
+    expect(inScope(cut.path, ['docs/*'])).toBe(true);
+    expect(knownInScope({ path: 'docs/a.md' }, ['docs/*'])).toBe(true);
+  });
+
   it('reads `**` as whole segments: any folder or none, never part of a name', () => {
     expect(inScope('test.ts', ['**/test.ts'])).toBe(true);
     expect(inScope('src/deep/test.ts', ['**/test.ts'])).toBe(true);

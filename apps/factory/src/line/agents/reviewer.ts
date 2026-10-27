@@ -30,7 +30,7 @@
  * make twice, then the comment review, which is not, then the answered threads; each is done once for a handback
  * (`EffectsContext.once`), so GitHub failing between them tries only what is left, and never runs the reviewer again.
  */
-import { MAX_FINDINGS, type PayloadOf } from '@software-factory/events';
+import { MAX_FINDINGS, PATH_CHARS, type PayloadOf } from '@software-factory/events';
 import { z } from 'zod';
 import { LIMITS, suggestionsGoBack, type WorkItemState } from '../machine.ts';
 import { answerThreads, cites, type Finding, lineage, reviewInGitHub, threadAnswers } from '../review.ts';
@@ -61,7 +61,7 @@ export interface ReviewerInput {
 
 const finding = z.strictObject({
   /** A file the change changes, from the repository's root. */
-  path: words(200),
+  path: words(PATH_CHARS),
   /** A line in the change's version of the file, that the diff shows. */
   line: z.number().int().positive(),
   blocking: z.boolean(),
@@ -237,6 +237,7 @@ function prompt({
     '',
     `Then write the result, {"verdict","note","findings":[{"path","line","blocking","rule","criterion","ticket",${earlier ? '"holds",' : ''}"comment"}]${earlier ? ',"answered"' : ''}}:`,
     '- `note`: the review in one or two short sentences, for the pull request and the console: at most 300 characters, or the result is refused. Leave the detail to the findings.',
+    `- \`path\`: the file's path from the repository's root, at most ${PATH_CHARS} characters. A file with a longer path, which only a push other than the coder's can have put there, takes no finding: escalate, and say why in the note.`,
     '- `rule` and `criterion`: numbers, each left out when the finding cites none. `ticket`: true only when the criterion the finding cites is one the ticket does not ask for, and left out otherwise.',
     ...(suggested.length
       ? [

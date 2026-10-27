@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { trace } from '@opentelemetry/api';
-import { type InboxSignal, type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
+import { type InboxSignal, type NewEvent, PATH_CHARS, type PayloadOf, VERSIONS } from '@software-factory/events';
 import { DiskArtifacts, EventWriter, lineStopped, nextWorkItem } from '@software-factory/store';
 import { listenLocal } from '@software-factory/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -605,6 +605,26 @@ describe('the line', () => {
     expect(pushes[1]?.whole).toEqual(github.diff.map(({ path, added, removed }) => ({ path, added, removed })));
     expect(pushes[1]?.whole.find((f) => f.path === 'src/search.ts')?.added).toBeGreaterThan(
       pushes[1]?.files.find((f) => f.path === 'src/search.ts')?.added ?? 0,
+    );
+  });
+
+  it('records a file on the branch with a path longer than an event takes, cut and marked, and the push stands', async () => {
+    const workItem = await ticket();
+    const { pass, github } = line();
+    // A file pushed to the branch by someone other than the coder, whose patch may name no such path.
+    const long = `docs/${'a'.repeat(PATH_CHARS)}.md`;
+    github.diff.push({ path: long, patch: '@@ -0,0 +1 @@\n+a', added: 1, removed: 0 });
+    await pass();
+    await pass();
+    const [pushed] = await payloads(workItem, 'pull-request.pushed');
+    expect(pushed?.whole.find((f) => f.cut)).toEqual({
+      path: `${long.slice(0, PATH_CHARS - 1)}…`,
+      added: 1,
+      removed: 0,
+      cut: true,
+    });
+    expect(pushed?.whole.filter((f) => !f.cut).map((f) => f.path)).toEqual(
+      github.diff.filter((f) => f.path !== long).map((f) => f.path),
     );
   });
 

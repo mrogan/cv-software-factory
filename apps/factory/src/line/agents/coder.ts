@@ -28,7 +28,7 @@
  * instead of handing back a change (`{"unchanged"}`), and the work item holds for Martin with its reason
  * (`unchangedHold`). A step that hands back no change and says nothing of why has failed.
  */
-import { MAX_FINDINGS, type PayloadOf, type Stage } from '@software-factory/events';
+import { MAX_FINDINGS, type PayloadOf, recordedPath, type Stage } from '@software-factory/events';
 import { z } from 'zod';
 import { filesIn, PatchRefused } from '../../github/patches.ts';
 import { GitHubWorkerError } from '../../github/worker-client.ts';
@@ -417,7 +417,8 @@ export const coder = defineAgent<CoderInput, CoderResult>({
     const files = refusing(() => changedFiles(patch));
     // What a merge would bring in, every round together: GitHub's comparison of the new head with main.
     const compared = await context.read('comparison', { base: 'main', head });
-    const whole = compared.files.map(({ path, added, removed }) => ({ path, added, removed }));
+    // It may name a file the coder did not write, with a path longer than an event records: that one is cut, and marked.
+    const whole = compared.files.map(({ path, added, removed }) => ({ ...recordedPath(path), added, removed }));
     return [
       {
         type: 'pull-request.pushed',
@@ -548,7 +549,7 @@ function changedFiles(patch: string): { path: string; added: number; removed: nu
   return filesIn(patch).map(({ path, patch: file }) => {
     const lines = file.hunks.flatMap((hunk) => hunk.lines);
     return {
-      path: path.slice(0, 200),
+      path,
       added: lines.filter((l) => l.startsWith('+')).length,
       removed: lines.filter((l) => l.startsWith('-')).length,
     };
