@@ -37,7 +37,8 @@
  * watcher's pattern through Loki at LOKI_URL, and its agreement check through Prometheus and Loki, with Tempo at
  * TEMPO_URL for the traces. A sense whose address is unset cannot look, and its work items wait at Verify; without
  * TEMPO_URL, a missing log is judged on the metrics and the log alone, and wrong metrics wait. A dry run's release is
- * verified by the dry run's word.
+ * verified by the dry run's word. A feature flag at the share stage has its two sides compared on the traffic
+ * generator's figures, through Prometheus at PROMETHEUS_URL too; unset, it waits.
  *
  * Before it deletes a step's Jobs, however the step ended, the line keeps each pod's log in the artifact store at
  * ARTIFACTS_DIR (`runners/logs.ts`); unset, it keeps none. Its step API serves a work item's, step by step, at

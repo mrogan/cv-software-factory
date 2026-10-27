@@ -19,8 +19,11 @@ import { fromMartin } from './commands.ts';
 /** The role whose events of Verify's, and records of the planner's specs, are believed: the line's. */
 export const LINE_ROLE = 'factory_line';
 
-/** A flag's event, as `flagsFrom` folds it, with its place in the store and, for Martin's move, his reason. */
-export type StoredFlagRecord = FlagRecord & { seq: string; reason?: string };
+/**
+ * A flag's event, as `flagsFrom` folds it, with its place in the store, when it happened (from which the line's Verify
+ * times a share's window), and, for Martin's move, his reason.
+ */
+export type StoredFlagRecord = FlagRecord & { seq: string; ts: string; reason?: string };
 
 export interface FlagEvents {
   /** Each flag an improvement's latest spec names, and that improvement's work item. */
@@ -49,24 +52,27 @@ export async function flagEvents(sql: Sql | TransactionSql, flag?: string): Prom
       and exists (select 1 from events o where o.type = 'work-item.opened' and o.work_item = p.work_item
                   and o.payload->>'kind' = 'improvement' and not o.sample)
     order by p.seq`;
-  const rows = await sql<{ seq: string; type: 'flag.staged' | 'flag.compared'; work_item: string; payload: never }[]>`
-    select e.seq::text as seq, e.type, e.work_item, e.payload from events e
+  const rows = await sql<
+    { seq: string; ts: Date; type: 'flag.staged' | 'flag.compared'; work_item: string; payload: never }[]
+  >`
+    select e.seq::text as seq, e.ts, e.type, e.work_item, e.payload from events e
     where e.type in ('flag.staged', 'flag.compared') and not e.sample
       ${flag === undefined ? sql`` : sql`and e.payload->>'flag' = ${flag}`}
       and ((e.type = 'flag.staged' and e.version <= ${VERSIONS['flag.staged']} and e.work_item is not null
             and e.appended_by is not null and ${fromMartin(sql, 'e')})
         or (e.type = 'flag.compared' and e.version <= ${VERSIONS['flag.compared']} and e.appended_by = ${LINE_ROLE}))
     order by e.seq`;
-  const records = rows.map(({ seq, type, work_item, payload }): StoredFlagRecord => {
+  const records = rows.map(({ seq, ts: at, type, work_item, payload }): StoredFlagRecord => {
+    const ts = at.toISOString();
     if (type === 'flag.staged') {
       const { flag, from, to, reason } = payload as Pick<
         Extract<FlagRecord, { type: 'flag.staged' }>,
         'flag' | 'from' | 'to'
       > & { reason?: string };
-      return { type, seq, flag, workItem: work_item, from, to, ...(reason !== undefined && { reason }) };
+      return { type, seq, ts, flag, workItem: work_item, from, to, ...(reason !== undefined && { reason }) };
     }
     const { flag, share, outcome } = payload as Omit<Extract<FlagRecord, { type: 'flag.compared' }>, 'type'>;
-    return { type, seq, flag, share, outcome };
+    return { type, seq, ts, flag, share, outcome };
   });
   return { named: Object.fromEntries(named.map((row) => [row.flag, row.work_item])), records };
 }
