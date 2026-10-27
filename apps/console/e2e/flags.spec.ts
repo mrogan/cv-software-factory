@@ -78,7 +78,8 @@ test('the line under the flags says each state of the admin service’s check of
   const says = {
     taking:
       'The app is taking the change to r7: Martin’s phone hears if it hasn’t within a minute of a narrowing or Off, or 5 of a widening.',
-    lagging: 'The app still holds r6, 3min after r7: Martin’s phone hears at 5min.',
+    lagging:
+      'The app still holds r6, 3min after r7: Martin’s phone hears at 5min, or at a minute for a narrowing or Off.',
     unchecked: 'The admin service couldn’t ask every copy of the app which flags it holds, at 15:23.',
     off: 'The admin service doesn’t check which flags the app holds here.',
   } as const;

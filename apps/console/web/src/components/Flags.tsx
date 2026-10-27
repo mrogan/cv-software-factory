@@ -223,7 +223,7 @@ export function HeldLine({ answer, martin, now }: { answer: HeldAnswer; martin: 
           <span>
             The app still holds {others.length ? others.join(' and ') : 'another flag set'}
             {from !== undefined && `, ${since(from, now)}`} after {held.revision ?? 'the flags were set'}: {phone} phone
-            hears at {FLAGS_HELD.differMinutes}min.
+            hears at {FLAGS_HELD.differMinutes}min, or at a minute for a narrowing or Off.
           </span>
         </p>
       );
