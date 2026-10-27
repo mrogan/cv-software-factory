@@ -3,6 +3,7 @@
  * its code arrives when he first does.
  */
 import { useEffect, useId, useRef, useState } from 'react';
+import { SHARES } from '../../../../../policy/flags.ts';
 import { FLAG_STEP_UP } from '../access.ts';
 import { said, write } from '../admin.ts';
 import {
@@ -19,9 +20,6 @@ import { Dialog } from './Dialog.tsx';
 import { stageWords } from './Flags.tsx';
 import { Glyph } from './Glyph.tsx';
 import { useStepUp } from './StepUp.tsx';
-
-/** The shares Share may take, and the one the confirmation chooses first: half and half fills both sides soonest. */
-const SHARES: readonly Share[] = [10, 25, 50];
 
 /** The most a reason may be, as `flag.staged` takes it. */
 const REASON = 200;

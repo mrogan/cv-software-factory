@@ -76,7 +76,8 @@ test('a visitor sees each flag read-only, its card waiting on Martin, and whethe
 test('the line under the flags says each state of the admin service’s check of the app', async ({ page }) => {
   const sync = flags(page).locator('.sync');
   const says = {
-    taking: 'The app is taking the change to r7: Martin’s phone hears if it hasn’t within a minute.',
+    taking:
+      'The app is taking the change to r7: Martin’s phone hears if it hasn’t within a minute of a narrowing or Off, or 5 of a widening.',
     lagging: 'The app still holds r6, 3min after r7: Martin’s phone hears at 5min.',
     unchecked: 'The admin service couldn’t ask every copy of the app which flags it holds, at 15:23.',
     off: 'The admin service doesn’t check which flags the app holds here.',

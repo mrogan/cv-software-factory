@@ -170,6 +170,33 @@ describe('a flag', () => {
     expect(viewOf(item.events).flags[0]?.stage.stage).toBe('off');
   });
 
+  it('waits for Martin only once its release is out, as its card does', () => {
+    const early = improvement('2009', 'early', false).add(
+      70,
+      'flag.staged',
+      'martin',
+      staged('early', { stage: 'off' }, { stage: 'checks' }, 'flag.to-checks'),
+    );
+    expect(viewOf(early.events).needs).toEqual([]);
+    expect(foldItems(early.events)[0]?.outcome).not.toBe('needs-you');
+  });
+
+  it('belongs to the work item whose spec named it last, as the admin service reads it', () => {
+    const older = improvement('2010', 'other');
+    const newer = improvement('2011', 'shared-name');
+    // The older improvement's spec is written again, later, naming the same flag.
+    older.add(200, 'spec.written', 'planner', {
+      outcome: 'Something new, again',
+      criteria: [{ given: 'the flag is on', when: 'a page is shown', expect: 'it is new' }],
+      scope: ['src/new.ts'],
+      risks: [],
+      rollout: 'Behind its flag',
+      flag: 'shared-name',
+    });
+    const events = [...older.events, ...newer.events].sort((a, b) => a.seq - b.seq);
+    expect(viewOf(events).flags.find((row) => row.name === 'shared-name')?.workItem).toBe('2010');
+  });
+
   it('holds Share for a flag while another is at it', () => {
     const one = improvement('2007', 'one').add(
       70,

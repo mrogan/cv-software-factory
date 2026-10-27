@@ -23,7 +23,7 @@ import {
   sameStage,
   turnedOffFromEveryone,
 } from '../../../../../policy/flag-moves.ts';
-import { SHARES, type Share, STAGES, type Stage, type StageName } from '../../../../../policy/flags.ts';
+import { type Share, STAGES, type Stage, type StageName } from '../../../../../policy/flags.ts';
 import { shortVersion } from '../format.ts';
 import type { ItemState } from './items.ts';
 import { waited } from './needs.ts';
@@ -170,7 +170,8 @@ export function itemFlag(item: ItemState): { name: string; now: FlagNow; built: 
  */
 export function flagWaits(item: ItemState): boolean {
   const flag = itemFlag(item);
-  if (!flag?.built) return false;
+  // As its card in Needs you: only once its release is out.
+  if (!flag || !releasedOf(item)) return false;
   const { now } = flag;
   return now.stage?.stage !== 'everyone' && comparisonOf(now) !== 'comparing';
 }
@@ -232,12 +233,14 @@ export function flagsView(
   t: number,
 ): FlagsView {
   const byNumber = new Map(items.map((item) => [item.number, item]));
-  // The flag each improvement's latest spec names, the latest spec's work item winning, as the admin service reads it.
+  // The flag each improvement's latest spec names; the work item of the latest such spec wins, as the admin service reads it.
   const named: Record<string, string> = {};
-  for (const item of [...items].sort((a, b) => a.openedAt - b.openedAt)) {
+  const specs = items.flatMap((item) => {
     const flag = specFlag(item);
-    if (flag) named[flag] = item.number;
-  }
+    const spec = item.events.findLast((event) => event.type === 'spec.written');
+    return flag && spec ? [{ flag, number: item.number, seq: spec.seq }] : [];
+  });
+  for (const { flag, number } of specs.sort((a, b) => a.seq - b.seq)) named[flag] = number;
   const all = flagsFrom(records(seen), named);
   const rows: FlagRow[] = [];
   for (const [name, now] of Object.entries(all)) {
@@ -344,6 +347,3 @@ function needOf(row: FlagRow, t: number): FlagNeed {
     turnOff: stage.stage === 'off' ? undefined : moveTo(row.moves, { stage: 'off' }),
   };
 }
-
-/** Every share the Share stage may take, for the confirmation's choice. */
-export const SHARE_CHOICES: readonly Share[] = SHARES;

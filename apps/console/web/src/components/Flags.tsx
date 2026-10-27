@@ -14,6 +14,7 @@
  * sees every slider read-only, with no handle and nothing to press, and the same line about the app.
  */
 import { type CSSProperties, lazy, type PointerEvent, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { stageWords } from '../../../../../policy/flag-moves.ts';
 import { FLAGS_HELD } from '../../../../../policy/flags.ts';
 import type { Admin } from '../admin.ts';
 import { clock, duration } from '../format.ts';
@@ -29,9 +30,8 @@ export const FlagDialog = lazy(() => import('./FlagDialog.tsx').then((module) =>
 /** How often the page asks again whether the app holds the flags, while it is shown. */
 const HELD_EVERY_MS = 15_000;
 
-/** A stage in the console's words: "Share 50%". */
-export const stageWords = (stage: FlagStage) =>
-  stage.stage === 'share' ? `${STAGE_NAME.share} ${stage.share}%` : STAGE_NAME[stage.stage];
+/** A stage in the console's words, as the admin service says it: "Share 50%". */
+export { stageWords };
 
 /**
  * Whether the app holds the flags as set, asked of the admin service now and every 15 seconds while the page is shown,
@@ -210,7 +210,7 @@ export function HeldLine({ answer, martin, now }: { answer: HeldAnswer; martin: 
           <Glyph name="ring" />
           <span>
             The app is taking the change{held.revision ? ` to ${held.revision}` : ''}: {phone} phone hears if it hasn’t
-            within a minute.
+            within a minute of a narrowing or Off, or {FLAGS_HELD.differMinutes} of a widening.
           </span>
         </p>
       );
