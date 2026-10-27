@@ -809,6 +809,9 @@ class RolloutKube implements KubeWriter {
    * (`omitempty`), so a patch that sets one false leaves it absent.
    */
   dropsFalse = false;
+  /** Whether a patch that fails leaves the API out of reach for the next read too. */
+  unreadableAfter = false;
+  #unreadable = false;
   /** What the controller does to the Rollout as soon as a patch is made, before anyone reads it again. */
   controller: ((object: Record<string, unknown>) => Record<string, unknown>) | undefined;
 
@@ -818,13 +821,20 @@ class RolloutKube implements KubeWriter {
   }
 
   async get<T>(_path: string, schema: { parse(v: unknown): T }): Promise<T> {
+    if (this.#unreadable) {
+      this.#unreadable = false;
+      throw new Error('connect ECONNREFUSED');
+    }
     const object = this.object as { metadata: object };
     return schema.parse({ ...object, metadata: { ...object.metadata, resourceVersion: String(this.version) } });
   }
 
   async patch(path: string, body: unknown): Promise<void> {
     const failing = this.failing.shift();
-    if (typeof failing === 'number') throw new KubeError(failing, `PATCH ${path} answered ${failing}`);
+    if (typeof failing === 'number') {
+      this.#unreadable = this.unreadableAfter;
+      throw new KubeError(failing, `PATCH ${path} answered ${failing}`);
+    }
     const { metadata, ...rest } = body as { metadata?: { resourceVersion?: string } };
     if (metadata?.resourceVersion && metadata.resourceVersion !== String(this.version)) {
       throw new KubeError(409, 'the object has been modified');
@@ -1086,6 +1096,25 @@ describe('the release controls', () => {
     expect(await controls()).toHaveLength(before + 2);
   });
 
+  it('answers a patch that failed as not made, and one it cannot read back as not known, recording neither', async () => {
+    const before = (await controls()).length;
+    const kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    const { browser } = await signedIn();
+    kube.failing.push(503);
+    expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({
+      status: 502,
+      body: { refused: 'kubernetes', message: 'Kubernetes failed the change, and nothing was done.' },
+    });
+    // Failed, and the API out of reach for the read back after it.
+    kube.failing.push(503);
+    kube.unreadableAfter = true;
+    const res = await browser.post('/admin/release/pause', { release: RELEASE });
+    expect(res).toMatchObject({ status: 504, body: { refused: 'kubernetes' } });
+    expect(res.body.message).toMatch(/can't be told/);
+    expect(kube.patches).toEqual([]);
+    expect(await controls()).toHaveLength(before);
+  });
+
   it('reads a flag Argo Rollouts leaves out when false as false, when a patch’s answer was lost', async () => {
     const before = (await controls()).length;
     const { browser, passkey } = await signedIn();
@@ -1101,7 +1130,10 @@ describe('the release controls', () => {
     expect(kube.object.status).not.toHaveProperty('controllerPause');
     // One that was not made is still not made: a pause, answered with a server error, reads back as no pause.
     kube.failing.push(503);
-    expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({ status: 500 });
+    expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({
+      status: 502,
+      body: { refused: 'kubernetes' },
+    });
     // One that was made, answered with a server error, is read back too.
     kube.failing.push('made-504');
     expect(await browser.post('/admin/release/pause', { release: RELEASE })).toMatchObject({ status: 200 });
