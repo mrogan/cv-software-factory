@@ -15,13 +15,17 @@ afterEach(async () => {
   );
 });
 
+// The server's own listeners on the two events listenOn listens to: an HTTP server has one on 'listening'.
+const listeners = (s: Server) => [s.listenerCount('error'), s.listenerCount('listening')];
+
 describe('listening', () => {
-  it('settles once the server listens, and leaves no error listener behind', async () => {
+  it('settles once the server listens, and leaves no listener behind', async () => {
     const listening = server();
+    const before = listeners(listening);
     await listenOn(listening, 0, '127.0.0.1');
     expect(listening.listening).toBe(true);
     expect((listening.address() as AddressInfo).address).toBe('127.0.0.1');
-    expect(listening.listenerCount('error')).toBe(0);
+    expect(listeners(listening)).toEqual(before);
   });
 
   it('rejects with the error when the port is held, rather than leaving it to end the process', async () => {
@@ -30,14 +34,16 @@ describe('listening', () => {
     const { port } = holder.address() as AddressInfo;
 
     const second = server();
+    const before = listeners(second);
     await expect(listenOn(second, port, '127.0.0.1')).rejects.toMatchObject({ code: 'EADDRINUSE' });
     expect(second.listening).toBe(false);
-    expect(second.listenerCount('error')).toBe(0);
+    expect(listeners(second)).toEqual(before);
   });
 
   it('rejects a port that is not one, and leaves the server’s next error to it', async () => {
     const bad = server();
+    const before = listeners(bad);
     await expect(listenOn(bad, Number('abc'), '127.0.0.1')).rejects.toMatchObject({ code: 'ERR_SOCKET_BAD_PORT' });
-    expect(bad.listenerCount('error')).toBe(0);
+    expect(listeners(bad)).toEqual(before);
   });
 });

@@ -9,16 +9,26 @@ import type { Server } from 'node:http';
  */
 export function listenOn(server: Server, port: number, host?: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    server.once('error', reject);
+    // Whichever comes first, the other is let go of, so the server keeps no listener of this promise's either way.
+    const done = () => {
+      server.off('listening', listening);
+      server.off('error', failed);
+    };
+    const listening = () => {
+      done();
+      resolve();
+    };
+    const failed = (error: Error) => {
+      done();
+      reject(error);
+    };
+    server.once('listening', listening);
+    server.once('error', failed);
     try {
-      server.listen(port, host, () => {
-        server.off('error', reject);
-        resolve();
-      });
+      server.listen(port, host);
     } catch (error) {
       // A port that is not one throws at once, and the server's next error is not this promise's.
-      server.off('error', reject);
-      reject(error);
+      failed(error as Error);
     }
   });
 }
