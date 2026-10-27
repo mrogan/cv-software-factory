@@ -137,7 +137,7 @@ export function FlagSlider({ row, onChoose }: { row: FlagRow; onChoose?: ((stop:
       <span className="fill" aria-hidden="true" />
       {live && <span ref={thumb} className="fthumb" aria-hidden="true" onPointerDown={down} />}
       {row.stops.map((stop) => {
-        const cant = stop.place === 'ahead' && stop.move.refused !== undefined;
+        const cant = stop.place !== 'now' && stop.move.refused !== undefined;
         const className = `fstop ${stop.place}${cant ? ' cant' : ''}`;
         const inner = (
           <>
