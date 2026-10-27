@@ -27,6 +27,8 @@
  *   either, the answer says whether it was made can't be told (504), and nothing is recorded. An append that fails is tried once more, and if that fails too, the move stands in `flags`,
  *   is logged, and the answer says it was not recorded (500). Martin's last move then lags `flags`, and what depends
  *   on it (turning back on, Everyone) is refused until a move is recorded again.
+ * - **Checked once written:** the app is asked soon whether it holds the new flag set (`flags-held.ts`), and a
+ *   narrowing or Off it has not taken within a minute pages Martin.
  */
 import { type NewEvent, VERSIONS } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
@@ -47,6 +49,7 @@ import {
 import { flagsSpec, isFlagName, REVISION_FLAG, readFlags, type Share, type Stage } from '../../../../policy/flags.ts';
 import type { RolloutRef } from '../release/rollout-ref.ts';
 import { KubeError, type KubeWriter } from '../runners/kube.ts';
+import type { FlagsHeld } from './flags-held.ts';
 import type { ReleaseControls } from './rollout.ts';
 import { adminEvent, appendMade, checked, Refused, type Session, steppedUpNow } from './store.ts';
 
@@ -85,6 +88,11 @@ const TRIES = 3;
 /** The role whose events of Verify's, and records of the planner's specs, the admin service believes: the line's. */
 const LINE_ROLE = 'factory_line';
 
+/** The FeatureFlag's address in the Kubernetes API, as the stages write it and the check of the app reads it. */
+export const featureFlagPath = (flags: RolloutRef): string =>
+  `/apis/core.openfeature.dev/v1beta1/namespaces/${encodeURIComponent(flags.namespace)}` +
+  `/featureflags/${encodeURIComponent(flags.name)}`;
+
 /**
  * The next revision of the flag set: `r1`, `r2`, …, counting on from the one `flags` holds. With none it can read
  * (written by hand in another shape, or taken away), the count starts again from the time, in milliseconds, so no pod
@@ -119,15 +127,22 @@ export class FlagStages {
   readonly #sql: Sql;
   readonly #log: Logger;
   readonly #releases: ReleaseControls | undefined;
+  readonly #held: Pick<FlagsHeld, 'written'> | undefined;
 
-  constructor(kube: KubeWriter, flags: RolloutRef, sql: Sql, log: Logger, releases?: ReleaseControls) {
+  constructor(
+    kube: KubeWriter,
+    flags: RolloutRef,
+    sql: Sql,
+    log: Logger,
+    releases?: ReleaseControls,
+    held?: Pick<FlagsHeld, 'written'>,
+  ) {
     this.#kube = kube;
-    this.#path =
-      `/apis/core.openfeature.dev/v1beta1/namespaces/${encodeURIComponent(flags.namespace)}` +
-      `/featureflags/${encodeURIComponent(flags.name)}`;
+    this.#path = featureFlagPath(flags);
     this.#sql = sql;
     this.#log = log;
     this.#releases = releases;
+    this.#held = held;
   }
 
   /** Sets a flag's stage, and records it; or refuses, having changed nothing. */
@@ -201,6 +216,9 @@ export class FlagStages {
       ),
     );
     await this.#write(read, rendered, revision, flag, to);
+    // The app is asked soon whether it took it; a narrowing or Off, or a flag dropped and so turned off, that it has not
+    // taken within a minute pages Martin.
+    this.#held?.written(action === 'flag.narrow' || action === 'flag.off' || dropped.length > 0);
     if (dropped.length) this.#log.warn({ dropped }, 'dropped flags held in no stage’s shape, turning them off');
     await this.#record(event);
     this.#log.info({ flag, from: stage, to, revision }, `Martin's ${action} of a flag`);

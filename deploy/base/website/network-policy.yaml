@@ -19,7 +19,8 @@ spec:
 # in-process provider streams the flag set (deploy/base/flagd). Not flagd's other ports, its management port (8014)
 # among them, Prometheus, Loki, Tempo, Postgres, the gateway, the Kubernetes API or the internet. They are reached on
 # 8080 only by Traefik, which serves the app's visitors and splits a release's traffic; the probes and the crawler,
-# from the factory's namespace; and the canary's analysis Job.
+# from the factory's namespace; the admin service, which asks each pod for the revision of the flag set it holds
+# (apps/factory/src/admin/flags-held.ts); and the canary's analysis Job.
 #
 # It selects the stable and the canary pods alike, by the label the app's repository gives them. The app's AppProject
 # cannot create a NetworkPolicy, so nothing there can widen this. The kubelet's health checks come from the node, which
@@ -49,7 +50,7 @@ spec:
               kubernetes.io/metadata.name: factory
           podSelector:
             matchExpressions:
-              - { key: app.kubernetes.io/name, operator: In, values: [probes, crawler] }
+              - { key: app.kubernetes.io/name, operator: In, values: [probes, crawler, admin] }
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: journeys

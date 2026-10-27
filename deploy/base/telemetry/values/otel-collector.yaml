@@ -69,8 +69,9 @@ config:
             key: rollouts-pod-template-hash
             from: pod
     # Each metric from a factory worker's pod gains its namespace and its `app.kubernetes.io/name` label, found the same
-    # way, so the alerts to Martin read the line's counts of his security events and holds as the line's alone
-    # (apps/factory/src/provenance.ts): any worker may name itself `line`. Only `factory` is watched, and only it may be
+    # way, so the alerts to Martin read the line's counts of his security events and holds as the line's alone, and the
+    # admin service's figures of the flags the app holds as its own (apps/factory/src/provenance.ts): any worker may
+    # name itself `line`. Only `factory` is watched, and only it may be
     # read (collector-reads-factory.yaml). Metrics only: the logs and traces have no reader that needs it, and Loki would
     # make a stream label of the namespace. Not the pod's name, which marks the app's logs as the app's.
     k8s_attributes/factory:

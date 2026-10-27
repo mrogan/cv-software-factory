@@ -30,10 +30,10 @@
 # Then the app's own pods, whose code agents write: a pod labelled like them reaches DNS, the collector and flagd's sync
 # port, and not flagd's other ports (its management port among them, where the kubelet's probes find it ready),
 # Prometheus, Loki, Tempo, Postgres, the gateway, the Kubernetes API or the internet. The app is reached through
-# Traefik and by the probes, the crawler and the analysis, and not by another pod beside it, which neither of
-# `website`'s policies selects and so reaches nothing at all, not even DNS; nor does a worker reach flagd. flagd's own
-# fence is seen from outside alone:
-# `flagd-images` admits flagd's image and nothing else, so no pod labelled like it can be started there.
+# Traefik and by the probes, the crawler, the admin service and the analysis, and not by another pod beside it, which
+# neither of `website`'s policies selects and so reaches nothing at all, not even DNS; nor does a worker reach flagd.
+# flagd's own fence is seen from outside alone: `flagd-images` admits flagd's image and nothing else, so no pod labelled
+# like it can be started there.
 #
 # Then the pod log collector, which reads every pod's log from the node's files: a pod labelled like it reaches Loki's
 # intake, and nothing else: not Prometheus, Tempo, the collector in `telemetry`, Postgres, the app, the Kubernetes API
@@ -55,7 +55,9 @@
 # Then the admin service (milestone 7), which believes forwarded headers from the pod network because only Traefik may
 # reach it: a worker, an agent pod and the scoreboard cannot, nor the stranger in `telemetry`, whose own egress is
 # open, so only the admin service's fence stops it; and it reaches Postgres, the collector and the Kubernetes API, for
-# Martin's controls of the canary, and not the gateway, the node's ingress or the internet.
+# Martin's controls of the canary, and the app's pods on 8080, each at its own address, to ask which flags it holds, and
+# not the gateway, the node's ingress or the internet. The stranger in `telemetry` does not reach the app's pods, so
+# only the app's fence, which lets the admin service in, stops it.
 #
 # Then the scoreboard, which holds the answer key (milestone 6): it reaches Postgres, and nothing else: not the
 # collector, the gateway, the GitHub worker, the console, the probes, Prometheus, Loki, the app, the Kubernetes API, the
@@ -268,6 +270,8 @@ rollouts_ip=$(pod_ip argo-rollouts app.kubernetes.io/name=argo-rollouts)
 exporter_ip=$(pod_ip factory app.kubernetes.io/name=postgres-exporter)
 pod_logs_ip=$(pod_ip pod-logs app.kubernetes.io/name=opentelemetry-collector controller-revision-hash)
 flagd_ip=$(pod_ip flagd app.kubernetes.io/name=flagd)
+# One of the app's pods, which the Rollout's ReplicaSets label with their hash, and not the pod this starts beside it.
+app_pod_ip=$(pod_ip website app.kubernetes.io/name=website rollouts-pod-template-hash)
 node_ip=$(kubectl --context "$context" get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
 
 # A worker's labels, which is what a compromised one would have.
@@ -596,6 +600,9 @@ echo "The admin service:"
 expect "the admin service reaches Postgres" egress-admin tcp://postgres:5432 reached
 expect "the admin service reaches the collector" egress-admin http://otel-collector.telemetry:4318 reached
 expect "the admin service cannot reach the gateway" egress-admin http://gateway:8080/health blocked
+expect "the admin service reaches the app's pods" egress-admin "http://$app_pod_ip:8080/health" "reached, HTTP 200"
+expect "the stranger in telemetry cannot reach the app's pods" telemetry:egress-stranger \
+  "http://$app_pod_ip:8080/health" blocked
 expect "the admin service reaches the Kubernetes API" egress-admin "https://$api_ip/version" reached
 expect "the admin service reaches the API server on the node" egress-admin "https://$node_ip:6443/version" reached
 expect "the admin service cannot reach the node's ingress" egress-admin "https://$node_ip:443" blocked

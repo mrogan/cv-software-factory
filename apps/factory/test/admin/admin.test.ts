@@ -14,6 +14,7 @@
 import type { AddressInfo } from 'node:net';
 import { type NewEvent, type PayloadOf, upcast, VERSIONS } from '@software-factory/events';
 import { DiskArtifacts, EventWriter, nextWorkItem, readPublic } from '@software-factory/store';
+import { pino } from 'pino';
 import postgres, { type Sql } from 'postgres';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, inject, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
@@ -34,6 +35,7 @@ import type { AdminConfig } from '../../src/admin/config.ts';
 import { proxies } from '../../src/admin/config.ts';
 import { described, enrol } from '../../src/admin/enrol.ts';
 import { nextRevision } from '../../src/admin/flags.ts';
+import { FlagsHeld } from '../../src/admin/flags-held.ts';
 import { refuseWrite } from '../../src/admin/guard.ts';
 import { NO_ROLLOUT, NOT_ABORTED } from '../../src/admin/line.ts';
 import { STILL_PAUSED } from '../../src/admin/rollout.ts';
@@ -69,10 +71,11 @@ const as = (username: string, password: string): Sql => {
   });
 };
 
-const start = async (config: Partial<AdminConfig> = {}, kube?: KubeWriter) => {
+/** Starts the service; by default with no check of the flags the app holds, which would read `kube` meanwhile. */
+const start = async (config: Partial<AdminConfig> = {}, kube?: KubeWriter, held: FlagsHeld | false = false) => {
   service = await startAdmin(
     { origin: ORIGIN, rpId: RP_ID, trusted: proxies(''), port: 0, profile: 'local', ...config },
-    { sql: as('factory_admin', PASSWORDS.admin), port: 0, recheckMs: 100, ...(kube && { kube }) },
+    { sql: as('factory_admin', PASSWORDS.admin), port: 0, recheckMs: 100, held, ...(kube && { kube }) },
   );
   base = `http://127.0.0.1:${(service.server.address() as AddressInfo).port}`;
 };
@@ -2269,11 +2272,12 @@ describe('the flags’ stages', () => {
   const withFlags = async (
     rollout: RolloutKube | null = new RolloutKube({ current: STABLE, stable: STABLE, revision: 7 }),
     config: Partial<AdminConfig> = { flags: FLAGS, rollout: ROLLOUT },
+    held: FlagsHeld | false = false,
   ) => {
     kube = new FlagsKube();
     kube.rollout = rollout ?? undefined;
     await service.stop();
-    await start(config, kube);
+    await start(config, kube, held);
   };
 
   beforeEach(async () => {
@@ -2519,6 +2523,37 @@ describe('the flags’ stages', () => {
     ]);
   });
 
+  it('has the app asked soon after each write, and a narrowing, Off or a flag dropped start the minute it has', async () => {
+    /** The check of the flags the app holds, as the stages tell it of each write. */
+    class Told {
+      readonly narrowed: boolean[] = [];
+      written(narrowed: boolean) {
+        this.narrowed.push(narrowed);
+      }
+      start() {}
+      async stop() {}
+      figures() {
+        return undefined;
+      }
+    }
+    const told = new Told();
+    await withFlags(undefined, undefined, told as unknown as FlagsHeld);
+    await improvement(FLAG);
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect((await move(browser, off, checks)).status).toBe(200);
+    expect((await move(browser, checks, share(50))).status).toBe(200);
+    expect((await move(browser, share(50), share(10))).status).toBe(200);
+    // Refused, or to where it is already: nothing written, nothing told.
+    expect((await move(browser, share(10), everyone)).status).toBe(409);
+    expect((await move(browser, share(10), share(10))).status).toBe(200);
+    expect((await move(browser, share(10), off, { reason: 'Dates are wrong' })).status).toBe(200);
+    // A widening that drops a flag in no stage's shape turns that one off.
+    kube.flags = { ...kube.flags, 'by-hand': { state: 'ENABLED', variants: { on: true }, defaultVariant: 'on' } };
+    expect((await move(browser, off, checks)).body).toMatchObject({ dropped: ['by-hand'] });
+    expect(told.narrowed).toEqual([false, false, true, true, true]);
+  });
+
   it('turns a flag off from the stage `flags` holds, whatever the slider showed, and holds every other move to it', async () => {
     await improvement(FLAG);
     const { browser, passkey } = await signedIn();
@@ -2559,6 +2594,46 @@ describe('the flags’ stages', () => {
     await withFlags(null, {});
     const { browser } = await signedIn();
     expect(await move(browser, off, checks)).toMatchObject({ status: 503, body: { refused: 'flags' } });
+  });
+});
+
+describe('whether the app holds the flags as set', () => {
+  /** Kubernetes that cannot be read: the check finds no pod to ask. */
+  const unread: KubeWriter = {
+    get: async () => {
+      throw new KubeError(403, 'forbidden');
+    },
+    text: async () => undefined,
+    create: async () => {},
+    remove: async () => {},
+    patch: async () => {},
+    replace: async () => {},
+  };
+
+  it('is anyone’s to read, as last checked, without a session or the console’s origin, and never stored', async () => {
+    const held = new FlagsHeld({
+      kube: unread,
+      flags: { namespace: 'flagd', name: 'flags' },
+      rollout: { namespace: 'website', name: 'website' },
+      log: pino({ level: 'silent' }),
+    });
+    await service.stop();
+    await start({}, undefined, held);
+    // The check the service starts with.
+    await expect.poll(() => held.view().checkedAt).not.toBeNull();
+    const res = await fetch(`${base}/admin/flags/held`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await res.json()).toEqual(held.view());
+    expect(held.view()).toMatchObject({ state: 'unchecked', revision: null, held: [] });
+    expect((await fetch(`${base}/admin/flags/held`, { method: 'HEAD' })).status).toBe(200);
+    expect((await fetch(`${base}/admin/flags/held`, { method: 'POST' })).status).toBe(404);
+  });
+
+  it('says so when the service does not check them', async () => {
+    const res = await fetch(`${base}/admin/flags/held`);
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ refused: 'flags', message: 'The admin service does not check the flags.' });
   });
 });
 

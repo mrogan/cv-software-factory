@@ -1,7 +1,7 @@
 # The mark kept here (milestone 7). The factory's own checks send `x-unmeasured` (`UNMEASURED`,
 # apps/factory/src/senses/http.ts), and a flag's first stage is on for the requests that carry it. What keeps visitors
-# from sending it is the network: the app's NetworkPolicy lets in, beside Traefik, only the probes, the crawler and the
-# canary's journeys, and the app's route through Traefik passes every request through the Middleware `visitors`, which
+# from sending it is the network: the app's NetworkPolicy lets in, beside Traefik, only the probes, the crawler, the
+# admin service (which asks for the revision of the flags the app holds) and the canary's journeys, and the app's route through Traefik passes every request through the Middleware `visitors`, which
 # removes the header. That route and that Middleware are the app's repository's, which the line's agents write, and
 # its Argo CD project may make IngressRoutes, TraefikServices and Middlewares in `website`
 # (deploy/base/website/project.yaml). So this policy holds them, for every request, Argo CD's included:

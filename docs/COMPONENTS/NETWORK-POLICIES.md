@@ -40,6 +40,7 @@ flowchart LR
   line -- verify port --> probes
   triage -- page reader --> probes
   probes --> app
+  admin[Admin service] -- each pod --> app
   app -- sync port --> flagdpod
 ```
 
@@ -61,7 +62,7 @@ Everything is denied in and out, then each pod is allowed what it needs.
 | Line | The GitHub worker, the Kubernetes API, the probes' verify port, and Prometheus, Loki and Tempo through the read-only proxy | The runners' agent pods, with their handbacks |
 | Traffic generator | Traefik and the collector, and nothing else but DNS | |
 | Console | Postgres and the collector | Traefik, only |
-| Admin service | Postgres, the collector and the Kubernetes API, for Martin's controls of the canary and his flags' stages | Traefik, only |
+| Admin service | Postgres, the collector and the Kubernetes API, for Martin's controls of the canary and his flags' stages; the app's pods on 8080, each at its own address, to ask which flags it holds | Traefik, only |
 | Migrations (the hook Job) | Postgres | Nothing |
 | Postgres exporter | Postgres | Prometheus's server, on 9187 |
 
@@ -114,10 +115,10 @@ The policies come from this repository, since the app's AppProject cannot make o
 
 | Pod | Reaches | Reached by |
 |---|---|---|
-| The app's pods, whose code agents write | DNS, the collector's OTLP port, and flagd's sync port | Traefik, the probes, the crawler and the canary's journeys Job, on 8080 only |
+| The app's pods, whose code agents write | DNS, the collector's OTLP port, and flagd's sync port | Traefik, the probes, the crawler, the admin service and the canary's journeys Job, on 8080 only |
 | The journeys Job | DNS and the app's pods, and nothing else | |
 
-What reaches the app through Traefik has had `x-unmeasured` removed ([the mark](ADMISSION-CONTROL.md#the-mark)), so only the pods this policy lets in beside Traefik can send it.
+What reaches the app through Traefik has had `x-unmeasured` removed ([the mark](ADMISSION-CONTROL.md#the-mark)), so only the pods this policy lets in beside Traefik can send it. The admin service is one, as it asks each pod, with the mark, for the revision of the flags it holds and nothing else ([admin service](ADMIN-SERVICE.md#whether-the-app-holds-the-flags)): through a Service, one pod of several would answer.
 
 The scoreboard's own policy is on [its page](SCOREBOARD.md#where-it-runs).
 
@@ -155,5 +156,5 @@ It has controls, which must reach what they reach:
 - Prometheus's server reaches the metrics of Kyverno, Argo Rollouts, the Postgres exporter and the pod log collector;
 - Tempo reaches Prometheus's remote-write receiver, and Argo Rollouts' controller reaches Prometheus;
 - Alertmanager reaches the intake and Pushover, and Prometheus's server reaches Alertmanager;
-- Traefik, the probes and the crawler still reach the app;
+- Traefik, the probes, the crawler and the admin service still reach the app, the admin service each of its pods at its own address, which the pod in `telemetry` below, whose own egress is open, does not;
 - the app reaches flagd's sync port.

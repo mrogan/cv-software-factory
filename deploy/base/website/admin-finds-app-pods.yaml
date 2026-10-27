@@ -1,0 +1,29 @@
+# The admin service finds the app's pods, to ask each which flags it holds (apps/factory/src/admin/flags-held.ts): the
+# ready endpoints of the Services the app's Rollout names, which it reads by name through its Role on the Rollout
+# (deploy/base/analysis/admin-controls-release.yaml). An EndpointSlice's name is generated, so a Role cannot name the
+# app's: it may list them in `website`, and neither watch nor change them. Not the Endpoints of each Service, which a Role
+# could name, as Kubernetes has deprecated them since 1.33; not the pods, whose specs say far more than an address.
+# So it learns the addresses of the pods behind `website`'s Services, and nothing of another namespace's.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: admin-finds-app-pods
+  namespace: website
+rules:
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: admin-finds-app-pods
+  namespace: website
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: admin-finds-app-pods
+subjects:
+  - kind: ServiceAccount
+    name: admin
+    namespace: factory

@@ -8,6 +8,7 @@ import { type KubeWriter, kubeFrom } from '../runners/kube.ts';
 import { createAdminApp } from './app.ts';
 import type { AdminConfig } from './config.ts';
 import { FlagStages } from './flags.ts';
+import { FlagsHeld, observeHeld } from './flags-held.ts';
 import { ReleaseControls } from './rollout.ts';
 import { AdminStore } from './store.ts';
 import { FullEvents, RECHECK_MS } from './stream.ts';
@@ -26,7 +27,15 @@ export async function startAdmin(
     port = config.port,
     recheckMs = RECHECK_MS,
     kube,
-  }: { sql?: Sql; port?: number; recheckMs?: number; kube?: KubeWriter } = {},
+    held: given,
+  }: {
+    sql?: Sql;
+    port?: number;
+    recheckMs?: number;
+    kube?: KubeWriter;
+    /** Whether the app holds the flags as set: by default checked when it has both `flags` and the Rollout; false, never. */
+    held?: FlagsHeld | false;
+  } = {},
 ): Promise<AdminService> {
   const store = new AdminStore(sql);
   const events = new FullEvents(sql, store, log, recheckMs);
@@ -34,15 +43,34 @@ export async function startAdmin(
   // The app's Rollout, through the admin service's own service account (or `kubectl proxy` on a host), when it has one.
   const api = config.rollout || config.flags ? (kube ?? kubeFrom()) : undefined;
   const controls = api && config.rollout ? new ReleaseControls(api, config.rollout, sql, log) : undefined;
-  // The feature flags' stages, judged against the canary in flight that `controls` reads.
-  const flags = api && config.flags ? new FlagStages(api, config.flags, sql, log, controls) : undefined;
+  // Whether the app holds the flags as set: its pods, behind the Rollout's Services, asked for the revision of theirs.
+  const held =
+    given !== undefined
+      ? given || undefined
+      : api && config.flags && config.rollout
+        ? new FlagsHeld({ kube: api, flags: config.flags, rollout: config.rollout, log })
+        : undefined;
+  // The feature flags' stages, judged against the canary in flight that `controls` reads, each write checked by `held`.
+  const flags = api && config.flags ? new FlagStages(api, config.flags, sql, log, controls, held) : undefined;
   const server = createServer(
-    createAdminApp({ config, store, events, log, ...(controls && { controls }), ...(flags && { flags }) }),
+    createAdminApp({
+      config,
+      store,
+      events,
+      log,
+      ...(controls && { controls }),
+      ...(flags && { flags }),
+      ...(held && { held }),
+    }),
   );
   // Slow requests are cut off: nothing here takes long to send.
   server.requestTimeout = 30_000;
   server.headersTimeout = 10_000;
   await new Promise<void>((resolve) => server.listen(port, resolve));
+  // A narrowing or Off written just before this start: its minute goes on, rather than being forgotten by the restart.
+  if (held && given === undefined) await narrowedBefore(sql, held);
+  held?.start();
+  const unobserve = held && observeHeld(held);
   const bound = (server.address() as AddressInfo).port;
   log.info(
     {
@@ -51,11 +79,14 @@ export async function startAdmin(
       rpId: config.rpId,
       rollout: config.rollout ?? null,
       flags: config.flags ?? null,
+      checksFlagsHeld: held !== undefined,
     },
     `admin service listening on :${bound}`,
   );
 
   const stop = async () => {
+    unobserve?.();
+    await held?.stop();
     await events.stop();
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
@@ -64,4 +95,18 @@ export async function startAdmin(
     await sql.end();
   };
   return { server, events, stop };
+}
+
+/** Gives the check the last narrowing or Off Martin recorded, if any: it counts only one written minutes ago. */
+async function narrowedBefore(sql: Sql, held: FlagsHeld): Promise<void> {
+  try {
+    const [last] = await sql<{ ts: Date }[]>`
+      select ts from events
+      where type = 'flag.staged' and (payload->>'action' in ('flag.narrow', 'flag.off') or payload ? 'dropped')
+        and appended_by = 'factory_admin' and not sample
+      order by seq desc limit 1`;
+    if (last) held.narrowedBefore(last.ts.getTime());
+  } catch (error) {
+    log.warn({ err: error }, 'could not read the last narrowing of a flag: one made before this start is not counted');
+  }
 }

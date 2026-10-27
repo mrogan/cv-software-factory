@@ -85,6 +85,13 @@ export const ACCESS = {
 
   // The admin service, behind `/admin/` on the console's host.
   'admin.health': { ...read('Whether the admin service is up'), server: 'admin', routes: ['GET /admin/health'] },
+  'flags.held': {
+    ...read(
+      'Whether the app holds the flags as set: the revision, what its pods hold, since when, and when last asked',
+    ),
+    server: 'admin',
+    routes: ['GET /admin/flags/held'],
+  },
 
   // Views every visitor sees, drawn from the public events.
   'audit-log': read('Every agent action, model call and admin action, newest first'),

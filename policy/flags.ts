@@ -47,6 +47,13 @@ export const FLAG_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 /** The reserved flag that names the flag set. Never a feature, and never staged. */
 export const REVISION_FLAG = 'flag-set-revision';
 
+/**
+ * How long the app may take a change of the flags before it is told: a narrowing or Off not taken within
+ * `takeSeconds` pages Martin, and the app holding other flags, or not being asked, for more than `differMinutes`
+ * notifies him (apps/factory/src/admin/flags-held.ts, apps/factory/src/alerts/rules.ts).
+ */
+export const FLAGS_HELD = { takeSeconds: 60, differMinutes: 5 } as const;
+
 /** The words the app's `x-flags-revision` keeps for no revision: a revision is never one of them. */
 export const RESERVED_REVISIONS = ['none', 'stale', 'invalid'] as const;
 
