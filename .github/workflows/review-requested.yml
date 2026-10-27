@@ -1,12 +1,17 @@
-# Asks main's review gate (review.yml) to judge a pull request again: when someone reviews it, which
-# `pull_request_target` does not see, and when the merge queue tests it, whose commit needs the `review` check too.
+# Asks main's review gate (review.yml) to judge a pull request: when it opens, its head moves, it is reopened, made
+# ready or edited (its base changed to main, say), when someone reviews it, and when the merge queue tests it, whose
+# commit needs the `review` check too.
 #
 # It runs as the pull request or the queue's commit has it, so it holds no token that can write and no secret, and does
 # nothing but finish: its run is what starts review.yml, from main, through `workflow_run`. A copy changed by a pull
-# request, or another workflow given its name, can only make the honest gate look again.
+# request, or another workflow given its name, can only make the honest gate look again, or leave the check missing,
+# which holds the pull request as a failing check does.
 name: review requested
 
 on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review, edited]
   pull_request_review:
     types: [submitted, dismissed]
   merge_group:

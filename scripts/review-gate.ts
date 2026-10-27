@@ -6,13 +6,13 @@
  *     node scripts/review-gate.ts      # in review.yml, which GitHub runs from main's copy only
  *
  * It reads the event GitHub hands the workflow, and the pull request and its reviews through the API, and never the
- * pull request's code. It is run by
+ * pull request's code. It runs on `workflow_run`, after `review-requested.yml` ran, which runs as the pull request or
+ * the queue's commit has it and so holds nothing:
  *
- * - `pull_request_target`, when a pull request opens or its head moves: the check goes on its head;
- * - `workflow_run`, after `review-requested.yml` ran for a review of a pull request, which `pull_request_target` does
- *   not see: the check goes on the pull request's head as it is now;
- * - `workflow_run`, after `review-requested.yml` ran for the merge queue: the check goes on the merge group's commit,
- *   judged on the pull request it was made for, which the queue names in its branch.
+ * - for a pull request opened, pushed to, reopened, made ready or edited, and for a review of one: the check goes on the
+ *   pull request's head as it is now;
+ * - for the merge queue: the check goes on the merge group's commit, judged on the pull request it was made for, which
+ *   the queue names in its branch.
  *
  * Anyone who can push a branch can make a run of a workflow named "review requested", so a `workflow_run` says only
  * which pull request to look at again. The verdict is always read afresh from GitHub, so a forged request reruns the
@@ -95,7 +95,6 @@ export type Target =
   | { kind: 'none'; reason: string };
 
 interface Event {
-  pull_request?: { number: number };
   workflow_run?: {
     event: string;
     head_branch: string | null;
@@ -107,9 +106,6 @@ interface Event {
 
 /** The pull request a run is about, from the event GitHub handed the workflow. */
 export function target(name: string, event: Event): Target {
-  if (name === 'pull_request_target' && event.pull_request) {
-    return { kind: 'pull-request', number: event.pull_request.number };
-  }
   const run = event.workflow_run;
   if (name !== 'workflow_run' || !run) return { kind: 'none', reason: `nothing to do on ${name}` };
   if (run.event === 'merge_group') {
@@ -117,12 +113,13 @@ export function target(name: string, event: Event): Target {
     if (!number) return { kind: 'none', reason: `${run.head_branch} is not a merge queue branch of main` };
     return { kind: 'queue', number: Number(number), commit: run.head_sha };
   }
-  if (run.event === 'pull_request_review') {
-    // GitHub names the pull request only when its branch is in this repository; a fork's is found by its branch.
+  if (run.event === 'pull_request' || run.event === 'pull_request_review') {
+    // GitHub names the pull request only when its branch is in this repository and still at the run's commit; a fork's,
+    // or a branch that has moved since, is found by its branch.
     const number = run.pull_requests?.find((p) => p.base.ref === 'main')?.number;
     if (number) return { kind: 'pull-request', number };
     const owner = run.head_repository?.owner.login;
-    if (!owner || !run.head_branch) return { kind: 'none', reason: 'the review names no pull request' };
+    if (!owner || !run.head_branch) return { kind: 'none', reason: `the ${run.event} names no pull request` };
     return { kind: 'find', owner, branch: run.head_branch, commit: run.head_sha };
   }
   return { kind: 'none', reason: `a review is not asked for by ${run.event}` };
@@ -159,16 +156,17 @@ async function main(): Promise<void> {
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf-8')) as Event;
   let asked = target(name, event);
   if (asked.kind === 'find') {
-    const { owner, branch, commit } = asked;
+    // The open pull request into main from that branch, wherever its head is now: the run that asked may be for an
+    // older push, and the verdict goes on the head as it is now. GitHub allows one open pull request per head and base.
+    const { owner, branch } = asked;
     const open = await api<PullRequest[]>(
       'GET',
-      `/repos/${repo}/pulls?state=open&head=${encodeURIComponent(`${owner}:${branch}`)}`,
+      `/repos/${repo}/pulls?state=open&base=main&head=${encodeURIComponent(`${owner}:${branch}`)}`,
       read,
     );
-    const found = open.find((p) => p.head.sha === commit);
-    asked = found
-      ? { kind: 'pull-request', number: found.number }
-      : { kind: 'none', reason: `no open pull request has ${owner}:${branch} at ${short(commit)}` };
+    asked = open[0]
+      ? { kind: 'pull-request', number: open[0].number }
+      : { kind: 'none', reason: `no open pull request into main has ${owner}:${branch}` };
   }
   if (asked.kind === 'none') {
     console.log(`Nothing to judge: ${asked.reason}.`);
