@@ -36,7 +36,7 @@ A pull request that needs one in the other repository merged first (in either di
 Your job is to finish this item, not to find more work. Never open an issue.
 
 - What the item needs to be done properly goes in this pull request: the docs and tests that change with it, comments it makes stale, and files CODEOWNERS gives Martin (below).
-- If the item is right but too big or too mixed for one review, open a second pull request on it yourself, with every step below again, and report both as `pr-open`: `worktree.sh <key>-2 <branch>`, stacked on the first with a third argument only if it must be, and `Part of #<n>` for an issue.
+- If the item is right but too big or too mixed for one review, open a second pull request on it yourself, with every step below again, and report both as `pr-open`: `worktree.sh <key>-2 <branch>`, and `Part of #<n>` for an issue. If it builds on the first's unmerged work, stack it on the first, as [Stacks](#stacks) says; if it does not, branch it from `origin/main`.
 - If finishing it needs work outside the item, stop at what is complete and report `split`, with each part you propose and why it cannot be part of this item.
 - Something unrelated you notice (a fault that predates the change, a doc that is wrong elsewhere) goes under `found` in your report, with its file and line. The orchestrator decides what becomes of it.
 
@@ -62,7 +62,15 @@ Keep the change to what the work needs, and give each file a line in its own sec
 7. **Checks.** Wait for CI (`gh pr checks <pr> --watch`, with `-R` for an `app-` key). Fix a failure the change caused; report one it didn't. `main` takes pull requests through GitHub's merge queue, which tests each on `main` as it will be, so a branch behind `main` needs nothing: never merge `origin/main` into it only to bring it up to date. Before every push to a pull request, here or in step 6, and again before step 8 (pushing anything that leaves unpushed), `git fetch origin` and merge the worktree's own branch from `origin` into it, so a push neither fails nor overwrites a commit someone else added, and the worktree is at the pull request's head. If a push is still rejected, fetch and merge again; never force-push. Only when the pull request conflicts with `main`, which the queue cannot take, merge `origin/main` into the branch in the worktree (a merge commit, so review threads keep their lines), resolve it and push, then wait for the checks again.
 8. **Check yourself.** `verify.sh <key> <pr>` for each pull request (or `verify.sh <key>` when skipped) exits 0 before you report. It fails while Copilot may still review, so a report never goes ahead of Copilot's threads.
 
-Never merge, approve, or push to `main`. Keep the worktree: it stays until Martin merges.
+Never merge, approve, or push to `main`, and never enqueue a pull request or a stack. Keep the worktree: it stays until Martin merges.
+
+## Stacks
+
+A stack is for pull requests that build on each other's unmerged work, and only for that: independent work branches from `origin/main`. Stacks work here with the merge queue and the review gate ([ADR 0014](../../../docs/architecture/adr/0014-merge-queue-and-review-gate.md)); there is nothing to check first. They do not yet work in the app's repository, whose review workflows predate them: there, branch every pull request from `origin/main`.
+
+- Make each worktree from the branch below, with `worktree.sh`'s third argument, and give that branch to `/visual-pr` as the base, to `/code-review` and `/security-review` as the diff's base, and to `gh pr create --base`.
+- Once the pull request is open, link it into the stack: `gh stack link <bottom> … <top>`, with the pull requests' numbers, bottom first, or `gh stack link <stack> <pr>` to add it to the top of a stack already linked. If `gh stack` is missing, `gh extension install github/gh-stack`. Put the stack's number in your report.
+- When a branch below yours changes, or `main` conflicts with the bottom, merge upwards, bottom first: each branch into the one above, in its worktree, and push each, as step 7 says. Never rebase or force-push, so not `gh stack sync` or `gh stack rebase`, which do both.
 
 ## Report
 
@@ -72,6 +80,7 @@ State only what command output showed you, and say plainly when a step was not f
 item:      #<n> | <slug>
 outcome:   pr-open | split | skipped | blocked | incomplete
 pr:        #<n> <url>
+stack:     <its number and the pull requests in it, bottom first, or none>
 branch:    <name>
 head:      <short sha of the pushed HEAD>
 worktree:  scratch/worktrees/<key>
