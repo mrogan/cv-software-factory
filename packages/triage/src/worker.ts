@@ -26,7 +26,8 @@
  *   would be, or joins it to an open ticket that has it; his rejection closes it (`settleOne`). Nothing else opens a
  *   ticket from a finding.
  * - A suggestion, a visitor's or the planner's, is parked for Martin, who alone asks for improvements. His rejection
- *   closes it; his words leave it waiting, and nothing acts on his approval until improvements do.
+ *   closes it; his words leave it waiting, and nothing acts on his approval: a suggestion never starts work, and Martin
+ *   asks for an improvement himself with the console's "+", in his own words.
  * - An answer of Martin's to one of these holds that triage cannot act on, in as many tries as a signal gets, is left:
  *   the hold starts again, with its cause, saying so (`askedAgain`). Needs you asks him again, a restart finds nothing
  *   answered to try, and his next answer is tried afresh.

@@ -14,10 +14,11 @@ import {
 } from '../src/line.ts';
 import { formatLog, parseLog } from '../src/log-format.ts';
 import { PUBLIC_VIEWS, publicView, redactSecrets } from '../src/public.ts';
+import { REQUEST_TITLE, requestTitle } from '../src/request.ts';
 import { validate, validateSignal } from '../src/schemas.ts';
 import type { NewEvent, PublicEvent } from '../src/types.ts';
 import { type Catalogue, upcast } from '../src/upcast.ts';
-import { EVENT_TYPES, VERSIONS } from '../src/versions.ts';
+import { ADMIN_TYPES, EVENT_TYPES, VERSIONS } from '../src/versions.ts';
 import { HOLD_CAUSES } from '../src/vocabulary.ts';
 import { gate, judgement, opened, REPORT_TEXT, signal, VISITOR_KEY } from './fixtures.ts';
 
@@ -363,18 +364,75 @@ describe('validation', () => {
   it('takes where each criterion of a spec comes from and the words it quotes there, and a spec that never said', () => {
     const criterion = { given: 'a price of 600 pence', when: 'it is shown', expect: 'it reads £6.00' };
     const spec = { outcome: 'Prices show two digits of pence.', scope: ['src/money.ts'], risks: [], rollout: 'Ships.' };
-    const written = { ...opened, type: 'spec.written', version: 3, actor: 'planner' };
+    const written = { ...opened, type: 'spec.written', version: 4, actor: 'planner' };
     const quoted = { ...criterion, from: 'signal 1', quote: 'a price is in pounds and two digits of pence' };
     expect(validate({ ...written, payload: { ...spec, criteria: [quoted] } })).toEqual({ ok: true });
     expect(validate({ ...written, payload: { ...spec, criteria: [{ ...quoted, quote: ' ' }] } }).ok).toBe(false);
     for (const [version, older] of [
       [1, criterion],
       [2, { ...criterion, from: 'signal 1' }],
+      [3, quoted],
     ] as const) {
       expect(upcast({ type: 'spec.written', version, payload: { ...spec, criteria: [older] } })).toMatchObject({
-        event: { version: 3, payload: { criteria: [older] } },
+        event: { version: 4, payload: { criteria: [older] } },
       });
     }
+  });
+
+  it('takes an improvement’s title, flag, pages and each criterion’s side of the flag', () => {
+    const criteria = [
+      { given: 'the flag is on', when: 'a product page is shown', expect: 'it says when it would arrive' },
+      { given: 'the flag is off', when: 'a product page is shown', expect: 'it is as before' },
+    ];
+    const spec = {
+      title: 'Delivery dates on each product',
+      outcome: 'Each product page says when an order placed today would arrive.',
+      criteria: [
+        { ...criteria[0], withFlag: 'on' },
+        { ...criteria[1], withFlag: 'off' },
+      ],
+      scope: ['src/pages/product.ts'],
+      risks: [],
+      rollout: 'Behind its flag, off.',
+      flag: 'delivery-dates',
+      pages: ['/products/blue-mug', '/'],
+    };
+    const written = { ...opened, type: 'spec.written', version: 4, actor: 'planner' };
+    expect(validate({ ...written, payload: spec })).toEqual({ ok: true });
+    const refused = (payload: object) => validate({ ...written, payload: { ...spec, ...payload } }).ok;
+    expect(refused({ pages: [] })).toBe(false);
+    expect(refused({ pages: ['/a', '/b', '/c', '/d', '/e', '/f', '/g'] })).toBe(false);
+    for (const page of [
+      'products',
+      '/search?q=mug',
+      '/#top',
+      'https://example.com/',
+      '/a b',
+      '//example.com/',
+      '/\\example.com',
+    ]) {
+      expect(refused({ pages: [page] }), page).toBe(false);
+    }
+    expect(refused({ criteria: [{ ...criteria[0], withFlag: 'both' }] })).toBe(false);
+    // A flag's name is one the app and `flags` can carry, and never the flag set's revision.
+    for (const flag of ['Delivery-Dates', 'delivery--dates', '-dates', 'flag-set-revision']) {
+      expect(refused({ flag }), flag).toBe(false);
+    }
+  });
+
+  it('takes Martin’s request for an improvement in his words, up to 600 characters, on its work item', () => {
+    const requested = {
+      ...opened,
+      type: 'improvement.requested',
+      version: 1,
+      actor: 'martin',
+      payload: { words: 'Show when an order would arrive on each product page.', steppedUp: true },
+    };
+    expect(validate(requested)).toEqual({ ok: true });
+    expect(validate({ ...requested, payload: { ...requested.payload, words: 'x'.repeat(601) } }).ok).toBe(false);
+    expect(validate({ ...requested, payload: { ...requested.payload, words: '  ' } }).ok).toBe(false);
+    expect(validate({ ...requested, work_item: null }).ok).toBe(false);
+    expect(ADMIN_TYPES).toContain('improvement.requested');
   });
 
   it('only lets work return upstream', () => {
@@ -1094,7 +1152,7 @@ describe('the answers a hold takes', () => {
     expect(answersTo('deploy')).toEqual(['rejected']);
     // He merges on GitHub: his words send the work back, and nothing here approves it.
     expect(answersTo('merge')).toEqual(['answered', 'rejected']);
-    // Approving a suggestion means nothing until improvements do.
+    // Approving a suggestion does nothing: a suggestion never starts work, and Martin asks with the "+".
     expect(answersTo('suggestion')).toEqual(['answered', 'rejected']);
     expect(answersTo('finding')).toEqual(['approved', 'answered', 'rejected']);
   });
@@ -1204,5 +1262,33 @@ describe('the same version', () => {
     expect(sameVersion('d728dbe', `d728dbe${'0'.repeat(33)}`)).toBe(true);
     expect(sameVersion('v0.9.3', 'v0.9.3')).toBe(true);
     expect(sameVersion('d728dbe', 'd728dbf')).toBe(false);
+  });
+});
+
+describe('the title of Martin’s request', () => {
+  it('is his first sentence, without its full stop, its spaces collapsed', () => {
+    expect(requestTitle('Show delivery dates. Each product page, from tomorrow.')).toBe('Show delivery dates');
+    expect(requestTitle('  Can visitors   sort by price?  Cheapest first.')).toBe('Can visitors sort by price?');
+    expect(requestTitle('A gift note!\nUp to 200 characters.')).toBe('A gift note!');
+    expect(requestTitle('A gift note in the basket\nprinted with the order.')).toBe('A gift note in the basket');
+    expect(requestTitle('Sort by price')).toBe('Sort by price');
+    // A full stop inside a word ends nothing.
+    expect(requestTitle('Say v1.2 in the footer. Small.')).toBe('Say v1.2 in the footer');
+  });
+
+  it('is cut at the last word within 60 characters, and marked as cut', () => {
+    const words =
+      'Show on each product page when an order placed today would arrive, counting only the days we dispatch on.';
+    const title = requestTitle(words);
+    expect(title).toBe('Show on each product page when an order placed today would…');
+    expect(title.length).toBeLessThanOrEqual(REQUEST_TITLE + 1);
+    // A comma at the cut goes too, and one word longer than a title is cut where it must be.
+    expect(requestTitle(`${'a '.repeat(28)}bb, and then some more words after it`)).toBe(`${'a '.repeat(28)}bb…`);
+    expect(requestTitle('x'.repeat(80))).toBe(`${'x'.repeat(59)}…`);
+  });
+
+  it('is the whole of his words when the first sentence has nothing in it', () => {
+    expect(requestTitle('. Then the rest')).toBe('. Then the rest');
+    expect(requestTitle('?')).toBe('?');
   });
 });

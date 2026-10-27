@@ -66,7 +66,7 @@ const told = (
   named: Record<string, string>,
   records: StoredFlagRecord[],
   more: Partial<Pick<FlagEvents, 'checked' | 'revision'>> = {},
-): FlagEvents => ({ named, records, checked: [], revision: null, ...more });
+): FlagEvents => ({ named, pages: {}, records, checked: [], revision: null, ...more });
 
 describe('what the flag pass decides', () => {
   /** A flag widened a stage at a time to `at`, then turned off from there. */
@@ -483,11 +483,23 @@ describe('the flag pass, against the store', () => {
       artifacts: [],
     }) as NewEvent;
 
-  /** An improvement Martin asked for, as triage opens it, whose spec, as the line records it, names the flag. */
-  async function improvement(flag: string, kind: PayloadOf<'work-item.opened'>['kind'] = 'improvement') {
-    const workItem = await nextWorkItem(database.as.triage);
-    await writer(database.as.triage).append([
+  /**
+   * An improvement Martin asked for, as the admin service opens it with his request, whose spec, as the line records
+   * it, names the flag; or a work item of another kind, as triage opens one; or, with `request: false`, an improvement
+   * his command line opened with no request.
+   */
+  async function improvement(
+    flag: string,
+    kind: PayloadOf<'work-item.opened'>['kind'] = 'improvement',
+    { request = true, pages }: { request?: boolean; pages?: string[] } = {},
+  ) {
+    const opener = kind !== 'improvement' ? database.as.triage : request ? database.admin : database.operator;
+    const workItem = await nextWorkItem(opener === database.operator ? database.as.triage : opener);
+    await writer(opener).append([
       event(workItem, 'work-item.opened', { kind, title: 'Delivery dates', sample: false }, 'martin'),
+      ...(kind === 'improvement' && request
+        ? [event(workItem, 'improvement.requested', { words: 'Delivery dates, please.', steppedUp: true }, 'martin')]
+        : []),
     ]);
     await events.append([
       event(
@@ -500,6 +512,7 @@ describe('the flag pass, against the store', () => {
           risks: [],
           rollout: 'Behind its flag',
           flag,
+          ...(pages && { pages }),
         },
         'planner',
       ),
@@ -614,6 +627,42 @@ describe('the flag pass, against the store', () => {
     await line().pass();
     expect(await closes(workItem)).toEqual([]);
     expect((await flagEvents(database.as.line)).records).toEqual([]);
+  });
+
+  it('names a flag only for an improvement Martin asked for, with the pages its spec names', async () => {
+    const asked = await improvement('dates', 'improvement', { pages: ['/products/blue-mug'] });
+    await improvement('plain');
+    // His command line's improvement with no request, and one a worker opened before row security refused it.
+    await improvement('unasked', 'improvement', { request: false });
+    const forged = await nextWorkItem(database.as.triage);
+    await database.owner`alter table events disable row level security`;
+    try {
+      await writer(database.as.triage).append([
+        event(forged, 'work-item.opened', { kind: 'improvement', title: 'Forged', sample: false }, 'martin'),
+        event(forged, 'improvement.requested', { words: 'Forged.', steppedUp: true }, 'martin'),
+      ]);
+    } finally {
+      await database.owner`alter table events enable row level security`;
+    }
+    await events.append([
+      event(
+        forged,
+        'spec.written',
+        {
+          outcome: 'Forged',
+          criteria: [{ given: 'a page', when: 'it is shown', expect: 'it is forged' }],
+          scope: ['src/pages/product.ts'],
+          risks: [],
+          rollout: 'Behind its flag',
+          flag: 'forged',
+        },
+        'planner',
+      ),
+    ]);
+    const { named, pages } = await flagEvents(database.as.line);
+    expect(Object.keys(named).sort()).toEqual(['dates', 'plain']);
+    expect(named.dates).toBe(asked);
+    expect(pages).toEqual({ dates: ['/products/blue-mug'] });
   });
 
   it('closes nothing but an improvement', async () => {

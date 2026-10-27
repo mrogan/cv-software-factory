@@ -18,7 +18,7 @@ export const VERSIONS = {
   'judgement.made': 1,
   'ticket.opened': 1,
   // Plan and build
-  'spec.written': 3,
+  'spec.written': 4,
   'pull-request.pushed': 3,
   'suggestions.answered': 1,
   'wait.started': 1,
@@ -67,6 +67,8 @@ export const VERSIONS = {
   'flag.staged': 1,
   'flag.compared': 2,
   'flag.checked': 2,
+  // Martin's request for an improvement, in his own words (the admin service), with the work item it opens
+  'improvement.requested': 1,
 } as const;
 
 export type EventType = keyof typeof VERSIONS;
@@ -109,8 +111,10 @@ export const RELEASE_TYPES: readonly EventType[] = [
  * passkey again, and his passkeys are among them, so no worker can forge one (`0025_admin-service.sql`,
  * `0026_admin-stepped-up.sql`), and so are his controls of a release (`release.controlled`,
  * `0027_release-controls.sql`), his settings (`settings.changed`, `0028_settings.sql`), and his controls of the line
- * (`controls.changed`, `0030_line-controls.sql`), and his stages of a feature flag (`flag.staged`,
- * `0033_flag-stages.sql`). Each command the admin service adds joins this list when its type
+ * (`controls.changed`, `0030_line-controls.sql`), his stages of a feature flag (`flag.staged`,
+ * `0033_flag-stages.sql`), and his requests for an improvement (`improvement.requested`, `0035_improvement-requests.sql`,
+ * which also lets only his roles open a work item of kind `improvement`, though `work-item.opened` is no command of his
+ * alone). Each command the admin service adds joins this list when its type
  * joins the catalogue, and a migration adds it to the store's own list (`admin_event`): the store's tests fail until
  * the two agree. `release.aborted` is not one: it is the line's record of
  * what the Rollout did, and says `by: martin` when his control came first.
@@ -128,6 +132,7 @@ export const ADMIN_TYPES: readonly EventType[] = [
   'settings.changed',
   'controls.changed',
   'flag.staged',
+  'improvement.requested',
 ];
 
 export const isEventType = (type: string): type is EventType => Object.hasOwn(VERSIONS, type);

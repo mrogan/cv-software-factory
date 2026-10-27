@@ -30,7 +30,8 @@ export interface RoleGrants {
   calls?: readonly string[];
   /**
    * One of Martin's roles: row security lets it append his commands (the admin event types, `ADMIN_TYPES` in the events
-   * package), and the line, triage and the gateway act on an admin event only when one of these appended it.
+   * package), and open an improvement, and the line, triage and the gateway act on an admin event, or an improvement,
+   * only when one of these appended it.
    */
   martin?: true;
 }
@@ -43,8 +44,11 @@ const SIGNAL = 'insert (id, sense, fingerprint, signal)';
  * and only Martin's commands his roles appended, as the factory heeds them.
  */
 const READ = 'true';
-/** Every worker appends any event but his commands. */
-const NOT_HIS = 'NOT admin_event(type)';
+/**
+ * Every worker appends any event but his commands, and opens any work item but an improvement, which only his roles
+ * open (0035_improvement-requests.sql).
+ */
+const NOT_HIS = '(NOT admin_event(type)) AND (NOT opens_improvement(type, payload))';
 
 export const STORE_GRANTS = {
   factory_worker: {
@@ -134,12 +138,14 @@ export const STORE_GRANTS = {
   },
   factory_admin: {
     for:
-      "The admin service: appends Martin's commands and nothing else, reads the full events his views need, and keeps " +
-      'the passkeys, enrolment codes, sessions and WebAuthn challenges of signing in (0023_martins-commands.sql).',
+      "The admin service: appends Martin's commands and nothing else, but the work item of kind improvement his request " +
+      'opens, which it numbers (0035_improvement-requests.sql); reads the full events his views need; and keeps the ' +
+      'passkeys, enrolment codes, sessions and WebAuthn challenges of signing in (0023_martins-commands.sql).',
     martin: true,
     on: {
       events: ['select', 'insert'],
       store: ['select', 'insert'],
+      work_items: ['usage'],
       passkeys: [
         'select',
         'insert (id, public_key, sign_count, transports, name, enrolled_with)',
@@ -154,7 +160,7 @@ export const STORE_GRANTS = {
         'delete',
       ],
     },
-    rows: { events: { select: READ, insert: 'admin_event(type)' } },
+    rows: { events: { select: READ, insert: 'admin_event(type) OR opens_improvement(type, payload)' } },
   },
   factory_operator: {
     for:
@@ -203,7 +209,10 @@ export const STORE_GRANTS = {
   },
 } as const satisfies Record<string, RoleGrants>;
 
-/** Martin's roles: the only ones that may append his commands, and the only ones the factory heeds them from. */
+/**
+ * Martin's roles: the only ones that may append his commands or open an improvement, and the only ones the factory
+ * heeds them from.
+ */
 export const MARTINS_ROLES = Object.entries(STORE_GRANTS as Record<string, RoleGrants>)
   .filter(([, grants]) => grants.martin)
   .map(([role]) => role);

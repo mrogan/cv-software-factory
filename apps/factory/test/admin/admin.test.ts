@@ -1836,6 +1836,32 @@ describe('the line’s controls', () => {
     });
   });
 
+  it('takes just one improvement Martin asked for, and none without his request', async () => {
+    await stored({ take: { kind: 'every' } });
+    const asked = await nextWorkItem(db.as.triage);
+    await append(db.admin, [
+      event(asked, 'work-item.opened', 'martin', { kind: 'improvement', title: 'Delivery dates', sample: false }),
+      event(asked, 'improvement.requested', 'martin', { words: 'Delivery dates.', steppedUp: true }),
+    ]);
+    // His command line's improvement with no request is none the line takes.
+    const unasked = await nextWorkItem(db.as.triage);
+    await append(db.operator, [
+      event(unasked, 'work-item.opened', 'martin', { kind: 'improvement', title: 'Gift notes', sample: false }),
+    ]);
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect(await browser.post('/admin/line/controls', { take: { kind: 'just-one', workItem: unasked } })).toMatchObject(
+      {
+        status: 422,
+        body: { refused: 'policy', message: `#${unasked} has no open ticket or improvement for the line to take.` },
+      },
+    );
+    expect(await browser.post('/admin/line/controls', { take: { kind: 'just-one', workItem: asked } })).toMatchObject({
+      status: 200,
+      body: { change: { control: 'take', after: { kind: 'just-one', workItem: asked } } },
+    });
+  });
+
   it('refuses a change outside policy, passkey or no, and records nothing for one already in force', async () => {
     await stored({ take: { kind: 'every' } });
     const closed = await ticketed(true);
@@ -2090,6 +2116,48 @@ describe('Needs you', () => {
     expect(await answers(gates.workItem)).toMatchObject([{ actor: 'martin', payload: { decision: 'approved' } }]);
   });
 
+  it('asks for the passkey again to approve an improvement’s spec, decided by the stored kind, and no other spec', async () => {
+    const { browser, passkey } = await signedIn();
+    await db.owner`update sessions set stepped_up_at = null where id_sha256 = ${sessionOf(browser)}`;
+    const improvement = async () => {
+      const workItem = await nextWorkItem(db.as.triage);
+      await append(db.admin, [
+        event(workItem, 'work-item.opened', 'martin', { kind: 'improvement', title: 'Delivery dates', sample: false }),
+        event(workItem, 'improvement.requested', 'martin', { words: 'Delivery dates.', steppedUp: true }),
+      ]);
+      const hold = event(workItem, 'hold.started', 'factory', {
+        stage: 'plan',
+        kind: 'approval',
+        cause: 'spec',
+        reason: 'An improvement is built only once Martin has approved its spec.',
+      });
+      await append(db.as.line, [hold]);
+      return { workItem, hold: hold.id };
+    };
+    const asked = await improvement();
+    expect(await browser.post(`/admin/holds/${asked.workItem}/approve`, { hold: asked.hold })).toMatchObject({
+      status: 403,
+      body: { refused: 'step-up' },
+    });
+    expect(await answers(asked.workItem)).toEqual([]);
+    // Words and a rejection never ask.
+    const words = await browser.post(`/admin/holds/${asked.workItem}/answer`, {
+      hold: asked.hold,
+      words: 'Fewer days',
+    });
+    expect(words.status).toBe(200);
+    const rejected = await improvement();
+    expect((await browser.post(`/admin/holds/${rejected.workItem}/reject`, { hold: rejected.hold })).status).toBe(200);
+    // Another work item's spec never asks.
+    const fix = await held('spec', { stage: 'plan' });
+    expect((await browser.post(`/admin/holds/${fix.workItem}/approve`, { hold: fix.hold })).status).toBe(200);
+    // Given again, it approves an improvement's.
+    const approved = await improvement();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect((await browser.post(`/admin/holds/${approved.workItem}/approve`, { hold: approved.hold })).status).toBe(200);
+    expect(await answers(approved.workItem)).toMatchObject([{ actor: 'martin', payload: { decision: 'approved' } }]);
+  });
+
   it('refuses an answer that would do nothing: approving a merge, a deploy or a suggestion, or words on a deploy', async () => {
     const { browser, passkey } = await signedIn();
     expect((await stepUp(browser, passkey)).status).toBe(200);
@@ -2212,6 +2280,101 @@ class FlagsKube implements KubeWriter {
   remove = async () => {};
 }
 
+describe('an improvement asked for', () => {
+  const requests = () =>
+    db.owner<{ seq: string; id: string; work_item: string; type: string; appended_by: string; payload: Body }[]>`
+      select seq::text, id, work_item, type, appended_by, payload from events
+      where type = 'improvement.requested' or (type = 'work-item.opened' and payload->>'kind' = 'improvement')
+      order by seq`;
+  const WORDS =
+    'Show on each product page when an order placed today would arrive. Count only the days we dispatch on, and ' +
+    'say nothing for a product out of stock.';
+
+  it('needs the passkey again, and opens nothing without it', async () => {
+    const { browser } = await signedIn();
+    const before = (await requests()).length;
+    expect(await browser.post('/admin/improvements', { id: crypto.randomUUID(), words: WORDS })).toMatchObject({
+      status: 403,
+      body: { refused: 'step-up' },
+    });
+    expect(await requests()).toHaveLength(before);
+  });
+
+  it('opens a work item of kind improvement, titled from his first sentence, with his request, in one transaction', async () => {
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    const id = crypto.randomUUID();
+    const before = (await requests()).length;
+    const asked = await browser.post('/admin/improvements', { id, words: `  ${WORDS}  ` });
+    const title = 'Show on each product page when an order placed today would…';
+    expect(asked).toMatchObject({ status: 200, body: { title } });
+    const [opened, request] = (await requests()).slice(before);
+    expect(opened).toMatchObject({
+      work_item: asked.body.workItem,
+      appended_by: 'factory_admin',
+      payload: { kind: 'improvement', category: 'improvement', title, sample: false },
+    });
+    expect(request).toMatchObject({
+      id,
+      work_item: asked.body.workItem,
+      appended_by: 'factory_admin',
+      payload: { words: WORDS, steppedUp: true },
+    });
+    expect(Number(request?.seq)).toBe(Number(opened?.seq) + 1);
+    // Numbered by the store, as triage numbers work items.
+    expect(Number(asked.body.workItem)).toBeGreaterThanOrEqual(1000);
+    const [requested] = await lastEvents(1);
+    expect(requested).toMatchObject({ actor: 'martin', summary: `Martin asked for an improvement: ${title}` });
+  });
+
+  it('opens one work item for a request sent twice, and refuses the second', async () => {
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    const id = crypto.randomUUID();
+    const first = await browser.post('/admin/improvements', { id, words: 'Sort products by price.' });
+    expect(first.status).toBe(200);
+    const before = (await requests()).length;
+    expect(await browser.post('/admin/improvements', { id, words: 'Sort products by price.' })).toMatchObject({
+      status: 409,
+      body: { refused: 'request', message: `That request has been made already: it opened #${first.body.workItem}.` },
+    });
+    expect(await requests()).toHaveLength(before);
+  });
+
+  it('takes his words and the request’s id, and nothing else from the request', async () => {
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    const before = (await requests()).length;
+    for (const body of [
+      {},
+      { words: WORDS },
+      { id: 'not-an-id', words: WORDS },
+      { id: crypto.randomUUID(), words: ' ' },
+      { id: crypto.randomUUID(), words: 'x'.repeat(601) },
+      { id: crypto.randomUUID(), words: WORDS, kind: 'defect-fix' },
+      { id: crypto.randomUUID(), words: WORDS, title: 'Mine' },
+    ]) {
+      expect(await browser.post('/admin/improvements', body), JSON.stringify(body)).toMatchObject({
+        status: 400,
+        body: { refused: 'body' },
+      });
+    }
+    expect(await requests()).toHaveLength(before);
+    expect(
+      (await browser.post('/admin/improvements', { id: crypto.randomUUID(), words: 'x'.repeat(600) })).status,
+    ).toBe(200);
+  });
+
+  it('shows visitors his words through the redactor', async () => {
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    const words = 'Add a status page. The token is sk-ant-api03-abcdefghijklmnop.';
+    expect((await browser.post('/admin/improvements', { id: crypto.randomUUID(), words })).status).toBe(200);
+    const [requested] = await lastEvents(1);
+    expect(requested?.public).toMatchObject({ payload: { words: 'Add a status page. The token is [redacted].' } });
+  });
+});
+
 describe('the flags’ stages', () => {
   const FLAGS = { namespace: 'flagd', name: 'flags' };
   const ROLLOUT = { namespace: 'website', name: 'website' };
@@ -2236,13 +2399,16 @@ describe('the flags’ stages', () => {
   let kube: FlagsKube;
 
   /**
-   * An improvement whose spec names the flag, as triage opens it and the line records the planner's spec, and Verify's
-   * run of it with the flag off, which Checks waits for, unless told there is none yet.
+   * An improvement whose spec names the flag, as Martin asks for it and the line records the planner's spec, and
+   * Verify's run of it with the flag off, which Checks waits for, unless told there is none yet.
    */
   async function improvement(flag: string, kind = 'improvement', baseline = true): Promise<string> {
     const workItem = await nextWorkItem(db.as.triage);
-    await append(db.as.triage, [
+    // Martin's improvement, as the admin service opens it with his request; any other kind, as a worker opens it.
+    const improving = kind === 'improvement';
+    await append(improving ? db.admin : db.as.triage, [
       event(workItem, 'work-item.opened', 'martin', { kind, title: 'Delivery dates', sample: false }),
+      ...(improving ? [event(workItem, 'improvement.requested', 'martin', { words: 'Dates.', steppedUp: true })] : []),
     ]);
     await append(db.as.line, [
       event(workItem, 'spec.written', 'planner', {

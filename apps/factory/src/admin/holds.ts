@@ -10,10 +10,13 @@
  *   approved or rejected. Answers are taken one at a time, under the lock every append takes, so two cannot both
  *   answer one hold, and a hold the line or triage appends meanwhile is the one answered next.
  * - **Only an answer that does something.** One the line would only wait after is refused (`answersTo`): approving a
- *   merge, which Martin does on GitHub, a deploy, which a release ends by itself, or a suggestion, before improvements.
+ *   merge, which Martin does on GitHub, a deploy, which a release ends by itself, or a suggestion, which never starts
+ *   work: Martin asks for an improvement himself with the console's "+".
  * - **The cause is the store's.** Approving a hold whose cause is a guardrail is `hold.approve-guardrail` in the access
  *   table, which needs the passkey again; the cause is read from the stored hold, never taken from the request.
- *   Rejecting, words, and approving any other cause never ask.
+ *   Approving the spec of an improvement is `hold.approve-improvement-spec`, which needs it too, as asking for one does:
+ *   it sets the line building something new. That is a `spec` hold on a work item whose opening says it is an
+ *   improvement, both read from the store, whoever opened it. Rejecting, words, and approving any other hold never ask.
  * - **Words about a visitor's report stay Martin's.** On a work item a visitor's report opened (its first signal is a
  *   report), the answer is marked `report`, and its public view leaves his words out, at any stage: a paraphrase of a
  *   report would pass any redactor.
@@ -141,6 +144,17 @@ async function openHold(tx: TransactionSql, workItem: string): Promise<OpenHold 
   return open;
 }
 
+/**
+ * Whether the work item is an improvement, by its opening, whoever appended it: only Martin's roles may open one now
+ * (0035_improvement-requests.sql), and one a worker opened before then asks for the passkey all the same.
+ */
+async function isImprovement(tx: TransactionSql, workItem: string): Promise<boolean> {
+  const [row] = await tx`
+    select 1 from events
+    where work_item = ${workItem} and type = 'work-item.opened' and payload->>'kind' = 'improvement' limit 1`;
+  return row !== undefined;
+}
+
 /** Whether a visitor's report opened the work item: its first signal is a report. */
 async function openedByReport(tx: TransactionSql, workItem: string): Promise<boolean> {
   const [first] = await tx<{ sense: string }[]>`
@@ -196,7 +210,13 @@ export async function answerHold(
         throw new Refused('answer', 422, 'That answer does nothing for this hold, so it takes another.');
       }
       const guardrail = (GUARDRAIL_HOLDS as readonly HoldCause[]).includes(open.cause);
-      if (decision === 'approved' && guardrail && ACCESS['hold.approve-guardrail'].stepUp) {
+      const asks =
+        decision === 'approved' &&
+        ((guardrail && ACCESS['hold.approve-guardrail'].stepUp) ||
+          (open.cause === 'spec' &&
+            ACCESS['hold.approve-improvement-spec'].stepUp &&
+            (await isImprovement(tx, workItem))));
+      if (asks) {
         // Asked again as the answer is taken, after the lock: the passkey given may have gone stale while it waited.
         if (!(await steppedUpNow(tx, session))) throw new Refused('step-up', 403, 'This needs your passkey again.');
       }

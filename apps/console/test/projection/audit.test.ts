@@ -339,6 +339,17 @@ describe('the detail under a row', () => {
       cause: 'gates',
       reason: 'Held',
     } as PayloadOf<'hold.started'>);
+    const opened = (kind: PayloadOf<'work-item.opened'>['kind']) =>
+      event(0, 'work-item.opened', 'martin', { kind, title: 'Delivery dates', sample: true }, 'Opened', '1400');
+    const specHeld = event(
+      1,
+      'hold.started',
+      'factory',
+      { stage: 'plan', kind: 'approval', cause: 'spec', reason: 'Held' } as PayloadOf<'hold.started'>,
+      'Held',
+      '1400',
+    );
+    const approvedSpec = event(2, 'hold.answered', 'martin', { decision: 'approved', hold: specHeld.id }, 'Ok', '1400');
     const recorded: Record<string, PublicEvent[] | 'no event yet'> = {
       'line.start': [event(2, 'line.started', 'martin', { reason: 'Back' })],
       'autonomy.loosen': control({ control: 'autonomy', before: 'supervised', after: 'guarded' }),
@@ -353,6 +364,11 @@ describe('the detail under a row', () => {
       'passkey.revoke': [event(2, 'passkey.revoked', 'martin', { from: 'console' })],
       'flag.widen': [staged({ stage: 'checks' }, { stage: 'share', share: 50 })],
       'flag.back-on': [staged({ stage: 'off' }, { stage: 'everyone' })],
+      'improvement.request': [
+        opened('improvement'),
+        event(2, 'improvement.requested', 'martin', { words: 'Dates.', steppedUp: true }, 'Asked', '1400'),
+      ],
+      'hold.approve-improvement-spec': [opened('improvement'), specHeld, approvedSpec],
     };
     const marked = Object.entries(ACCESS as Record<string, { stepUp: boolean }>)
       .filter(([name, access]) => access.stepUp && name !== 'step-up')
@@ -363,6 +379,8 @@ describe('the detail under a row', () => {
       if (events === 'no event yet') continue;
       expect(only([steppedUp, ...events]).detail, action).toMatch(/passkey given at/);
     }
+    // Approving the spec of any other work item asks for nothing more.
+    expect(only([steppedUp, opened('defect-fix'), specHeld, approvedSpec]).detail).toBeUndefined();
   });
 
   it('says each move of a flag, from where it stood to where Martin set it, and his reason for turning it off', () => {

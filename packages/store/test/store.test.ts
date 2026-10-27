@@ -106,6 +106,7 @@ describe('migrations', () => {
       { version: 32, name: 'forget-reports' },
       { version: 33, name: 'flag-stages' },
       { version: 34, name: 'flag-pictures' },
+      { version: 35, name: 'improvement-requests' },
     ]);
   });
 });

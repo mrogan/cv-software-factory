@@ -24,7 +24,8 @@
  *   read from the store under the lock every append takes, never from the request's word: the passkey again for one
  *   that loosens, asked again after the lock.
  * - A change outside policy is refused (422), having changed nothing: the next few beyond its most, or just one work
- *   item that has no open ticket. The line checks what it reads again, whatever is written here.
+ *   item that is neither an open ticket nor an open improvement Martin asked for. The line checks what it reads again,
+ *   whatever is written here.
  * - The next few count from when Martin chose them: any number chosen, larger, smaller or the same, counts again from
  *   then, so "the next two" are two from now.
  * - A change to what is already so records nothing.
@@ -44,6 +45,7 @@ import {
   TAKE,
   type Take,
 } from '../../../../policy/line.ts';
+import { MARTINS_ROLES } from '../../../../policy/store-grants.ts';
 import type { ReleaseControls } from './rollout.ts';
 import { type AdminStore, adminEvent, Refused, type Session, steppedUpNow } from './store.ts';
 
@@ -206,11 +208,19 @@ function withChange(controls: Controls, change: ControlChange): Controls {
   }
 }
 
-/** Whether a work item has a real ticket, and has not closed since: one the line can take, as `Queue.admit` reads it. */
-async function openTicket(tx: TransactionSql, workItem: string): Promise<boolean> {
+/**
+ * Whether a work item is real work the line can take, and has not closed: one with a ticket, as `Queue.admit` reads it,
+ * or an improvement Martin asked for, its opening and his request both appended by one of his roles.
+ */
+async function openWork(tx: TransactionSql, workItem: string): Promise<boolean> {
   const [row] = await tx`
     select 1 from events t
-    where t.type = 'ticket.opened' and t.work_item = ${workItem} and not t.sample
+    where t.work_item = ${workItem} and not t.sample
+      and (t.type = 'ticket.opened'
+           or (t.type = 'improvement.requested' and t.appended_by = any(${MARTINS_ROLES})
+               and exists (select 1 from events o
+                           where o.work_item = t.work_item and o.type = 'work-item.opened'
+                             and o.payload->>'kind' = 'improvement' and o.appended_by = any(${MARTINS_ROLES}))))
       and ${lastEnd(tx, 't.work_item')} is distinct from 'work-item.closed'
     limit 1`;
   return row !== undefined;
@@ -237,9 +247,10 @@ export async function changeControls(store: AdminStore, session: Session, asked:
       if (
         change.control === 'take' &&
         change.after.kind === 'just-one' &&
-        !(await openTicket(tx, change.after.workItem))
+        !(await openWork(tx, change.after.workItem))
       ) {
-        throw new Refused('policy', 422, `#${change.after.workItem} has no open ticket for the line to take.`);
+        const why = `#${change.after.workItem} has no open ticket or improvement for the line to take.`;
+        throw new Refused('policy', 422, why);
       }
       // Asked as the change is taken, after the lock, from the controls in force: the passkey given may have gone
       // stale while it waited.

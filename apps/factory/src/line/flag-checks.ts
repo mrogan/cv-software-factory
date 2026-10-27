@@ -10,7 +10,8 @@
  *   for, as kept to its contract. So it passes only with the preview cookie allowed and nothing kept that the run with
  *   the flag off did not keep.
  *
- * The pages are the front page while an improvement's spec names none (`spec.written` names no pages yet).
+ * The pages are the front page: a spec names the pages its change shows on (`spec.written`'s `pages`, which
+ * `flagEvents` reads), and the flag pass does not picture them yet.
  */
 import type { ArtifactRef, PayloadOf, Screenshot } from '@software-factory/events';
 import type { StoredFlagCheck } from '@software-factory/store';

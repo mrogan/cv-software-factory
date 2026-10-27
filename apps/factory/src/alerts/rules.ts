@@ -85,9 +85,9 @@ export type Level = (typeof LEVELS)[keyof typeof LEVELS];
 
 /**
  * How loudly each kind of security event reaches Martin. What loosens a guardrail, or changes who can sign in, pages
- * him; what widens what the line does, acts on a release, or widens a feature flag, notifies him; what tightens, or
- * only records his own use, informs him, but for tightening autonomy, which notifies him. Every kind still reaches his
- * phone: only how loudly changes.
+ * him; what widens what the line does (an improvement asked for, or its spec approved, among it), acts on a release,
+ * or widens a feature flag, notifies him; what tightens, or only records his own use, informs him, but for tightening
+ * autonomy, which notifies him. Every kind still reaches his phone: only how loudly changes.
  */
 export const SECURITY_LEVELS: Record<SecurityKind, Level> = {
   'autonomy-loosened': LEVELS.page,
@@ -98,6 +98,8 @@ export const SECURITY_LEVELS: Record<SecurityKind, Level> = {
   'auto-merge-on': LEVELS.notify,
   'take-widened': LEVELS.notify,
   'flag-widened': LEVELS.notify,
+  'improvement-requested': LEVELS.notify,
+  'improvement-approved': LEVELS.notify,
   'release-control': LEVELS.notify,
   'setting-changed': LEVELS.notify,
   'line-started': LEVELS.notify,
@@ -173,6 +175,14 @@ const SECURITY_WORDS: Record<SecurityKind, { summary: string; description: strin
   'flag-off': {
     summary: 'A feature flag was turned off',
     description: 'A feature flag was turned off for everyone in the console.',
+  },
+  'improvement-requested': {
+    summary: 'An improvement was asked for',
+    description: 'An improvement was asked for in the console: the line will plan it, and hold its spec.',
+  },
+  'improvement-approved': {
+    summary: "An improvement's spec was approved",
+    description: "An improvement's spec was approved in the console: the line will build it.",
   },
 };
 

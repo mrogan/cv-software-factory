@@ -16,6 +16,11 @@ export default new Item('1271', '2026-10-01T10:05:00+01:00')
     sample: true,
     category: 'improvement',
   })
+  .at('0:00', 'improvement.requested', 'martin', 'Martin asked for an improvement: Say when it is the last one', {
+    words:
+      'Say when it is the last one. When a product has only one left, its card should say so under the price, so nobody misses it.',
+    steppedUp: true,
+  })
   .calls('planner', '0:20', '3:00', { calls: 3, input: 41_000, output: 3_300, cached: 0.3 })
   .at(
     '3:10',

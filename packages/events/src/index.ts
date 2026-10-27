@@ -5,6 +5,7 @@
  */
 export * from './line.ts';
 export * from './log-format.ts';
+export * from './request.ts';
 export type * from './types.ts';
 export * from './upcast.ts';
 export * from './versions.ts';

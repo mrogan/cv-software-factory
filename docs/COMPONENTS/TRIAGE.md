@@ -94,7 +94,7 @@ A report or a planner's finding that Jev judges a suggestion (a request for some
 | Reject | Closes it, with no ticket |
 | Answer in words | Leaves it waiting: it is still held, and Needs you lists it, until he rejects it |
 
-Approving one means nothing yet, so Needs you does not offer it: the "+" on Plan (milestone 7 Part B) is where Martin asks for an improvement. Triage acts on his rejection once an event is appended, reading the suggestion holds by an index of their own, and leaves an answer it cannot act on as it leaves [a finding's](#martins-answer-to-a-finding).
+A suggestion never starts work, so approving one does nothing, and Needs you does not offer it (spec 5.3: a report only ever leads to a defect fix). Martin, having read one, asks for the improvement himself with the "+" on Plan, in his own words ([admin service](ADMIN-SERVICE.md#an-improvement)): only his roles may open an improvement, and triage never does. Triage acts on his rejection once an event is appended, reading the suggestion holds by an index of their own, and leaves an answer it cannot act on as it leaves [a finding's](#martins-answer-to-a-finding).
 
 ## How long a report is kept
 

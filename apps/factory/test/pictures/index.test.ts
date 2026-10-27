@@ -362,7 +362,8 @@ describe('a flag’s pictures', () => {
         payload,
         artifacts,
       }) as NewEvent;
-    await writerAs(database.as.triage).append(
+    // Only Martin's roles open an improvement: the admin service, as he asks for one.
+    await writerAs(database.admin).append(
       stored('work-item.opened', { kind: 'improvement', title: 'A gift note', sample: false }),
     );
     await events.append(

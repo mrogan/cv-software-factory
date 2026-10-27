@@ -17,7 +17,13 @@ import {
   SESSION,
   STEP_UP,
 } from '../../../policy/access.ts';
-import { CONTROL_STEP_UP, FLAG_STEP_UP, LINE_STEP_UP, SESSION_MINUTES } from '../web/src/access.ts';
+import {
+  CONTROL_STEP_UP,
+  FLAG_STEP_UP,
+  IMPROVEMENT_STEP_UP,
+  LINE_STEP_UP,
+  SESSION_MINUTES,
+} from '../web/src/access.ts';
 
 const entries = Object.entries(ACCESS) as [Name, Access][];
 const doc = (path: string) => readFileSync(new URL(`../../../${path}`, import.meta.url), 'utf-8');
@@ -34,6 +40,7 @@ const SPEC_STEP_UP: Record<string, Name[]> = {
   'starting the line': ['line.start'],
   'promoting a canary or retrying a stopped release': ['release.promote', 'release.retry'],
   "widening a flag's stage": ['flag.widen', 'flag.back-on'],
+  'requesting an improvement or approving its spec': ['improvement.request', 'hold.approve-improvement-spec'],
   'approving a hold whose cause is a guardrail': ['hold.approve-guardrail'],
   'revoking a passkey': ['passkey.revoke'],
 };
@@ -65,7 +72,8 @@ describe('the access table', () => {
   });
 
   it('is copied into the console where it marks the line’s controls with the key', () => {
-    for (const [name, asks] of Object.entries({ ...LINE_STEP_UP, ...CONTROL_STEP_UP, ...FLAG_STEP_UP })) {
+    const copies = { ...LINE_STEP_UP, ...CONTROL_STEP_UP, ...FLAG_STEP_UP, ...IMPROVEMENT_STEP_UP };
+    for (const [name, asks] of Object.entries(copies)) {
       expect(ACCESS[name as Name]?.stepUp, name).toBe(asks);
     }
     // Every action of the line's controls the table names, but auto-rollback's, which has no control until Part C.

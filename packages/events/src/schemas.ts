@@ -5,6 +5,7 @@
  */
 import { z } from 'zod';
 import { PATH_CHARS } from './line.ts';
+import { REQUEST_WORDS } from './request.ts';
 import { type EventType, LINE_TYPES, RELEASE_TYPES, VERSIONS } from './versions.ts';
 import * as V from './vocabulary.ts';
 
@@ -20,6 +21,14 @@ const timestamp = z.iso.datetime({ offset: true });
 const route = z
   .string()
   .regex(/^\/[^\s]*$/, 'a path, such as /products/:slug')
+  .max(200);
+/**
+ * A page of the app, by its path: no query, fragment, scheme, host or space, so it names a page of the app and nothing
+ * else, and a link made of it stays on the app's own origin (`//` would name another host).
+ */
+const page = z
+  .string()
+  .regex(/^\/(?!\/)[^\s?#:\\]*$/, 'a page of the app, by its path, such as /products/blue-mug')
   .max(200);
 /** A route, or `*` for a symptom found on every page the senses checked. */
 const routeOrEvery = z.union([route, z.literal('*')]);
@@ -512,13 +521,20 @@ export const PAYLOADS = {
     traces: z.array(traceId).max(10),
   }),
 
+  /**
+   * The planner's spec. An improvement's names its title, which replaces the one made from Martin's words, the flag its
+   * change goes behind, the pages it changes, which Verify pictures with the flag off and on, and on each criterion
+   * the side of the flag it holds on. A version 3 spec named none of them.
+   */
   'spec.written': z.strictObject({
+    title: text(120).optional(),
     outcome: text(200),
     /**
      * Given, when, then. `expect` holds the then, because an object with a `then` looks like a promise. `from` names
      * what in the ticket's evidence asks for it: a line of the ticket, or a signal. `quote` gives the words there that
      * ask for it, which the line found in what `from` names before it took the spec. A version 1 spec said neither,
-     * and a version 2 spec only `from`.
+     * and a version 2 spec only `from`. `withFlag` is the side of an improvement's flag the criterion holds on: on,
+     * the change; off, the app as before.
      */
     criteria: z
       .array(
@@ -528,6 +544,7 @@ export const PAYLOADS = {
           expect: text(200),
           from: text(200).optional(),
           quote: text(200).optional(),
+          withFlag: z.enum(['on', 'off']).optional(),
         }),
       )
       .min(1)
@@ -535,10 +552,9 @@ export const PAYLOADS = {
     scope: z.array(text(PATH_CHARS)).min(1).max(40),
     risks: z.array(z.enum(V.RISKS)).max(V.RISKS.length),
     rollout: text(300),
-    flag: z
-      .string()
-      .regex(/^[a-z0-9-]+$/)
-      .optional(),
+    flag: flagName.optional(),
+    /** The app's pages the change shows on, by path, as many as Verify pictures (`flag.checked` keeps six). */
+    pages: z.array(page).min(1).max(6).optional(),
   }),
   /** A change pushed for review: a new pull request, or another attempt on one that was sent back. */
   'pull-request.pushed': z.strictObject({
@@ -1215,6 +1231,17 @@ export const PAYLOADS = {
       device: z.strictObject({ allowed: z.array(text(200)).max(10), kept: z.array(text(200)).max(10) }),
     }),
   ]),
+  /**
+   * Martin asked for an improvement in the console's "+", in his own words, with his passkey given again (the admin
+   * service): the work item of kind `improvement` it opens comes just before it, in the same transaction, titled from
+   * his first sentence (`requestTitle`). Only his roles may append either (`0035_improvement-requests.sql`), and the line
+   * acts on an improvement only when both came from one of them. The words are his, and public through the redactor, as
+   * his other words are. Its id is the request's own, so a request sent twice opens one work item.
+   */
+  'improvement.requested': z.strictObject({
+    words: text(REQUEST_WORDS),
+    steppedUp: z.boolean(),
+  }),
 } satisfies { [K in EventType]: z.ZodType };
 
 /** The envelope of an event about to be appended: everything but `seq` and `public`, which the store adds. */

@@ -140,6 +140,9 @@ export const PUBLIC_VIEWS = {
   'flag.staged': redacted,
   'flag.compared': redacted,
   'flag.checked': redacted,
+  // His request for an improvement is everyone's to see, in his words, as Plan shows it to visitors, through the
+  // redactor.
+  'improvement.requested': redacted,
 } satisfies { [K in EventType]: PublicViewOf<K> };
 
 /** The public view of an event. Applying it twice changes nothing. */

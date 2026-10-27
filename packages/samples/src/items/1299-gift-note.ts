@@ -23,6 +23,10 @@ export default new Item('1299', '2026-10-03T09:30:00+01:00')
     sample: true,
     category: 'improvement',
   })
+  .at('0:00', 'improvement.requested', 'martin', 'Martin asked for an improvement: A gift note in the basket', {
+    words: 'A gift note in the basket. Let someone add a short note to print with the order, for when it is a present.',
+    steppedUp: true,
+  })
   .calls('planner', '0:20', '3:00', { calls: 3, input: 34_000, output: 2_800, cached: 0.3 })
   .at('3:10', 'spec.written', 'planner', `Spec: three acceptance criteria, behind the ${FLAG} flag`, {
     outcome: `The basket takes a note to print with the order, behind the ${FLAG} flag`,

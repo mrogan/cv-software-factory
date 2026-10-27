@@ -105,6 +105,7 @@ describe('the count of Martin’s security events', () => {
     await append(admin, 'flag.staged', { from: { stage: 'share', share: 50 }, to: { stage: 'preview' } });
     await append(admin, 'flag.staged', { from: { stage: 'preview' }, to: { stage: 'off' } });
     await append(admin, 'flag.staged', { from: { stage: 'everyone' }, to: { stage: 'everyone' } });
+    await append(admin, 'improvement.requested', { words: 'Delivery dates.', steppedUp: true }, 'WI-10');
     await append(database.as.line, 'model.called', {});
 
     const tally = await readOn(database.as.line, emptyTally());
@@ -128,7 +129,34 @@ describe('the count of Martin’s security events', () => {
       'flag-widened': 2,
       'flag-narrowed': 1,
       'flag-off': 1,
+      'improvement-requested': 1,
+      'improvement-approved': 0,
     });
+  });
+
+  it('tells an improvement’s spec approved by the hold it answers and the kind its work item was opened as', async () => {
+    const { admin } = database;
+    const opened = (workItem: string, kind: string) =>
+      append(kind === 'improvement' ? admin : database.as.triage, 'work-item.opened', { kind }, workItem);
+    const hold = (workItem: string, cause: string) => append(database.as.line, 'hold.started', { cause }, workItem);
+    const answer = (workItem: string, decision: string) => append(admin, 'hold.answered', { decision }, workItem);
+    // An improvement's spec approved: counted. Rejected or answered in words: not.
+    await opened('WI-11', 'improvement');
+    await hold('WI-11', 'spec');
+    await answer('WI-11', 'answered');
+    await answer('WI-11', 'rejected');
+    await hold('WI-11', 'spec');
+    await answer('WI-11', 'approved');
+    // Another hold on an improvement, approved, is no spec's.
+    await hold('WI-11', 'question');
+    await answer('WI-11', 'approved');
+    // A defect fix's spec approved is not counted.
+    await opened('WI-12', 'defect-fix');
+    await hold('WI-12', 'spec');
+    await answer('WI-12', 'approved');
+    const tally = await readOn(database.as.line, emptyTally());
+    expect(tally.kinds['improvement-approved']).toBe(1);
+    expect(tally.kinds['guardrail-approved']).toBe(0);
   });
 
   it('tells a guardrail’s approval by the cause of the hold it answers, read from the store', async () => {
@@ -245,6 +273,8 @@ describe('what counts as a security event', () => {
       'take.widen': 'take-widened',
       'flag.widen': 'flag-widened',
       'flag.back-on': 'flag-widened',
+      'improvement.request': 'improvement-requested',
+      'hold.approve-improvement-spec': 'improvement-approved',
     };
     const marked = Object.entries(ACCESS as Record<string, { stepUp: boolean }>)
       .filter(([, access]) => access.stepUp)

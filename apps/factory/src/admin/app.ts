@@ -20,7 +20,9 @@
  *   chosen and, to turn it off, Martin's reason, with the passkey again when the move widens past Checks.
  * - `GET /admin/flags/held`, public: whether the app holds the flags as set (`flags-held.ts`), as last checked.
  * - Needs you (`holds.ts`): `POST /admin/holds/:workItem/approve`, `/reject` and `/answer` (with his words), each
- *   naming the hold the card showed, with the passkey again to approve a guardrail's.
+ *   naming the hold the card showed, with the passkey again to approve a guardrail's, or an improvement's spec.
+ * - The "+" (`improvements.ts`): `POST /admin/improvements` with Martin's words and the request's id, with the passkey
+ *   again, which opens a work item of kind improvement with his request.
  * - `GET /admin/session`, with the token the session's writes carry and the deployment's tools Martin's menu links to,
  *   and `GET /admin/events/stream`.
  * - `GET /admin/health`.
@@ -40,6 +42,7 @@ import { type FlagStages, MOVE } from './flags.ts';
 import type { FlagsHeld } from './flags-held.ts';
 import { fromConsole, type Guard, guardOf, refuseWrite } from './guard.ts';
 import { ANSWER, answerHold, WORK_ITEM } from './holds.ts';
+import { REQUEST, requestImprovement } from './improvements.ts';
 import { CHANGE, changeControls, REASON, startLine, stopLine } from './line.ts';
 import type { ReleaseControls } from './rollout.ts';
 import { codeHash, isSessionId, newChallenge, newSessionId, normalCode, tokenOf } from './secrets.ts';
@@ -404,6 +407,14 @@ export function createAdminApp({
       if (!given.success) return refused(400, 'body', 'Send the stage the slider shows, and the one chosen.');
       if (!flags) return refused(503, 'flags', 'The admin service has no flags to stage.');
       return { status: 200, body: await flags.stage(session as Session, values.flag ?? '', given.data) };
+    },
+
+    'improvement.request': async ({ body, session }) => {
+      const given = REQUEST.safeParse(body);
+      if (!given.success) {
+        return refused(400, 'body', 'Send your words, up to 600 characters, and the request’s id.');
+      }
+      return { status: 200, body: await requestImprovement(store, session as Session, given.data) };
     },
 
     'hold.approve': (context) => answer('approved', context),
