@@ -1,10 +1,22 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { MARTIN, type PullRequest, QUEUE_BRANCH, type Review, target, verdict } from './review-gate.ts';
+import {
+  atHead,
+  MARTIN,
+  type PullRequest,
+  QUEUE_BRANCH,
+  type Review,
+  target as targetIn,
+  together,
+  verdict,
+} from './review-gate.ts';
 
 const HEAD = 'a'.repeat(40);
 const EARLIER = 'b'.repeat(40);
 const APP = 1_234_567;
+/** This repository, as a run's pull requests name it. */
+const HERE = { url: 'https://api.github.com/repos/o/r' };
+const target = (name: string, event: Parameters<typeof targetIn>[1]) => targetIn(name, event, 'o/r');
 
 const pr = (author: number | null): PullRequest => ({
   number: 7,
@@ -47,6 +59,19 @@ describe('the review gate (ADR 0014)', () => {
     });
   });
 
+  it('judges a pull request into any branch by the same rule: a stacked one’s, a fork’s', () => {
+    const stacked = (author: number): PullRequest => ({
+      ...pr(author),
+      base: { ref: 'fix/below', repo: { full_name: 'o/r' } },
+    });
+    expect(verdict(stacked(MARTIN), [])).toMatchObject({ pass: true });
+    expect(verdict(stacked(APP), [])).toMatchObject({ pass: false });
+    expect(verdict(stacked(APP), [review(MARTIN, 'APPROVED', EARLIER)])).toMatchObject({ pass: false });
+    expect(verdict(stacked(APP), [review(MARTIN, 'APPROVED')])).toMatchObject({ pass: true });
+    const fork = { ...stacked(MARTIN), head: { sha: HEAD, repo: { full_name: 'someone/r' } } };
+    expect(verdict(fork, [])).toMatchObject({ pass: false });
+  });
+
   it('goes by his latest verdict, and a comment is none', () => {
     expect(verdict(pr(APP), [review(MARTIN, 'APPROVED'), review(MARTIN, 'CHANGES_REQUESTED')])).toMatchObject({
       pass: false,
@@ -67,12 +92,22 @@ describe('the review gate (ADR 0014)', () => {
             ...run,
             event,
             pull_requests: [
-              { number: 8, base: { ref: 'other' } },
-              { number: 7, base: { ref: 'main' } },
+              { number: 6, base: { ref: 'main', repo: { url: 'https://api.github.com/repos/someone/r' } } },
+              { number: 7, base: { ref: 'other', repo: HERE } },
+              { number: 8, base: { ref: 'main', repo: HERE } },
             ],
           },
         }),
-      ).toEqual({ kind: 'pull-request', number: 7 });
+      ).toEqual({ kind: 'pull-request', number: 7 }); // any of this repository's: each with its head is judged
+      // A stacked pull request, into the branch below it.
+      expect(
+        target('workflow_run', {
+          workflow_run: { ...run, event, pull_requests: [{ number: 8, base: { ref: 'fix/below', repo: HERE } }] },
+        }),
+      ).toEqual({ kind: 'pull-request', number: 8 });
+      // A fork's own pull request, which a run from its branch can name, is not this repository's.
+      const theirs = { number: 3, base: { ref: 'main', repo: { url: 'https://api.github.com/repos/someone/r' } } };
+      expect(target('workflow_run', { workflow_run: { ...run, event, pull_requests: [theirs] } }).kind).toBe('find');
       // A fork's: GitHub names no pull request, so it is found by its branch and commit.
       expect(target('workflow_run', { workflow_run: { ...run, event, pull_requests: [] } })).toEqual({
         kind: 'find',
@@ -98,16 +133,77 @@ describe('the review gate (ADR 0014)', () => {
 
   it('judges nothing a run cannot name: another event, or a branch that is not the queue’s into main', () => {
     const run = { head_sha: HEAD, head_branch: `gh-readonly-queue/main/pr-7-${EARLIER}` };
-    expect(target('workflow_run', { workflow_run: { ...run, event: 'push' } }).kind).toBe('none');
+    expect(target('workflow_run', { workflow_run: { ...run, event: 'push' } })).toEqual({
+      kind: 'none',
+      reason: 'a review is not asked for by push',
+    });
     expect(target('workflow_run', { workflow_run: { ...run, event: 'pull_request_target' } }).kind).toBe('none');
-    expect(
-      target('workflow_run', {
-        workflow_run: { ...run, event: 'merge_group', head_branch: `gh-readonly-queue/other/pr-7-${EARLIER}` },
-      }).kind,
-    ).toBe('none');
+    // A queue branch it cannot read fails the queue's commit, naming the branch, so a queued stack shows its name.
+    const other = `gh-readonly-queue/other/pr-7-${EARLIER}`;
+    const unread = target('workflow_run', { workflow_run: { ...run, event: 'merge_group', head_branch: other } });
+    expect(unread).toMatchObject({ kind: 'none', commit: HEAD });
+    expect(unread.kind === 'none' && unread.reason).toContain(other);
     expect(target('push', {}).kind).toBe('none');
     // The gate runs on workflow_run alone: a pull request's own event names nothing.
     expect(target('pull_request_target', {}).kind).toBe('none');
+  });
+});
+
+describe('a head commit’s verdict', () => {
+  const at = (number: number, over: Partial<PullRequest> = {}): PullRequest => ({ ...pr(APP), number, ...over });
+
+  it('is on every open pull request in this repository whose head the commit is', () => {
+    const listed = [
+      at(9),
+      at(7, { base: { ref: 'fix/below', repo: { full_name: 'o/r' } } }),
+      // Merged, and containing the commit; or open with the commit below its head; or another repository's.
+      at(3, { state: 'closed' }),
+      at(4, { head: { sha: EARLIER, repo: { full_name: 'o/r' } } }),
+      at(5, { base: { ref: 'main', repo: { full_name: 'someone/r' } } }),
+    ];
+    expect(atHead(listed, HEAD, 'o/r').map((p) => p.number)).toEqual([7, 9]);
+    // The one already found counts, if the list lags behind, and once.
+    expect(atHead([], HEAD, 'o/r', at(9)).map((p) => p.number)).toEqual([9]);
+    expect(atHead(listed, HEAD, 'o/r', at(9)).map((p) => p.number)).toEqual([7, 9]);
+    // A closed one found, with no open one at its head: nothing.
+    expect(atHead([], HEAD, 'o/r', at(9, { state: 'closed' }))).toEqual([]);
+  });
+
+  it('passes only when each passes, whichever asked, and names those that do not', () => {
+    const pass = { pass: true, title: 'Martin approved aaaaaaa' };
+    const held = { pass: false, title: 'Waits for Martin to approve aaaaaaa' };
+    expect(together([{ number: 7, said: pass }])).toEqual(pass);
+    expect(together([{ number: 7, said: held }])).toEqual(held);
+    expect(
+      together([
+        { number: 7, said: pass },
+        { number: 9, said: pass },
+      ]),
+    ).toEqual({
+      pass: true,
+      title: 'Each of #7, #9 passes',
+    });
+    expect(
+      together([
+        { number: 7, said: pass },
+        { number: 9, said: held },
+      ]),
+    ).toEqual({
+      pass: false,
+      title: '#9: Waits for Martin to approve aaaaaaa',
+    });
+    // Several held, however many: one line.
+    const many = [1, 2, 3, 4, 5, 6, 7].map((number) => ({ number, said: held }));
+    expect(together(many)).toEqual({
+      pass: false,
+      title: '#1, #2, #3, #4, #5 and 2 more do not pass: each waits for Martin',
+    });
+    // Two pull requests at one commit, from different branches: both runs judge both, and agree.
+    const two = [
+      { number: 7, said: verdict(at(7), [review(MARTIN, 'APPROVED')]) },
+      { number: 9, said: verdict(at(9), []) },
+    ];
+    expect(together(two).pass).toBe(false);
   });
 });
 
@@ -152,6 +248,7 @@ describe("the review gate's workflows", () => {
     // By the asking run's repository and branch, whatever the folding of the expression.
     const group = (gate.match(/^ {2}group: >-\n((?: {4}.*\n)+)/m)?.[1] ?? '').replace(/\s+/g, ' ').trim();
     expect(group).toBe(
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, as the workflow holds it
       "review-${{ github.event.workflow_run.head_repository.full_name || format('gone-{0}', github.run_id) }}:${{ github.event.workflow_run.head_branch }}",
     );
   });
@@ -163,10 +260,12 @@ describe("the review gate's workflows", () => {
     expect(title).toContain('BASH_REMATCH[2]');
   });
 
-  it('ask for it when a pull request into main opens or moves, on a review and in the merge queue, holding nothing and running nothing', () => {
+  it('ask for it when a pull request into any branch opens or moves, on a review and in the merge queue, holding nothing and running nothing', () => {
     expect(triggers(requested)).toEqual(['merge_group', 'pull_request', 'pull_request_review']);
+    // No base filter: a stacked pull request, into the branch below it, needs the check too; `edited` covers its
+    // retargeting when the one below merges.
     expect(requested).toMatch(
-      /pull_request:\n {4}branches: \[main\]\n {4}types: \[opened, reopened, synchronize, ready_for_review, edited\]\n/,
+      /pull_request:\n {4}types: \[opened, reopened, synchronize, ready_for_review, edited\]\n/,
     );
     expect(requested).toMatch(/^permissions: \{\}$/m);
     expect(requested).not.toMatch(/uses:|secrets\./);

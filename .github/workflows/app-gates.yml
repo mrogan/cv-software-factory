@@ -138,11 +138,13 @@ jobs:
           path: factory
           sparse-checkout: |
             mise.toml
+            mise.lock
             apps/factory/src/gates/
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
+          version: 2026.10.17
           working_directory: factory
           install_args: node
       - run: node factory/apps/factory/src/gates/test-integrity.ts base change
@@ -182,6 +184,7 @@ jobs:
       # The app's own toolchain, as its base pins it.
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
+          version: 2026.10.17
           working_directory: base
           install_args: node pnpm
       # The test files go through a file, one a line, so a name with a space is still one name.
@@ -253,11 +256,13 @@ jobs:
           path: factory
           sparse-checkout: |
             mise.toml
+            mise.lock
             apps/factory/src/gates/
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
+          version: 2026.10.17
           working_directory: factory
           install_args: node
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
