@@ -149,9 +149,9 @@ describe('the intake, over HTTP', () => {
     server = createServer(
       createIntake({ backends: options.backends ?? backends(), outbox, log: pino({ level: 'silent' }) }),
     );
-    await new Promise<void>((resolve) => server?.listen(0, resolve));
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
     const { port } = server.address() as AddressInfo;
-    const response = await fetch(`http://localhost:${port}/v1/alerts`, {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/alerts`, {
       method: 'POST',
       body: typeof body === 'string' ? body : JSON.stringify(body),
     });
@@ -187,8 +187,8 @@ describe('the intake, over HTTP', () => {
     server = createServer(
       createIntake({ backends: backends(), outbox: { send: async () => {} }, log: pino({ level: 'silent' }) }),
     );
-    await new Promise<void>((resolve) => server?.listen(0, resolve));
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
     const { port } = server.address() as AddressInfo;
-    expect((await fetch(`http://localhost:${port}/health`)).status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/health`)).status).toBe(200);
   });
 });

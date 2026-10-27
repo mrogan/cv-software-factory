@@ -71,11 +71,21 @@ const as = (username: string, password: string): Sql => {
   });
 };
 
-/** Starts the service; by default with no check of the flags the app holds, which would read `kube` meanwhile. */
+/**
+ * Starts the service; by default with no check of the flags the app holds, which would read `kube` meanwhile. It listens
+ * on 127.0.0.1, the address the tests ask, so that no other program listening on its port there can answer for it.
+ */
 const start = async (config: Partial<AdminConfig> = {}, kube?: KubeWriter, held: FlagsHeld | false = false) => {
   service = await startAdmin(
     { origin: ORIGIN, rpId: RP_ID, trusted: proxies(''), port: 0, profile: 'local', ...config },
-    { sql: as('factory_admin', PASSWORDS.admin), port: 0, recheckMs: 100, held, ...(kube && { kube }) },
+    {
+      sql: as('factory_admin', PASSWORDS.admin),
+      port: 0,
+      host: '127.0.0.1',
+      recheckMs: 100,
+      held,
+      ...(kube && { kube }),
+    },
   );
   base = `http://127.0.0.1:${(service.server.address() as AddressInfo).port}`;
 };

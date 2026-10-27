@@ -19,18 +19,24 @@ export interface AdminService {
   stop(): Promise<void>;
 }
 
-/** Listens on the configured port, or on `port` if given (0 for any, in the tests). */
+/**
+ * Listens on the configured port, or on `port` if given (0 for any, in the tests), on every address, or on `host` alone.
+ * A test names the address it connects to: on macOS, a port picked for every address can be one another program already
+ * listens on over IPv4, and that program, not the service, then answers requests to 127.0.0.1.
+ */
 export async function startAdmin(
   config: AdminConfig,
   {
     sql = connect(process.env.DATABASE_URL),
     port = config.port,
+    host,
     recheckMs = RECHECK_MS,
     kube,
     held: given,
   }: {
     sql?: Sql;
     port?: number;
+    host?: string;
     recheckMs?: number;
     kube?: KubeWriter;
     /** Whether the app holds the flags as set: by default checked when it has both `flags` and the Rollout; false, never. */
@@ -66,7 +72,7 @@ export async function startAdmin(
   // Slow requests are cut off: nothing here takes long to send.
   server.requestTimeout = 30_000;
   server.headersTimeout = 10_000;
-  await new Promise<void>((resolve) => server.listen(port, resolve));
+  await new Promise<void>((resolve) => server.listen(port, host, resolve));
   // A narrowing or Off written just before this start: its minute goes on, rather than being forgotten by the restart.
   if (held && given === undefined) await narrowedBefore(sql, held);
   held?.start();
@@ -74,6 +80,7 @@ export async function startAdmin(
   const bound = (server.address() as AddressInfo).port;
   log.info(
     {
+      host: host ?? null,
       port: bound,
       origin: config.origin,
       rpId: config.rpId,
@@ -81,7 +88,7 @@ export async function startAdmin(
       flags: config.flags ?? null,
       checksFlagsHeld: held !== undefined,
     },
-    `admin service listening on :${bound}`,
+    `admin service listening on ${host ?? ''}:${bound}`,
   );
 
   const stop = async () => {
