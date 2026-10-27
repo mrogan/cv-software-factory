@@ -295,7 +295,7 @@ describe('a queued stack', () => {
     );
     const top = tall.at(-1) as PullRequest;
     expect((await stackOf(top, 'o/r', listing(tall).below)).reason).toBe(
-      `the stack below #${top.number} is deeper than ${STACK_LIMIT}, which the gate follows`,
+      `the stack #${top.number} heads is longer than ${STACK_LIMIT} pull requests, which the gate follows`,
     );
     // One fewer is followed to main.
     const fits = tall.at(-2) as PullRequest;

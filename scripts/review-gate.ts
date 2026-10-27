@@ -176,7 +176,9 @@ export async function stackOf(
   const prs = [top];
   for (let at = top; at.base.ref !== 'main'; ) {
     if (prs.length >= STACK_LIMIT)
-      return { reason: `the stack below #${top.number} is deeper than ${STACK_LIMIT}, which the gate follows` };
+      return {
+        reason: `the stack #${top.number} heads is longer than ${STACK_LIMIT} pull requests, which the gate follows`,
+      };
     const base = at.base.ref;
     const found = (await below(base)).filter(
       (pr) =>
@@ -205,7 +207,8 @@ export function target(name: string, event: Event, repo: string): Target {
   if (name !== 'workflow_run' || !run) return { kind: 'none', reason: `nothing to do on ${name}` };
   if (run.event === 'merge_group') {
     const number = QUEUE_BRANCH.exec(run.head_branch ?? '')?.[2];
-    // A queued stack's branch is not documented: one the gate cannot read fails the queue's commit, naming the branch.
+    // A queued stack's entries have branches of this name too: one the gate cannot read fails the queue's commit, naming
+    // the branch.
     if (!number)
       return {
         kind: 'none',
@@ -253,11 +256,11 @@ async function paged<T>(path: string, token: string): Promise<T[]> {
   }
 }
 
-/** The open pull requests from this repository's branch `branch`, into any base. */
-const openFrom = (repo: string, branch: string, token: string) =>
+/** The open pull requests in `repo` from `owner`'s branch `branch`, into any base. */
+const openFrom = (repo: string, owner: string, branch: string, token: string) =>
   api<PullRequest[]>(
     'GET',
-    `/repos/${repo}/pulls?state=open&per_page=100&head=${encodeURIComponent(`${repo.split('/')[0]}:${branch}`)}`,
+    `/repos/${repo}/pulls?state=open&per_page=100&head=${encodeURIComponent(`${owner}:${branch}`)}`,
     token,
   );
 
@@ -279,6 +282,19 @@ async function post(repo: string, token: string, commit: string, pass: boolean, 
     output: { title, summary },
   });
   console.log(`Posted ${CHECK}: ${pass ? 'success' : 'failure'} on ${commit}.`);
+}
+
+/** Each pull request judged by the rule, at its own head, each said in the run's log. */
+async function judgeEach(repo: string, read: string, prs: readonly PullRequest[]) {
+  const judged = [];
+  for (const each of prs) {
+    const said = verdict(each, await reviewsOf(repo, each.number, read));
+    console.log(
+      `#${each.number}, into ${each.base.ref}, at ${short(each.head.sha)}: ${said.pass ? `passes: ${said.title}` : said.title}.`,
+    );
+    judged.push({ number: each.number, said });
+  }
+  return judged;
 }
 
 const RULE = 'Passes when Martin opened the pull request, or approved its head after the last push (ADR 0014).';
@@ -309,15 +325,7 @@ async function judgeHead(repo: string, read: string, token: string, pr: PullRequ
     console.log(`#${pr.number} is ${pr.state}, and no open pull request has ${short(commit)}: nothing to judge.`);
     return;
   }
-  const judged = [];
-  for (const each of open) {
-    const said = verdict(each, await reviewsOf(repo, each.number, read));
-    console.log(
-      `#${each.number}, into ${each.base.ref}, at ${short(commit)}: ${said.pass ? `passes: ${said.title}` : said.title}.`,
-    );
-    judged.push({ number: each.number, said });
-  }
-  const said = together(judged);
+  const said = together(await judgeEach(repo, read, open));
   const numbers = open.map((each) => `#${each.number}`).join(', ');
   const line = `${short(commit)}, the head of ${numbers}: ${said.pass ? `passes: ${said.title}` : said.title}.`;
   console.log(line);
@@ -333,12 +341,7 @@ async function main(): Promise<void> {
     // The open pull request from that branch, wherever its head is now: the run that asked may be for an older push,
     // and the verdict goes on the head as it is now.
     const { owner, branch } = asked;
-    const open = await api<PullRequest[]>(
-      'GET',
-      `/repos/${repo}/pulls?state=open&per_page=100&head=${encodeURIComponent(`${owner}:${branch}`)}`,
-      read,
-    );
-    const found = open[0];
+    const found = (await openFrom(repo, owner, branch, read))[0];
     asked = found
       ? { kind: 'pull-request', number: found.number }
       : { kind: 'none', reason: `no open pull request has ${owner}:${branch}` };
@@ -364,12 +367,15 @@ async function main(): Promise<void> {
   const commit = asked.commit;
   // The queue's commit merges into main, and carries every change below the pull request it was made for: a stacked
   // one's approval vouches for its own change alone, so each pull request below it down to main is judged too.
+  // A pull request it finds open always gets a verdict: if GitHub cannot be read, the check fails, saying to re-run it.
   let stack: Stack;
+  let judged: { number: number; said: Verdict }[] = [];
   try {
-    stack = await stackOf(pr, repo, (branch) => openFrom(repo, branch, read));
+    stack = await stackOf(pr, repo, (branch) => openFrom(repo, repo.split('/')[0] ?? '', branch, read));
+    if (stack.prs) judged = await judgeEach(repo, read, stack.prs);
   } catch (error) {
     console.log(`::warning::${error instanceof Error ? error.message : String(error)}`);
-    stack = { reason: `the gate could not read the stack below #${pr.number}: re-run it` };
+    stack = { reason: `the gate could not read the stack #${pr.number} heads, or its reviews: re-run it` };
   }
   if (stack.reason !== undefined) {
     const title = stack.reason.charAt(0).toUpperCase() + stack.reason.slice(1);
@@ -383,14 +389,6 @@ async function main(): Promise<void> {
       `The merge queue's commit is judged on a stack down to main. ${RULE}`,
     );
     return;
-  }
-  const judged = [];
-  for (const each of stack.prs) {
-    const said = verdict(each, await reviewsOf(repo, each.number, read));
-    console.log(
-      `#${each.number}, into ${each.base.ref}, at ${short(each.head.sha)}: ${said.pass ? `passes: ${said.title}` : said.title}.`,
-    );
-    judged.push({ number: each.number, said });
   }
   const said = together(judged);
   const heads = stack.prs.map((each) => `#${each.number} at ${short(each.head.sha)}`).join(', ');
