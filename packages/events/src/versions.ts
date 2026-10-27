@@ -65,8 +65,8 @@ export const VERSIONS = {
   // Martin's stage of a feature flag (the admin service), Verify's comparison of its two sides at the share stage, and
   // its checks with the probes at Off, Checks and Preview
   'flag.staged': 1,
-  'flag.compared': 1,
-  'flag.checked': 1,
+  'flag.compared': 2,
+  'flag.checked': 2,
 } as const;
 
 export type EventType = keyof typeof VERSIONS;

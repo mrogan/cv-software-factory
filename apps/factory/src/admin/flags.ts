@@ -13,7 +13,7 @@
  *   is (`flag.to-checks`, `flag.widen`, `flag.back-on`, `flag.narrow` or `flag.off`), and whether it can be taken now,
  *   is `policy/flag-moves.ts`'s, which the console draws each stop from too: the passkey again when that action needs
  *   it, a canary in flight read from the app's Rollout (`rollout.ts`), another flag at Share read from `flags`, and
- *   Martin's last move of the flag and Verify's comparison since, from the store. A move to where the flag is already
+ *   Martin's last move of the flag and Verify's comparison and check since, from the store. A move to where the flag is already
  *   records nothing.
  * - **The write.** `flags` is read, the one flag changed and every other flag kept at its stage, read back through
  *   `readFlags` and rendered again, so a flag in no stage's shape is never written back (it is dropped, which turns it
@@ -225,8 +225,8 @@ export class FlagStages {
 
   /**
    * What the store says of a flag (`flagEvents`, which the line reads too): the improvement whose latest spec names it,
-   * Martin's last move of it, and Verify's latest comparison since. A last move that is not the stage `flags` holds
-   * (its event not recorded) says nothing of the flag as it stands, so neither it nor a comparison since counts.
+   * Martin's last move of it, and Verify's latest comparison and check since. A last move that is not the stage `flags`
+   * holds (its event not recorded) says nothing of the flag as it stands, so neither it nor a judgement since counts.
    */
   async #history(flag: string, stage: Stage | null): Promise<Omit<FlagNow, 'stage'> & { stagedOn?: string }> {
     const { named, records } = await flagEvents(this.#sql, flag);
@@ -237,6 +237,9 @@ export class FlagStages {
       ...(told?.stagedOn && { stagedOn: told.stagedOn }),
       ...(current && { last: told.last }),
       ...(current && told.compared && { compared: told.compared }),
+      ...(current && told.checked && { checked: told.checked }),
+      // A baseline is the improvement's, whatever its moves since.
+      ...(told?.baseline && { baseline: true }),
     };
   }
 

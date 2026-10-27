@@ -16,7 +16,16 @@ import { clearedOnWords, inScope, LIMITS, SENSES } from '@software-factory/event
 import { FLAG_STEP_UP } from '../access.ts';
 import { clock, shortVersion } from '../format.ts';
 import { type Attempt, attempts, deployPicture, reviewThread, startsPass, type ThreadReview } from './fixing.ts';
-import { type Compared, type FlagRow, type Stage as FlagStage, itemFlag, STAGE_NAME } from './flags.ts';
+import {
+  type Checked,
+  type Compared,
+  checkedOf,
+  type FlagRow,
+  type Stage as FlagStage,
+  fromVerify,
+  itemFlag,
+  STAGE_NAME,
+} from './flags.ts';
 import { type Capture, clearanceWords, type Hold, type ItemState, summaryOf } from './items.ts';
 import { bySense, type Card, card, type Picture, picture, pictureOfSignal } from './reel.ts';
 import { endedWords, type Release, releases, type StoppedBy, stoppedBy } from './release.ts';
@@ -153,7 +162,7 @@ export interface SenseEvidence {
 
 /**
  * One block of an improvement's flag on its sheet: its release, with the flag off, and then each move Martin made of it,
- * with Verify's comparison at Share.
+ * with Verify's check at Checks and Preview, and its comparison at Share.
  */
 export type FlagBlock =
   | { kind: 'released'; at: number; version: string; release: string }
@@ -171,8 +180,12 @@ export type FlagBlock =
       dropped: string[];
       /** The move the flag stands at now. */
       current: boolean;
+      /** The revision the move wrote, which Verify's judgement of it names. */
+      revision: string;
       /** At Share, Verify's comparison there, if it has judged. */
       compared: Compared | undefined;
+      /** At Checks or Preview, Verify's check there with the probes, if it has run. */
+      checked: Checked | undefined;
     };
 
 /** An improvement's flag on its sheet, in place of Release and Verify: the slider, read-only, and a block per move. */
@@ -1093,7 +1106,7 @@ function flagFact(item: ItemState): string | undefined {
   return `${flag.name} · ${stage ? STAGE_NAME[stage.stage].toLowerCase() : 'outside every stage'}`;
 }
 
-/** The flag's blocks on the sheet, newest first: its release, then each of Martin's moves, with Verify's comparison. */
+/** The flag's blocks on the sheet, newest first: its release, then each of Martin's moves, with Verify's judgement. */
 function flagBlocks(item: ItemState, row: FlagRow): FlagBlock[] {
   const blocks: FlagBlock[] = [];
   const promoted = item.events.find((event) => event.type === 'release.promoted');
@@ -1107,7 +1120,7 @@ function flagBlocks(item: ItemState, row: FlagRow): FlagBlock[] {
   }
   for (const event of item.events) {
     if (event.type === 'flag.staged' && event.actor === 'martin' && event.payload.flag === row.name) {
-      const { to, from, action, steppedUp, reason, dropped = [] } = event.payload;
+      const { to, from, action, steppedUp, reason, revision, dropped = [] } = event.payload;
       blocks.push({
         kind: 'staged',
         at: Date.parse(event.ts),
@@ -1118,18 +1131,33 @@ function flagBlocks(item: ItemState, row: FlagRow): FlagBlock[] {
         reason,
         dropped,
         current: false,
+        revision,
         compared: undefined,
+        checked: undefined,
       });
     }
     const last = blocks.at(-1);
     if (
       event.type === 'flag.compared' &&
+      fromVerify(event) &&
       event.payload.flag === row.name &&
       last?.kind === 'staged' &&
       last.stage.stage === 'share' &&
-      last.stage.share === event.payload.share
+      last.stage.share === event.payload.share &&
+      last.revision === event.payload.moveRevision
     ) {
       last.compared = { ...event.payload, at: Date.parse(event.ts) };
+    }
+    if (
+      event.type === 'flag.checked' &&
+      fromVerify(event) &&
+      event.payload.flag === row.name &&
+      last?.kind === 'staged' &&
+      last.stage.stage === event.payload.stage &&
+      event.payload.stage !== 'off' &&
+      last.revision === event.payload.moveRevision
+    ) {
+      last.checked = checkedOf(event);
     }
   }
   const last = blocks.at(-1);

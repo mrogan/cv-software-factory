@@ -208,7 +208,7 @@ describe('appending', () => {
       ...opened(item),
       id: uuid(),
       type: 'flag.checked',
-      version: 1,
+      version: 2,
       actor: 'factory',
       summary: 'last-one at Checks: could not tell',
       payload: {
@@ -216,6 +216,7 @@ describe('appending', () => {
         flag: 'last-one',
         version: 'v0.9.5',
         revision: 'r1',
+        moveRevision: 'r1',
         against: null,
         outcome: 'unsure',
         journeys: { base: null, change: { passed: 1, ran: 1 } },

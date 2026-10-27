@@ -4,7 +4,7 @@
  * the card's flag and the sheet's; and the samples' two flags. The move the confirmation sends is the one the admin
  * service takes, and the read of whether the app holds the flags is taken only whole.
  */
-import type { PayloadOf } from '@software-factory/events';
+import type { PayloadOf, Screenshot } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { MOVE } from '../../../factory/src/admin/flags.ts';
 import { isHeld } from '../../web/src/held.ts';
@@ -35,20 +35,70 @@ function improvement(number: string, flag: string, released = true) {
       watched: true,
       dryRun: false,
     });
+    // Verify's run with the flag off, which Checks waits for.
+    item.add(61, 'flag.checked', 'factory', {
+      stage: 'off',
+      flag,
+      version: 'v1.0.0',
+      revision: 'none',
+      journeys: { passed: 23, ran: 24 },
+      notClean: [],
+      pages: [],
+    });
   }
   return item;
 }
 
 type Staged = PayloadOf<'flag.staged'>;
+/** The revision a move to a stage wrote, in these tests: one per stage, and per share. */
+const moved = (to: Staged['to']) => `r-${to.stage}${to.stage === 'share' ? `-${to.share}` : ''}`;
 const staged = (flag: string, from: Staged['from'], to: Staged['to'], action: Staged['action'], reason?: string) => ({
   flag,
   from,
   to,
   action,
-  revision: 'r1',
+  // Each move's revision its own, as the admin service writes them: named by where it went.
+  revision: moved(to),
   steppedUp: action === 'flag.widen' || action === 'flag.back-on',
   ...(reason && { reason }),
 });
+
+/** A screenshot of the front page, as a check's event carries it. */
+const homeShot = (hash: string): Screenshot => ({
+  kind: 'screenshot',
+  type: 'image/png',
+  hash: hash.repeat(64),
+  size: 1000,
+  width: 1280,
+  height: 800,
+  route: '/',
+  version: 'v1.0.0',
+  boxes: [],
+});
+
+/** Verify's check of a flag at Checks or Preview, as the line appends it. */
+function checked(flag: string, stage: 'checks' | 'preview', outcome: 'passed' | 'failed' | 'unsure', reason?: string) {
+  const common = {
+    flag,
+    version: 'v1.0.0',
+    revision: 'r1',
+    moveRevision: moved({ stage }),
+    against: 'v1.0.0',
+    outcome,
+    journeys: { base: { passed: 23, ran: 24 }, change: { passed: 23, ran: 24 } },
+    regressions: [],
+    ...(reason && { reason }),
+  };
+  return stage === 'checks'
+    ? {
+        ...common,
+        stage,
+        pages: [
+          { page: '/', route: '/', off: 'a'.repeat(64), on: 'b'.repeat(64), changed: 0.04, diff: 'c'.repeat(64) },
+        ],
+      }
+    : { ...common, stage, device: { allowed: ['cookie preview'], kept: [] } };
+}
 
 const viewOf = (events: Parameters<typeof foldItems>[0], t = START + 1000 * 60_000) =>
   flagsView(events, foldItems(events), [], t);
@@ -74,6 +124,15 @@ describe('a flag', () => {
     expect(needs[0]?.turnOff).toBeUndefined();
   });
 
+  it('waits at Off for Verify’s run with the flag off before Checks can be taken', () => {
+    const events = improvement('2016', 'unseen').events.filter((event) => event.type !== 'flag.checked');
+    const { flags, needs } = viewOf(events);
+    expect(flags[0]?.stops.find((stop) => stop.stage === 'checks')?.move.refused).toMatch(
+      /^Verify has no picture of the app with the flag off yet/,
+    );
+    expect(needs[0]?.widen.refused).toMatch(/no picture of the app with the flag off/);
+  });
+
   it('may skip Preview from Checks, and no other stage', () => {
     const item = improvement('2002', 'skip').add(
       70,
@@ -81,12 +140,92 @@ describe('a flag', () => {
       'martin',
       staged('skip', { stage: 'off' }, { stage: 'checks' }, 'flag.to-checks'),
     );
+    item.add(80, 'flag.checked', 'factory', checked('skip', 'checks', 'passed'));
     const [row] = viewOf(item.events).flags;
     const refused = Object.fromEntries(row?.stops.map((stop) => [stop.stage, stop.move.refused]) ?? []);
     expect(refused.preview).toBeUndefined();
     expect(refused.share).toBeUndefined();
     expect(refused.everyone).toMatch(/One stage at a time/);
     expect(row?.stops.find((stop) => stop.stage === 'off')?.move.action).toBe('flag.off');
+  });
+
+  it('waits at Checks and Preview while Verify checks, with no card, and widening past each refused until it passes', () => {
+    const item = improvement('2015', 'checked').add(
+      70,
+      'flag.staged',
+      'martin',
+      staged('checked', { stage: 'off' }, { stage: 'checks' }, 'flag.to-checks'),
+    );
+    const checking = viewOf(item.events);
+    expect(checking.flags[0]).toMatchObject({ check: 'checking', checked: undefined });
+    const refusedAt = (view: typeof checking, stage: string) =>
+      view.flags[0]?.stops.find((stop) => stop.stage === stage)?.move.refused;
+    expect(refusedAt(checking, 'preview')).toBe(
+      'Verify is still checking the flag at Checks: Preview can be taken once the check has passed.',
+    );
+    expect(refusedAt(checking, 'share')).toMatch(/still checking the flag at Checks: Share/);
+    expect(checking.needs).toEqual([]);
+    expect(foldItems(item.events)[0]?.outcome).toBe('in-progress');
+    // Its block on the sheet says it is checking.
+    const block = () => projectSheet(item.events, '2015', START + 1000 * 60_000)?.flag?.blocks[0];
+    expect(block()).toMatchObject({ kind: 'staged', current: true, checked: undefined });
+
+    // A check another actor appended is no check of Verify's.
+    item.add(75, 'flag.checked', 'martin', checked('checked', 'checks', 'passed'));
+    expect(viewOf(item.events).flags[0]?.check).toBe('checking');
+    expect(block()).toMatchObject({ checked: undefined });
+    item.add(76, 'flag.checked', 'triage', checked('checked', 'checks', 'passed'));
+    expect(viewOf(item.events).flags[0]?.check).toBe('checking');
+    // Nor one that names an earlier move, however late it comes.
+    item.add(77, 'flag.checked', 'factory', { ...checked('checked', 'checks', 'passed'), moveRevision: 'r-earlier' });
+    expect(viewOf(item.events).flags[0]?.check).toBe('checking');
+    expect(block()).toMatchObject({ checked: undefined });
+
+    item.add(80, 'flag.checked', 'factory', {
+      ...checked('checked', 'checks', 'passed'),
+    });
+    // Each screenshot the check names is among its event's artifacts.
+    const last = item.events.at(-1) as (typeof item.events)[number];
+    last.artifacts = [homeShot('a'), homeShot('b'), homeShot('c')];
+    const passed = viewOf(item.events);
+    expect(passed.flags[0]?.check).toBe('passed');
+    expect(refusedAt(passed, 'preview')).toBeUndefined();
+    expect(passed.needs[0]).toMatchObject({
+      kicker: 'Ready to widen',
+      widen: { to: { stage: 'preview' } },
+      pictures: { page: '/', off: { hash: 'a'.repeat(64) }, on: { hash: 'b'.repeat(64) } },
+    });
+    expect(passed.needs[0]?.evidence).toBe(
+      '23 of 24 checks passed with it on, against 23 of 24 with it off: none that passed with it off failed. No probe knows a new feature: judge the pages off and on before you widen.',
+    );
+    expect(foldItems(item.events)[0]?.outcome).toBe('needs-you');
+    expect(block()).toMatchObject({ checked: { stage: 'checks', outcome: 'passed', at: START + 80 * 60_000 } });
+
+    // Widened to Preview, the check at Checks is of the flag as it was: Share waits for Preview's own.
+    item.add(90, 'flag.staged', 'martin', staged('checked', { stage: 'checks' }, { stage: 'preview' }, 'flag.widen'));
+    expect(refusedAt(viewOf(item.events), 'share')).toMatch(/still checking the flag at Preview: Share/);
+    expect(viewOf(item.events).needs).toEqual([]);
+    item.add(
+      95,
+      'flag.checked',
+      'factory',
+      checked('checked', 'preview', 'failed', 'The app kept no preview cookie when a probe asked to preview the flag'),
+    );
+    const failed = viewOf(item.events);
+    expect(failed.flags[0]?.check).toBe('failed');
+    expect(failed.needs[0]?.widen.refused).toBe(
+      "Verify's check at Preview failed: Share can't be taken. Narrow it to Checks to check it again, or turn it off.",
+    );
+    expect(failed.needs[0]?.evidence).toBe(
+      '23 of 24 checks passed with it on, against 23 of 24 with it off. The app kept no preview cookie when a probe asked to preview the flag.',
+    );
+    expect(failed.needs[0]?.pictures).toBeUndefined();
+    const blocks = projectSheet(item.events, '2015', START + 1000 * 60_000)?.flag?.blocks;
+    expect(blocks?.map((b) => (b.kind === 'staged' ? [b.stage.stage, b.checked?.outcome] : b.kind))).toEqual([
+      ['preview', 'failed'],
+      ['checks', 'passed'],
+      'released',
+    ]);
   });
 
   it('waits at Share while Verify compares, with no card, and Everyone refused until the comparison passes', () => {
@@ -105,6 +244,7 @@ describe('a flag', () => {
     item.add(120, 'flag.compared', 'factory', {
       flag: 'shared',
       share: 25,
+      moveRevision: 'r-share-25',
       window: { from: new Date(START).toISOString(), to: new Date(START + 1).toISOString() },
       setAsideMinutes: 0,
       outcome: 'passed',
@@ -287,6 +427,8 @@ describe('the samples’ flags', () => {
     expect(view.flags.needs).toMatchObject([
       { flag: 'delivery-dates', kicker: 'Ready to widen', widen: { to: { stage: 'share', share: 50 } } },
     ]);
+    // Verify's checks at Checks and Preview have passed: only the canary holds Share.
+    expect(view.flags.flags[1]).toMatchObject({ check: 'passed', checked: { stage: 'preview', outcome: 'passed' } });
   });
 
   it('draw the flag on its card and its sheet: the stage on the card, the fact, the chapters and a block per move', () => {
@@ -316,6 +458,13 @@ describe('the samples’ flags', () => {
     ]);
     const share = sheet?.flag?.blocks[1];
     expect(share?.kind === 'staged' && share.compared?.outcome).toBe('passed');
+    // Each stage before Share was checked before it widened, the pages pictured at Checks.
+    const [, , preview, checks] = sheet?.flag?.blocks ?? [];
+    expect(preview?.kind === 'staged' && preview.checked?.outcome).toBe('passed');
+    expect(checks?.kind === 'staged' && checks.checked?.stage === 'checks' && checks.checked.pages).toEqual([
+      expect.objectContaining({ page: '/', changed: 0 }),
+    ]);
+    expect(checks?.kind === 'staged' && checks.checked?.shots.map((shot) => shot.route)).toEqual(['/', '/']);
   });
 });
 

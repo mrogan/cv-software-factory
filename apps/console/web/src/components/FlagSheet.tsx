@@ -3,16 +3,26 @@
  * stages' words, its slider read-only, and a block per stage it reached, newest first, the older ones folded, each drawn
  * as a release's block is.
  *
- * What Verify finds at each stage comes in its own events: today the sheet draws its comparison at Share
- * (`flag.compared`). Verify records the probes' pictures of the pages off and on at Checks, and the device check at
- * Preview, as `flag.checked`, which the sheet does not draw yet; until it does, each block says what the stage does,
- * and that its checks are to come.
+ * What Verify finds at each stage comes in its own events: at Checks, the journeys' result with the flag on, against
+ * a run with it off, and the probes' pictures of the pages off and on, with where they differ; at Preview, the same,
+ * and what the device check found when a probe asked for the preview (`flag.checked`); at Share, its comparison of the
+ * two sides (`flag.compared`). Until Verify has judged, a block says what it waits for.
  */
 import { clock, shortVersion, shortWhen } from '../format.ts';
 import { previewHref } from '../profile.ts';
-import { comparedWords, type FlagBlock, type FlagSheet, STAGE_NAME, stageSays } from '../projection/index.ts';
+import {
+  type Checked,
+  checkedWords,
+  comparedWords,
+  type FlagBlock,
+  type FlagSheet,
+  STAGE_NAME,
+  shotOf,
+  stageSays,
+} from '../projection/index.ts';
 import type { Tone } from './Canary.tsx';
 import { FlagSlider, stageWords } from './Flags.tsx';
+import { Shot } from './Pictures.tsx';
 
 const lower = (text: string) => `${text[0]?.toLowerCase() ?? ''}${text.slice(1)}`;
 
@@ -26,7 +36,99 @@ function wordOf(block: FlagBlock): [string, Tone] {
     return block.current ? ['Comparing', 'signal'] : ['Stopped', 'faint'];
   }
   if (stage.stage === 'everyone') return block.current ? ['On for everyone', 'ok'] : ['Widened past', 'faint'];
-  return block.current ? ['At it now', 'signal'] : ['Widened past', 'faint'];
+  if (block.checked) {
+    return { passed: ['Passed', 'ok'], failed: ['Failed', 'attn'], unsure: ['Could not tell', 'faint'] }[
+      block.checked.outcome
+    ] as [string, Tone];
+  }
+  return block.current ? ['Checking', 'signal'] : ['Widened past', 'faint'];
+}
+
+/** A share of pixels changed: to a tenth of a point, a hundredth below one point, and never a change shown as none. */
+const percentOf = (share: number) =>
+  share < 0.0001 ? 'under 0.01%' : `${(share * 100).toFixed(share < 0.01 ? 2 : 1)}%`;
+
+/**
+ * The pages a check pictured, each side by side with the flag off and on, and where they differ when they do: for
+ * Martin to judge, since no probe knows a new feature.
+ */
+function CheckedPages({ checked }: { checked: Checked & { stage: 'checks' } }) {
+  return (
+    <div className="regress flag-pages">
+      <span className="label">The pages, the flag off and on</span>
+      {checked.pages.map((page) => {
+        const off = shotOf(checked, page.off);
+        const on = shotOf(checked, page.on);
+        const diff = shotOf(checked, page.diff);
+        return (
+          <div className={`row ${diff ? 'trio' : 'pair'}`} key={page.page}>
+            <figure>
+              <div className="vis">
+                {off ? (
+                  <Shot shot={off} />
+                ) : (
+                  <div className="shot-missing">
+                    <span className="label">No picture with it off</span>
+                    <span>No run with the flag off was taken before it went on.</span>
+                  </div>
+                )}
+              </div>
+              <figcaption>
+                <span>{page.page}</span>
+                <span className="mono">flag off{off && ` · ${shortVersion(off.version)}`}</span>
+              </figcaption>
+            </figure>
+            <figure>
+              <div className="vis">
+                {on ? (
+                  <Shot shot={on} />
+                ) : (
+                  <div className="shot-missing">
+                    <span className="label">Screenshot unavailable</span>
+                    <span>The event names a picture with the flag on that it does not carry.</span>
+                  </div>
+                )}
+              </div>
+              <figcaption>
+                <span>{page.page}</span>
+                <span className={`mono change ${page.changed ? 'changed' : 'same'}`}>
+                  flag on ·{' '}
+                  {page.changed === undefined
+                    ? 'not compared'
+                    : page.changed
+                      ? `${percentOf(page.changed)} changed`
+                      : 'the same'}
+                </span>
+              </figcaption>
+            </figure>
+            {diff && (
+              <figure>
+                <div className="vis">
+                  <Shot shot={diff} alt={`Where ${page.page} differs with the flag on, marked on the page`} />
+                </div>
+                <figcaption>
+                  <span>{page.page}</span>
+                  <span className="mono">where they differ</span>
+                </figcaption>
+              </figure>
+            )}
+          </div>
+        );
+      })}
+      <p className="help">
+        The probes are written from the spec, blind, and know no new feature: these pictures are for Martin to judge
+        when he widens. The spec’s criteria were proved by the pull request’s own tests, with the flag on and off.
+      </p>
+    </div>
+  );
+}
+
+/** What Verify found at Checks or Preview, in a sentence; or, before it has, what it waits for. */
+function checkWords(block: Extract<FlagBlock, { kind: 'staged' }>, next: string): string {
+  if (block.checked) return `Checked at ${clock(block.checked.at)}: ${checkedWords(block.checked, false)}`;
+  return block.current
+    ? `Verify checks it with the probes, against a run with it off. ${next} can be taken once the check has passed.`
+    : 'Moved on before Verify had checked it.';
 }
 
 /** How Martin made the move, in a few words: "widened by Martin, with his passkey". */
@@ -78,22 +180,32 @@ function Body({ block, flag, app }: { block: FlagBlock; flag: FlagSheet; app: st
           </p>
         </>
       );
-    case 'checks':
-      return (
-        <p className="rel-end">
-          {byWords(block)}. On for the factory’s own checks, by the header only they can send. The probes’ pictures of
-          the pages the spec names, off and on, and the journeys’ result with it on, are drawn here once Verify records
-          them: the probes are written from the spec, blind, and know no new feature, so the pictures are for Martin to
-          judge when he widens, and the spec’s criteria were proved by the pull request’s own tests.
-        </p>
-      );
-    case 'preview':
+    case 'checks': {
+      const { checked } = block;
       return (
         <>
           <p className="rel-end">
-            {byWords(block)}. Also on for anyone who asks to preview it, in their own browser. A probe’s preview, and
-            the cookie the device check finds, are drawn here once Verify records them.
+            {byWords(block)}. On for the factory’s own checks, by the header only they can send.{' '}
+            {checkWords(block, 'Preview and Share')}
           </p>
+          {checked?.stage === 'checks' && checked.pages.length > 0 && <CheckedPages checked={checked} />}
+        </>
+      );
+    }
+    case 'preview': {
+      const device = block.checked?.stage === 'preview' ? block.checked.device : undefined;
+      return (
+        <>
+          <p className="rel-end">
+            {byWords(block)}. Also on for anyone who asks to preview it, in their own browser.{' '}
+            {checkWords(block, 'Share')}
+          </p>
+          {device && (
+            <p className="words">
+              A probe asked for the preview. Allowed: {device.allowed.length ? device.allowed.join(', ') : 'none'} ·
+              kept besides: {device.kept.length ? device.kept.join(', ') : 'nothing'}
+            </p>
+          )}
           {block.current && app && !row.turnedOff && (
             <p className="rel-end">
               <a href={previewHref(app, row.name)} target="_blank" rel="noopener">
@@ -105,6 +217,7 @@ function Body({ block, flag, app }: { block: FlagBlock; flag: FlagSheet; app: st
           )}
         </>
       );
+    }
     case 'share': {
       const { compared } = block;
       return (
@@ -237,7 +350,10 @@ export function FlagSection({ flag, app }: { flag: FlagSheet; app: string | unde
         ))}
       </div>
       <p className="source">
-        <span>Martin’s stages, as the admin service records each move, and Verify’s comparisons at Share.</span>
+        <span>
+          Martin’s stages, as the admin service records each move; Verify’s checks with the probes at Checks and
+          Preview, their pictures Playwright screenshots; and its comparisons at Share.
+        </span>
       </p>
     </section>
   );

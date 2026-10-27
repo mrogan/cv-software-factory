@@ -28,6 +28,7 @@ import {
   stageName,
 } from '../projection/index.ts';
 import { FlagDialog, stageWords } from './Flags.tsx';
+import { Shot } from './Pictures.tsx';
 import { Key, useStepUp } from './StepUp.tsx';
 
 /** The most an answer in words may say, as the admin service and the event take it. */
@@ -306,6 +307,20 @@ function FlagCard({
       <p className="ev">
         <code className="flagname">{need.flag}</code> {evidence}
       </p>
+      {need.pictures && (
+        <div className="pair-mini">
+          <figure>
+            <div className="vis">{need.pictures.off && <Shot shot={need.pictures.off} />}</div>
+            <figcaption>{need.pictures.off ? 'flag off' : 'flag off · no picture'}</figcaption>
+          </figure>
+          <figure>
+            <div className="vis">
+              <Shot shot={need.pictures.on} />
+            </div>
+            <figcaption>flag on</figcaption>
+          </figure>
+        </div>
+      )}
       <div className="answers">
         <FlagAnswer
           label={need.widen.action === 'flag.back-on' ? 'Turn back on' : `Widen to ${STAGE_NAME[need.widen.to.stage]}`}

@@ -77,8 +77,8 @@ export type FlagNext =
       flag: string;
       workItem: string;
       share: Share;
-      /** Martin's move to this share: its place in the store, and when it was made. */
-      move: { seq: string; ts: string };
+      /** Martin's move to this share: its place in the store, when it was made, and the revision it wrote. */
+      move: { seq: string; ts: string; revision: string };
     }
   | ({ do: 'check' } & CheckAsked);
 
@@ -158,23 +158,42 @@ export function flagsNext({ flags, items, only }: FlagFacts): FlagNext[] {
     }
     // At Share, and not yet compared since Martin's move there: a move clears the comparison before it. On a closed
     // work item too: a flag turned off from Everyone may go back on, be narrowed to Share and wait on a comparison.
-    if (now.last?.to.stage === 'share' && !now.compared && move) {
-      next.push({ do: 'compare', flag, workItem, share: now.last.to.share, move: { seq: move.seq, ts: move.ts } });
+    if (now.last?.to.stage === 'share' && !now.compared && move?.type === 'flag.staged') {
+      const { seq, ts, revision } = move;
+      next.push({ do: 'compare', flag, workItem, share: now.last.to.share, move: { seq, ts, revision } });
     }
     // At Checks or Preview, and not yet checked there since Martin's move: once for each move, against the latest
     // baseline taken for this improvement, whichever version it was taken of.
     const stage = now.last?.to.stage;
-    if ((stage === 'checks' || stage === 'preview') && move && !checkedSince(checks, stage, move.seq)) {
+    if (
+      (stage === 'checks' || stage === 'preview') &&
+      move?.type === 'flag.staged' &&
+      !checkedSince(checks, stage, move)
+    ) {
       const base = baselineOf(workItem);
-      next.push({ do: 'check', flag, workItem, stage, revision, move: move.seq, base, pages: FRONT_PAGE });
+      const moveRevision = move.revision;
+      next.push({
+        do: 'check',
+        flag,
+        workItem,
+        stage,
+        revision,
+        move: move.seq,
+        moveRevision,
+        base,
+        pages: FRONT_PAGE,
+      });
     }
   }
   return next;
 }
 
-/** Whether a flag was checked at a stage since a move. */
-const checkedSince = (checks: readonly StoredFlagCheck[], stage: 'checks' | 'preview', move: string) =>
-  checks.some((c) => c.check.stage === stage && after(c.seq, move));
+/** Whether a flag was checked at a stage since a move, of that move: one started for an earlier move is none of its. */
+const checkedSince = (
+  checks: readonly StoredFlagCheck[],
+  stage: 'checks' | 'preview',
+  move: { seq: string; revision: string },
+) => checks.some((c) => c.check.stage === stage && c.check.moveRevision === move.revision && after(c.seq, move.seq));
 
 export interface FlagPassOptions {
   /** As the line's role. */
@@ -292,6 +311,7 @@ export class FlagPass {
         payload: {
           flag,
           share,
+          moveRevision: next.move.revision,
           window: { from: new Date(from).toISOString(), to: now.toISOString() },
           setAsideMinutes: Math.round(window.setAsideMs / 60_000),
           outcome: judgement.outcome,

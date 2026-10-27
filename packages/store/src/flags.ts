@@ -37,9 +37,9 @@ export interface StoredFlagCheck {
 export interface FlagEvents {
   /** Each flag an improvement's latest spec names, and that improvement's work item. */
   named: Record<string, string>;
-  /** Martin's moves and Verify's comparisons, oldest first. */
+  /** Martin's moves, and Verify's comparisons, checks and baselines, oldest first. */
   records: StoredFlagRecord[];
-  /** Verify's checks with the probes, oldest first. */
+  /** Verify's checks with the probes, the baselines with the flag off too, oldest first. */
   checked: StoredFlagCheck[];
   /** The revision of the flag set Martin's latest move of any flag wrote, or null before his first. */
   revision: string | null;
@@ -100,17 +100,22 @@ export async function flagEvents(sql: Sql | TransactionSql, flag?: string): Prom
       and e.work_item is not null and e.appended_by is not null and ${fromMartin(sql, 'e')}
     order by e.seq desc limit 1`;
   const records = rows.flatMap(({ seq, ts: at, type, work_item, payload }): StoredFlagRecord[] => {
-    if (type === 'flag.checked') return [];
     const ts = at.toISOString();
-    if (type === 'flag.staged') {
-      const { flag, from, to, reason } = payload as Pick<
-        Extract<FlagRecord, { type: 'flag.staged' }>,
-        'flag' | 'from' | 'to'
-      > & { reason?: string };
-      return [{ type, seq, ts, flag, workItem: work_item, from, to, ...(reason !== undefined && { reason }) }];
+    if (type === 'flag.checked') {
+      // A baseline lets Checks be taken for its improvement; a check at Checks or Preview, a widening past it.
+      const check = payload as PayloadOf<'flag.checked'>;
+      if (check.stage === 'off') return [{ type, seq, ts, flag: check.flag, stage: 'off', workItem: work_item }];
+      const { flag, stage, outcome, moveRevision } = check;
+      return [{ type, seq, ts, flag, stage, outcome, moveRevision }];
     }
-    const { flag, share, outcome } = payload as Omit<Extract<FlagRecord, { type: 'flag.compared' }>, 'type'>;
-    return [{ type, seq, ts, flag, share, outcome }];
+    if (type === 'flag.staged') {
+      const { flag, from, to, revision, reason } = payload as PayloadOf<'flag.staged'>;
+      return [
+        { type, seq, ts, flag, workItem: work_item, from, to, revision, ...(reason !== undefined && { reason }) },
+      ];
+    }
+    const { flag, share, outcome, moveRevision } = payload as PayloadOf<'flag.compared'>;
+    return [{ type, seq, ts, flag, share, outcome, moveRevision }];
   });
   return {
     named: Object.fromEntries(named.map((row) => [row.flag, row.work_item])),

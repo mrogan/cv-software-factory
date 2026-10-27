@@ -3,7 +3,11 @@
  * time to everyone (Verify's comparison at Share passing first), and verified in production.
  */
 import { commitFor, Item } from '../build.ts';
-import { shot } from '../captures.ts';
+import { changed, shot } from '../captures.ts';
+
+/** The front page the probes picture while a spec names no pages, with the flag off and on: the same to the pixel. */
+const HOME_OFF = shot('published/home', 'v0.9.0');
+const HOME_ON = shot('last-one/home', 'v0.9.0');
 
 export default new Item('1271', '2026-10-01T10:05:00+01:00')
   .at('0:00', 'work-item.opened', 'martin', 'Martin asked for an improvement from the console', {
@@ -96,6 +100,23 @@ export default new Item('1271', '2026-10-01T10:05:00+01:00')
     ],
     { promotion: 'v0.9.0 promoted to 100%, the last-one flag off' },
   )
+  // Verify's baseline with the flag off, on the version it shipped in, before Martin widened it.
+  .at(
+    '24:00',
+    'flag.checked',
+    'factory',
+    'last-one with the flag off, on v0.9.0: 24 of 24 checks passed',
+    {
+      stage: 'off',
+      flag: 'last-one',
+      version: 'v0.9.0',
+      revision: 'none',
+      journeys: { passed: 24, ran: 24 },
+      notClean: [],
+      pages: [{ page: '/', route: '/', off: HOME_OFF.hash }],
+    },
+    [HOME_OFF],
+  )
   .at('27:00', 'flag.staged', 'martin', 'Martin widened last-one from Off to Checks', {
     flag: 'last-one',
     from: { stage: 'off' },
@@ -104,6 +125,25 @@ export default new Item('1271', '2026-10-01T10:05:00+01:00')
     revision: 'r1',
     steppedUp: false,
   })
+  .at(
+    '33:00',
+    'flag.checked',
+    'factory',
+    'last-one at Checks: passed',
+    {
+      stage: 'checks',
+      flag: 'last-one',
+      version: 'v0.9.0',
+      revision: 'r1',
+      moveRevision: 'r1',
+      against: 'v0.9.0',
+      outcome: 'passed',
+      journeys: { base: { passed: 24, ran: 24 }, change: { passed: 24, ran: 24 } },
+      regressions: [],
+      pages: [{ page: '/', route: '/', off: HOME_OFF.hash, on: HOME_ON.hash, changed: changed('last-one/home') }],
+    },
+    [HOME_OFF, HOME_ON],
+  )
   .at('1:10:00', 'flag.staged', 'martin', 'Martin widened last-one from Checks to Preview', {
     flag: 'last-one',
     from: { stage: 'checks' },
@@ -111,6 +151,18 @@ export default new Item('1271', '2026-10-01T10:05:00+01:00')
     action: 'flag.widen',
     revision: 'r2',
     steppedUp: true,
+  })
+  .at('1:16:00', 'flag.checked', 'factory', 'last-one at Preview: passed', {
+    stage: 'preview',
+    flag: 'last-one',
+    version: 'v0.9.0',
+    revision: 'r2',
+    moveRevision: 'r2',
+    against: 'v0.9.0',
+    outcome: 'passed',
+    journeys: { base: { passed: 24, ran: 24 }, change: { passed: 25, ran: 25 } },
+    regressions: [],
+    device: { allowed: ['cookie preview'], kept: [] },
   })
   .at('2:30:00', 'flag.staged', 'martin', 'Martin widened last-one from Preview to Share 50%', {
     flag: 'last-one',
@@ -123,6 +175,7 @@ export default new Item('1271', '2026-10-01T10:05:00+01:00')
   .at('4:30:00', 'flag.compared', 'factory', 'last-one at Share 50%: flag on against off passed', {
     flag: 'last-one',
     share: 50,
+    moveRevision: 'r3',
     // From a minute after the move, the time the app has to hold it. Five requests a second for 7,140 s, split by
     // which of the generator's 101 ids flagd puts on each side of last-one at 50%: 46 on, 55 off.
     window: { from: '2026-10-01T11:36:00.000Z', to: '2026-10-01T13:35:00.000Z' },
