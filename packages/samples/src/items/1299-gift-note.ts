@@ -87,7 +87,7 @@ export default new Item('1299', '2026-10-03T09:30:00+01:00')
       stage: 'off',
       flag: FLAG,
       version: 'v0.9.7',
-      revision: 'r6',
+      revision: 'r5',
       journeys: { passed: 24, ran: 24 },
       notClean: [],
       pages: [{ page: '/', route: '/', off: HOME.hash }],

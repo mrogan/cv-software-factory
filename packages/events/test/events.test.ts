@@ -624,6 +624,23 @@ describe('upcasting the real catalogue', () => {
     expect(validate(closed(1)).ok).toBe(false);
   });
 
+  it('reads a version 1 judgement of a flag as judging no move, and a version 1 baseline as it was', () => {
+    const compared = { flag: 'gift-note', share: 50, outcome: 'passed' };
+    expect(upcast({ type: 'flag.compared', version: 1, payload: compared })).toMatchObject({
+      ok: true,
+      event: { version: 2, payload: { ...compared, moveRevision: 'none' } },
+    });
+    const checked = { stage: 'checks', flag: 'gift-note', version: 'v0.9.7', revision: 'r7', outcome: 'passed' };
+    expect(upcast({ type: 'flag.checked', version: 1, payload: checked })).toMatchObject({
+      ok: true,
+      event: { version: 2, payload: { ...checked, moveRevision: 'none' } },
+    });
+    const baseline = { stage: 'off', flag: 'gift-note', version: 'v0.9.7', revision: 'r5' };
+    const read = upcast({ type: 'flag.checked', version: 1, payload: baseline });
+    expect(read).toMatchObject({ ok: true, event: { version: 2, payload: baseline } });
+    expect(read.ok && 'moveRevision' in read.event.payload).toBe(false);
+  });
+
   it('reads a version 1 hold as the cause its kind and stage imply, and as unknown where they imply none', () => {
     const cause = (kind: string, stage: string) => {
       const read = upcast({ type: 'hold.started', version: 1, payload: { stage, kind, reason: 'Held' } });

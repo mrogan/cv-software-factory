@@ -78,14 +78,14 @@ const journeyCheck = z.strictObject({
   /** What it saw, or why it could not tell, in its own words. */
   message: text(300).optional(),
 });
-/** What a flag's check at Checks or Preview judged its journeys on, against the run with the flag off. */
 /**
  * The revision of the flag set that Martin's move of this flag wrote (`flag.staged`'s), which a judgement judges: it
  * counts only while that move is his latest of the flag, and each write's revision is its own, so a judgement started
- * for an earlier move never counts for a later one.
+ * for an earlier move never counts for a later one. `none`, which no write's revision is, names no move.
  */
 const moveRevision = z.string().regex(/^[!-~]{1,128}$/, "the revision Martin's move of the flag wrote");
 
+/** What a flag's check at Checks or Preview judged its journeys on, against the run with the flag off. */
 const flagJourneys = {
   moveRevision,
   /** The run with the flag off it was compared with: its version, or none when there was no such run. */

@@ -197,7 +197,7 @@ Every request the [probes](PROBES-AND-CRAWLER.md#a-flags-check) make carries the
 
 ### Share
 
-A flag Martin set at the share stage is on for a share of the [traffic generator](TRAFFIC-GENERATOR.md#its-ids)'s signed requests, and off for the rest: two sides of one version, at once. Verify compares them (`line/compare.ts`), and the admin service refuses Everyone until the comparison since his move has passed ([the flags' stages](ADMIN-SERVICE.md#the-flags-stages)).
+A flag Martin set at the share stage is on for a share of the [traffic generator](TRAFFIC-GENERATOR.md#its-ids)'s signed requests, and off for the rest: two sides of one version, at once. Verify compares them (`line/compare.ts`), and the admin service refuses Everyone until the comparison of his move has passed ([the flags' stages](ADMIN-SERVICE.md#the-flags-stages)).
 
 - **The sides.** Each of the generator's 101 ids on the side the app puts it, worked out with flagd's own rule as the app evaluates it ([the share's signed ids](FEATURE-FLAGS.md#which-side-an-id-is-on)).
 - **The figures.** The generator's own, by id (`factory_traffic_request_duration_seconds`, job `software-factory/traffic`, and only the series the collector stamped as from its pod in `factory`, so the app, which may send the collector any metric, cannot send these: `provenance.ts`), through Verify's Prometheus (`PROMETHEUS_URL`), summed over each side: requests from the `+Inf` bucket, errors as 5xx answers and no answer at all, and the 99th percentile interpolated over the side's buckets as `histogram_quantile` does. The app never labels them, so the code being judged does not mark its own work, and visitors are never in them.
