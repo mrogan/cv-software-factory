@@ -28,7 +28,7 @@
  * instead of handing back a change (`{"unchanged"}`), and the work item holds for Martin with its reason
  * (`unchangedHold`). A step that hands back no change and says nothing of why has failed.
  */
-import { MAX_FINDINGS, type PayloadOf, type Stage } from '@software-factory/events';
+import { MAX_FINDINGS, PATH_CHARS, type PayloadOf, type Stage } from '@software-factory/events';
 import { z } from 'zod';
 import { filesIn, PatchRefused } from '../../github/patches.ts';
 import { GitHubWorkerError } from '../../github/worker-client.ts';
@@ -417,7 +417,7 @@ export const coder = defineAgent<CoderInput, CoderResult>({
     const files = refusing(() => changedFiles(patch));
     // What a merge would bring in, every round together: GitHub's comparison of the new head with main.
     const compared = await context.read('comparison', { base: 'main', head });
-    const whole = compared.files.map(({ path, added, removed }) => ({ path, added, removed }));
+    const whole = compared.files.map(({ path, added, removed }) => ({ ...recordedPath(path), added, removed }));
     return [
       {
         type: 'pull-request.pushed',
@@ -474,6 +474,18 @@ function answeredDraft(pullRequest: number, suggestions: Finding[], declined: De
     summary: `The coder took ${taken} of ${suggestions.length} suggestions on PR #${pullRequest}, and declined ${declined.length}`,
     payload: { pullRequest, suggestions: suggestions.length, declined },
   };
+}
+
+/**
+ * A path of the pull request's whole change as the push records it. The coder's patch names none longer than an event
+ * records (`plainPath`), but the comparison names every file the branch changes, one Martin pushed included: a longer
+ * one is cut to fit, ending in `…`, and marked `cut`, so the console counts it and never reads it as in the scope. It
+ * is cut between characters, never inside one, which the store would refuse.
+ */
+export function recordedPath(path: string): { path: string; cut?: true } {
+  if (path.length <= PATH_CHARS) return { path };
+  const kept = path.slice(0, PATH_CHARS - 1);
+  return { path: `${/[\uD800-\uDBFF]$/.test(kept) ? kept.slice(0, -1) : kept}…`, cut: true };
 }
 
 /** A patch the factory cannot read is the coder's failure. */

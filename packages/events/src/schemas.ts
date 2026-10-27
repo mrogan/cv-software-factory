@@ -511,9 +511,13 @@ export const PAYLOADS = {
       .max(200),
     /**
      * The pull request's whole change after this push, as GitHub compares its head with main: what a merge would
-     * bring in, every round together. Empty when a round undid every other.
+     * bring in, every round together. Empty when a round undid every other. A path longer than an event records is
+     * `cut` to it, ending in `…`: one the coder's patch could not name, so another push put it there, and it is not
+     * known to be in the scope.
      */
-    whole: z.array(z.strictObject({ path: text(PATH_CHARS), added: count, removed: count })).max(200),
+    whole: z
+      .array(z.strictObject({ path: text(PATH_CHARS), added: count, removed: count, cut: z.literal(true).optional() }))
+      .max(200),
   }),
   /**
    * The coder's answer to the suggestions of the review that sent the work back, which do not block: it took each, or

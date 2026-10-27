@@ -452,7 +452,8 @@ function mergePicture(item: ItemState): Picture | undefined {
     files: final.whole.length,
     added: final.whole.reduce((n, f) => n + f.added, 0),
     removed: final.whole.reduce((n, f) => n + f.removed, 0),
-    inScope: Boolean(scope && final.whole.every((file) => inScope(file.path, scope))),
+    // A path cut to what an event records is not known to be in the scope.
+    inScope: Boolean(scope && final.whole.every((file) => !file.cut && inScope(file.path, scope))),
   };
 }
 

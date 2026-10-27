@@ -112,7 +112,8 @@ export const answersTo = (cause: HoldCause): HoldAnswer[] =>
 /**
  * The longest path an event records, in characters: a file a patch changes, a scope entry, a review finding's file. A
  * patch that names a longer path is refused (`plainPath`), so a path the events could not record never reaches the
- * scope fence, GitHub or the console, and `pattern` steps through no longer one from a patch.
+ * scope fence, GitHub or the console from the coder, and `pattern` steps through no longer one from a patch. One
+ * another push put on a pull request's branch is cut to fit where a push records the whole change, and marked.
  */
 export const PATH_CHARS = 200;
 

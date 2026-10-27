@@ -19,7 +19,7 @@ export const VERSIONS = {
   'ticket.opened': 1,
   // Plan and build
   'spec.written': 3,
-  'pull-request.pushed': 2,
+  'pull-request.pushed': 3,
   'suggestions.answered': 1,
   'wait.started': 1,
   // Gates and review

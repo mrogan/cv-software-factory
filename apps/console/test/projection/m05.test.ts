@@ -342,6 +342,33 @@ describe('the sheet of a fix', () => {
     });
   });
 
+  it('shows a path cut to what an event records outside the scope, even under a folder the scope allows', () => {
+    const cut = `docs/${'a'.repeat(194)}…`;
+    const pushes = SAMPLES.filter((e) => e.work_item === '1311' && e.type === 'pull-request.pushed');
+    const events = SAMPLES.map((e) => {
+      if (e.work_item !== '1311') return e;
+      if (e.type === 'spec.written') return { ...e, payload: { ...e.payload, scope: [...e.payload.scope, 'docs/'] } };
+      if (e === pushes.at(-1) && e.type === 'pull-request.pushed')
+        return {
+          ...e,
+          payload: {
+            ...e.payload,
+            whole: [...e.payload.whole, { path: cut, added: 1, removed: 0, cut: true as const }],
+          },
+        };
+      return e;
+    });
+    expect(projectSheet(events, '1311', END)?.scope?.rows.slice(-2)).toEqual([
+      { path: 'docs/', added: undefined, removed: undefined, outside: false },
+      { path: cut, added: 1, removed: 0, outside: true },
+    ]);
+    expect(project(events, END).cards.find((c) => c.number === '1311')?.picture).toMatchObject({
+      type: 'merge',
+      files: 3,
+      inScope: false,
+    });
+  });
+
   it('shows a refused patch’s path outside the scope', () => {
     expect(sheet('1315')?.scope?.rows.at(-1)).toEqual({
       path: 'src/catalogue.ts',

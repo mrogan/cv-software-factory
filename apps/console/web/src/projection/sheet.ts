@@ -600,7 +600,7 @@ function earlierAttempts(list: readonly Attempt[]): string[] {
 function scopeOf(item: ItemState, spec: PayloadOf<'spec.written'>): Sheet['scope'] {
   let patches = 0;
   let of: ScopeOf;
-  let files: { path: string; added: number; removed: number }[] = [];
+  let files: { path: string; added: number; removed: number; cut?: true | undefined }[] = [];
   for (const event of item.events) {
     if (event.type === 'pull-request.pushed' && event.actor === 'coder') {
       patches += 1;
@@ -614,7 +614,7 @@ function scopeOf(item: ItemState, spec: PayloadOf<'spec.written'>): Sheet['scope
     }
   }
   const rows = spec.scope.map((entry): ScopeRow => {
-    const touched = files.filter((file) => inScope(file.path, [entry]));
+    const touched = files.filter((file) => !file.cut && inScope(file.path, [entry]));
     return {
       path: entry,
       added: touched.length ? touched.reduce((n, f) => n + f.added, 0) : undefined,
@@ -622,8 +622,9 @@ function scopeOf(item: ItemState, spec: PayloadOf<'spec.written'>): Sheet['scope
       outside: false,
     };
   });
+  // A path cut to what an event records is not known to be in the scope, so it is shown outside it.
   const outside = files
-    .filter((file) => !inScope(file.path, spec.scope))
+    .filter((file) => file.cut || !inScope(file.path, spec.scope))
     .map(({ path, added, removed }): ScopeRow => ({ path, added, removed, outside: true }));
   return { of, rows: [...rows, ...outside] };
 }

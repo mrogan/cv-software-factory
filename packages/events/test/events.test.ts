@@ -723,11 +723,14 @@ describe('upcasting the real catalogue', () => {
     });
   });
 
-  it('reads version 1 of pull-request.pushed with its own files as the whole change', () => {
+  it('reads version 1 of pull-request.pushed with its own files as the whole change, and version 2 as it was', () => {
     const files = [{ path: 'src/search.ts', added: 3, removed: 5 }];
     const v1 = { number: 12, title: 'fix: search', branch: 'factory/1', attempt: 1, testsFirst: true, files };
     expect(upcast({ type: 'pull-request.pushed', version: 1, payload: v1 })).toMatchObject({
-      event: { version: 2, payload: { ...v1, whole: files } },
+      event: { version: 3, payload: { ...v1, whole: files } },
+    });
+    expect(upcast({ type: 'pull-request.pushed', version: 2, payload: { ...v1, whole: files } })).toMatchObject({
+      event: { version: 3, payload: { ...v1, whole: files } },
     });
   });
 
