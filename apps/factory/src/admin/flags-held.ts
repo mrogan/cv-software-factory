@@ -168,6 +168,8 @@ export class FlagsHeld {
   #set = false;
   /** The first sign, in this run, that the app does not hold the flags as set. */
   #since: number | undefined;
+  /** A narrowing or Off from before this start, not yet known taken or not. */
+  #restored: number | undefined;
   /** The earliest narrowing or Off the app has not been seen to take. */
   #narrowed: number | undefined;
   /** The last write of `flags`, which the checks follow sooner for a while. */
@@ -232,13 +234,14 @@ export class FlagsHeld {
 
   /**
    * A narrowing or Off written before the service started (as `flag.staged` records it), whose minute a restart would
-   * otherwise forget: counted from its write, until a check finds the app holding the flags as set. Only one written
-   * within the last few minutes, so an old one never pages for a difference that came later.
+   * otherwise forget. The app may have taken it before the restart, which nothing here knew, so it counts only once a
+   * check that asked every pod finds the app not holding the flags as set: then from its write. A check that holds
+   * them forgets it, and one that cannot ask says nothing of it. Only one written within the last few minutes, so an
+   * old one never pages for a difference that came later.
    */
   narrowedBefore(at: number): void {
     if (this.#now() - at > RESTORE_MS) return;
-    this.#since = Math.min(this.#since ?? at, at);
-    this.#narrowed = Math.min(this.#narrowed ?? at, at);
+    this.#restored = Math.min(this.#restored ?? at, at);
     this.#written ??= at;
   }
 
@@ -248,6 +251,10 @@ export class FlagsHeld {
     const check = await this.#look();
     this.#last = check;
     if (check.read) this.#set = check.revision !== undefined;
+    if (check.checked && this.#restored !== undefined) {
+      if (!check.holds) this.#narrowed = Math.min(this.#narrowed ?? this.#restored, this.#restored);
+      this.#restored = undefined;
+    }
     if (check.holds && writes === this.#writes) {
       this.#since = undefined;
       this.#narrowed = undefined;
@@ -256,7 +263,6 @@ export class FlagsHeld {
       this.#since ??= check.at;
     }
   }
-
   /** The figures the gauges report, or none before the first check. */
   figures(): HeldFigures | undefined {
     const last = this.#last;

@@ -290,21 +290,38 @@ describe('whether the app holds the flags as set', () => {
     expect(held.view().state).toBe('unchecked');
   });
 
-  it('keeps counting a narrowing written minutes before it started, and forgets an older one', async () => {
-    const { kube, held } = made();
+  it('counts a narrowing from before it started only once a full check finds the app has not taken it', async () => {
+    const { kube, pods, held } = made();
     kube.revision = 'r4';
     held.narrowedBefore(clock - 30_000);
+    // Nobody can be asked: nothing known of it, so no page for one the app may have taken before the restart.
+    pods.answers['10.42.0.12'] = new Error('connect ECONNREFUSED');
     await held.check();
-    expect(held.figures()).toMatchObject({ narrowing: 30, differing: 30 });
-    const old = made();
-    old.kube.revision = 'r4';
-    old.held.narrowedBefore(clock - 10 * 60_000);
-    await old.held.check();
-    expect(old.held.figures()).toMatchObject({ narrowing: 0, differing: 0 });
+    minutes(2);
+    expect(held.figures()).toMatchObject({ narrowing: 0, checked: 0 });
+    // Asked, and not taken: counted from its write.
+    pods.answers['10.42.0.12'] = 'r3';
+    await held.check();
+    expect(held.figures()).toMatchObject({ narrowing: 150, checked: 1 });
     // Taken: forgotten.
     kube.revision = 'r3';
     await held.check();
     expect(held.figures()).toMatchObject({ narrowing: 0, differing: 0 });
+  });
+
+  it('forgets a narrowing from before it started that the app had taken, or one written long before', async () => {
+    const taken = made();
+    taken.held.narrowedBefore(clock - 30_000);
+    await taken.held.check();
+    taken.kube.revision = 'r4';
+    await taken.held.check();
+    minutes(2);
+    expect(taken.held.figures()).toMatchObject({ narrowing: 0, differing: 120 });
+    const old = made();
+    old.kube.revision = 'r4';
+    old.held.narrowedBefore(clock - 10 * 60_000);
+    await old.held.check();
+    expect(old.held.figures()).toMatchObject({ narrowing: 0 });
   });
 
   it('starts no narrowing’s count for a widening', async () => {
