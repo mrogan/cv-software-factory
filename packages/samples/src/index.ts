@@ -1,5 +1,5 @@
 /**
- * The samples: twenty-seven hand-written work items over eight days, with work still on the line at the end, and the
+ * The samples: twenty-eight hand-written work items over eight days, with work still on the line at the end, and the
  * line's own events beside them. They cover every kind of work item but a planner's finding, every outcome, every
  * picture the design system draws and every station state. Seven are fixes as milestone 5's line makes them: rounds of
  * review, a wait for Martin's merge, the four ways a mechanism holds a fix, and a run on the local model. The rest of
@@ -7,8 +7,8 @@
  * work items, some carrying none), a rollback with no series and the ticket it opened, a fix that persisted and went
  * round again, a reopened ticket, a dry run, the line stopped with a canary in flight, and a canary in flight at the
  * end, the line at Guarded and taking the next five, a spec waiting for work in flight on the same page, an improvement
- * out to everyone a stage at a time behind its flag and another part way out, and a visitor's suggestion Martin
- * answered in words, which keep it held. The scoreboard counts them against an invented key. Nothing in them happened:
+ * out to everyone a stage at a time behind its flag, another part way out and a third turned off at Checks and closed,
+ * and a visitor's suggestion Martin answered in words, which keep it held. The scoreboard counts them against an invented key. Nothing in them happened:
  * the console labels each as a sample.
  */
 import type { NewEvent } from '@software-factory/events';
@@ -24,6 +24,7 @@ import homePageSpeed from './items/1288-home-page-speed.ts';
 import unsignedImage from './items/1293-unsigned-image.ts';
 import deliveryDates from './items/1294-delivery-dates.ts';
 import pricesGoNegative from './items/1296-prices-go-negative.ts';
+import giftNote from './items/1299-gift-note.ts';
 import sortByPrice from './items/1300-sort-by-price.ts';
 import longWords from './items/1302-long-words.ts';
 import apostrophe from './items/1304-apostrophe.ts';
@@ -55,6 +56,7 @@ export const ITEMS = [
   unsignedImage,
   deliveryDates,
   pricesGoNegative,
+  giftNote,
   sortByPrice,
   longWords,
   apostrophe,

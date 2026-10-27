@@ -23,6 +23,9 @@
  *   item says nothing of the others. And it records, on each work item held for a deploy that the pull request
  *   carries, where that pull request stands: its checks running, passed or failed, merged, or closed (`deploy.ts`),
  *   with `only` too, for that work item.
+ * - About every thirty seconds, while the line runs, it judges each improvement's work item at the stage Martin set its
+ *   flag at, from the flags' events, not the ticket machine (`flags.ts`): a flag turned off closes its improvement as
+ *   turned off. Live and in a dry run, and with `only`, for that work item alone.
  * - About every thirty seconds, it reads the app's Rollout and its AnalysisRuns, and records each release on the work
  *   items it carries, or on the line when it carries none (`release.ts`). It changes nothing in Kubernetes. In a dry
  *   run, it answers for the releases of the dry run's merges, which never shipped.
@@ -125,6 +128,7 @@ import type { Signal } from './agents/evidence.ts';
 import { AGENTS, type Agents } from './agents/index.ts';
 import { capOn, capsInForce, lastSeq } from './caps.ts';
 import { type HeldForDeploy, latestDeploy, recordDeploys } from './deploy.ts';
+import { FlagPass } from './flags.ts';
 import { asEvent, type Draft, gateEvents, gateRecord } from './gates.ts';
 import {
   closesWhenCleared,
@@ -192,6 +196,8 @@ export interface LineOptions {
   release?: ReleaseWatchOptions | null;
   /** How often the line reads the app's release. */
   releaseEveryMs?: number;
+  /** How often the line judges each improvement's work item at its flag's stage (`flags.ts`). */
+  flagsEveryMs?: number;
   /**
    * Whether the line runs a dry run (LINE_MODE=dry-run): then it answers for the release of each merge the dry run
    * made, which never shipped, by its own word.
@@ -300,6 +306,8 @@ export class Line {
   readonly #volumeGone = new Set<string>();
   #deployReadAt = Number.NEGATIVE_INFINITY;
   #releaseReadAt = Number.NEGATIVE_INFINITY;
+  readonly #flags: FlagPass;
+  #flagsReadAt = Number.NEGATIVE_INFINITY;
   /** What the deploy pull request was last told it carries, with its number and commit; unknown after a start. */
   #described: string | undefined;
   /** Whether what dry runs left has been ended: by a live line, once; a dry run leaves it. */
@@ -326,6 +334,7 @@ export class Line {
       deployEveryMs: 60_000,
       release: null,
       releaseEveryMs: 30_000,
+      flagsEveryMs: 30_000,
       dryRun: false,
       dryRunReleaseMs: 60_000,
       verify: {},
@@ -357,6 +366,7 @@ export class Line {
       dryRunEveryMs: this.#o.dryRunReleaseMs,
       only: this.#o.only,
     });
+    this.#flags = new FlagPass({ sql: this.#o.sql, events: this.#o.events, log: this.#o.log, now: this.#o.now });
     this.#dryRunsEnded = this.#o.dryRun;
     this.#only = this.#o.only;
   }
@@ -407,6 +417,7 @@ export class Line {
       );
     }
     await this.#watchReleases(false);
+    await this.#judgeFlags();
     await this.#reopen();
     // With agents taking no new work, no ticket comes onto the line.
     const taken = this.#newWork ? await this.#queue.admit() : undefined;
@@ -440,6 +451,15 @@ export class Line {
     if (this.#o.now().getTime() - this.#releaseReadAt < this.#o.releaseEveryMs) return;
     this.#releaseReadAt = this.#o.now().getTime();
     await this.#releases.pass({ dryRun: !stopped });
+  }
+
+  /** Judges each improvement's work item at its flag's stage when it is due (`flags.ts`), with `only` as this pass read it. */
+  async #judgeFlags(): Promise<void> {
+    if (this.#o.now().getTime() - this.#flagsReadAt < this.#o.flagsEveryMs) return;
+    this.#flagsReadAt = this.#o.now().getTime();
+    await this.#flags
+      .pass(this.#only)
+      .catch((error: unknown) => this.#o.log.warn({ err: error }, 'could not judge the flags'));
   }
 
   /**

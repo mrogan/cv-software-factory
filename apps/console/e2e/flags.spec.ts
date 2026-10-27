@@ -56,7 +56,8 @@ test('a visitor sees each flag read-only, its card waiting on Martin, and whethe
   await expect(slider(page, 'delivery-dates')).toHaveAccessibleName('delivery-dates: Preview');
   await expect(flags(page).getByRole('button', { name: /Widen|Narrow|Turn/ })).toHaveCount(0);
   await expect(flags(page).locator('.fthumb')).toHaveCount(0);
-  await expect(flags(page).locator('.fstop[aria-current]')).toHaveText(['Everyone', 'Preview']);
+  // gift-note's, turned off and closed, is folded at the foot.
+  await expect(flags(page).locator('.fstop[aria-current]')).toHaveText(['Everyone', 'Preview', 'Off']);
   // Share is dashed: a canary is in flight.
   await expect(flag(page, 'delivery-dates').locator('.fstop.cant')).toHaveText(['Share 50%', 'Everyone']);
   // Preview it stays a link for a visitor.
@@ -64,7 +65,7 @@ test('a visitor sees each flag read-only, its card waiting on Martin, and whethe
     'href',
     'http://website.localhost:8080/?preview=delivery-dates',
   );
-  await expect(flags(page).locator('.sync')).toHaveText('The app holds every flag as set: r6, checked 40s ago.');
+  await expect(flags(page).locator('.sync')).toHaveText('The app holds every flag as set: r8, checked 40s ago.');
 
   const card = page.locator('article.needs .flag-need');
   await expect(card.locator('.kick')).toContainText('Ready to widen#1294 · Verify · Preview');
@@ -77,9 +78,9 @@ test('the line under the flags says each state of the admin service’s check of
   const sync = flags(page).locator('.sync');
   const says = {
     taking:
-      'The app is taking the change to r7: Martin’s phone hears if it hasn’t within a minute of a narrowing or Off, or 5 of a widening.',
+      'The app is taking the change to r9: Martin’s phone hears if it hasn’t within a minute of a narrowing or Off, or 5 of a widening.',
     lagging:
-      'The app still holds r6, 3min after r7: Martin’s phone hears at 5min, or at a minute for a narrowing or Off.',
+      'The app still holds r8, 3min after r9: Martin’s phone hears at 5min, or at a minute for a narrowing or Off.',
     unchecked: 'The admin service couldn’t ask every copy of the app which flags it holds, at 15:23.',
     off: 'The admin service doesn’t check which flags the app holds here.',
   } as const;
@@ -247,9 +248,9 @@ test('a flag turned off from Everyone goes straight back, and one turned off and
   await page.keyboard.press('Escape');
 
   const closed = flags(page).locator('details.flags-closed');
-  await expect(closed.locator('summary')).toHaveText('Turned off and closed · 1');
+  await expect(closed.locator('summary')).toHaveText('Turned off and closed · 2');
   await closed.locator('summary').click();
-  await expect(closed.locator('code')).toHaveText('delivery-dates');
+  await expect(closed.locator('code')).toHaveText(['delivery-dates', 'gift-note']);
   await expect(closed.getByRole('button', { name: /Widen|Narrow|Turn/ })).toHaveCount(0);
 });
 

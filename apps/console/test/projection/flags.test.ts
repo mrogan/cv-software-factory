@@ -153,11 +153,56 @@ describe('a flag', () => {
     const item = improvement('2005', 'gone')
       .add(70, 'flag.staged', 'martin', staged('gone', { stage: 'off' }, { stage: 'checks' }, 'flag.to-checks'))
       .add(80, 'flag.staged', 'martin', staged('gone', { stage: 'checks' }, { stage: 'off' }, 'flag.off', 'Not needed'))
-      .add(81, 'work-item.closed', 'factory', { outcome: 'no-change', reason: 'Turned off' });
+      .add(81, 'work-item.closed', 'factory', { outcome: 'turned-off', reason: 'Not needed' });
     const { flags, closed, needs } = viewOf(item.events);
     expect(flags).toEqual([]);
     expect(closed.map((row) => row.name)).toEqual(['gone']);
+    expect(closed[0]?.open).toBe(false);
     expect(needs).toEqual([]);
+    // Its outcome is Turned off, and its story ends with Martin's reason: nothing rolled back.
+    expect(foldItems(item.events)[0]?.outcome).toBe('turned-off');
+    expect(projectSheet(item.events, '2005', START + 1000 * 60_000)?.closing).toBe(
+      'Martin turned its flag off: Not needed. It closed as turned off, its code still in the app, off, and nothing rolled back.',
+    );
+  });
+
+  it('says which work item Just one names, when it is another, which the line closes this one only after', () => {
+    const item = improvement('2014', 'later').add(
+      70,
+      'flag.staged',
+      'martin',
+      staged('later', { stage: 'off' }, { stage: 'checks' }, 'flag.to-checks'),
+    );
+    const last = item.events.at(-1) as (typeof item.events)[number];
+    const take = (workItem: string) =>
+      ({
+        ...last,
+        id: `take-${workItem}`,
+        seq: last.seq + 1,
+        work_item: null,
+        type: 'controls.changed',
+        summary: `Martin chose Just one, #${workItem}`,
+        payload: {
+          autonomy: 'guarded',
+          newWork: true,
+          autoMerge: false,
+          take: { kind: 'just-one', workItem },
+          change: { control: 'take', before: null, after: { kind: 'just-one', workItem } },
+        },
+      }) as unknown as (typeof item.events)[number];
+    expect(viewOf(item.events).flags[0]?.justOne).toBeUndefined();
+    expect(viewOf([...item.events, take('1302')]).flags[0]?.justOne).toBe('1302');
+    expect(viewOf([...item.events, take('2014')]).flags[0]?.justOne).toBeUndefined();
+  });
+
+  it('keeps a flag turned off and closed some other way among the flags, unfolded', () => {
+    const item = improvement('2013', 'other')
+      .add(70, 'flag.staged', 'martin', staged('other', { stage: 'off' }, { stage: 'checks' }, 'flag.to-checks'))
+      .add(80, 'flag.staged', 'martin', staged('other', { stage: 'checks' }, { stage: 'off' }, 'flag.off', 'Not now'))
+      .add(81, 'work-item.closed', 'martin', { outcome: 'no-change', reason: 'Martin closed it' });
+    const { flags, closed } = viewOf(item.events);
+    expect(closed).toEqual([]);
+    expect(flags.map((row) => row.name)).toEqual(['other']);
   });
 
   it('says on the sheet which flags set by hand a move’s write dropped', () => {

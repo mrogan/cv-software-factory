@@ -4,6 +4,7 @@ The line after the merge: which release ships a fix, and whether the defect has 
 
 - **v1:** part of [the line](ORCHESTRATOR.md), as pure functions of the events and what it reads (`release/watch.ts`, `line/verify.ts`), with the reads and appends in `line/release.ts` and `line/worker.ts`.
 - **v1:** Martin's controls of a release in flight (promote, pause, resume, abort and retry) through the [admin service](ADMIN-SERVICE.md#the-canarys-controls); the line records what the Rollout then does.
+- **v1:** an improvement behind its feature flag judged at each stage Martin sets it at, in a pass of the line's own (`line/flags.ts`): [Verify by variant](#verify-by-variant).
 
 ```mermaid
 flowchart LR
@@ -168,6 +169,18 @@ The verification, and either Verify hold, names up to twelve pages the probes wo
 - each keeping only the boxes of the ticket's own check on its own page, so a ticket whose sense boxes nothing (the logs, the metrics, the canary) has none.
 
 The line's event writer vouches for those by the picture index (`IndexedArtifacts`), and for no other artifact.
+
+## Verify by variant
+
+An improvement ships behind its feature flag, off, and Martin widens the flag a stage at a time from the console ([the stages](FEATURE-FLAGS.md#the-stages)). Verify judges its work item at each stage. That is not the ticket machine's to drive: an improvement is not on the line's queue, so the line judges it in a pass of its own, driven by the flags' state (`line/flags.ts`).
+
+- **The pass.** About every thirty seconds (`flagsEveryMs`), beside the release watch, while the line runs, and not while it is stopped. Live and in a dry run alike, since a flag is real in a dry run too, and whether or not agents take new work; with `LINE_MODE` off, as the line moves nothing, it closes nothing either. It takes no lease, and appends only what the flags' events call for, which the next pass reads. With [just one work item](#with-just-one-work-item), it acts on that work item alone.
+- **What it reads.** `flagEvents` in the store, the reader the [admin service](ADMIN-SERVICE.md#the-flags-stages) judges a move by: Martin's `flag.staged` from his roles alone, the line's own judgements of each flag (`flag.compared`), and which improvement's latest spec, as the line's role recorded it, names each flag; never a sample's. Then, for each work item a flag was last staged on, whether it is an improvement of the factory's own and still open. It reads neither `flags` nor flagd: Martin's events say where each flag stands.
+- **What it decides.** `flagsNext`, a pure function of what it read: what the pass does for each flag.
+
+### Off
+
+A flag Martin turned off, at any stage, closes the improvement it was staged on as turned off: `work-item.closed`, outcome `turned-off`, by the line, with his reason from the move (which Off requires). It is no rollback: the code stays in the app, off, and the release that shipped it stands. It closes once, as the work item is then closed; a close the store refuses (another got there first) is logged and leaves the rest of the pass to go on. A flag turned off from Everyone may still go straight back on, recorded on its closed work item, narrowed, compared and turned off again, which closes nothing more. One turned off from any lower stage stays off from Martin's move on, whenever the pass gets to the close: the admin service refuses widening it again on that work item, though the same flag named by a later improvement's spec widens afresh there.
 
 ## Dry run
 

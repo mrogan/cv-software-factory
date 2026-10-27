@@ -136,24 +136,32 @@ export class EventWriter {
 
   /**
    * A work item opens once, before anything else happens to it, and nothing but its summary follows its close, until
-   * it reopens. Only a closed work item reopens. The last of its closes and reopenings says whether it is closed.
+   * it reopens; nothing, that is, but a flag's own events on a work item closed as turned off (Martin's moves, and the
+   * line's judgements of them), as a flag outlives that close: one turned off from Everyone may go straight back on,
+   * and be narrowed and compared again, on the work item it was staged on. Only a closed work item reopens. The last of
+   * its closes and reopenings says whether it is closed.
    */
   async #checkSequence(tx: TransactionSql, batch: readonly NewEvent[]): Promise<string[]> {
     const items = [...new Set(batch.flatMap((event) => (event.work_item ? [event.work_item] : [])))];
     const known = items.length
-      ? await tx<{ work_item: string; opened: boolean; closed: boolean }[]>`
+      ? await tx<{ work_item: string; opened: boolean; closed: boolean; turned_off: boolean }[]>`
           select work_item,
                  bool_or(type = 'work-item.opened') as opened,
                  coalesce((array_agg(type order by seq desc)
                    filter (where type in ('work-item.closed', 'work-item.reopened')))[1] = 'work-item.closed', false)
-                   as closed
+                   as closed,
+                 coalesce((array_agg(payload->>'outcome' order by seq desc)
+                   filter (where type in ('work-item.closed', 'work-item.reopened')))[1] = 'turned-off', false)
+                   as turned_off
           from events where work_item in ${tx(items)} group by work_item`
       : [];
-    const state = new Map(known.map((row) => [row.work_item, { opened: row.opened, closed: row.closed }]));
+    const state = new Map(
+      known.map((row) => [row.work_item, { opened: row.opened, closed: row.closed, turnedOff: row.turned_off }]),
+    );
     const problems: string[] = [];
     for (const [i, event] of batch.entries()) {
       if (event.work_item === null) continue;
-      const item = state.get(event.work_item) ?? { opened: false, closed: false };
+      const item = state.get(event.work_item) ?? { opened: false, closed: false, turnedOff: false };
       const at = where(batch, i);
       if (event.type === 'work-item.opened') {
         if (item.opened) problems.push(`${at}: work item ${event.work_item} is already open`);
@@ -165,11 +173,18 @@ export class EventWriter {
         problems.push(`${at}: work item ${event.work_item} has not been opened`);
       } else if (event.type === 'work-item.reopened') {
         if (!item.closed) problems.push(`${at}: work item ${event.work_item} is not closed`);
-      } else if (item.closed && event.type !== 'work-item.summarised') {
+      } else if (
+        item.closed &&
+        event.type !== 'work-item.summarised' &&
+        !(item.turnedOff && (event.type === 'flag.staged' || event.type === 'flag.compared'))
+      ) {
         problems.push(`${at}: work item ${event.work_item} is closed`);
       }
-      if (event.type === 'work-item.closed') item.closed = true;
-      if (event.type === 'work-item.reopened') item.closed = false;
+      if (event.type === 'work-item.closed') {
+        item.closed = true;
+        item.turnedOff = event.payload.outcome === 'turned-off';
+      }
+      if (event.type === 'work-item.reopened') item.closed = item.turnedOff = false;
       state.set(event.work_item, item);
     }
     return problems;

@@ -30,9 +30,9 @@
  * - **Checked once written:** the app is asked soon whether it holds the new flag set (`flags-held.ts`), and a
  *   narrowing or Off it has not taken within a minute pages Martin.
  */
-import { type NewEvent, VERSIONS } from '@software-factory/events';
+import type { NewEvent } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
-import { fromMartin } from '@software-factory/store';
+import { flagEvents } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
@@ -42,11 +42,12 @@ import {
   type FlagAction,
   type FlagNow,
   flagAction,
+  flagsFrom,
   moveOf,
   sameStage,
   stageWords,
 } from '../../../../policy/flag-moves.ts';
-import { flagsSpec, isFlagName, REVISION_FLAG, readFlags, type Share, type Stage } from '../../../../policy/flags.ts';
+import { flagsSpec, isFlagName, REVISION_FLAG, readFlags, type Stage } from '../../../../policy/flags.ts';
 import type { RolloutRef } from '../release/rollout-ref.ts';
 import { KubeError, type KubeWriter } from '../runners/kube.ts';
 import type { FlagsHeld } from './flags-held.ts';
@@ -84,9 +85,6 @@ type FeatureFlag = z.infer<typeof featureFlag>;
 
 /** How many times a move reads `flags` again when it changed between the read and the write. */
 const TRIES = 3;
-
-/** The role whose events of Verify's, and records of the planner's specs, the admin service believes: the line's. */
-const LINE_ROLE = 'factory_line';
 
 /** The FeatureFlag's address in the Kubernetes API, as the stages write it and the check of the app reads it. */
 export const featureFlagPath = (flags: RolloutRef): string =>
@@ -226,43 +224,19 @@ export class FlagStages {
   }
 
   /**
-   * What the store says of a flag: the improvement whose latest spec names it, Martin's last move of it, and Verify's
-   * latest comparison since. A last move that is not the stage `flags` holds (its event not recorded) says nothing of
-   * the flag as it stands, so neither it nor a comparison since counts.
+   * What the store says of a flag (`flagEvents`, which the line reads too): the improvement whose latest spec names it,
+   * Martin's last move of it, and Verify's latest comparison since. A last move that is not the stage `flags` holds
+   * (its event not recorded) says nothing of the flag as it stands, so neither it nor a comparison since counts.
    */
   async #history(flag: string, stage: Stage | null): Promise<Omit<FlagNow, 'stage'> & { stagedOn?: string }> {
-    const sql = this.#sql;
-    const [named] = await sql<{ work_item: string }[]>`
-      with specs as (
-        select distinct on (s.work_item) s.work_item, s.seq, s.payload->>'flag' as flag
-        from events s
-        where s.type = 'spec.written'
-          and s.work_item in (select n.work_item from events n where n.type = 'spec.written' and n.payload->>'flag' = ${flag}) and s.appended_by = ${LINE_ROLE} and s.work_item is not null and not s.sample
-        order by s.work_item, s.seq desc
-      )
-      select p.work_item from specs p
-      where p.flag = ${flag}
-        and exists (select 1 from events o where o.type = 'work-item.opened' and o.work_item = p.work_item
-                    and o.payload->>'kind' = 'improvement' and not o.sample)
-      order by p.seq desc limit 1`;
-    const [last] = await sql<{ seq: string; work_item: string; payload: { from: Stage | null; to: Stage } }[]>`
-      select e.seq::text as seq, e.work_item, e.payload from events e
-      where e.type = 'flag.staged' and e.payload->>'flag' = ${flag} and e.version <= ${VERSIONS['flag.staged']}
-        and e.appended_by is not null and ${fromMartin(sql, 'e')} and not e.sample
-      order by e.seq desc limit 1`;
-    const current = last && sameStage(last.payload.to, stage);
-    const [compared] = current
-      ? await sql<{ payload: { share: Share; outcome: 'passed' | 'failed' } }[]>`
-          select e.payload from events e
-          where e.type = 'flag.compared' and e.payload->>'flag' = ${flag} and e.version <= ${VERSIONS['flag.compared']}
-            and e.appended_by = ${LINE_ROLE} and e.seq > ${last.seq}::bigint and not e.sample
-          order by e.seq desc limit 1`
-      : [];
+    const { named, records } = await flagEvents(this.#sql, flag);
+    const told = flagsFrom(records, named)[flag];
+    const current = told?.last !== undefined && sameStage(told.last.to, stage);
     return {
-      ...(named && { workItem: named.work_item }),
-      ...(last && { stagedOn: last.work_item }),
-      ...(current && { last: { from: last.payload.from, to: last.payload.to } }),
-      ...(compared && { compared: { share: compared.payload.share, outcome: compared.payload.outcome } }),
+      ...(told?.workItem && { workItem: told.workItem }),
+      ...(told?.stagedOn && { stagedOn: told.stagedOn }),
+      ...(current && { last: told.last }),
+      ...(current && told.compared && { compared: told.compared }),
     };
   }
 

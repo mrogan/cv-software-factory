@@ -41,6 +41,7 @@ export const OUTCOME: Record<Outcome, [word: string, tone: 'ok' | 'attn' | 'fain
   closed: ['Closed · no change', 'faint', false],
   quarantined: ['Quarantined', 'faint', false],
   'no-ticket': ['Closed · no ticket', 'faint', false],
+  'turned-off': ['Turned off', 'faint', false],
   'needs-you': ['Needs you', 'attn', true],
   waiting: ['Waiting for the planner', 'faint', false],
   'waits-on-work': ['Waiting on overlapping work', 'faint', false],

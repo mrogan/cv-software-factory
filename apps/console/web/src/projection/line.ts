@@ -209,6 +209,7 @@ const CLOSED_NOTE: Partial<Record<ItemState['outcome'], string>> = {
   closed: 'closed, no change',
   quarantined: 'quarantined',
   'no-ticket': 'closed, no ticket',
+  'turned-off': 'turned off',
 };
 
 /** Items that left a stage for a later one, or closed in it successfully, and when. */

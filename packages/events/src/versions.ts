@@ -8,7 +8,7 @@ export const VERSIONS = {
   // A work item, from first event to last
   'work-item.opened': 2,
   'work-item.summarised': 1,
-  'work-item.closed': 1,
+  'work-item.closed': 2,
   'work-item.reopened': 3,
   // Before the line: what a visitor started
   'defect.injected': 1,

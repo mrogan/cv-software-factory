@@ -375,8 +375,12 @@ export const PAYLOADS = {
     story: text(1200),
   }),
   'work-item.closed': z.strictObject({
-    /** How it ended. Triage ends a report it quarantines or discards; anything else ends after the line. */
-    outcome: z.enum(['verified', 'rolled-back', 'no-change', 'quarantined', 'discarded']),
+    /**
+     * How it ended. Triage ends a report it quarantines or discards; anything else ends after the line. An improvement
+     * whose flag Martin turned off, at any stage, closes as turned off, with his reason: its code stays in the app, off,
+     * and nothing is rolled back.
+     */
+    outcome: z.enum(['verified', 'rolled-back', 'no-change', 'quarantined', 'discarded', 'turned-off']),
     reason: text(200),
   }),
   /**

@@ -112,10 +112,31 @@ describe('a move', () => {
   });
 
   it('turns back on straight to Everyone only a flag turned off from Everyone', () => {
-    const offFromEveryone = at(off, { last: { from: everyone, to: off } });
+    const offFromEveryone = at(off, { stagedOn: '1316', last: { from: everyone, to: off } });
     expect(refused(offFromEveryone, everyone)).toBeUndefined();
+    // Not for a later improvement whose spec reuses the flag: it widens from Checks.
+    const reused = at(off, { workItem: '1400', stagedOn: '1316', last: { from: everyone, to: off } });
+    expect(refused(reused, everyone)).toMatch(/Checks comes first/);
+    expect(refused(reused, checks)).toBeUndefined();
     expect(refused(at(off, { last: { from: share(50), to: off } }), everyone)).toMatch(/Checks comes first/);
     expect(refused(at(off), everyone)).toMatch(/Checks comes first/);
+  });
+
+  it('keeps off a flag Martin turned off on its improvement, but for going straight back to Everyone', () => {
+    const offFromPreview = at(off, { stagedOn: '1316', last: { from: preview, to: off } });
+    expect(refused(offFromPreview, checks)).toMatch(/#1316 closes as turned off: it stays off/);
+    expect(refused(offFromPreview, everyone)).toMatch(/Only a flag turned off from Everyone/);
+    const offFromEveryone = at(off, { stagedOn: '1316', last: { from: everyone, to: off } });
+    expect(refused(offFromEveryone, everyone)).toBeUndefined();
+    expect(refused(offFromEveryone, checks)).toMatch(/#1316 closes as turned off/);
+    // Back on, it narrows and turns off as any flag does.
+    const backOn = at(everyone, { stagedOn: '1316', last: { from: off, to: everyone } });
+    expect(refused(backOn, share(50))).toBeUndefined();
+    expect(refused(backOn, off)).toBeUndefined();
+    // The same flag, named by a later improvement's spec, widens afresh on that one.
+    expect(
+      refused(at(off, { workItem: '1400', stagedOn: '1316', last: { from: preview, to: off } }), checks),
+    ).toBeUndefined();
   });
 
   it('refuses Share while a canary is in flight, or that can’t be told, or another flag is at Share', () => {
