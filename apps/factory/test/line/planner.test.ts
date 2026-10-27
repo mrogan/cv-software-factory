@@ -142,7 +142,10 @@ describe('the planner’s scope', () => {
 
   it('is no longer than an event records, a folder’s slash and all', () => {
     expect(scoped(`src/${'a'.repeat(PATH_CHARS - 5)}/`).success).toBe(true);
-    expect(scoped(`src/${'a'.repeat(PATH_CHARS - 4)}/`).success).toBe(false);
+    const long = scoped(`src/${'a'.repeat(PATH_CHARS - 4)}/`);
+    expect(long.success).toBe(false);
+    expect(long.error?.issues[0]?.path).toEqual(['spec', 'scope', 0]);
+    expect(long.error?.issues[0]?.message).toContain(`${PATH_CHARS}`);
   });
 
   it('never names a protected folder without its slash', () => {

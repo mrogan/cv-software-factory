@@ -28,7 +28,7 @@
  * (`coder.ts`), and the GitHub worker refuses every protected file a patch changes, as the last word.
  */
 import type { InboxSignal, PayloadOf } from '@software-factory/events';
-import { PATH_CHARS, RISKS, touches } from '@software-factory/events';
+import { RISKS, touches } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
 import { z } from 'zod';
 import { NEVER, plainPath, protectedWords } from '../../github/paths.ts';
@@ -58,7 +58,6 @@ export interface PlannerInput {
 
 /** What is wrong with a scope entry, if anything: it must be a plain path in the repository, and keep out of the protected paths. */
 function scopeProblem(entry: string, protectedPaths: readonly string[]): string | undefined {
-  if (entry.length > PATH_CHARS) return `${entry.slice(0, 60)}… is longer than ${PATH_CHARS} characters`;
   // A folder ends in its slash; the rest of it is a path like any other.
   if (!plainPath(entry.endsWith('/') ? entry.slice(0, -1) : entry))
     return `${entry} is not a plain path in the repository`;

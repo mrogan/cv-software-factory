@@ -38,6 +38,15 @@ const branch = z
   .regex(/^(?!\/|.*\/$|.*\.\.|.*\/\/)[A-Za-z0-9._/-]+$/, 'a branch name of letters, digits, dots, dashes and slashes');
 /** A path a commit names: one a patch may name (`plainPath`), whether or not it came from one. */
 const path = z.string().refine(plainPath, 'a plain relative path');
+/**
+ * A path a review comment is anchored to: a file the pull request changes, which may be one Martin pushed, so any
+ * relative path GitHub shows.
+ */
+const anchor = z
+  .string()
+  .min(1)
+  .max(400)
+  .refine((p) => !p.startsWith('/') && !p.split('/').some((part) => part === '..' || part === ''), 'a relative path');
 const number = z.number().int().positive();
 const text = (max: number) => z.string().max(max);
 const digest = z.string().regex(DIGEST);
@@ -111,12 +120,12 @@ const ARGS = {
     number,
     commit: sha,
     body: text(65_535),
-    comments: z.array(z.strictObject({ path, line: number, body: text(65_535).min(1) })).max(50),
+    comments: z.array(z.strictObject({ path: anchor, line: number, body: text(65_535).min(1) })).max(50),
   }),
   resolveThreads: z.strictObject({
     number,
     threads: z
-      .array(z.strictObject({ path, line: number, body: text(65_535).min(1), reply: text(65_535).min(1) }))
+      .array(z.strictObject({ path: anchor, line: number, body: text(65_535).min(1), reply: text(65_535).min(1) }))
       .min(1)
       .max(50),
   }),
