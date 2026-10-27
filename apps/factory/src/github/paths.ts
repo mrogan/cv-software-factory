@@ -12,12 +12,15 @@ import { inScope, pattern } from '@software-factory/events';
 /** Never in a patch: the rules of the line, in the app's repository. */
 export const NEVER = ['.github/', 'deploy/'];
 
-/** A path a patch may name: relative, with no empty, `.` or `..` segment, and no backslash or control character. */
+/**
+ * A path a patch may name: relative, with no empty, `.` or `..` segment, and no backslash, control character (C1's,
+ * U+0080 to U+009F, included), line or paragraph separator, or format character (a bidi override, a zero-width
+ * space): any of which a terminal or a page that shows the path could act on, or hide.
+ */
 export function plainPath(path: string): boolean {
   return (
     !path.startsWith('/') &&
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what it refuses.
-    !/[\\\u0000-\u001f\u007f]/.test(path) &&
+    !/[\\\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(path) &&
     path.split('/').every((part) => part !== '' && part !== '.' && part !== '..')
   );
 }
@@ -29,8 +32,10 @@ export const CODEOWNERS_PATHS = ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEO
 export { inScope, pattern };
 
 /**
- * The paths a CODEOWNERS file gives anyone, as scope entries: `/deploy/` is `deploy/`, `/Dockerfile` is `Dockerfile`,
- * and an entry with no leading slash matches anywhere.
+ * The paths a CODEOWNERS file gives anyone, as scope entries, read as GitHub reads them, or more widely where scope
+ * entries cannot say it: `/deploy/` is `deploy/`, and an entry with no leading slash matches anywhere. An entry that
+ * does not end in `/` names a file or a folder, so `/Dockerfile` is `Dockerfile` and `Dockerfile/`, everything in a
+ * folder of that name. `?`, one character, is `*`, and `/` alone is everything.
  */
 export function ownedPaths(codeowners: string): string[] {
   return codeowners
@@ -39,8 +44,18 @@ export function ownedPaths(codeowners: string): string[] {
     .filter(Boolean)
     .map((line) => line.split(/\s+/)[0] ?? '')
     .filter(Boolean)
-    .map((path) => (path.startsWith('/') ? path.slice(1) : `**/${path}`));
+    .map((path) => path.replaceAll('?', '*'))
+    .map((path) => (path === '/' ? '**' : path.startsWith('/') ? path.slice(1) : `**/${path}`))
+    .flatMap((path) => (path.endsWith('/') ? [path] : [path, `${path}/`]));
 }
+
+/**
+ * The paths no patch may change as a reader is told them, such as in the planner's prompt: each CODEOWNERS entry once,
+ * as it reads (`Dockerfile`), without the folder `ownedPaths` matches beside it (`Dockerfile/`). For words only: the
+ * checks match every entry.
+ */
+export const protectedWords = (paths: readonly string[]): string[] =>
+  paths.filter((path) => !(path.endsWith('/') && paths.includes(path.slice(0, -1))));
 
 /**
  * The paths no patch may change, as scope entries: the workflows, the deployment, and those a CODEOWNERS file (the

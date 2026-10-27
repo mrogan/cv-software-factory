@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ANSWERS, answersTo, returnWords, sameVersion, scopesOverlap, WORDS_LEAVE_HELD } from '../src/line.ts';
+import { ANSWERS, answersTo, inScope, returnWords, sameVersion, scopesOverlap, WORDS_LEAVE_HELD } from '../src/line.ts';
 import { formatLog, parseLog } from '../src/log-format.ts';
 import { PUBLIC_VIEWS, publicView, redactSecrets } from '../src/public.ts';
 import { validate, validateSignal } from '../src/schemas.ts';
@@ -1063,6 +1063,25 @@ describe('a return in words', () => {
   });
 });
 
+describe('a scope entry', () => {
+  it('reads `**` as whole segments: any folder or none, never part of a name', () => {
+    expect(inScope('test.ts', ['**/test.ts'])).toBe(true);
+    expect(inScope('src/deep/test.ts', ['**/test.ts'])).toBe(true);
+    expect(inScope('latest.ts', ['**/test.ts'])).toBe(false);
+    expect(inScope('src/test.ts', ['src/**/test.ts'])).toBe(true);
+    expect(inScope('src/latest.ts', ['src/**/test.ts'])).toBe(false);
+    expect(inScope('src/a/b.ts', ['src/**'])).toBe(true);
+    expect(inScope('ab', ['a**/b'])).toBe(false);
+    expect(inScope('ax/y/b', ['a**/b'])).toBe(true);
+  });
+
+  it('takes in a path with a line or paragraph separator in it as any other', () => {
+    expect(inScope('deploy/a\u2028b.yaml', ['deploy/'])).toBe(true);
+    expect(inScope('src/a\u2029b/Dockerfile', ['**/Dockerfile'])).toBe(true);
+    expect(inScope('a\nb.ts', ['*.ts'])).toBe(true);
+  });
+});
+
 describe('two scopes that share a file', () => {
   it('share equal files, a file in a folder, and a file a pattern matches, either way round', () => {
     expect(scopesOverlap(['src/search.ts', 'test/search.test.ts'], ['src/search.ts'])).toEqual(['src/search.ts']);
@@ -1070,6 +1089,8 @@ describe('two scopes that share a file', () => {
     expect(scopesOverlap(['test/search.test.ts'], ['test/'])).toEqual(['test/search.test.ts']);
     expect(scopesOverlap(['src/*.ts'], ['src/money.ts'])).toEqual(['src/*.ts']);
     expect(scopesOverlap(['src/'], ['src/**/*.ts'])).toEqual(['src/']);
+    expect(scopesOverlap(['docs/*AGENTS.md'], ['**/AGENTS.md'])).toEqual(['docs/*AGENTS.md']);
+    expect(scopesOverlap(['src/*test.ts'], ['**/test.ts'])).toEqual(['src/*test.ts']);
   });
 
   it('share nothing when no file is in both', () => {

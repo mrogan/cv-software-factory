@@ -31,7 +31,7 @@ import type { InboxSignal, PayloadOf } from '@software-factory/events';
 import { RISKS, touches } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
 import { z } from 'zod';
-import { NEVER, plainPath } from '../../github/paths.ts';
+import { NEVER, plainPath, protectedWords } from '../../github/paths.ts';
 import { count, defineAgent, holdDraft, words } from './agent.ts';
 import { numbered, routeOf, type Signal, seen, ticketLines } from './evidence.ts';
 
@@ -298,7 +298,7 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
       'Then write the result, one of three, each with its `findings`:',
       '1. {"verdict":"spec","spec":{"outcome","criteria":[{"given","when","expect","from","quote"}],"scope":[],"risks":[],"rollout"},"findings":[{"page","route","text"}]}, the spec the coder will be held to:',
       ...SPEC_TEMPLATE.map((line) => `   ${line}`),
-      `2. {"verdict":"reject","reason"} when you cannot make it testable: the cause is not in this repository, or you cannot find the defect the evidence shows, or no test could tell the fix from the defect. Reject it too when the fix needs a path no scope may name: ${protectedPaths.join(', ')}. The reason is one or two short sentences for Martin, at most 300 characters, naming the file or what is missing.`,
+      `2. {"verdict":"reject","reason"} when you cannot make it testable: the cause is not in this repository, or you cannot find the defect the evidence shows, or no test could tell the fix from the defect. Reject it too when the fix needs a path no scope may name: ${protectedWords(protectedPaths).join(', ')}. The reason is one or two short sentences for Martin, at most 300 characters, naming the file or what is missing.`,
       '3. {"verdict":"question","question"} when the fix turns on what the app should do, which only Martin can say: one question he can answer in a line, at most 300 characters.',
       `\`findings\`: at most ${MAX_PLANNER_FINDINGS}, each with \`page\`, a page of the app that shows it, as the path a visitor opens, without its query (\`/\` when it shows on none); \`route\`, the route that serves that page, as the app’s code names it, such as \`/products/:slug\`; and \`text\`, what is wrong or could be better, in a sentence or two of at most 300 characters, with the query if it shows only with one.`,
     ].join('\n'),

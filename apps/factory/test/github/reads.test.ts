@@ -288,7 +288,9 @@ describe('the paths no patch may change', () => {
       '.github/',
       'deploy/',
       'Dockerfile',
+      'Dockerfile/',
       '**/AGENTS.md',
+      '**/AGENTS.md/',
     ]);
     expect(asked.every((path) => path.endsWith(`?ref=${SHA}`))).toBe(true);
   });
