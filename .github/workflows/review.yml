@@ -26,12 +26,12 @@
 # review-requested.yml, a copy of this one's, runs on `pull_request`, `pull_request_review` and `merge_group` and holds
 # nothing, and its review.yml runs on `workflow_run` after it alone, with `workflow_call` to this file. This copy judges
 # only a `workflow_run`, so a caller moves its pin and its triggers in the same change: pinned here and still started by
-# `pull_request_target`, it would judge nothing. The app's pin is older, from before this repository's gate left
-# `pull_request_target`, and its own triggers match that pin until it moves. A caller passes
-# REVIEW_APP_PRIVATE_KEY by name, or with `secrets: inherit`: GitHub's docs say a called job with `environment:` uses the
-# caller's environment of that name, but resolves a secret to empty unless the caller passes it, and a secret held only
-# in the environment may be passed by name. Unpassed, the gate says its verdict and posts nothing, as before the key
-# exists.
+# `pull_request_target`, it would judge nothing. The app is such a caller: its pin carries the gate's judging of a
+# stacked pull request and of a queued stack down to `main`, and its review-requested.yml has no base filter, so its
+# stacks are judged as this repository's are. A caller passes REVIEW_APP_PRIVATE_KEY by name, or with
+# `secrets: inherit`: GitHub's docs say a called job with `environment:` uses the caller's environment of that name, but
+# resolves a secret to empty unless the caller passes it, and a secret held only in the environment may be passed by
+# name. Unpassed, the gate says its verdict and posts nothing, as before the key exists.
 #
 # When the check is missing, the pull request waits, as it does for a failing one: the queue takes it only once every
 # required check has passed. That is how each of these ends:

@@ -20,6 +20,15 @@ for_key() {
     echo "$checkout is a checkout of $repo, not the app's: set APP_DIR" >&2; exit 2
   fi
 }
+# own_commits <worktree>: how many commits its HEAD has that the commit its branch was made from does not. The branch's
+# reflog starts there, whether that was origin/main or, in a stack, the branch below, so it counts what was added since
+# even once the branch below has merged and gone; with no reflog, it counts from origin/main.
+own_commits() {
+  local branch base
+  branch=$(git -C "$1" branch --show-current)
+  base=$(git -C "$1" reflog show --format=%H "refs/heads/$branch" -- 2>/dev/null | tail -1)
+  git -C "$1" rev-list --count "${base:-origin/main}..HEAD"
+}
 # repo_of <checkout>: owner/name of its origin on GitHub, read from git rather than asked of GitHub.
 repo_of() {
   git -C "$1" remote get-url origin | sed -E 's#^(git@github\.com:|ssh://git@github\.com/|https://github\.com/)##; s#\.git$##'
