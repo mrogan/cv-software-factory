@@ -51,7 +51,30 @@ export async function startHarness(
 ): Promise<Harness> {
   const given = process.env.TEST_DATABASE_URL;
   const postgres = given ? { url: given, stop: () => {} } : await startPostgres();
-  const database = await createDatabase(postgres.url, name);
+  // What is started so far, stopped in reverse: by `stop`, or when a later part cannot start.
+  const started: (() => Promise<void> | void)[] = [() => postgres.stop()];
+  const stop = async () => {
+    for (const each of started.splice(0).reverse()) await each();
+  };
+  try {
+    // The same object, not a copy: the proxy counts cookies on it.
+    return Object.assign(await startOn(postgres.url, started, port, name, release), { stop });
+  } catch (error) {
+    await stop();
+    throw error;
+  }
+}
+
+/** The rest of the harness on the store at `postgresUrl`, each part pushed on `started` as it starts. */
+async function startOn(
+  postgresUrl: string,
+  started: (() => Promise<void> | void)[],
+  port: number,
+  name: string,
+  release?: { rollout: RolloutRef; kube: KubeWriter },
+): Promise<Omit<Harness, 'stop'>> {
+  const database = await createDatabase(postgresUrl, name);
+  started.push(() => database.end());
   const origin = `http://localhost:${port}`;
   // The service logs each request; here only what went wrong. Its logger reads this as its module loads.
   process.env.LOG_LEVEL ??= 'warn';
@@ -77,27 +100,23 @@ export async function startHarness(
     },
     { sql: database.admin, port: 0, host: '127.0.0.1', ...(release && { kube: release.kube }) },
   );
+  started.push(() => admin.stop());
   const adminPort = (admin.server.address() as AddressInfo).port;
 
   const consolePort = port + 1;
-  const reader = new URL(postgres.url);
+  const reader = new URL(postgresUrl);
   reader.pathname = `/${database.name}`;
   reader.username = 'console_reader';
   reader.password = PASSWORDS.console;
-  // What is started so far, stopped in reverse: by `stop`, or when a later part cannot start.
-  const started: (() => Promise<void> | void)[] = [() => postgres.stop(), () => database.end(), () => admin.stop()];
-  const stopAll = async () => {
-    for (const stop of started.splice(0).reverse()) await stop();
-  };
+  const console_ = await startConsole(consolePort, { DATABASE_URL: reader.href, ARTIFACTS_DIR: ARTIFACTS });
+  started.push(() => stopConsole(console_));
 
-  const harness: Harness = {
+  const harness = {
     origin,
     database,
     code: async () => (await enrol(database.enrol)).code,
     cookiesToConsole: 0,
-    stop: stopAll,
   };
-
   const proxy: Server = createServer((req, res) => {
     const toAdmin = (req.url ?? '/').startsWith('/admin/');
     const headers = { ...req.headers };
@@ -107,22 +126,15 @@ export async function startHarness(
     }
     forward(req, res, toAdmin ? adminPort : consolePort, headers);
   });
-  try {
-    const console_ = await startConsole(consolePort, reader.href);
-    started.push(() => stopConsole(console_));
-    // A port another program holds fails here, at once, rather than when the test times out.
-    await listenOn(proxy, port, '127.0.0.1');
-    started.push(
-      () =>
-        new Promise<void>((resolve) => {
-          proxy.close(() => resolve());
-          proxy.closeAllConnections();
-        }),
-    );
-  } catch (error) {
-    await stopAll();
-    throw error;
-  }
+  // A port another program holds fails here, at once, rather than when the test times out.
+  await listenOn(proxy, port, '127.0.0.1');
+  started.push(
+    () =>
+      new Promise<void>((resolve) => {
+        proxy.close(() => resolve());
+        proxy.closeAllConnections();
+      }),
+  );
   return harness;
 }
 
@@ -139,33 +151,37 @@ function forward(req: IncomingMessage, res: ServerResponse, port: number, header
 }
 
 /**
- * The console's server on the store, as its read-only role, as the cluster runs it, listening on 127.0.0.1 alone. It is
- * up when it says so in its log, not when something answers on its port, which another program could; one holding the
- * port makes it stop, and this throw with why.
+ * The console's server as the cluster runs it, on `store` (its read-only role's connection and the artifacts' folder),
+ * listening on 127.0.0.1 alone. It is up when it says so in its log, not when something answers on its port, which
+ * another program could; one holding the port makes it stop, and this throw with why.
  */
-async function startConsole(port: number, databaseUrl: string): Promise<ChildProcess> {
+export async function startConsole(
+  port: number,
+  store: { DATABASE_URL: string; ARTIFACTS_DIR: string },
+): Promise<ChildProcess> {
   const child = spawn(process.execPath, ['src/server.ts'], {
     cwd: HERE,
     env: {
       ...process.env,
       PORT: String(port),
       HOST: '127.0.0.1',
-      DATABASE_URL: databaseUrl,
-      ARTIFACTS_DIR: ARTIFACTS,
+      ...store,
       NODE_ENV: 'production',
-      // Its log is read here for the line that says it listens, and why it could not, and kept no further.
+      // Its log is read here until it says it listens, or why it could not, and passed over after.
       LOG_LEVEL: 'info',
       OTEL_SDK_DISABLED: 'true',
     },
     // What it writes to stderr, a crash as it starts, is the test's to show.
     stdio: ['ignore', 'pipe', 'inherit'],
   });
-  const lines = createInterface({ input: child.stdout as Readable });
+  const output = child.stdout as Readable;
+  const lines = createInterface({ input: output });
   let why = '';
   try {
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('The console did not start in 10 seconds')), 10_000);
-      child.once('exit', (code) => {
+      // `close`, not `exit`: it comes once its output is read to the end, the line that says why included.
+      child.once('close', (code) => {
         clearTimeout(timer);
         reject(new Error(`The console stopped as it started, with code ${code}${why && `: ${why}`}`));
       });
@@ -181,6 +197,10 @@ async function startConsole(port: number, databaseUrl: string): Promise<ChildPro
   } catch (error) {
     await stopConsole(child);
     throw error;
+  } finally {
+    // Each request's log line is drained unread from here on, so a full pipe never holds the console up.
+    lines.close();
+    output.resume();
   }
   return child;
 }
@@ -194,7 +214,7 @@ function parsed(line: string): { level?: number; msg?: string; err?: { message?:
   }
 }
 
-async function stopConsole(child: ChildProcess): Promise<void> {
+export async function stopConsole(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null) return;
   await new Promise<void>((resolve) => {
     child.once('exit', () => resolve());

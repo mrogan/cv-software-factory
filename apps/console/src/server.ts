@@ -13,7 +13,8 @@
  *
  * PORT sets the port (default 8080), and HOST the one address to listen on: unset, as in the cluster, it listens on every
  * address; the browser tests set 127.0.0.1, the address they ask, so they cannot reach another program on the port.
- * GIT_COMMIT is the commit the build was made from, set by the image. FACTORY_PROFILE (default local) and ALL_LOCAL, as the gateway's, are written into the page (`site.ts`).
+ * GIT_COMMIT is the commit the build was made from, set by the image. FACTORY_PROFILE (default local) and ALL_LOCAL, as
+ * the gateway's, are written into the page (`site.ts`).
  */
 import { mkdtempSync } from 'node:fs';
 import { createServer } from 'node:http';
