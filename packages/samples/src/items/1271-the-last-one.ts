@@ -123,12 +123,14 @@ export default new Item('1271', '2026-10-01T10:05:00+01:00')
   .at('4:30:00', 'flag.compared', 'factory', 'last-one at Share 50%: flag on against off passed', {
     flag: 'last-one',
     share: 50,
-    window: { from: '2026-10-01T11:35:00.000Z', to: '2026-10-01T13:35:00.000Z' },
+    // From a minute after the move, the time the app has to hold it. Five requests a second for 7,140 s, split by
+    // which of the generator's 101 ids flagd puts on each side of last-one at 50%: 46 on, 55 off.
+    window: { from: '2026-10-01T11:36:00.000Z', to: '2026-10-01T13:35:00.000Z' },
     setAsideMinutes: 0,
     outcome: 'passed',
     sides: {
-      on: { requests: 412, errorRate: 0.0097, p99Ms: 41 },
-      off: { requests: 398, errorRate: 0.0101, p99Ms: 40 },
+      on: { requests: 16259, errorRate: 0.0097, p99Ms: 41 },
+      off: { requests: 19441, errorRate: 0.0101, p99Ms: 40 },
     },
   })
   .at('5:00:00', 'flag.staged', 'martin', 'Martin widened last-one from Share 50% to Everyone', {
