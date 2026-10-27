@@ -3,7 +3,7 @@
  * API server does, so each request after the first arrives on a connection an earlier one used.
  */
 import { createServer, request } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { listenLocal } from '@software-factory/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { accountSend, client } from '../src/runners/kube.ts';
 
@@ -27,8 +27,7 @@ const server = createServer((req, res) => {
 let kube: ReturnType<typeof client>;
 
 beforeAll(async () => {
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address() as AddressInfo;
+  const { port } = await listenLocal(server);
   kube = client(accountSend({ host: '127.0.0.1', port, token: () => 'token', request }));
 });
 afterAll(() => {

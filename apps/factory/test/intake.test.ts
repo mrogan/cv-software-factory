@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import type { InboxSignal } from '@software-factory/events';
 import { validateSignal } from '@software-factory/events/schemas';
+import { listenLocal } from '@software-factory/testing';
 import pino from 'pino';
 import { afterEach, describe, expect, it } from 'vitest';
 import { objectives } from '../../../policy/objectives.ts';
@@ -149,9 +149,8 @@ describe('the intake, over HTTP', () => {
     server = createServer(
       createIntake({ backends: options.backends ?? backends(), outbox, log: pino({ level: 'silent' }) }),
     );
-    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
-    const { port } = server.address() as AddressInfo;
-    const response = await fetch(`http://127.0.0.1:${port}/v1/alerts`, {
+    const { url } = await listenLocal(server);
+    const response = await fetch(`${url}/v1/alerts`, {
       method: 'POST',
       body: typeof body === 'string' ? body : JSON.stringify(body),
     });
@@ -187,8 +186,7 @@ describe('the intake, over HTTP', () => {
     server = createServer(
       createIntake({ backends: backends(), outbox: { send: async () => {} }, log: pino({ level: 'silent' }) }),
     );
-    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
-    const { port } = server.address() as AddressInfo;
-    expect((await fetch(`http://127.0.0.1:${port}/health`)).status).toBe(200);
+    const { url } = await listenLocal(server);
+    expect((await fetch(`${url}/health`)).status).toBe(200);
   });
 });

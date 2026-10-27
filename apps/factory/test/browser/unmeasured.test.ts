@@ -8,6 +8,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DiskArtifacts } from '@software-factory/store';
+import { listenLocal } from '@software-factory/testing';
 import { type Browser, chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PROBES } from '../../src/probes/index.ts';
@@ -67,10 +68,9 @@ describe('the senses', () => {
       version: async () => 'a'.repeat(40),
       log: { info: () => {}, warn: () => {} },
     });
-    await new Promise<void>((resolve) => reader.listen(0, '127.0.0.1', resolve));
+    const { url } = await listenLocal(reader);
     try {
-      const port = (reader.address() as { port: number }).port;
-      const answer = await fetch(`http://127.0.0.1:${port}/v1/pages`, {
+      const answer = await fetch(`${url}/v1/pages`, {
         method: 'POST',
         body: JSON.stringify({ path: '/products' }),
       });

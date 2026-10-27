@@ -19,6 +19,7 @@
 /mise.lock                   @mrogan
 /lefthook.yml                @mrogan
 /biome.json                  @mrogan
+/packages/testing/listen.grit @mrogan
 /tsconfig.base.json          @mrogan
 /vitest.config.ts            @mrogan
 /scripts/commit-msg.ts       @mrogan

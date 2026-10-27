@@ -1,12 +1,12 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { createServer, request, type Server, type ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import type { RawEvent } from '@software-factory/events';
 import { type ArtifactStore, DiskArtifacts } from '@software-factory/store';
+import { listenLocal } from '@software-factory/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ACCESS, type Access, type Name, routeOf, type ServedBy } from '../../../policy/access.ts';
 import { createApp, PERMISSIONS_POLICY, SECURITY_HEADERS } from '../src/app.ts';
@@ -62,8 +62,7 @@ beforeAll(async () => {
     event(3),
   ]);
   server = createServer(createApp({ commit: COMMIT, site: loadSite(fakeBuild()), feed, artifacts }));
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  base = (await listenLocal(server)).url;
 });
 
 afterAll(() => {
@@ -292,8 +291,7 @@ describe('an artifact that goes wrong partway', () => {
       ...overrides,
     };
     const app = createServer(createApp({ commit: COMMIT, site: loadSite(fakeBuild()), feed, artifacts: store }));
-    await new Promise<void>((resolve) => app.listen(0, '127.0.0.1', resolve));
-    const url = `http://127.0.0.1:${(app.address() as AddressInfo).port}`;
+    const { url } = await listenLocal(app);
     return {
       url,
       app,

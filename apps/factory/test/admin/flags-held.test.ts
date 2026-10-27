@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { listenLocal } from '@software-factory/testing';
 import { pino } from 'pino';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flagsSpec } from '../../../../policy/flags.ts';
@@ -421,8 +421,7 @@ describe('asking a pod', () => {
       if (revision) res.setHeader('x-flags-revision', revision);
       res.end('ok');
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const port = (server.address() as AddressInfo).port;
+    const { port } = await listenLocal(server);
     try {
       const pod = { address: '127.0.0.1', port, name: 'website-abc-1' };
       expect(await askPod(pod, AbortSignal.timeout(2_000))).toBe('r7');

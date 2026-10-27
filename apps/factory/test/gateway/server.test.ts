@@ -1,9 +1,9 @@
 import { mkdtempSync } from 'node:fs';
 import type { Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DiskArtifacts, EventWriter } from '@software-factory/store';
+import { listenLocal } from '@software-factory/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import type { SpendPolicy } from '../../../../policy/spend.ts';
@@ -51,8 +51,7 @@ const start = async (mode: Mode, policy: SpendPolicy = { dayUsd: 20, monthUsd: 1
     log: captured.log,
   });
   server = createGatewayServer({ gateway, spend, log: captured.log });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  url = (await listenLocal(server)).url;
   client = new GatewayClient({ url });
 };
 
@@ -190,8 +189,7 @@ describe('the gateway over HTTP', () => {
     const gateway = { mode: 'replay', judge: async () => Promise.reject(new Error(`boom ${SECRET}`)) };
     const spend = { report: async () => ({}) };
     server = createGatewayServer({ gateway: gateway as never, spend: spend as never, log: captured.log });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    url = (await listenLocal(server)).url;
     client = new GatewayClient({ url });
     const raw = await post(JSON.stringify(request()));
     expect(raw.status).toBe(500);

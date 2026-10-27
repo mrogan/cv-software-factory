@@ -1,5 +1,5 @@
 import { createServer, type IncomingHttpHeaders } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { listenLocal } from '@software-factory/testing';
 import { pino } from 'pino';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { type RequestHeaders, UNMEASURED } from '../src/senses/http.ts';
@@ -258,10 +258,9 @@ describe('asking the app', () => {
       seen.push({ method: req.method, url: req.url, headers: req.headers });
       res.writeHead(200).end('<p>hello</p>');
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const { port } = server.address() as AddressInfo;
+    const { url } = await listenLocal(server);
     try {
-      const get = httpGet('http://website.localhost', { ingress: `http://127.0.0.1:${port}` });
+      const get = httpGet('http://website.localhost', { ingress: url });
       expect(await get('/search?q=glove')).toEqual({ status: 200, body: '<p>hello</p>' });
       expect(seen).toEqual([
         expect.objectContaining({
@@ -281,8 +280,7 @@ describe('asking the app', () => {
       seen.push(req.headers);
       res.writeHead(200).end();
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const app = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const { url: app } = await listenLocal(server);
     try {
       await httpGet(app)('/');
       await httpGet(app, { headers: UNMEASURED })('/');
@@ -299,8 +297,7 @@ describe('asking the app', () => {
       seen.push(req.headers);
       res.writeHead(200).end();
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const app = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const { url: app } = await listenLocal(server);
     try {
       const get = httpGet(app, { headers: { 'x-every': '1' } });
       await get('/', { [HEADERS.id]: 'traffic-000', host: 'elsewhere.example' });
@@ -314,12 +311,9 @@ describe('asking the app', () => {
 
   it('gives up on an app that does not answer', async () => {
     const server = createServer(() => {});
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const { port } = server.address() as AddressInfo;
+    const { url } = await listenLocal(server);
     try {
-      await expect(httpGet(`http://127.0.0.1:${port}`, { timeoutMs: 50 })('/')).rejects.toThrow(
-        'no answer within 50 ms',
-      );
+      await expect(httpGet(url, { timeoutMs: 50 })('/')).rejects.toThrow('no answer within 50 ms');
     } finally {
       server.closeAllConnections();
       server.close();

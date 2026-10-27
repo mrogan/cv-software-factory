@@ -6,6 +6,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DiskArtifacts } from '@software-factory/store';
+import { listenLocal } from '@software-factory/testing';
 import { type Browser, chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PROBES } from '../../src/probes/index.ts';
@@ -38,8 +39,7 @@ async function withReader<T>(work: (post: (body: string) => Promise<Response>, g
     launch: async () => browser,
   });
   const server = readerServer({ app: shop.url, sense, store, version: async () => 'a'.repeat(40), log });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const { url: base } = await listenLocal(server);
   try {
     return await work(
       (body) => fetch(`${base}/v1/pages`, { method: 'POST', body }),

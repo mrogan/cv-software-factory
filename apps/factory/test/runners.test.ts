@@ -1,10 +1,10 @@
 import { mkdtempSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { text } from 'node:stream/consumers';
 import { DiskArtifacts, issueJobToken, jobForToken } from '@software-factory/store';
+import { listenLocal } from '@software-factory/testing';
 import pino, { type Logger } from 'pino';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../packages/store/test/database.ts';
@@ -261,8 +261,7 @@ async function line(
     lookup: async () => '10.43.0.9',
   });
   const server: Server = createServer(runners.handback());
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  handbackUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/handback`;
+  handbackUrl = `${(await listenLocal(server)).url}/v1/handback`;
   return { runners, calls, handbackUrl, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
 }
 
@@ -554,9 +553,9 @@ describe('a step’s logs', () => {
     const github = {} as Parameters<typeof lineServers>[0]['github'];
     const serve = async (withLogs: boolean, path: string) => {
       const { api } = lineServers({ runners, github, log: quiet, ...(withLogs ? { logs } : {}) });
-      await new Promise<void>((resolve) => api.listen(0, '127.0.0.1', resolve));
+      const { url } = await listenLocal(api);
       try {
-        const answer = await fetch(`http://127.0.0.1:${(api.address() as AddressInfo).port}${path}`);
+        const answer = await fetch(`${url}${path}`);
         return { status: answer.status, type: answer.headers.get('content-type'), text: await answer.text() };
       } finally {
         await new Promise((resolve) => api.close(resolve));
@@ -595,9 +594,9 @@ describe('a step’s logs', () => {
       log: quiet,
       logs,
     });
-    await new Promise<void>((resolve) => api.listen(0, '127.0.0.1', resolve));
+    const { url } = await listenLocal(api);
     try {
-      const answer = await fetch(`http://127.0.0.1:${(api.address() as AddressInfo).port}/v1/work-items/1026/logs`);
+      const answer = await fetch(`${url}/v1/work-items/1026/logs`);
       expect(answer.status).toBe(200);
       await expect(answer.text()).rejects.toThrow();
     } finally {

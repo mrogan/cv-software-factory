@@ -1,0 +1,14 @@
+// A test server listens through listenLocal (packages/testing), on 127.0.0.1 and nowhere else. Port 0, a free port, is
+// only ever a test's: every service listens on the port it is given.
+or {
+  `$server.listen(0)`,
+  `$server.listen(0, $...)`,
+  `$server?.listen(0)`,
+  `$server?.listen(0, $...)`,
+  `$server.listen($options)` where { $options <: object(), $options <: contains `port: 0` },
+  `$server.listen($options, $...)` where { $options <: object(), $options <: contains `port: 0` },
+  `$server?.listen($options)` where { $options <: object(), $options <: contains `port: 0` },
+  `$server?.listen($options, $...)` where { $options <: object(), $options <: contains `port: 0` }
+} as $call where {
+  register_diagnostic(span=$call, message="Start a test server with listenLocal from @software-factory/testing: it listens on a free port on 127.0.0.1 alone, and gives the URL to reach it on. One on every address can be given a port another program holds over IPv4 on macOS.")
+}

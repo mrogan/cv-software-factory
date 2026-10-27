@@ -7,7 +7,7 @@
  * whatever the SDK asked for.
  */
 import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { listenLocal } from '@software-factory/testing';
 
 /** The model every answer names, whatever the SDK asked for, as each of the gateway's answers names the policy's. */
 export const ANSWERING_MODEL = 'scripted-model';
@@ -116,9 +116,9 @@ export async function scriptedModel(script: Turn[], { repeat = false } = {}): Pr
       }),
     );
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { url } = await listenLocal(server);
   return {
-    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    url,
     requests,
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };

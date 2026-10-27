@@ -1,10 +1,10 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { X509Certificate } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
-import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connect, createServer } from 'node:tls';
+import { listenLocal } from '@software-factory/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { files, HOSTS, isLocalName, issue, sign } from './local-ca.ts';
 
@@ -52,8 +52,7 @@ function mintedOutside(name: string, san: string): { cert: string; key: string }
 /** How a TLS client that trusts the authority alone, as a browser on the Mac would, judges a server's certificate. */
 async function handshake(cert: string, key: string, servername: string): Promise<string> {
   const server = createServer({ cert: readFileSync(cert), key: readFileSync(key) }, (socket) => socket.end());
-  await new Promise<void>((listening) => server.listen(0, '127.0.0.1', listening));
-  const { port } = server.address() as AddressInfo;
+  const { port } = await listenLocal(server);
   try {
     return await new Promise((settle) => {
       const socket = connect({ host: '127.0.0.1', port, servername, ca: readFileSync(made.authority) });

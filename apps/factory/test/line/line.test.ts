@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { trace } from '@opentelemetry/api';
 import { type InboxSignal, type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
 import { DiskArtifacts, EventWriter, lineStopped, nextWorkItem } from '@software-factory/store';
+import { listenLocal } from '@software-factory/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import type { Handback } from '../../../runner/src/step.ts';
@@ -1491,9 +1492,8 @@ describe('the line', () => {
       health: () => ({}),
       log: quiet,
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { url } = await listenLocal(server);
     try {
-      const { port } = server.address() as { port: number };
       const blocking = { path: 'src/search.ts', line: 1, blocking: true, criterion: 1, comment: 'Not escaped yet.' };
       const reviews = [
         { verdict: 'changes-requested', note: 'The quote is still not escaped.', findings: [blocking] },
@@ -1508,7 +1508,7 @@ describe('the line', () => {
           reviewer: () => handback(reviews.shift()),
         },
         events,
-        { github: new GitHubWorker(`http://127.0.0.1:${port}`, { dryRun: true }) },
+        { github: new GitHubWorker(url, { dryRun: true }) },
       );
       for (let passes = 0; passes < 10 && !(await types(workItem)).includes('hold.started'); passes++) await pass();
       expect(steps.requests.map((r) => r.agent)).toEqual([

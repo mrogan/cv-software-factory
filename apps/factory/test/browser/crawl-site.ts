@@ -4,7 +4,7 @@
  * or on all of them.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { listenLocal } from '@software-factory/testing';
 
 export type Fault =
   | 'dead-link'
@@ -156,9 +156,9 @@ ${body}${throws ? '<script>throw new Error("boom")</script>' : ''}</main></body>
   const server = createServer((req, res) => {
     handle(req, res).catch(() => send(res, 500, 'oops'));
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { url } = await listenLocal(server);
   return {
-    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    url,
     close: () =>
       new Promise((resolve) => {
         server.close(() => resolve());

@@ -169,6 +169,9 @@ importers:
       '@biomejs/biome':
         specifier: ^2.6.2
         version: 2.6.2
+      '@software-factory/testing':
+        specifier: workspace:*
+        version: link:packages/testing
       '@types/node':
         specifier: ^24.19.2
         version: 24.19.2
@@ -192,7 +195,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(yaml@2.9.1))
+        version: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(yaml@2.9.1))
 
   apps/console:
     dependencies:
@@ -257,6 +260,9 @@ importers:
       '@software-factory/factory':
         specifier: workspace:*
         version: link:../factory
+      '@software-factory/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
       preact:
         specifier: ^11.0.1
         version: 11.0.1
@@ -360,6 +366,9 @@ importers:
       '@opentelemetry/sdk-trace':
         specifier: ^3.0.0
         version: 3.0.0(@opentelemetry/api@1.10.0)
+      '@software-factory/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
       '@types/pngjs':
         specifier: ^6.0.5
         version: 6.0.5
@@ -372,6 +381,10 @@ importers:
       zod:
         specifier: ^4.6.7
         version: 4.6.7
+    devDependencies:
+      '@software-factory/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
 
   packages/events:
     dependencies:
@@ -410,6 +423,11 @@ importers:
       '@opentelemetry/sdk-metrics':
         specifier: ^3.0.0
         version: 3.0.0(@opentelemetry/api@1.10.0)
+      '@software-factory/testing':
+        specifier: workspace:*
+        version: link:../testing
+
+  packages/testing: {}
 
   packages/triage:
     dependencies:
@@ -714,10 +732,6 @@ packages:
 
   '@opentelemetry/api@1.10.0':
     resolution: {integrity: sha512-lMkyes8iHrG+mk6WH7X70MdCLI2RS0FwNBY1PyQ8UemaijE2m5mv5A0Niy3HtbYTFrgkUEQjFMXmSAk2hQDuPQ==}
-    engines: {node: '>=8.0.0'}
-
-  '@opentelemetry/api@1.9.1':
-    resolution: {integrity: sha512-gLyJlPHPZYdAk1JENA9LeHejZe1Ti77/pTeFm/nMXmQH/HFZlcS/O2XJB+L8fkbrNSqhdtlvjBVjxwUYanNH5Q==}
     engines: {node: '>=8.0.0'}
 
   '@opentelemetry/configuration@0.300.0':
@@ -1335,6 +1349,11 @@ packages:
 
   ajv-formats@3.0.1:
     resolution: {integrity: sha512-8iUql50EUR+uUcdRQ3HDqa6EVyo3docL8g5WJ3FNcWmu62IbkGUue/pEyLBW8VGKKucTPgqeks4fIU1DA4yowQ==}
+    peerDependencies:
+      ajv: ^8.0.0
+    peerDependenciesMeta:
+      ajv:
+        optional: true
 
   ajv@8.20.0:
     resolution: {integrity: sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA==}
@@ -2928,9 +2947,6 @@ snapshots:
       semver: 7.8.5
 
   '@opentelemetry/api@1.10.0': {}
-
-  '@opentelemetry/api@1.9.1':
-    optional: true
 
   '@opentelemetry/configuration@0.300.0(@opentelemetry/api@1.10.0)':
     dependencies:
@@ -4718,7 +4734,7 @@ snapshots:
       fsevents: 2.3.3
       yaml: 2.9.1
 
-  vitest@5.0.5(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(yaml@2.9.1)):
+  vitest@5.0.5(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(yaml@2.9.1)):
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/mocker': 5.0.5(vite@8.3.5(@types/node@24.19.2)(yaml@2.9.1))
@@ -4735,7 +4751,7 @@ snapshots:
       vite: 8.3.5(@types/node@24.19.2)(yaml@2.9.1)
       why-is-node-running: 3.2.1
     optionalDependencies:
-      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/api': 1.10.0
       '@types/node': 24.19.2
     transitivePeerDependencies:
       - msw

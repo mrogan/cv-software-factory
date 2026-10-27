@@ -5,6 +5,7 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
+import { listenLocal } from '@software-factory/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const telemetry = {
@@ -32,8 +33,7 @@ afterEach(() => {
 
 async function freePort(): Promise<number> {
   const server = createServer();
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address() as { port: number };
+  const { port } = await listenLocal(server);
   await new Promise<void>((resolve) => server.close(() => resolve()));
   return port;
 }

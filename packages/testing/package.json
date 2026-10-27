@@ -1,0 +1,10 @@
+{
+  "name": "@software-factory/testing",
+  "version": "0.0.0",
+  "private": true,
+  "description": "What the tests share: a test server listening on a free port on 127.0.0.1, and the address it is reached on.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

@@ -1,8 +1,8 @@
 import { mkdtemp } from 'node:fs/promises';
-import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DiskArtifacts } from '@software-factory/store';
+import { listenLocal } from '@software-factory/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DryRunActions, LiveActions } from '../../src/github/actions.ts';
 import { ownsBranch } from '../../src/github/branches.ts';
@@ -336,9 +336,8 @@ describe('the worker over HTTP, for the line', () => {
       health: () => ({}),
       log: quiet,
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { url } = await listenLocal(server);
     close = () => server.close();
-    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     return { worker: new GitHubWorker(url), dryRun: new GitHubWorker(url, { dryRun: true }), sent };
   }
 
