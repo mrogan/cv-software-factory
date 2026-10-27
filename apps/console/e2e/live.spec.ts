@@ -2,7 +2,7 @@
  * The console live, against a real store: events appended move an open console within a second, and a stream that
  * drops mid-play resumes with nothing missed and nothing twice. Needs Postgres: TEST_DATABASE_URL, or Docker.
  */
-import { type ChildProcess, spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,10 +13,10 @@ import { logArtifactPath } from '@software-factory/events/log';
 import { load, readLog } from '@software-factory/factory/events';
 import { DiskArtifacts, EventWriter } from '@software-factory/store';
 import { createDatabase, type Database, PASSWORDS, startPostgres } from '../../../packages/store/test/postgres.ts';
+import { startConsole, stopConsole } from './admin.ts';
 import { expect, test } from './support.ts';
 
 const PORT = 18_324;
-const HERE = fileURLToPath(new URL('..', import.meta.url));
 const SAMPLES = fileURLToPath(new URL('../../../packages/samples/log', import.meta.url));
 
 test.use({ baseURL: `http://localhost:${PORT}` });
@@ -28,46 +28,18 @@ let console_: ChildProcess | undefined;
 const artifacts = new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-')));
 
 /** The console, as the cluster runs it: its read-only role, and the artifact store's folder. */
-async function startConsole(): Promise<ChildProcess> {
-  const url = new URL(postgres.url);
-  const child = spawn(process.execPath, ['src/server.ts'], {
-    cwd: HERE,
-    env: {
-      ...process.env,
-      PORT: String(PORT),
-      PGHOST: url.hostname,
-      PGPORT: url.port,
-      PGDATABASE: database.name,
-      PGUSER: 'console_reader',
-      PGPASSWORD: PASSWORDS.console,
-      ARTIFACTS_DIR: artifacts.dir,
-      NODE_ENV: 'production',
-      LOG_LEVEL: 'silent',
-      OTEL_SDK_DISABLED: 'true',
-    },
-    stdio: 'ignore',
-  });
-  for (let tries = 0; tries < 100; tries++) {
-    if (
-      await fetch(`http://localhost:${PORT}/health`).then(
-        (r) => r.ok,
-        () => false,
-      )
-    )
-      return child;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error('The console did not start');
+function startLiveConsole(): Promise<ChildProcess> {
+  const reader = new URL(postgres.url);
+  reader.pathname = `/${database.name}`;
+  reader.username = 'console_reader';
+  reader.password = PASSWORDS.console;
+  return startConsole(PORT, { DATABASE_URL: reader.href, ARTIFACTS_DIR: artifacts.dir });
 }
 
-async function stopConsole(): Promise<void> {
+async function stopLiveConsole(): Promise<void> {
   const child = console_;
   console_ = undefined;
-  if (!child || child.exitCode !== null) return;
-  await new Promise<void>((resolve) => {
-    child.once('exit', () => resolve());
-    child.kill('SIGKILL');
-  });
+  if (child) await stopConsole(child);
 }
 
 const received = (page: Page) => page.evaluate(() => (globalThis as { sfReceived?: number[] }).sfReceived ?? []);
@@ -82,11 +54,11 @@ test.beforeAll(async () => {
   await load(database.operator, artifacts, SAMPLES, { except: ['1302'] });
   for (const event of live())
     for (const { hash } of event.artifacts) await artifacts.put(readFileSync(logArtifactPath(SAMPLES, hash)));
-  console_ = await startConsole();
+  console_ = await startLiveConsole();
 });
 
 test.afterAll(async () => {
-  await stopConsole();
+  await stopLiveConsole();
   await database?.end();
   postgres?.stop();
 });
@@ -116,9 +88,9 @@ test('resumes after the stream drops mid-play, with nothing missed and nothing t
   for (const [i, event] of rest.entries()) {
     if (i === half) {
       // The console goes away mid-play, connections and all, and comes back.
-      await stopConsole();
+      await stopLiveConsole();
       await writer.append(now(event));
-      console_ = await startConsole();
+      console_ = await startLiveConsole();
       continue;
     }
     await writer.append(now(event));

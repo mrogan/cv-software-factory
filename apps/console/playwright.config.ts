@@ -53,17 +53,21 @@ export default defineConfig({
     { port: FIXTURE_PORT, log: 'test/fixture/log', now: FIXTURE_END },
   ].map(({ port, log, now }) => ({
     command: 'node src/server.ts',
-    url: `http://localhost:${port}/health`,
+    // On 127.0.0.1 alone, and asked there: another program holding the port fails the run rather than answering it.
+    url: `http://127.0.0.1:${port}/health`,
     env: {
       PORT: String(port),
+      HOST: '127.0.0.1',
       EVENT_LOG: log,
       EVENT_LOG_NOW: new Date(now).toISOString(),
       NODE_ENV: 'production',
-      LOG_LEVEL: 'silent',
+      // Only what went wrong, such as a port it could not listen on, which Playwright shows.
+      LOG_LEVEL: 'error',
       OTEL_SDK_DISABLED: 'true',
       // The app a flag's "Preview it" opens: the local cluster's, as its Deployment names it.
       APP_URL: 'http://website.localhost:8080',
     },
+    stdout: 'pipe' as const,
     reuseExistingServer: false,
   })),
 });
