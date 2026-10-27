@@ -11,7 +11,9 @@
  * the queue's commit has it and so holds nothing:
  *
  * - for a pull request opened, pushed to, reopened, made ready or edited, and for a review of one: the check goes on the
- *   pull request's head as it is now;
+ *   pull request's head as it is now, judged on every open pull request here whose head that commit is, since a check
+ *   on a commit is each one's. It passes only when each passes, and otherwise names those that do not, so every run
+ *   that judges a commit, whichever pull request asked, says the same;
  * - for the merge queue: the check goes on the merge group's commit, judged on the pull request it was made for, which
  *   the queue names in its branch, which must be into main. A branch the gate does not know, or one that names a pull
  *   request into another branch, fails the check there, saying which.
@@ -111,12 +113,32 @@ interface Event {
 }
 
 /**
- * Of the open pull requests with one head, the one whose verdict goes on it: the one into main, else the first. GitHub
- * allows one open pull request per head and base, so two share a head only with different bases, and the check on a
- * commit is every such pull request's.
+ * The open pull requests in `repo` whose head is `commit`, from those GitHub lists for the commit, which include merged
+ * ones that contain it, and from `known`, one already found there, in case the list lags behind.
  */
-export function pick<T extends { base: { ref: string } }>(prs: readonly T[] | undefined): T | undefined {
-  return prs?.find((p) => p.base.ref === 'main') ?? prs?.[0];
+export function atHead(
+  listed: readonly PullRequest[],
+  commit: string,
+  repo: string,
+  known?: PullRequest,
+): PullRequest[] {
+  const all = new Map<number, PullRequest>();
+  for (const pr of [...listed, ...(known ? [known] : [])]) {
+    if (pr.state === 'open' && pr.head.sha === commit && pr.base.repo.full_name === repo) all.set(pr.number, pr);
+  }
+  return [...all.values()].sort((a, b) => a.number - b.number);
+}
+
+/**
+ * The verdict on a commit that is the head of several open pull requests. A check is on a commit, so it is every one's:
+ * it passes only when each passes, and otherwise names those that do not, so every run that judges the commit, from any
+ * of them, says the same.
+ */
+export function together(judged: readonly { number: number; said: Verdict }[]): Verdict {
+  if (judged.length === 1 && judged[0]) return judged[0].said;
+  const held = judged.filter((j) => !j.said.pass);
+  if (held.length === 0) return { pass: true, title: `Each of ${judged.map((j) => `#${j.number}`).join(', ')} passes` };
+  return { pass: false, title: held.map((j) => `#${j.number}: ${j.said.title}`).join('; ') };
 }
 
 /**
@@ -137,11 +159,11 @@ export function target(name: string, event: Event, repo: string): Target {
     return { kind: 'queue', number: Number(number), commit: run.head_sha };
   }
   if (run.event === 'pull_request' || run.event === 'pull_request_review') {
-    // GitHub names the pull request only when its branch is in this repository and still at the run's commit; a fork's,
-    // or a branch that has moved since, is found by its branch.
-    // Only this repository's: a run from a fork's branch can name the fork's own pull requests too.
-    const here = run.pull_requests?.filter((p) => p.base.repo?.url.endsWith(`/repos/${repo}`));
-    const number = pick(here)?.number;
+    // A pull request whose head is the commit to judge, whichever: every open one with that head is judged with it.
+    // GitHub names one only when its branch is in this repository and still at the run's commit; a fork's, or a branch
+    // that has moved since, is found by its branch. Only this repository's: a run from a fork's branch can name the
+    // fork's own pull requests too.
+    const number = run.pull_requests?.find((p) => p.base.repo?.url.endsWith(`/repos/${repo}`))?.number;
     if (number) return { kind: 'pull-request', number };
     const owner = run.head_repository?.owner.login;
     if (!owner || !run.head_branch) return { kind: 'none', reason: `the ${run.event} names no pull request` };
@@ -193,6 +215,49 @@ async function post(repo: string, token: string, commit: string, pass: boolean, 
 
 const RULE = 'Passes when Martin opened the pull request, or approved its head after the last push (ADR 0014).';
 
+/** Every pull request open in `repo` that contains `commit`, merged ones too, as GitHub lists them. */
+async function containing(repo: string, commit: string, token: string): Promise<PullRequest[]> {
+  const all: PullRequest[] = [];
+  for (let page = 1; ; page++) {
+    const batch = await api<PullRequest[]>(
+      'GET',
+      `/repos/${repo}/commits/${commit}/pulls?per_page=100&page=${page}`,
+      token,
+    );
+    all.push(...batch);
+    if (batch.length < 100) return all;
+  }
+}
+
+/**
+ * Judges the head of `pr` as it is now, on every open pull request whose head it is: a check is on a commit, so each
+ * of them carries it, and whichever asked, the verdict is the same.
+ */
+async function judgeHead(repo: string, read: string, token: string, pr: PullRequest): Promise<void> {
+  const commit = pr.head.sha;
+  const open = atHead(await containing(repo, commit, read), commit, repo, pr);
+  // A closed pull request merges nothing, and no open one has its head: nothing to hold.
+  if (open.length === 0) {
+    console.log(`#${pr.number} is ${pr.state}, and no open pull request has ${short(commit)}: nothing to judge.`);
+    return;
+  }
+  const judged = [];
+  for (const each of open) {
+    const said = verdict(each, await reviewsOf(repo, each.number, read));
+    console.log(
+      `#${each.number}, into ${each.base.ref}, at ${short(commit)}: ${said.pass ? `passes: ${said.title}` : said.title}.`,
+    );
+    judged.push({ number: each.number, said });
+  }
+  const said = together(judged);
+  const numbers = open.map((each) => `#${each.number}`).join(', ');
+  const line = `${short(commit)}, the head of ${numbers}: ${said.pass ? `passes: ${said.title}` : said.title}.`;
+  console.log(line);
+  // The summary is written with nothing a branch's name could carry: the line names only numbers and commits.
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${line}\n`);
+  await post(repo, token, commit, said.pass, said.title, `${RULE} Judged on ${numbers}, each at ${short(commit)}.`);
+}
+
 async function main(): Promise<void> {
   const { GH_TOKEN: read = '', CHECKS_TOKEN: token = '', GITHUB_REPOSITORY: repo = '' } = process.env;
   const name = process.env.GITHUB_EVENT_NAME ?? '';
@@ -207,7 +272,7 @@ async function main(): Promise<void> {
       `/repos/${repo}/pulls?state=open&per_page=100&head=${encodeURIComponent(`${owner}:${branch}`)}`,
       read,
     );
-    const found = pick(open);
+    const found = open[0];
     asked = found
       ? { kind: 'pull-request', number: found.number }
       : { kind: 'none', reason: `no open pull request has ${owner}:${branch}` };
@@ -221,15 +286,19 @@ async function main(): Promise<void> {
     return;
   }
   const pr = await api<PullRequest>('GET', `/repos/${repo}/pulls/${asked.number}`, read);
-  // A closed pull request merges nothing, and its head may be an open one's too, which a failure here would hold.
+  if (asked.kind === 'pull-request') {
+    await judgeHead(repo, read, token, pr);
+    return;
+  }
+  // A closed pull request merges nothing: the queue holds none.
   if (pr.state !== 'open') {
     console.log(`#${pr.number} is ${pr.state}: nothing to judge.`);
     return;
   }
-  const commit = asked.commit ?? pr.head.sha;
+  const commit = asked.commit;
   // The queue's commit merges into main, so it is judged only on a pull request into main: one into another branch,
   // a stacked one's, vouches for its own change and not for those below it, which the commit carries too.
-  if (asked.kind === 'queue' && pr.base.ref !== 'main') {
+  if (pr.base.ref !== 'main') {
     const title = `The merge queue's branch names #${pr.number}, which is into ${pr.base.ref}, not main`;
     console.log(`Nothing to judge: ${title}.`);
     await post(
@@ -243,8 +312,7 @@ async function main(): Promise<void> {
     return;
   }
   const said = verdict(pr, await reviewsOf(repo, pr.number, read));
-  const where = asked.kind === 'queue' ? `the merge queue's ${short(commit)}` : short(commit);
-  const line = `#${pr.number} on ${where}: ${said.pass ? `passes: ${said.title}` : said.title}.`;
+  const line = `#${pr.number} on the merge queue's ${short(commit)}: ${said.pass ? `passes: ${said.title}` : said.title}.`;
   console.log(`${line} It is into ${pr.base.ref}.`);
   // The summary is written with nothing a branch's name could carry: the line names only numbers and commits.
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${line}\n`);

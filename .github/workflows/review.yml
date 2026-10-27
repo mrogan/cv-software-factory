@@ -1,10 +1,11 @@
 # The review gate (ADR 0014): posts the `review` check, as the review App, on a pull request's head and on the merge
 # queue's commit for it. It passes when Martin opened the pull request, or approved its head after the last push
 # (scripts/review-gate.ts), whatever the pull request's base: a stacked one, into the branch below it, is held to main's
-# required checks. A pull request it finds open always gets a verdict. The queue's commit is judged only on a pull
-# request into main, and a merge queue branch it cannot read, or one naming a pull request into another branch, fails
-# the queue's commit, saying which. The ruleset requires the check from the review App alone, so no workflow, this
-# one's own job included, can stand in for it.
+# required checks. A check on a commit is every open pull request's whose head it is, so the head is judged on all of
+# them, and passes only when each does: every run that judges a commit agrees. A pull request it finds open always gets
+# a verdict. The queue's commit is judged only on a pull request into main, and a merge queue branch it cannot read, or
+# one naming a pull request into another branch, fails the queue's commit, saying which. The ruleset requires the check
+# from the review App alone, so no workflow, this one's own job included, can stand in for it.
 #
 # Only main's copy runs with the App's key. `workflow_run` runs the workflow as main has it, with GITHUB_REF main, and
 # the key is in the `review` environment, which only main may use: a run on any other ref, a pull request's merge ref

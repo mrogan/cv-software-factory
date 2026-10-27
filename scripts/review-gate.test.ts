@@ -1,12 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  atHead,
   MARTIN,
   type PullRequest,
-  pick,
   QUEUE_BRANCH,
   type Review,
   target as targetIn,
+  together,
   verdict,
 } from './review-gate.ts';
 
@@ -91,12 +92,13 @@ describe('the review gate (ADR 0014)', () => {
             ...run,
             event,
             pull_requests: [
-              { number: 8, base: { ref: 'other', repo: HERE } },
-              { number: 7, base: { ref: 'main', repo: HERE } },
+              { number: 6, base: { ref: 'main', repo: { url: 'https://api.github.com/repos/someone/r' } } },
+              { number: 7, base: { ref: 'other', repo: HERE } },
+              { number: 8, base: { ref: 'main', repo: HERE } },
             ],
           },
         }),
-      ).toEqual({ kind: 'pull-request', number: 7 });
+      ).toEqual({ kind: 'pull-request', number: 7 }); // any of this repository's: each with its head is judged
       // A stacked pull request, into the branch below it.
       expect(
         target('workflow_run', {
@@ -147,13 +149,55 @@ describe('the review gate (ADR 0014)', () => {
   });
 });
 
-describe('the pull request a head’s verdict goes on', () => {
-  it('is the one into main, else the first', () => {
-    const into = (number: number, ref: string) => ({ number, base: { ref } });
-    expect(pick([into(8, 'other'), into(7, 'main')])?.number).toBe(7);
-    expect(pick([into(8, 'fix/below'), into(9, 'other')])?.number).toBe(8);
-    expect(pick([])).toBeUndefined();
-    expect(pick(undefined)).toBeUndefined();
+describe('a head commit’s verdict', () => {
+  const at = (number: number, over: Partial<PullRequest> = {}): PullRequest => ({ ...pr(APP), number, ...over });
+
+  it('is on every open pull request in this repository whose head the commit is', () => {
+    const listed = [
+      at(9),
+      at(7, { base: { ref: 'fix/below', repo: { full_name: 'o/r' } } }),
+      // Merged, and containing the commit; or open with the commit below its head; or another repository's.
+      at(3, { state: 'closed' }),
+      at(4, { head: { sha: EARLIER, repo: { full_name: 'o/r' } } }),
+      at(5, { base: { ref: 'main', repo: { full_name: 'someone/r' } } }),
+    ];
+    expect(atHead(listed, HEAD, 'o/r').map((p) => p.number)).toEqual([7, 9]);
+    // The one already found counts, if the list lags behind, and once.
+    expect(atHead([], HEAD, 'o/r', at(9)).map((p) => p.number)).toEqual([9]);
+    expect(atHead(listed, HEAD, 'o/r', at(9)).map((p) => p.number)).toEqual([7, 9]);
+    // A closed one found, with no open one at its head: nothing.
+    expect(atHead([], HEAD, 'o/r', at(9, { state: 'closed' }))).toEqual([]);
+  });
+
+  it('passes only when each passes, whichever asked, and names those that do not', () => {
+    const pass = { pass: true, title: 'Martin approved aaaaaaa' };
+    const held = { pass: false, title: 'Waits for Martin to approve aaaaaaa' };
+    expect(together([{ number: 7, said: pass }])).toEqual(pass);
+    expect(together([{ number: 7, said: held }])).toEqual(held);
+    expect(
+      together([
+        { number: 7, said: pass },
+        { number: 9, said: pass },
+      ]),
+    ).toEqual({
+      pass: true,
+      title: 'Each of #7, #9 passes',
+    });
+    expect(
+      together([
+        { number: 7, said: pass },
+        { number: 9, said: held },
+      ]),
+    ).toEqual({
+      pass: false,
+      title: '#9: Waits for Martin to approve aaaaaaa',
+    });
+    // Two pull requests at one commit, from different branches: both runs judge both, and agree.
+    const two = [
+      { number: 7, said: verdict(at(7), [review(MARTIN, 'APPROVED')]) },
+      { number: 9, said: verdict(at(9), []) },
+    ];
+    expect(together(two).pass).toBe(false);
   });
 });
 
