@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 import { DEPLOY, manifests as deployManifests } from './deploy.ts';
 
 /**
@@ -199,6 +200,27 @@ describe('the admin service', () => {
     expect(pods.length).toBeGreaterThan(10);
     const withToken = pods.filter(({ pod }) => pod?.automountServiceAccountToken !== false).map(({ name }) => name);
     expect(withToken.sort()).toEqual(['admin', 'line']);
+  });
+
+  it('previews a flag on the app where a browser on the Mac reaches it', async () => {
+    // The console's APP_URL, which a flag's "Preview it" opens: the app's host, as the traffic generator names it to
+    // Traefik, on the port k3d publishes Traefik's plain HTTP on.
+    const all = await manifests();
+    const envOf = (name: string) =>
+      Object.fromEntries(
+        (
+          all.find(({ manifest }) => manifest.kind === 'Deployment' && manifest.metadata?.name === name)?.manifest.spec
+            ?.template?.spec?.containers?.[0]?.env ?? []
+        ).map((e) => [e.name, e.value]),
+      );
+    const cluster = parse(await readFile(join(DEPLOY, 'k3d', 'cluster.yaml'), 'utf-8')) as {
+      ports: { port: string }[];
+    };
+    const http = cluster.ports.map(({ port }) => port.split(':')).find((parts) => parts.at(-1) === '80');
+    const app = new URL(envOf('console').APP_URL ?? '');
+    expect(app.protocol).toBe('http:');
+    expect(app.hostname).toBe(new URL(envOf('traffic').APP_URL ?? '').hostname);
+    expect(app.port).toBe(http?.at(-2));
   });
 
   it('holds Martin’s settings to the profile the gateway enforces, and says so on the console', async () => {
