@@ -65,7 +65,7 @@ The line (`factory line serve`):
 - starts the Jobs with a service account that may create Jobs and volumes in `runners`, list their pods and read their logs, and nothing else;
 - keeps each pod's log with the step, however it ended, before it deletes the step's Jobs, since their pods go with them (below);
 - takes handbacks at `POST /v1/handback`, checked with Zod, each token once;
-- fences each patch to the spec's scope (`runners/scope.ts`), and never lets one change `.github/`, `deploy/` or a path the app's CODEOWNERS gives a person at the step's commit, which the line reads through the GitHub worker.
+- fences each patch to the spec's scope (`runners/scope.ts`), and never lets one change `.github/`, `deploy/` or a path the app's CODEOWNERS gives a person at the step's commit, which the line reads through the GitHub worker. It tests each path against each entry by stepping it through the entry's automaton (`pattern` in the events package), in at most the path's length times the entry's, however many `*` the planner wrote, so no scope can stall the fence or the console that marks a spec's paths the same way.
 
 The [GitHub worker](GITHUB-WORKER.md) applies an accepted patch, outside the sandbox (`github/patches.ts`).
 
