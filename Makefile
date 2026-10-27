@@ -3,7 +3,7 @@
 CLUSTER := software-factory
 CONTEXT := k3d-$(CLUSTER)
 KUBECTL := kubectl --context $(CONTEXT)
-# mise.toml pins Argo CD's CLI at the version this chart runs (its appVersion): move them together.
+# mise.toml holds Argo CD's CLI to the minor release this chart runs (its appVersion): move them together.
 ARGOCD_CHART := 10.9.5
 # The browser tests run in this image, so their snapshots match wherever they run. Its one pin is Dockerfile.browser's.
 PLAYWRIGHT := $(shell grep -oE 'mcr\.microsoft\.com/playwright:[^ ]+' apps/factory/Dockerfile.browser)
