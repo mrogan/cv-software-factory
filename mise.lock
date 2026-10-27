@@ -22,6 +22,11 @@ checksum = "sha256:0046896141a09e15913d0c4c2651516fb46b233f5595a5d2e462fa9a0d9d1
 url = "https://github.com/argoproj/argo-rollouts/releases/download/v1.10.0/kubectl-argo-rollouts-darwin-arm64"
 url_api = "https://api.github.com/repos/argoproj/argo-rollouts/releases/assets/532499228"
 
+[tools.argo-rollouts."platforms.macos-x64"]
+checksum = "sha256:1a41cdf72c45eb0bbe6fc6fcaa9529b8372044be33f1cea827487ad8d0bad395"
+url = "https://github.com/argoproj/argo-rollouts/releases/download/v1.10.0/kubectl-argo-rollouts-darwin-amd64"
+url_api = "https://api.github.com/repos/argoproj/argo-rollouts/releases/assets/532499224"
+
 [[tools.argocd]]
 version = "3.5.3"
 backend = "aqua:argoproj/argo-cd"
@@ -41,6 +46,11 @@ url_api = "https://api.github.com/repos/argoproj/argo-cd/releases/assets/5628968
 checksum = "sha256:76efc71c00bc3ffeda5daa277d990e3d89b3628b2440fc7dd38aca79c63b15e0"
 url = "https://github.com/argoproj/argo-cd/releases/download/v3.5.3/argocd-darwin-arm64"
 url_api = "https://api.github.com/repos/argoproj/argo-cd/releases/assets/562896606"
+
+[tools.argocd."platforms.macos-x64"]
+checksum = "sha256:44c636381ad52a92caa493e4a292dc04f3bf3da7f5ab7b9fe055aeaf661f9cdd"
+url = "https://github.com/argoproj/argo-cd/releases/download/v3.5.3/argocd-darwin-amd64"
+url_api = "https://api.github.com/repos/argoproj/argo-cd/releases/assets/562896609"
 
 [[tools.cosign]]
 version = "3.1.3"
@@ -63,6 +73,12 @@ provenance = "cosign"
 checksum = "sha256:5cf948c2f4dfe59687bdd0b8523709067383e03982cc543475c8a7dc70e92a76"
 url = "https://github.com/sigstore/cosign/releases/download/v3.1.3/cosign-darwin-arm64"
 url_api = "https://api.github.com/repos/sigstore/cosign/releases/assets/503286205"
+provenance = "cosign"
+
+[tools.cosign."platforms.macos-x64"]
+checksum = "sha256:2347488e5d5b25336644024dfeca5601b190e91197a71a917bda44744aff106c"
+url = "https://github.com/sigstore/cosign/releases/download/v3.1.3/cosign-darwin-amd64"
+url_api = "https://api.github.com/repos/sigstore/cosign/releases/assets/503286177"
 provenance = "cosign"
 
 [[tools.gh]]
@@ -88,6 +104,12 @@ url = "https://github.com/cli/cli/releases/download/v2.103.2/gh_2.103.2_macOS_ar
 url_api = "https://api.github.com/repos/cli/cli/releases/assets/670305145"
 provenance = "github-attestations"
 
+[tools.gh."platforms.macos-x64"]
+checksum = "sha256:2dc7f1fc4761f96732995f6e4f4c6b4d705f2635da4126620c8b30eaa67b9c98"
+url = "https://github.com/cli/cli/releases/download/v2.103.2/gh_2.103.2_macOS_amd64.zip"
+url_api = "https://api.github.com/repos/cli/cli/releases/assets/670305131"
+provenance = "github-attestations"
+
 [[tools.helm]]
 version = "4.3.0"
 backend = "aqua:helm/helm"
@@ -104,6 +126,10 @@ url = "https://get.helm.sh/helm-v4.3.0-linux-amd64.tar.gz"
 [tools.helm."platforms.macos-arm64"]
 checksum = "sha256:d3870437e1e95b67f8edbde964156c84a26503f560821d40c542441658934fba"
 url = "https://get.helm.sh/helm-v4.3.0-darwin-arm64.tar.gz"
+
+[tools.helm."platforms.macos-x64"]
+checksum = "sha256:347a784877e0e20eac865e8d1c36a80f6bb0861d6f29abd34defb6570ef95d92"
+url = "https://get.helm.sh/helm-v4.3.0-darwin-amd64.tar.gz"
 
 [[tools.k3d]]
 version = "5.9.0"
@@ -125,6 +151,11 @@ checksum = "sha256:fe106541d5d0a3f18debcd4d432a16f8c0ce3e6ddc06f8fbb6f696a122313
 url = "https://github.com/k3d-io/k3d/releases/download/v5.9.0/k3d-darwin-arm64"
 url_api = "https://api.github.com/repos/k3d-io/k3d/releases/assets/436305875"
 
+[tools.k3d."platforms.macos-x64"]
+checksum = "sha256:b4aabc37534f95b9c764e7823f2df923f50d57600837aa60a06266cce47db732"
+url = "https://github.com/k3d-io/k3d/releases/download/v5.9.0/k3d-darwin-amd64"
+url_api = "https://api.github.com/repos/k3d-io/k3d/releases/assets/436305915"
+
 [[tools.kubectl]]
 version = "1.37.1"
 backend = "aqua:kubernetes/kubernetes/kubectl"
@@ -141,6 +172,10 @@ url = "https://dl.k8s.io/v1.37.1/bin/linux/amd64/kubectl"
 [tools.kubectl."platforms.macos-arm64"]
 checksum = "sha256:fd65982c97ddad3106754b69ffa196d0e543aa591930ae52aed1adfb92f8c77f"
 url = "https://dl.k8s.io/v1.37.1/bin/darwin/arm64/kubectl"
+
+[tools.kubectl."platforms.macos-x64"]
+checksum = "sha256:6851381c486ff6edd691623e3d65c87cb9a5b02887ff8fbbb38d8a031b748387"
+url = "https://dl.k8s.io/v1.37.1/bin/darwin/amd64/kubectl"
 
 [[tools.kustomize]]
 version = "5.8.2"
@@ -162,6 +197,11 @@ checksum = "sha256:4ce452c096a4005be16ddc02129255830d1d6605ffe3693699c72a1b2be48
 url = "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.8.2/kustomize_v5.8.2_darwin_arm64.tar.gz"
 url_api = "https://api.github.com/repos/kubernetes-sigs/kustomize/releases/assets/600925224"
 
+[tools.kustomize."platforms.macos-x64"]
+checksum = "sha256:1ee90e851535f13b21b5fb69a24a6e843da13ca7aa52538e345ce7c15471ef47"
+url = "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.8.2/kustomize_v5.8.2_darwin_amd64.tar.gz"
+url_api = "https://api.github.com/repos/kubernetes-sigs/kustomize/releases/assets/600925221"
+
 [[tools.node]]
 version = "24.22.1"
 backend = "core:node"
@@ -178,6 +218,10 @@ url = "https://nodejs.org/dist/v24.22.1/node-v24.22.1-linux-x64.tar.gz"
 [tools.node."platforms.macos-arm64"]
 checksum = "sha256:89c682593d76cd44233fa53b1563264e7de9cbb189cad169135c5b4fadfbc0a7"
 url = "https://nodejs.org/dist/v24.22.1/node-v24.22.1-darwin-arm64.tar.gz"
+
+[tools.node."platforms.macos-x64"]
+checksum = "sha256:d132557e7ee2b85af08b0c8c34338e65c6430f2238d01f727728ef42dc83b035"
+url = "https://nodejs.org/dist/v24.22.1/node-v24.22.1-darwin-x64.tar.gz"
 
 [[tools.pnpm]]
 version = "12.8.1"
@@ -202,6 +246,12 @@ url = "https://github.com/pnpm/pnpm/releases/download/v12.8.1/pnpm-darwin-arm64.
 url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/595935883"
 provenance = "github-attestations"
 
+[tools.pnpm."platforms.macos-x64"]
+checksum = "sha256:8cbc5a840b4bcd8c0da878e6616a832d88e98a8acbedf1736310b395467f4a13"
+url = "https://github.com/pnpm/pnpm/releases/download/v12.8.1/pnpm-darwin-x64.tar.gz"
+url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/595935890"
+provenance = "github-attestations"
+
 [[tools.promtool]]
 version = "3.15.0"
 backend = "aqua:prometheus/prometheus"
@@ -221,6 +271,11 @@ url_api = "https://api.github.com/repos/prometheus/prometheus/releases/assets/58
 checksum = "sha256:920df4d17e78b3b0175af144eb318b0c74d1cf7b1d1251b326966f0e81977260"
 url = "https://github.com/prometheus/prometheus/releases/download/v3.15.0/prometheus-3.15.0.darwin-arm64.tar.gz"
 url_api = "https://api.github.com/repos/prometheus/prometheus/releases/assets/587860828"
+
+[tools.promtool."platforms.macos-x64"]
+checksum = "sha256:2d79e744c2d7e505db936fbc898e05abc74fcb6e437c25befd26e9c9f00aa58b"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.15.0/prometheus-3.15.0.darwin-amd64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/prometheus/releases/assets/587860719"
 
 [[tools.step]]
 version = "0.31.0"
@@ -243,4 +298,10 @@ provenance = "cosign"
 checksum = "sha256:99b118794b31357ee9938d3e566aec73b74afad792477f279651a9dcedaa2da5"
 url = "https://github.com/smallstep/cli/releases/download/v0.31.0/step_darwin_arm64.tar.gz"
 url_api = "https://api.github.com/repos/smallstep/cli/releases/assets/589150231"
+provenance = "cosign"
+
+[tools.step."platforms.macos-x64"]
+checksum = "sha256:a53286b933c16aae2ac510b64a22c205153a9cba3510bd3f8326649a93e1d29f"
+url = "https://github.com/smallstep/cli/releases/download/v0.31.0/step_darwin_amd64.tar.gz"
+url_api = "https://api.github.com/repos/smallstep/cli/releases/assets/589150265"
 provenance = "cosign"

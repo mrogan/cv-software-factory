@@ -85,6 +85,12 @@ describe('the toolchain', () => {
     }
   });
 
+  it("locks the pnpm package.json's packageManager names, which is the one pnpm runs", () => {
+    const manager = /"packageManager": "pnpm@([^+"]+)/.exec(read('package.json'))?.[1];
+    expect(manager).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(lock.get('pnpm')?.version).toBe(manager);
+  });
+
   it('keeps Node exact, for the images to agree with (scripts/image-pins.test.ts)', () => {
     expect(wanted.get('node')).toMatch(/^\d+\.\d+\.\d+$/);
   });
@@ -101,14 +107,17 @@ describe('every use of mise in CI', () => {
   const workflows = readdirSync('.github/workflows')
     .filter((file) => file.endsWith('.yml'))
     .map((file) => [file, read(`.github/workflows/${file}`)] as const);
+  // Each step that uses the action, to the next step: its `version` is in that block, wherever it is written.
   const uses = workflows.flatMap(([file, text]) =>
-    [...text.matchAll(/^( +)- uses: jdx\/mise-action@[0-9a-f]{40} # v[\d.]+\n((?:\1 {2}.*\n)*)/gm)].map(
-      ([, , body = '']) => ({ file, version: /^ +version: (\S+)$/m.exec(body)?.[1] }),
-    ),
+    text
+      .split(/\n(?= +- )/)
+      .filter((step) => /^ +- uses: jdx\/mise-action@/.test(step))
+      .map((step) => ({ file, version: /^ +version: (\S+)$/m.exec(step)?.[1] })),
   );
 
   it('installs one release of mise, named', () => {
     expect(uses.length).toBeGreaterThan(0);
+    expect(uses.length).toBe(workflows.reduce((n, [, text]) => n + text.split('jdx/mise-action@').length - 1, 0));
     const versions = new Set(uses.map(({ version }) => version));
     expect(versions.size).toBe(1);
     expect([...versions][0]).toMatch(/^\d{4}\.\d+\.\d+$/);

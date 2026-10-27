@@ -4,8 +4,8 @@
 # ranges; `--bump` past them) and a `chore(toolchain)` pull request with both files; Dependabot does not read mise.
 [settings]
 lockfile = true
-# A Mac, CI's runners, and the dev container on an Intel or an Apple Silicon host.
-lockfile_platforms = ["macos-arm64", "linux-x64", "linux-arm64"]
+# A Mac (Apple Silicon or Intel), CI's runners, and the dev container on either kind of host.
+lockfile_platforms = ["macos-arm64", "macos-x64", "linux-x64", "linux-arm64"]
 # `mise upgrade` takes a release only once it is three days old, as Dependabot's cooldown does.
 minimum_release_age = "3d"
 
