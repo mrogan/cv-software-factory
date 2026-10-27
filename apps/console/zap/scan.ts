@@ -29,12 +29,12 @@ const ZAP_IMAGE =
 const PORT = 18_330;
 
 /**
- * ZAP's own proxy, through which zap-baseline.py drives it. On Linux ZAP shares the host's network, where the port
- * zap-baseline.py picks for itself, at random from the range the kernel gives outgoing connections, can be taken by
- * one (ZAP's own, fetching add-ons as it starts) before ZAP listens on it. This one is below every system's ephemeral
- * range, so only a program listening on it could hold it, and then the scan stops at once (`hooks.py`).
+ * ZAP's own proxy, through which zap-baseline.py drives it. On Linux ZAP shares the host's network, where the port zap-baseline.py picks for itself, at random from the range the kernel gives outgoing
+ * connections, can be taken by one (ZAP's own, fetching add-ons as it starts) before ZAP listens on it. This one is
+ * below that range as Linux, macOS and Windows set it by default, and clear of the harness's (`PORT` and the one after
+ * it), so only a program listening on it could hold it, and then the scan stops at once (`hooks.py`).
  */
-const ZAP_PORT = 18_331;
+const ZAP_PORT = 18_338;
 
 /** What the scan must have reached, signed in, and how each must have answered. */
 const MUST_REACH: Record<string, number> = {
@@ -122,8 +122,9 @@ try {
   // 0: nothing found; 1: a rule set to FAIL; 2: a warning, which is any finding `rules.tsv` keeps no exception for; 3:
   // ZAP did not run, or stopped before it answered.
   status = exit ?? 1;
-  // A scan that reached nothing would find nothing, and pass: it must have read the page, and Martin's session.
-  const missed = unreached(join(REPORT, 'reached.json'));
+  // A scan that reached nothing would find nothing, and pass: it must have read the page, and Martin's session. When ZAP
+  // did not run, that it reached nothing says no more.
+  const missed = status === 3 ? [] : unreached(join(REPORT, 'reached.json'));
   if (missed.length) {
     console.error(`ZAP did not reach, as it should have:\n${missed.map((line) => `  ${line}`).join('\n')}`);
     status = status || 1;

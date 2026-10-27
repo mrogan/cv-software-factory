@@ -34,11 +34,15 @@ it('runs ZAP from an image pinned by digest', () => {
   expect(image).toMatch(/^ghcr\.io\/zaproxy\/zaproxy:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}$/);
 });
 
-it('gives ZAP its own port, below the range outgoing connections take theirs from', () => {
+it('gives ZAP a port of its own, clear of the harness and below the range outgoing connections take theirs from', () => {
   const scan = readFileSync(new URL('../zap/scan.ts', import.meta.url), 'utf-8');
-  const port = Number(/ZAP_PORT = ([\d_]+);/.exec(scan)?.[1]?.replaceAll('_', ''));
-  // Linux's ephemeral range starts at 32768, and macOS's and Windows's higher still.
+  const constant = (name: string) =>
+    Number(new RegExp(`const ${name} = ([\\d_]+);`).exec(scan)?.[1]?.replaceAll('_', ''));
+  const port = constant('ZAP_PORT');
+  // Linux's ephemeral range starts at 32768 by default, and macOS's and Windows's higher still.
   expect(port).toBeGreaterThan(1024);
   expect(port).toBeLessThan(32_768);
+  // The harness's proxy listens on PORT, and the console's server on the port after it (`../e2e/admin.ts`).
+  expect([constant('PORT'), constant('PORT') + 1]).not.toContain(port);
   expect(scan).toContain("'-P', String(ZAP_PORT)");
 });

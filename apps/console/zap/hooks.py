@@ -21,8 +21,8 @@ def start_zap(port, extra_zap_params):
 
 
 def stop_with_zap():
-    # ZAP's script is this process's one child: zap-baseline.py starts nothing else before ZAP answers.
-    while (zap := next(children(), None)) is None:
+    # ZAP's script, which zap-baseline.py starts as its child.
+    while (zap := next(children('/zap/zap-x.sh'), None)) is None:
         time.sleep(0.1)
     try:
         os.waitpid(zap, 0)
@@ -40,13 +40,15 @@ def stop_with_zap():
     os._exit(3)
 
 
-def children():
+def children(program):
+    # This process's children running `program`.
     me = str(os.getpid())
     for pid in filter(str.isdigit, os.listdir('/proc')):
         try:
-            with open(f'/proc/{pid}/stat') as stat:
+            with open(f'/proc/{pid}/stat') as stat, open(f'/proc/{pid}/cmdline', 'rb') as cmdline:
                 # pid (name) state ppid …, and the name may hold spaces or brackets.
-                if stat.read().rsplit(')', 1)[1].split()[1] == me:
+                if (stat.read().rsplit(')', 1)[1].split()[1] == me
+                        and program.encode() in cmdline.read().split(b'\0')):
                     yield int(pid)
         except (OSError, IndexError):
             pass
