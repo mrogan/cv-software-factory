@@ -19,7 +19,7 @@
  *   request into another branch, fails the check there, saying which.
  *
  * A pull request it finds open always gets a verdict, passing or failing, so a missing check never hides why a pull
- * request waits.
+ * request waits. The verdict is in the check's title and the run's log; the gate writes no file.
  *
  * Anyone who can push a branch can make a run of a workflow named "review requested", so a `workflow_run` says only
  * which pull request to look at again. The verdict is always read afresh from GitHub, so a forged request reruns the
@@ -28,9 +28,9 @@
  *     GH_TOKEN         the workflow's token, to read the pull request and its reviews
  *     CHECKS_TOKEN     the review App's installation token, to post the check. Without it, the verdict is said and not
  *                      posted: the App is not set up yet
- *     GITHUB_EVENT_NAME, GITHUB_EVENT_PATH, GITHUB_REPOSITORY, GITHUB_API_URL, GITHUB_STEP_SUMMARY   as Actions sets them
+ *     GITHUB_EVENT_NAME, GITHUB_EVENT_PATH, GITHUB_REPOSITORY, GITHUB_API_URL   as Actions sets them
  */
-import { appendFileSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 
 /** Martin's GitHub account, by its id, which never changes: a login can be renamed and taken by someone else. */
 export const MARTIN = 6206459;
@@ -268,8 +268,6 @@ async function judgeHead(repo: string, read: string, token: string, pr: PullRequ
   const numbers = open.map((each) => `#${each.number}`).join(', ');
   const line = `${short(commit)}, the head of ${numbers}: ${said.pass ? `passes: ${said.title}` : said.title}.`;
   console.log(line);
-  // The summary is written with nothing a branch's name could carry: the line names only numbers and commits.
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${line}\n`);
   await post(repo, token, commit, said.pass, said.title, `${RULE} Judged on ${numbers}, each at ${short(commit)}.`);
 }
 
@@ -329,8 +327,6 @@ async function main(): Promise<void> {
   const said = verdict(pr, await reviewsOf(repo, pr.number, read));
   const line = `#${pr.number} on the merge queue's ${short(commit)}: ${said.pass ? `passes: ${said.title}` : said.title}.`;
   console.log(`${line} It is into ${pr.base.ref}.`);
-  // The summary is written with nothing a branch's name could carry: the line names only numbers and commits.
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${line}\n`);
   await post(repo, token, commit, said.pass, said.title, `${RULE} Judged on #${pr.number} at ${short(pr.head.sha)}.`);
 }
 
