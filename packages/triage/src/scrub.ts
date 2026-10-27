@@ -21,8 +21,11 @@ const LOCAL = /[\p{L}\p{M}\p{N}\p{Cf}!#$%&'*+/=?^_`{|}~.-]/u;
  * address that looks whole.
  */
 const DOMAIN = /[\p{L}\p{M}\p{N}\p{Cf}._-]/u;
-/** A domain's last label begins with two letters: `example.com`, `example.co.uk`, not `1.2.3` or a host alone. */
-const TOP_LABEL = /^\p{L}{2}/u;
+/**
+ * A domain's last label begins with two letters: `example.com`, `example.co.uk`, not `1.2.3` or a host alone. An
+ * invisible character among them does not count, as the reader does not see it.
+ */
+const TOP_LABEL = /^\p{Cf}*\p{L}\p{Cf}*\p{L}/u;
 /** Letters and digits in any script, which an address and its domain begin with. */
 const ALPHANUMERIC = /[\p{L}\p{N}]/u;
 
@@ -42,8 +45,11 @@ function withoutEmails(text: string): string {
     const end = forward(text, at + 1, text.length, DOMAIN);
     const next = forward(text, end, text.length, LOCAL);
     const length = domainIn(text.slice(at + 1, end), text.charAt(next) === '@');
-    if (start === at || length === 0) continue;
-    out += `${text.slice(done, start)}[email]`;
+    if (length === 0) continue;
+    // Where the address before ran on into this one's local part (`a@x.comb@y.com`), its `[email]` covers this too.
+    const runOn = done > 0 && at === done;
+    if (start === at && !runOn) continue;
+    if (!runOn) out += `${text.slice(done, start)}[email]`;
     done = at + 1 + length;
     at = done - 1;
   }
@@ -57,7 +63,9 @@ function withoutEmails(text: string): string {
  * part, and is left to it if what comes before is a domain.
  */
 function domainIn(run: string, beforeAnother: boolean): number {
-  if (run === '' || forward(run, 0, run.length, ALPHANUMERIC, true) !== 0) return 0;
+  // It begins with a letter or a digit, after any invisible character.
+  const first = forward(run, 0, run.length, /\p{Cf}/u);
+  if (first === run.length || !ALPHANUMERIC.test(String.fromCodePoint(run.codePointAt(first) ?? 0))) return 0;
   if (!beforeAnother) return longestDomain(run, run.length);
   // Where its last letter or digit ends: the run begins with one, so there is one.
   let last = run.length;

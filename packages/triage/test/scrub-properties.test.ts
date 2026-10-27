@@ -19,6 +19,8 @@ const alnum = `${lower}ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789`;
 
 /** Letters from other scripts, which an address may hold and prose around it often does. */
 const unicodeLetters = 'éüßøñçжйдзαβλ東京連絡先𝐡𝐚𠀋';
+/** Characters a reader does not see (a zero-width space, a soft hyphen), which may sit inside an address unnoticed. */
+const invisible = '\u200b\u00ad';
 
 /**
  * An address as people write them: dotted, tagged, hyphenated, in any case, with a long or a country TLD, and now and
@@ -27,19 +29,25 @@ const unicodeLetters = 'éüßøñçжйдзαβλ東京連絡先𝐡𝐚𠀋';
 const email = fc
   .record({
     first: chars(alnum + unicodeLetters),
-    local: fc.string({ unit: chars(`${alnum}${unicodeLetters}!#$%&'*+/=?^_\`{|}~.-`), maxLength: 12 }),
+    local: fc.string({ unit: chars(`${alnum}${unicodeLetters}${invisible}!#$%&'*+/=?^_\`{|}~.-`), maxLength: 12 }),
     labels: fc.array(
       fc
-        .tuple(chars(alnum), fc.string({ unit: chars(`${alnum}${unicodeLetters}-`), maxLength: 8 }), chars(alnum))
-        .map(([a, b, c]) => a + b + c),
+        .tuple(
+          fc.string({ unit: chars(invisible), maxLength: 1 }),
+          chars(alnum),
+          fc.string({ unit: chars(`${alnum}${unicodeLetters}${invisible}-`), maxLength: 8 }),
+          chars(alnum),
+        )
+        .map(([a, b, c, d]) => a + b + c + d),
       { minLength: 1, maxLength: 3 },
     ),
     tld: fc.string({ unit: chars(lower + lower.toUpperCase()), minLength: 2, maxLength: 6 }),
+    gap: fc.string({ unit: chars(invisible), maxLength: 1 }),
     quote: fc.boolean(),
   })
-  .map(({ first, local, labels, tld, quote }) => ({
+  .map(({ first, local, labels, tld, gap, quote }) => ({
     local: quote ? `"${first} ${local}"` : first + local,
-    domain: [...labels, tld].join('.'),
+    domain: [...labels, tld.charAt(0) + gap + tld.slice(1)].join('.'),
   }))
   .map(({ local, domain }) => ({ local, domain, address: `${local}@${domain}` }));
 
