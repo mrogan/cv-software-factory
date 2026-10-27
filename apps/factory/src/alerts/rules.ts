@@ -86,8 +86,8 @@ export type Level = (typeof LEVELS)[keyof typeof LEVELS];
 /**
  * How loudly each kind of security event reaches Martin. What loosens a guardrail, or changes who can sign in, pages
  * him; what widens what the line does (asking for an improvement, or approving its spec, among those), acts on a
- * release, or widens a feature flag, notifies him; what tightens, or only records his own use, informs him, but for tightening
- * autonomy, which notifies him. Every kind still reaches his phone: only how loudly changes.
+ * release, or widens a feature flag, notifies him; what tightens, or only records his own use, informs him, but for
+ * tightening autonomy, which notifies him. Every kind still reaches his phone: only how loudly changes.
  */
 export const SECURITY_LEVELS: Record<SecurityKind, Level> = {
   'autonomy-loosened': LEVELS.page,
