@@ -8,6 +8,7 @@ import { MODEL as TRIAGE_MODEL } from '@software-factory/triage';
 import { MODELS } from '../../../../policy/models.ts';
 import type { Profile } from '../../../../policy/spend.ts';
 import { sendCounts } from '../counts.ts';
+import { listen } from '../listen.ts';
 import { log } from '../log.ts';
 import { SettingsReader } from '../settings.ts';
 import { AgentCassettes } from './agent-cassettes.ts';
@@ -119,8 +120,21 @@ export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv
       ? startPruning({ sql, dir: config.cassettesDir, agentsOnly: gateway.mode !== 'record' }, log)
       : undefined;
 
+  /** Stops the ledger, the caps and the pruner, then lets go of the store. */
+  const release = async () => {
+    await spend.stop();
+    await caps.stop();
+    await pruner?.stop();
+    await sql.end();
+  };
   const server = createGatewayServer({ gateway, agents, spend, log });
-  await new Promise<void>((resolve) => server.listen(config.port, resolve));
+  try {
+    await listen(server, config.port);
+  } catch (error) {
+    // A port it cannot have: what it started is stopped, and the caller is told why.
+    await release();
+    throw error;
+  }
   log.info(
     {
       port: config.port,
@@ -138,10 +152,7 @@ export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv
       server.close(() => resolve());
       server.closeIdleConnections();
     });
-    await spend.stop();
-    await caps.stop();
-    await pruner?.stop();
-    await sql.end();
+    await release();
   };
   return { server, stop };
 }

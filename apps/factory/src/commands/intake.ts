@@ -13,6 +13,7 @@ import { connect } from '@software-factory/store';
 import { objectives } from '../../../../policy/objectives.ts';
 import { telemetryFrom } from '../clients/env.ts';
 import { createIntake } from '../intake/server.ts';
+import { listen } from '../listen.ts';
 import { log } from '../log.ts';
 import { inbox, printing } from '../outbox.ts';
 
@@ -29,7 +30,8 @@ export async function run(args: string[]): Promise<number> {
     createIntake({ backends: { objectives, prometheus, loki, now: () => new Date() }, outbox, log }),
   );
   const port = Number(PORT ?? 8080);
-  server.listen(port, () => log.info({ port, dryRun: !sql }, `intake listening on :${port}`));
+  await listen(server, port);
+  log.info({ port, dryRun: !sql }, `intake listening on :${port}`);
 
   // Kubernetes sends SIGTERM before it stops the pod: finish the requests in flight, then flush telemetry.
   await new Promise<void>((resolve) => {
