@@ -56,7 +56,8 @@ test('a visitor sees each flag read-only, its card waiting on Martin, and whethe
   await expect(slider(page, 'delivery-dates')).toHaveAccessibleName('delivery-dates: Preview');
   await expect(flags(page).getByRole('button', { name: /Widen|Narrow|Turn/ })).toHaveCount(0);
   await expect(flags(page).locator('.fthumb')).toHaveCount(0);
-  await expect(flags(page).locator('.fstop[aria-current]')).toHaveText(['Everyone', 'Preview']);
+  // gift-note's, turned off and closed, is folded at the foot.
+  await expect(flags(page).locator('.fstop[aria-current]')).toHaveText(['Everyone', 'Preview', 'Off']);
   // Share is dashed: a canary is in flight.
   await expect(flag(page, 'delivery-dates').locator('.fstop.cant')).toHaveText(['Share 50%', 'Everyone']);
   // Preview it stays a link for a visitor.
@@ -247,9 +248,9 @@ test('a flag turned off from Everyone goes straight back, and one turned off and
   await page.keyboard.press('Escape');
 
   const closed = flags(page).locator('details.flags-closed');
-  await expect(closed.locator('summary')).toHaveText('Turned off and closed · 1');
+  await expect(closed.locator('summary')).toHaveText('Turned off and closed · 2');
   await closed.locator('summary').click();
-  await expect(closed.locator('code')).toHaveText('delivery-dates');
+  await expect(closed.locator('code')).toHaveText(['delivery-dates', 'gift-note']);
   await expect(closed.getByRole('button', { name: /Widen|Narrow|Turn/ })).toHaveCount(0);
 });
 

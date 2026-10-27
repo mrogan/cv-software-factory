@@ -122,7 +122,7 @@ test.describe('the reel', () => {
     await page.clock.resume();
     await expect(page.locator('.reel')).not.toHaveClass(/dragging/);
     // A card and a third to the left, and half a card more for the flick.
-    await expect(page.locator('.transport .count')).toHaveText('25 of 27');
+    await expect(page.locator('.transport .count')).toHaveText('26 of 28');
     await expect(page.locator('.card[data-place="centre"]')).toHaveCount(1);
   });
 
@@ -142,7 +142,7 @@ test.describe('the reel', () => {
   test('brings a neighbour to the centre when it is clicked, and opens the centre card', async ({ page }) => {
     await page.goto(consoleUrl());
     await ready(page);
-    await page.locator('.card[data-index="25"]').click({ position: { x: 300, y: 40 } });
+    await page.locator('.card[data-index="26"]').click({ position: { x: 300, y: 40 } });
     await expect.poll(() => centre(page)).toBe('The second page of search results repeats the first’s last');
     await page.locator('.card[data-place="centre"]').click({ position: { x: 300, y: 40 } });
     await expect(
@@ -209,9 +209,9 @@ test.describe('the sheet', () => {
     const sheet = page.getByRole('dialog');
     await expect(sheet).toHaveAccessibleName('Prices go negative');
     await sheet.getByRole('button', { name: 'Next work item' }).click();
-    await expect(sheet).toHaveAccessibleName('Sort products by price');
-    await sheet.getByRole('button', { name: 'Close' }).click();
-    await expect.poll(() => centre(page)).toBe('Sort products by price');
+    await expect(sheet).toHaveAccessibleName('A gift note in the basket');
+    await sheet.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect.poll(() => centre(page)).toBe('A gift note in the basket');
   });
 
   test('steps through the stages, showing the site as it stood', async ({ page }) => {
@@ -271,14 +271,14 @@ test.describe('opening the console', () => {
     await page.goto(consoleUrl({ motion: true }));
     await ready(page);
     const count = page.locator('.transport .count');
-    await expect(count).toHaveText('27 of 27');
+    await expect(count).toHaveText('28 of 28');
     expect((await page.locator('.reel').boundingBox())?.y).toBeGreaterThan(560);
     // Nothing to play the history with.
     await expect(page.locator('.transport').getByRole('button', { name: /play|pause/i })).toHaveCount(0);
 
     await page.locator('.reel').scrollIntoViewIfNeeded();
     await page.clock.runFor(10_000);
-    await expect(count).toHaveText('27 of 27');
+    await expect(count).toHaveText('28 of 28');
   });
 });
 
