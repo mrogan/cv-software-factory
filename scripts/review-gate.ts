@@ -1,7 +1,8 @@
 /**
  * The review gate (ADR 0014): whether a pull request has Martin's say, posted as the `review` check by the review App.
  * It passes when Martin opened the pull request from a branch here, or when his latest verdict on it approves the commit
- * at its head.
+ * at its head. Nothing in the rule depends on the base, so a pull request into any branch is judged, a stacked one's
+ * into the branch below it too.
  *
  *     node scripts/review-gate.ts      # in review.yml, which GitHub runs from main's copy only
  *
@@ -12,7 +13,10 @@
  * - for a pull request opened, pushed to, reopened, made ready or edited, and for a review of one: the check goes on the
  *   pull request's head as it is now;
  * - for the merge queue: the check goes on the merge group's commit, judged on the pull request it was made for, which
- *   the queue names in its branch.
+ *   the queue names in its branch. A branch the gate does not know fails the check there, naming the branch.
+ *
+ * A pull request it finds open always gets a verdict, passing or failing, so a missing check never hides why a pull
+ * request waits.
  *
  * Anyone who can push a branch can make a run of a workflow named "review requested", so a `workflow_run` says only
  * which pull request to look at again. The verdict is always read afresh from GitHub, so a forged request reruns the
@@ -92,7 +96,8 @@ export type Target =
   | { kind: 'pull-request'; number: number; commit?: undefined }
   | { kind: 'queue'; number: number; commit: string }
   | { kind: 'find'; owner: string; branch: string; commit: string }
-  | { kind: 'none'; reason: string };
+  /** Nothing to judge. With a commit, the check there fails giving the reason: the queue's, on a branch it cannot read. */
+  | { kind: 'none'; reason: string; commit?: string };
 
 interface Event {
   workflow_run?: {
@@ -104,19 +109,34 @@ interface Event {
   };
 }
 
+/**
+ * Of the open pull requests with one head, the one whose verdict goes on it: the one into main, else the first. GitHub
+ * allows one open pull request per head and base, so two share a head only with different bases, and the check on a
+ * commit is every such pull request's.
+ */
+export function pick<T extends { base: { ref: string } }>(prs: readonly T[] | undefined): T | undefined {
+  return prs?.find((p) => p.base.ref === 'main') ?? prs?.[0];
+}
+
 /** The pull request a run is about, from the event GitHub handed the workflow. */
 export function target(name: string, event: Event): Target {
   const run = event.workflow_run;
   if (name !== 'workflow_run' || !run) return { kind: 'none', reason: `nothing to do on ${name}` };
   if (run.event === 'merge_group') {
     const number = QUEUE_BRANCH.exec(run.head_branch ?? '')?.[2];
-    if (!number) return { kind: 'none', reason: `${run.head_branch} is not a merge queue branch of main` };
+    // A queued stack's branch is not documented: one the gate cannot read fails the queue's commit, naming the branch.
+    if (!number)
+      return {
+        kind: 'none',
+        reason: `the merge queue's branch ${run.head_branch} is not gh-readonly-queue/main/pr-<number>-<commit>, which the gate reads`,
+        commit: run.head_sha,
+      };
     return { kind: 'queue', number: Number(number), commit: run.head_sha };
   }
   if (run.event === 'pull_request' || run.event === 'pull_request_review') {
     // GitHub names the pull request only when its branch is in this repository and still at the run's commit; a fork's,
     // or a branch that has moved since, is found by its branch.
-    const number = run.pull_requests?.find((p) => p.base.ref === 'main')?.number;
+    const number = pick(run.pull_requests)?.number;
     if (number) return { kind: 'pull-request', number };
     const owner = run.head_repository?.owner.login;
     if (!owner || !run.head_branch) return { kind: 'none', reason: `the ${run.event} names no pull request` };
@@ -150,56 +170,68 @@ async function reviewsOf(repo: string, number: number, token: string): Promise<R
   }
 }
 
+/** Posts the `review` check on a commit, as the review App, or says why it cannot. */
+async function post(repo: string, token: string, commit: string, pass: boolean, title: string, summary: string) {
+  if (!token) {
+    console.log(`::notice::The review App is not set up yet (ADR 0014): the ${CHECK} check is not posted.`);
+    return;
+  }
+  await api('POST', `/repos/${repo}/check-runs`, token, {
+    name: CHECK,
+    head_sha: commit,
+    status: 'completed',
+    conclusion: pass ? 'success' : 'failure',
+    output: { title, summary },
+  });
+  console.log(`Posted ${CHECK}: ${pass ? 'success' : 'failure'} on ${commit}.`);
+}
+
+/** Says a line in the run's log and its summary. */
+function say(line: string): void {
+  console.log(line);
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${line}\n`);
+}
+
+const RULE = 'Passes when Martin opened the pull request, or approved its head after the last push (ADR 0014).';
+
 async function main(): Promise<void> {
-  const { GH_TOKEN: read = '', CHECKS_TOKEN: post = '', GITHUB_REPOSITORY: repo = '' } = process.env;
+  const { GH_TOKEN: read = '', CHECKS_TOKEN: token = '', GITHUB_REPOSITORY: repo = '' } = process.env;
   const name = process.env.GITHUB_EVENT_NAME ?? '';
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf-8')) as Event;
   let asked = target(name, event);
   if (asked.kind === 'find') {
-    // The open pull request into main from that branch, wherever its head is now: the run that asked may be for an
-    // older push, and the verdict goes on the head as it is now. GitHub allows one open pull request per head and base.
+    // The open pull request from that branch, wherever its head is now: the run that asked may be for an older push,
+    // and the verdict goes on the head as it is now.
     const { owner, branch } = asked;
     const open = await api<PullRequest[]>(
       'GET',
-      `/repos/${repo}/pulls?state=open&base=main&head=${encodeURIComponent(`${owner}:${branch}`)}`,
+      `/repos/${repo}/pulls?state=open&per_page=100&head=${encodeURIComponent(`${owner}:${branch}`)}`,
       read,
     );
-    asked = open[0]
-      ? { kind: 'pull-request', number: open[0].number }
-      : { kind: 'none', reason: `no open pull request into main has ${owner}:${branch}` };
+    const found = pick(open);
+    asked = found
+      ? { kind: 'pull-request', number: found.number }
+      : { kind: 'none', reason: `no open pull request has ${owner}:${branch}` };
   }
   if (asked.kind === 'none') {
-    console.log(`Nothing to judge: ${asked.reason}.`);
+    say(`Nothing to judge: ${asked.reason}.`);
+    if (asked.commit) {
+      const title = asked.reason.charAt(0).toUpperCase() + asked.reason.slice(1);
+      await post(repo, token, asked.commit, false, title, `No pull request to judge. ${RULE}`);
+    }
     return;
   }
   const pr = await api<PullRequest>('GET', `/repos/${repo}/pulls/${asked.number}`, read);
-  if (pr.state !== 'open' || pr.base.ref !== 'main') {
-    console.log(`#${pr.number} is ${pr.state}, into ${pr.base.ref}: nothing to judge.`);
+  // A closed pull request merges nothing, and its head may be an open one's too, which a failure here would hold.
+  if (pr.state !== 'open') {
+    console.log(`#${pr.number} is ${pr.state}: nothing to judge.`);
     return;
   }
   const said = verdict(pr, await reviewsOf(repo, pr.number, read));
   const commit = asked.commit ?? pr.head.sha;
   const where = asked.kind === 'queue' ? `the merge queue's ${short(commit)}` : short(commit);
-  const line = `#${pr.number} on ${where}: ${said.pass ? `passes: ${said.title}` : said.title}.`;
-  console.log(line);
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${line}\n`);
-  if (!post) {
-    console.log(`::notice::The review App is not set up yet (ADR 0014): the ${CHECK} check is not posted.`);
-    return;
-  }
-  await api('POST', `/repos/${repo}/check-runs`, post, {
-    name: CHECK,
-    head_sha: commit,
-    status: 'completed',
-    conclusion: said.pass ? 'success' : 'failure',
-    output: {
-      title: said.title,
-      summary:
-        `Passes when Martin opened the pull request, or approved its head after the last push (ADR 0014). ` +
-        `Judged on #${pr.number} at ${short(pr.head.sha)}.`,
-    },
-  });
-  console.log(`Posted ${CHECK}: ${said.pass ? 'success' : 'failure'} on ${commit}.`);
+  say(`#${pr.number} into ${pr.base.ref}, on ${where}: ${said.pass ? `passes: ${said.title}` : said.title}.`);
+  await post(repo, token, commit, said.pass, said.title, `${RULE} Judged on #${pr.number} at ${short(pr.head.sha)}.`);
 }
 
 if (import.meta.main) await main();
