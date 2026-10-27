@@ -8,11 +8,26 @@
  * that hold or none. Approving a guardrail's hold asks for his passkey again (the key shows while it is not fresh);
  * the service decides, from the stored hold. An answered card moves to Answered today as its event arrives: there is
  * no toast. A visitor sees the same cards, titled Waiting on Martin, each answer a label beside what it does.
+ *
+ * A flag waiting for Martin to widen it has a card among them (`FlagCard`): Widen to the next stage, dashed with its
+ * reason when it can't be taken now, and Turn off, each opening the slider's confirmation (`Flags.tsx`).
  */
-import { useEffect, useId, useRef, useState } from 'react';
+import { type ReactNode, Suspense, useEffect, useId, useRef, useState } from 'react';
+import { FLAG_STEP_UP } from '../access.ts';
 import { type Admin, said, write } from '../admin.ts';
 import { clock } from '../format.ts';
-import { type Need, type NeedsView, stageName } from '../projection/index.ts';
+import { previewHref } from '../profile.ts';
+import {
+  type FlagNeed,
+  type FlagStage,
+  type FlagsView,
+  type Move,
+  type Need,
+  type NeedsView,
+  STAGE_NAME,
+  stageName,
+} from '../projection/index.ts';
+import { FlagDialog, stageWords } from './Flags.tsx';
 import { Key, useStepUp } from './StepUp.tsx';
 
 /** The most an answer in words may say, as the admin service and the event take it. */
@@ -208,24 +223,164 @@ function MartinsCard({ need, token, onOpen }: { need: Need; token: string; onOpe
   );
 }
 
-export function NeedsYou({ needs, admin, onOpen }: { needs: NeedsView; admin: Admin; onOpen: (item: string) => void }) {
+/** An answer to a flag's card: a button, dashed when it can't be taken now, or a visitor's label, beside what it does. */
+function FlagAnswer({
+  label,
+  move,
+  does,
+  martin,
+  onChoose,
+}: {
+  label: string;
+  move: Move;
+  does: string;
+  martin: boolean;
+  onChoose: () => void;
+}) {
+  const stepUp = useStepUp();
+  const keyed = move.action !== undefined && FLAG_STEP_UP[move.action] && !move.refused && !stepUp.fresh;
+  return (
+    <div className="answer">
+      {martin ? (
+        <button
+          type="button"
+          className={`btn${move.refused ? ' cant' : ''}`}
+          disabled={move.refused !== undefined}
+          onClick={onChoose}
+        >
+          {label}
+          {keyed && <Key />}
+        </button>
+      ) : (
+        <span className="ro">{label}</span>
+      )}
+      <p className={move.refused ? 'why' : undefined}>{move.refused ?? does}</p>
+    </div>
+  );
+}
+
+/**
+ * A flag waiting for Martin to widen it: what it is, the one thing to know before widening, and two answers, Widen to
+ * the next stage and Turn off, each opening the slider's confirmation. A visitor reads the same, read-only.
+ */
+function FlagCard({
+  need,
+  flags,
+  admin,
+  app,
+  onOpen,
+  onMoved,
+}: {
+  need: FlagNeed;
+  flags: FlagsView;
+  admin: Admin;
+  app: string | undefined;
+  onOpen: (item: string) => void;
+  onMoved: () => void;
+}) {
+  const id = useId();
+  const martin = admin.kind === 'martin';
+  const [choosing, setChoosing] = useState<FlagStage | undefined>(undefined);
+  const row = flags.flags.find((r) => r.name === need.flag);
+  const evidence: ReactNode =
+    need.stage.stage === 'preview' && app ? (
+      <>
+        {need.evidence}{' '}
+        <a className="inline" href={previewHref(app, need.flag)} target="_blank" rel="noopener">
+          Preview it<span aria-hidden="true"> ↗</span>
+          <span className="sr"> (opens the app in a new tab)</span>
+        </a>
+      </>
+    ) : (
+      need.evidence
+    );
+  return (
+    <article className="need flag-need" aria-labelledby={id}>
+      <div className="kick">
+        <b>{need.kicker}</b>
+        <span>
+          #{need.workItem} · Verify · {STAGE_NAME[need.stage.stage]} · {need.waited}
+        </span>
+      </div>
+      <h3 id={id}>{need.title}</h3>
+      <p className="ev">
+        <code className="flagname">{need.flag}</code> {evidence}
+      </p>
+      <div className="answers">
+        <FlagAnswer
+          label={need.widen.action === 'flag.back-on' ? 'Turn back on' : `Widen to ${STAGE_NAME[need.widen.to.stage]}`}
+          move={need.widen}
+          does={`Shows it to more, after a confirmation that says who: ${stageWords(need.widen.to)}.`}
+          martin={martin}
+          onChoose={() => setChoosing(need.widen.to)}
+        />
+        {need.turnOff && (
+          <FlagAnswer
+            label="Turn off"
+            move={need.turnOff}
+            does={`Off for everyone within seconds, a preview too. Closes #${need.workItem}.`}
+            martin={martin}
+            onChoose={() => setChoosing({ stage: 'off' })}
+          />
+        )}
+      </div>
+      <div className="need-foot">
+        <button type="button" className="linkish" onClick={() => onOpen(need.workItem)}>
+          Open the work item
+        </button>
+        {!martin && <span>Martin answers, signed in</span>}
+      </div>
+      {choosing && row && admin.kind === 'martin' && (
+        <Suspense fallback={null}>
+          <FlagDialog
+            row={row}
+            to={choosing}
+            token={admin.session.token}
+            onClose={() => setChoosing(undefined)}
+            onMoved={onMoved}
+          />
+        </Suspense>
+      )}
+    </article>
+  );
+}
+
+export interface NeedsYouProps {
+  needs: NeedsView;
+  flags: FlagsView;
+  admin: Admin;
+  /** The app's origin, which a flag's preview opens. */
+  app: string | undefined;
+  onOpen: (item: string) => void;
+  /** A flag was moved: the page asks again soon whether the app holds it. */
+  onMoved: () => void;
+}
+
+export function NeedsYou({ needs, flags, admin, app, onOpen, onMoved }: NeedsYouProps) {
   const martin = admin.kind === 'martin';
   const { holds, answered } = needs;
   // A deploy that is not his to merge yet keeps its card, but does not wait on him.
-  const waiting = holds.filter((need) => need.forMartin).length;
+  const waiting = holds.filter((need) => need.forMartin).length + flags.needs.length;
+  // Holds and flags together, oldest first.
+  const cards = [
+    ...holds.map((need) => ({ since: need.since, key: need.hold, hold: need, flag: undefined })),
+    ...flags.needs.map((need) => ({ since: need.since, key: `flag-${need.flag}`, hold: undefined, flag: need })),
+  ].sort((a, b) => a.since - b.since);
   return (
     <article className="panel needs" aria-labelledby="needs-title">
       <div className="panel-head">
         <h2 id="needs-title">{martin ? 'Needs you' : 'Waiting on Martin'}</h2>
         {waiting > 0 && <span className="count-attn">{waiting} waiting</span>}
       </div>
-      {holds.length ? (
+      {cards.length ? (
         <div className="needs-list">
-          {holds.map((need) =>
-            martin ? (
-              <MartinsCard key={need.hold} need={need} token={admin.session.token} onOpen={onOpen} />
+          {cards.map(({ key, hold, flag }) =>
+            flag ? (
+              <FlagCard key={key} need={flag} flags={flags} admin={admin} app={app} onOpen={onOpen} onMoved={onMoved} />
+            ) : hold && martin ? (
+              <MartinsCard key={key} need={hold} token={admin.session.token} onOpen={onOpen} />
             ) : (
-              <ReadOnlyCard key={need.hold} need={need} onOpen={onOpen} />
+              hold && <ReadOnlyCard key={key} need={hold} onOpen={onOpen} />
             ),
           )}
         </div>
@@ -233,7 +388,7 @@ export function NeedsYou({ needs, admin, onOpen }: { needs: NeedsView; admin: Ad
         <p className="help">
           {martin ? 'Nothing waits on you.' : 'Nothing waits on Martin.'} A hold lands here when the line or triage
           needs a person: a spec to approve, a pull request a gate held, a fix waiting for {martin ? 'your' : 'his'}{' '}
-          deploy.
+          deploy, a flag waiting to be widened.
         </p>
       )}
       {answered.length > 0 && (

@@ -6,6 +6,7 @@ import type { Autonomy, PayloadOf, PublicEvent, Sense, Stage } from '@software-f
 import { isSense, returnWords, SENSES, STAGES } from '@software-factory/events';
 import { DEFAULT_CONTROLS } from '../../../../../policy/line.ts';
 import { deployWords, endedSinceMerge } from './fixing.ts';
+import { itemFlag, STAGE_NAME } from './flags.ts';
 import { clearanceWords, type ItemState } from './items.ts';
 import { endedWords, inFlight, type Release, SIGNALLED, stopWait, stopWords } from './release.ts';
 
@@ -259,12 +260,12 @@ export function station(
   // stays idle rather than look busy with nobody at work. So does a fix held for a deploy that is not Martin's yet.
   const queued = present.filter(waitsHere);
   const here = present.filter((item) => !waitsHere(item));
-  const held = here.filter((item) => item.hold);
+  const held = here.filter(waitsOnMartin);
   const failed = here.filter((item) => item.failure?.stage === stage && !item.hold);
   // At Release, the canary in flight, whether it carries work or not.
   const flight = stage === 'release' ? inFlight(shipped) : undefined;
   // A failure or a hold stops the station only when nothing else in it is in progress; otherwise it lights the beacon.
-  const busy = Boolean(flight) || here.some((item) => !item.hold && !failed.includes(item));
+  const busy = Boolean(flight) || here.some((item) => !waitsOnMartin(item) && !failed.includes(item));
   const left = leavers(items, stage);
   const today = left.filter(({ at }) => at >= startOfDay(t)).length;
   // At a spend cap, triage takes no reports until it resets. The senses' tickets need no model, so they still open.
@@ -357,6 +358,9 @@ function noteOf(item: ItemState, stage: Stage): string {
   return cleared ? `${note}. ${cleared}` : note;
 }
 
+/** Whether a work item waits on Martin where it is: a hold, or an improvement's flag waiting for him to widen it. */
+const waitsOnMartin = (item: ItemState) => item.hold !== undefined || item.outcome === 'needs-you';
+
 function holdNote(item: ItemState, stage: Stage): string {
   if (item.waitingOn) return item.waitingOn.reason;
   // Held for a deploy that is not Martin's yet: what it waits for, and the deploy pull request by number.
@@ -378,6 +382,9 @@ function holdNote(item: ItemState, stage: Stage): string {
   if (item.hold?.stage === 'triage' && (item.kind === 'visitor-report' || item.kind === 'planner-finding'))
     return 'Needs you · parked for Martin';
   if (item.hold) return item.hold.reason;
+  // An improvement out behind its flag, waiting for Martin to widen it.
+  const flag = item.outcome === 'needs-you' ? itemFlag(item) : undefined;
+  if (flag?.now.stage) return `Needs you · flag at ${STAGE_NAME[flag.now.stage.stage]} · waiting for Martin to widen`;
   // Promoted, it is at Verify while the sense that saw it looks again: the promotion is Release's news, not Verify's.
   const latest = item.latest[stage];
   if (latest?.type === 'release.promoted') {
@@ -432,8 +439,14 @@ export function panel(
       title: item.title,
       note: noteOf(item, stage),
       earlier: [],
-      tone: deploying(item) ? 'faint' : item.hold || item.failure ? 'attn' : item.queued ? 'faint' : 'signal',
-      state: deploying(item) ? 'waiting' : item.hold || item.failure ? 'held' : item.queued ? 'waiting' : 'in-hand',
+      tone: deploying(item) ? 'faint' : waitsOnMartin(item) || item.failure ? 'attn' : item.queued ? 'faint' : 'signal',
+      state: deploying(item)
+        ? 'waiting'
+        : waitsOnMartin(item) || item.failure
+          ? 'held'
+          : item.queued
+            ? 'waiting'
+            : 'in-hand',
       at: item.lastAt,
     }),
   );

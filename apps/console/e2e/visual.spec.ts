@@ -11,10 +11,12 @@
  * refused, Martin's account menu, a visitor's report quoted on his sheet, Preview as visitor, the settings for Martin
  * with a change unsaved and for a visitor, and the bottom row: Needs you (Waiting on Martin for a visitor, his words
  * being written for him, the passkey asked for on a guardrail's Approve, and nothing waiting) beside Controls; and the
- * audit log, whole and narrowed to a visitor's report; and the privacy page.
+ * audit log, whole and narrowed to a visitor's report; and the privacy page. Part B's flags from the samples, with the
+ * admin service's check of the app stood in for: Controls' Flags, each confirmation, a flag's card, and the sheet.
  */
 import type { Page } from '@playwright/test';
 import { STAGES as KINDS } from '@software-factory/events';
+import { AT_CHECKS, heldAs, RELEASED_OFF, TURNED_OFF } from './flags.ts';
 import {
   adminService,
   CANARY,
@@ -575,6 +577,162 @@ test.describe('the settings in Ink', () => {
     await ready(page);
     await page.locator('article.needs h2', { hasText: 'Needs you' }).waitFor();
     await expect(page.locator('.bottom')).toHaveScreenshot('m07-bottom-martin-ink.png');
+  });
+});
+
+/**
+ * Milestone 7, Part B: the flags. Controls' Flags for Martin and a visitor, each of the slider's confirmations, a
+ * flag's card in Needs you, the app's copy lagging, and an improvement's sheet, its flag part way out and out to
+ * everyone, at all three widths; the app taking a change, not checked, and a flag turned off and closed, on a laptop.
+ */
+const flagsGroup = (page: Page) => page.locator('article.controls .ctl-group.flags');
+
+/** The console with the flags drawn, and the admin service's check of the app answering as asked. */
+async function withFlags(
+  page: Page,
+  as: 'martin' | 'visitor',
+  {
+    at,
+    theme = 'paper',
+    held = 'held',
+    extra = [],
+  }: { at?: number; theme?: 'paper' | 'ink'; held?: Parameters<typeof heldAs>[1]; extra?: typeof TURNED_OFF } = {},
+) {
+  await heldAs(page, held);
+  await adminService(page, as, extra);
+  await page.goto(consoleUrl({ theme, ...(at !== undefined && { at }) }));
+  await ready(page);
+  await flagsGroup(page).locator('.sync').waitFor();
+  await page.evaluate(() => document.fonts.ready);
+}
+
+/** Opens a stop's confirmation, and waits for it. */
+async function confirmation(page: Page, stop: string) {
+  await page.getByRole('button', { name: stop }).click();
+  await page.getByRole('dialog').waitFor();
+}
+
+for (const [width, viewport] of Object.entries(WIDTHS)) {
+  test.describe(`${width}, the flags`, () => {
+    test.use({ viewport });
+
+    test('Controls’ Flags, for Martin and for a visitor', async ({ page }) => {
+      await withFlags(page, 'martin');
+      await expect(flagsGroup(page)).toHaveScreenshot(`m07-flags-${width}.png`);
+      await page.unrouteAll({ behavior: 'ignoreErrors' });
+      await withFlags(page, 'visitor');
+      await expect(flagsGroup(page)).toHaveScreenshot(`m07-flags-visitor-${width}.png`);
+    });
+
+    test('Controls’ Flags, the app still holding the revision before', async ({ page }) => {
+      await withFlags(page, 'martin', { held: 'lagging' });
+      await expect(flagsGroup(page)).toHaveScreenshot(`m07-flags-lagging-${width}.png`);
+    });
+
+    test('a flag’s card in Needs you, Share dashed while a canary is in flight', async ({ page }) => {
+      await withFlags(page, 'martin');
+      await expect(page.locator('.flag-need')).toHaveScreenshot(`m07-flag-card-${width}.png`);
+    });
+
+    test('widening to Share, with the passkey, Preview skipped', async ({ page }) => {
+      await withFlags(page, 'martin', { at: AT_CHECKS });
+      await confirmation(page, 'Widen to Share 50%, last-one');
+      await expect(page).toHaveScreenshot(`m07-flag-widen-${width}.png`);
+    });
+
+    test('widening to Checks, with no passkey', async ({ page }) => {
+      await withFlags(page, 'martin', { at: RELEASED_OFF });
+      await confirmation(page, 'Widen to Checks, delivery-dates');
+      await expect(page).toHaveScreenshot(`m07-flag-checks-${width}.png`);
+    });
+
+    test('narrowing', async ({ page }) => {
+      await withFlags(page, 'martin');
+      await confirmation(page, 'Narrow to Checks, delivery-dates');
+      await expect(page).toHaveScreenshot(`m07-flag-narrow-${width}.png`);
+    });
+
+    test('turning off, with a reason', async ({ page }) => {
+      await withFlags(page, 'martin');
+      await confirmation(page, 'Turn off, delivery-dates');
+      const reason = page.getByRole('dialog').getByLabel('Reason');
+      await reason.fill('The date is wrong on Sundays');
+      await reason.blur();
+      await expect(page).toHaveScreenshot(`m07-flag-off-${width}.png`);
+    });
+
+    test('turning back on for everyone', async ({ page }) => {
+      await withFlags(page, 'martin', { extra: TURNED_OFF });
+      await confirmation(page, 'Turn back on for everyone, last-one');
+      await expect(page).toHaveScreenshot(`m07-flag-back-on-${width}.png`);
+    });
+
+    test('a stop that can’t be taken now', async ({ page }) => {
+      await withFlags(page, 'martin');
+      await confirmation(page, 'Widen to Share 50%: can’t be taken now, delivery-dates');
+      await expect(page).toHaveScreenshot(`m07-flag-cant-${width}.png`);
+    });
+
+    for (const item of ['1294', '1271']) {
+      test(`#${item}’s sheet, its flag`, async ({ page }) => {
+        await page.goto(consoleUrl({ item, sheet: true }));
+        const section = page.locator('.sheet section.sec', { has: page.getByRole('heading', { name: 'The flag' }) });
+        await section.waitFor();
+        await page.evaluate(() => document.fonts.ready);
+        await expect(section).toHaveScreenshot(`m07-sheet-flag-${item}-${width}.png`);
+      });
+    }
+  });
+}
+
+test.describe('the flags on a laptop', () => {
+  test.use({ viewport: WIDTHS.laptop });
+
+  for (const held of ['taking', 'unchecked'] as const) {
+    test(`Controls’ Flags, the app’s copy ${held}`, async ({ page }) => {
+      await withFlags(page, 'visitor', { held });
+      await expect(flagsGroup(page).locator('.sync')).toHaveScreenshot(`m07-flags-${held}.png`);
+    });
+  }
+
+  test('a flag turned off and closed, folded at the foot', async ({ page }) => {
+    await withFlags(page, 'martin', { extra: TURNED_OFF });
+    await flagsGroup(page).locator('summary').click();
+    await expect(flagsGroup(page)).toHaveScreenshot('m07-flags-closed.png');
+  });
+
+  test('a card’s line of facts, with its flag', async ({ page }) => {
+    await page.goto(consoleUrl({ item: '1294' }));
+    await ready(page);
+    await expect(page.locator('.card[data-place="centre"]')).toHaveScreenshot('m07-card-flag.png');
+  });
+});
+
+test.describe('the flags in Ink', () => {
+  test.use({ viewport: WIDTHS.desktop });
+
+  test('Controls’ Flags, the app still holding the revision before', async ({ page }) => {
+    await withFlags(page, 'martin', { theme: 'ink', held: 'lagging' });
+    await expect(flagsGroup(page)).toHaveScreenshot('m07-flags-ink.png');
+  });
+
+  test('a flag’s card in Needs you', async ({ page }) => {
+    await withFlags(page, 'martin', { theme: 'ink' });
+    await expect(page.locator('.flag-need')).toHaveScreenshot('m07-flag-card-ink.png');
+  });
+
+  test('widening to Share, with the passkey', async ({ page }) => {
+    await withFlags(page, 'martin', { theme: 'ink', at: AT_CHECKS });
+    await confirmation(page, 'Widen to Share 50%, last-one');
+    await expect(page).toHaveScreenshot('m07-flag-widen-ink.png');
+  });
+
+  test('#1271’s sheet, its flag', async ({ page }) => {
+    await page.goto(consoleUrl({ theme: 'ink', item: '1271', sheet: true }));
+    const section = page.locator('.sheet section.sec', { has: page.getByRole('heading', { name: 'The flag' }) });
+    await section.waitFor();
+    await page.evaluate(() => document.fonts.ready);
+    await expect(section).toHaveScreenshot('m07-sheet-flag-1271-ink.png');
   });
 });
 

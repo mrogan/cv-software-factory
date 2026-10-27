@@ -122,10 +122,10 @@ describe('the console’s copies', () => {
     }
   });
 
-  it('read the profile and ALL_LOCAL from the page, and the defaults from anything else', () => {
-    // The page's two meta tags, as its server writes them.
-    const page = (profile: string, allLocal: string) => {
-      const meta: Record<string, string> = { 'sf-profile': profile, 'sf-all-local': allLocal };
+  it('read the profile, ALL_LOCAL and the app’s address from the page, and the defaults from anything else', () => {
+    // The page's meta tags, as its server writes them.
+    const page = (profile: string, allLocal: string, app = '') => {
+      const meta: Record<string, string> = { 'sf-profile': profile, 'sf-all-local': allLocal, 'sf-app': app };
       const doc = {
         querySelector: (selector: string) => {
           const name = /name="([^"]+)"/.exec(selector)?.[1] ?? '';
@@ -134,7 +134,9 @@ describe('the console’s copies', () => {
       };
       return factoryOf(doc);
     };
-    expect(page('do', 'true')).toEqual({ profile: 'do', allLocal: true });
-    expect(page('mars', 'yes')).toEqual({ profile: 'local', allLocal: false });
+    expect(page('do', 'true')).toEqual({ profile: 'do', allLocal: true, app: undefined });
+    expect(page('mars', 'yes')).toEqual({ profile: 'local', allLocal: false, app: undefined });
+    expect(page('local', 'false', 'http://website.localhost:8080').app).toBe('http://website.localhost:8080');
+    expect(page('local', 'false', 'javascript:alert(1)').app).toBeUndefined();
   });
 });

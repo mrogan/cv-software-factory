@@ -13,8 +13,10 @@ import type {
   SymptomClass,
 } from '@software-factory/events';
 import { clearedOnWords, inScope, LIMITS, SENSES } from '@software-factory/events';
+import { FLAG_STEP_UP } from '../access.ts';
 import { clock, shortVersion } from '../format.ts';
 import { type Attempt, attempts, deployPicture, reviewThread, startsPass, type ThreadReview } from './fixing.ts';
+import { type Compared, type FlagRow, type Stage as FlagStage, itemFlag, STAGE_NAME } from './flags.ts';
 import { type Capture, clearanceWords, type Hold, type ItemState, summaryOf } from './items.ts';
 import { bySense, type Card, card, type Picture, picture, pictureOfSignal } from './reel.ts';
 import { endedWords, type Release, releases, type StoppedBy, stoppedBy } from './release.ts';
@@ -149,6 +151,35 @@ export interface SenseEvidence {
   picture: Picture;
 }
 
+/**
+ * One block of an improvement's flag on its sheet: its release, with the flag off, and then each move Martin made of it,
+ * with Verify's comparison at Share.
+ */
+export type FlagBlock =
+  | { kind: 'released'; at: number; version: string; release: string }
+  | {
+      kind: 'staged';
+      at: number;
+      stage: FlagStage;
+      from: FlagStage | null;
+      /** Martin widened it, narrowed it, turned it off, or turned it back on. */
+      action: PayloadOf<'flag.staged'>['action'];
+      /** Whether his passkey was given for it: every widening past Checks. */
+      passkey: boolean;
+      reason: string | undefined;
+      /** The move the flag stands at now. */
+      current: boolean;
+      /** At Share, Verify's comparison there, if it has judged. */
+      compared: Compared | undefined;
+    };
+
+/** An improvement's flag on its sheet, in place of Release and Verify: the slider, read-only, and a block per move. */
+export interface FlagSheet {
+  row: FlagRow;
+  /** Newest first. */
+  blocks: FlagBlock[];
+}
+
 export interface Sheet {
   card: Card;
   /**
@@ -164,6 +195,8 @@ export interface Sheet {
   captures: Capture[];
   /** Each release that carried it, newest first, with its verification. */
   shipped: Shipped[];
+  /** For an improvement out behind its flag: the flag, in place of Release and Verify. */
+  flag: FlagSheet | undefined;
   /** While a merged fix is held for a deploy: the pull request it waits with, and the deploy pull request's state. */
   deploy: Extract<Picture, { type: 'deploy' }> | undefined;
   /** Who wrote the paragraph at the top: the describer, once it has. */
@@ -194,6 +227,8 @@ export interface Sheet {
     reviews: { done: number; of: number; pass: number | undefined } | undefined;
     /** A ticket's category and severity, and its fingerprint in words. */
     ticket: { category: string; severity: string; fingerprint: string } | undefined;
+    /** An improvement's flag and its stage, "delivery-dates · preview", or "price-sort · not built yet". */
+    flag: string | undefined;
   };
   /** For a ticket: every sense, those that saw it first, in the order they did. */
   seenBy: Sighting[] | undefined;
@@ -357,6 +392,14 @@ function chapterOf(event: PublicEvent, item: ItemState): Pick<Chapter, 'label' |
       return { label: 'REOPENED', tone: 'attn' };
     case 'action.refused':
       return { label: 'REFUSED', tone: 'attn' };
+    // Each stage Martin set, by its name, and Verify's comparison at Share.
+    case 'flag.staged':
+      return {
+        label: STAGE_NAME[event.payload.to.stage].toUpperCase(),
+        tone: event.payload.to.stage === 'off' ? 'attn' : 'signal',
+      };
+    case 'flag.compared':
+      return { label: 'COMPARED', tone: event.payload.outcome === 'passed' ? 'ok' : 'attn' };
     case 'work-item.closed':
       // A guardrail that worked needs nobody: quarantine is told in the quiet tone, as closed work is.
       if (event.payload.outcome === 'quarantined') return { label: 'QUARANTINED', tone: 'faint' };
@@ -875,7 +918,7 @@ function reviewsOfPass(item: ItemState): { done: number; of: number; pass: numbe
   return { done, of: Math.max(LIMITS.reviews, done), pass: passes.length > 1 ? index + 1 : undefined };
 }
 
-export function sheet(item: ItemState, events: readonly PublicEvent[], t: number): Sheet {
+export function sheet(item: ItemState, events: readonly PublicEvent[], t: number, flag?: FlagRow): Sheet {
   const end = item.closedAt ?? t;
   const own = releases(events, [item], t).filter((r) => r.items.some((i) => i.number === item.number));
   const byId = new Map(own.map((r) => [r.id, r]));
@@ -903,7 +946,9 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
     }
     if (startsPass(event)) pass += 1;
     const chapter = chapterOf(event, item);
-    return chapter ? [{ event, ...chapter, pass }] : [];
+    // Each widening says it was given with the passkey.
+    const keyed = event.type === 'flag.staged' && event.payload.steppedUp && FLAG_STEP_UP[event.payload.action];
+    return chapter ? [{ event, ...chapter, pass, ...(keyed && { text: `${event.summary}, with his passkey` }) }] : [];
   });
   // Work still on the line ends at now, or, for a ticket queued for the planner, waiting at Plan. Work waiting on
   // Martin ends at its wait, and a merged fix at its merge, drawn as work queued for a release.
@@ -991,6 +1036,7 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
       (c) => c.side === 'broken' || c.side === 'canary' || c.side === 'fixed' || c.side === 'after',
     ),
     shipped: own.reverse().map((release) => ({ release, verification: checked.get(release.id) })),
+    flag: flag && { row: flag, blocks: flagBlocks(item, flag) },
     deploy: deployPicture(item),
     closing: closing(item),
     spec: specPayload,
@@ -1012,6 +1058,7 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
             ? `${where(item.ticket.fingerprint.route)} · ${item.ticket.fingerprint.class}`
             : `${item.ticket.fingerprint.page} · “${item.ticket.fingerprint.text}”`,
       },
+      flag: flagFact(item),
     },
     seenBy: item.ticket ? seenBy(item) : undefined,
     senseEvidence: item.ticket ? senseEvidence(item) : [],
@@ -1022,4 +1069,56 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
     gatesAttempt: tried.length > 1 ? tried.at(-1)?.attempt : undefined,
     earlier: earlierAttempts(tried),
   };
+}
+
+/** An improvement's flag as a fact: its name and stage, or that it is not built yet. */
+function flagFact(item: ItemState): string | undefined {
+  const flag = itemFlag(item);
+  if (!flag) return undefined;
+  const { stage } = flag.now;
+  if (!flag.built) return `${flag.name} · not built yet`;
+  return `${flag.name} · ${stage ? STAGE_NAME[stage.stage].toLowerCase() : 'outside every stage'}`;
+}
+
+/** The flag's blocks on the sheet, newest first: its release, then each of Martin's moves, with Verify's comparison. */
+function flagBlocks(item: ItemState, row: FlagRow): FlagBlock[] {
+  const blocks: FlagBlock[] = [];
+  const promoted = item.events.find((event) => event.type === 'release.promoted');
+  if (promoted?.type === 'release.promoted') {
+    blocks.push({
+      kind: 'released',
+      at: Date.parse(promoted.ts),
+      version: promoted.payload.version,
+      release: promoted.payload.release,
+    });
+  }
+  for (const event of item.events) {
+    if (event.type === 'flag.staged' && event.actor === 'martin' && event.payload.flag === row.name) {
+      const { to, from, action, steppedUp, reason } = event.payload;
+      blocks.push({
+        kind: 'staged',
+        at: Date.parse(event.ts),
+        stage: to,
+        from,
+        action,
+        passkey: steppedUp && FLAG_STEP_UP[action],
+        reason,
+        current: false,
+        compared: undefined,
+      });
+    }
+    const last = blocks.at(-1);
+    if (
+      event.type === 'flag.compared' &&
+      event.payload.flag === row.name &&
+      last?.kind === 'staged' &&
+      last.stage.stage === 'share' &&
+      last.stage.share === event.payload.share
+    ) {
+      last.compared = { ...event.payload, at: Date.parse(event.ts) };
+    }
+  }
+  const last = blocks.at(-1);
+  if (last?.kind === 'staged') last.current = true;
+  return blocks.reverse();
 }

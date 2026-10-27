@@ -1,5 +1,6 @@
 import { AxeBuilder } from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
+import { AT_CHECKS, heldAs, TURNED_OFF } from './flags.ts';
 import { adminService, consoleUrl, expect, ready, THEMES, test, WIDTHS } from './support.ts';
 
 /**
@@ -100,6 +101,64 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
         await page.getByRole('button', { name: 'Start the line (asks for your passkey)' }).click();
         await page.getByRole('dialog', { name: 'Start the line' }).waitFor();
         expect((await axe(page).include('dialog').analyze()).violations).toEqual([]);
+      });
+    });
+  }
+}
+
+// The flags (milestone 7, task 16): Needs you and Controls with a flag waiting, Martin's and a visitor's, the app's
+// copy lagging; each of the slider's confirmations; and an improvement's sheet, on a laptop and a phone, in both themes.
+for (const width of ['laptop', 'phone'] as const) {
+  for (const theme of THEMES) {
+    test.describe(`${width}, ${theme}, the flags`, () => {
+      test.use({ viewport: WIDTHS[width] });
+
+      for (const as of ['martin', 'visitor'] as const) {
+        test(`Needs you and Controls with a flag waiting, ${as === 'martin' ? 'Martin’s' : 'a visitor’s'}, have nothing for axe to find`, async ({
+          page,
+        }) => {
+          await heldAs(page, 'lagging');
+          await adminService(page, as);
+          await page.goto(consoleUrl({ theme }));
+          await ready(page);
+          await page.locator('.flags .sync').waitFor();
+          expect((await axe(page).include('section.bottom').analyze()).violations).toEqual([]);
+        });
+      }
+
+      /** Opens a stop's confirmation, has axe look at it, and closes it. */
+      const confirm = async (page: Page, stop: string) => {
+        await page.getByRole('button', { name: stop }).click();
+        await page.getByRole('dialog').waitFor();
+        expect((await axe(page).include('dialog').analyze()).violations, stop).toEqual([]);
+        await page.keyboard.press('Escape');
+      };
+
+      test('each of the slider’s confirmations has nothing for axe to find', async ({ page }) => {
+        await adminService(page, 'martin');
+        await page.goto(consoleUrl({ theme, at: AT_CHECKS }));
+        await ready(page);
+        await confirm(page, 'Widen to Preview, last-one');
+        await confirm(page, 'Widen to Share 50%, last-one');
+        await confirm(page, 'Turn off, last-one');
+        await page.goto(consoleUrl({ theme }));
+        await ready(page);
+        await confirm(page, 'Narrow to Checks, delivery-dates');
+        await confirm(page, 'Widen to Share 50%: can’t be taken now, delivery-dates');
+      });
+
+      test('turning a flag back on has nothing for axe to find', async ({ page }) => {
+        await adminService(page, 'martin', TURNED_OFF);
+        await page.goto(consoleUrl({ theme }));
+        await ready(page);
+        await confirm(page, 'Turn back on for everyone, last-one');
+      });
+
+      test('an improvement’s sheet, its flag part way out, has nothing for axe to find', async ({ page }) => {
+        await page.goto(consoleUrl({ theme, item: '1294', sheet: true }));
+        await page.getByRole('dialog', { name: 'Delivery dates on each product' }).waitFor();
+        await page.evaluate(() => document.fonts.ready);
+        expect((await axe(page).include('.sheet').analyze()).violations).toEqual([]);
       });
     });
   }

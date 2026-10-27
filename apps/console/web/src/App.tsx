@@ -11,6 +11,7 @@ import { type Admin, type Door, stillSignedIn, useAdmin } from './admin.ts';
 import { OriginContext } from './artifacts.ts';
 import { Canary } from './components/Canary.tsx';
 import { Controls } from './components/Controls.tsx';
+import { useHeld } from './components/Flags.tsx';
 import { Footer } from './components/Footer.tsx';
 import { Header, LineStatus, Scoreboard } from './components/Header.tsx';
 import { Line } from './components/Line.tsx';
@@ -106,6 +107,10 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
     return live;
   }, [expiresAt]);
   const source = useEvents(from, admin.kind === 'martin' && !auditPage ? 'full' : 'public', lost);
+  // Whether the app holds the flags as set, under Controls: asked of the admin service, wherever there is one, for
+  // everyone.
+  const service = signedIn.kind === 'martin' || signedIn.kind === 'visitor';
+  const held = useHeld(from.kind === 'live' && service && !settingsPage && !auditPage && !privacyPage);
   const latest = source.events.length ? Date.parse(source.events.at(-1)?.ts ?? '') : undefined;
   const t = useTime(latest, from.kind === 'live');
   const view = useMemo(() => project(source.events, t), [source.events, t]);
@@ -258,8 +263,25 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
               className="bottom"
               aria-label={admin.kind === 'martin' ? 'Needs you and controls' : 'Waiting on Martin, and controls'}
             >
-              <NeedsYou needs={view.needs} admin={admin} onOpen={setOpen} />
-              <Controls spend={settings.spend} controls={view.controls} admin={admin} />
+              <NeedsYou
+                needs={view.needs}
+                flags={view.flags}
+                admin={admin}
+                app={factory.app}
+                onOpen={setOpen}
+                onMoved={held.refresh}
+              />
+              <Controls
+                spend={settings.spend}
+                controls={view.controls}
+                flags={view.flags}
+                admin={admin}
+                app={factory.app}
+                held={held.answer}
+                now={view.t}
+                onOpen={setOpen}
+                onMoved={held.refresh}
+              />
             </section>
           )}
         </div>
@@ -277,6 +299,7 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
               setOpen(view.cards[index]?.number);
             }}
             onClose={() => setOpen(undefined)}
+            app={factory.app}
           />
         </Suspense>
       )}

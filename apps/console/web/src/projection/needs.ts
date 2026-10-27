@@ -280,7 +280,8 @@ function linkOf(item: ItemState, cause: HoldCause): Need['link'] {
 }
 
 /** Whole units: "1d", "50min", the first part of a duration. */
-const waited = (ms: number) => duration(Math.max(1000, ms)).split(/\s/)[0] ?? '';
+/** How long something has waited, to its largest unit: "1d", "50min". */
+export const waited = (ms: number) => duration(Math.max(1000, ms)).split(/\s/)[0] ?? '';
 
 /** Needs you at t: every open hold, oldest first, and Martin's answers since the viewer's day began. */
 export function needsView(items: readonly ItemState[], t: number): NeedsView {
