@@ -102,7 +102,7 @@ async function narrowedBefore(sql: Sql, held: FlagsHeld): Promise<void> {
   try {
     const [last] = await sql<{ ts: Date }[]>`
       select ts from events
-      where type = 'flag.staged' and payload->>'action' in ('flag.narrow', 'flag.off')
+      where type = 'flag.staged' and (payload->>'action' in ('flag.narrow', 'flag.off') or payload ? 'dropped')
         and appended_by = 'factory_admin' and not sample
       order by seq desc limit 1`;
     if (last) held.narrowedBefore(last.ts.getTime());
