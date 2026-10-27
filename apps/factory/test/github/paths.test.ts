@@ -2,6 +2,7 @@
  * Examples of the paths a patch may change (`github/paths.ts`); `paths-properties.test.ts` holds what must be true of
  * every scope and CODEOWNERS file.
  */
+import { PATH_CHARS } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { inScope, ownedPaths, plainPath, protectedFrom, protectedWords } from '../../src/github/paths.ts';
 
@@ -49,5 +50,12 @@ describe('a plain path', () => {
     expect(plainPath('src/a\u2029b.ts')).toBe(false);
     expect(plainPath('src/\u202emoney.ts')).toBe(false);
     expect(plainPath('src/mo\u200bney.ts')).toBe(false);
+  });
+
+  it('is no longer than an event records', () => {
+    const long = (chars: number) => `src/${'a'.repeat(chars - 'src/.ts'.length)}.ts`;
+    expect(plainPath(long(PATH_CHARS))).toBe(true);
+    expect(plainPath(long(PATH_CHARS + 1))).toBe(false);
+    expect(plainPath(long(1024 * 1024))).toBe(false);
   });
 });

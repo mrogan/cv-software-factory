@@ -5,11 +5,11 @@
  *
  * Plain text changes only: a file added, changed or deleted, as an ordinary file (mode 100644), at a plain relative
  * path, once in the patch. A binary file, a rename, an executable or a symlink, a change of mode, a path `plainPath`
- * refuses (one with `..`, `.` or an empty segment, a backslash or a control character, among others), a file named
- * twice, a block with no change in it, hunks that overlap or are out of order, a git header that says otherwise than
- * the lines under it, text that is not a unified diff, and a patch that does not apply cleanly are refused, each with a
- * `PatchRefused`; so is a patch that changes no file, when it is to be applied. What applies is what the patch says,
- * line endings and all.
+ * refuses (one with `..`, `.` or an empty segment, a backslash or a control character, or one longer than an event
+ * records, among others), a file named twice, a block with no change in it, hunks that overlap or are out of order, a
+ * git header that says otherwise than the lines under it, text that is not a unified diff, and a patch that does not
+ * apply cleanly are refused, each with a `PatchRefused`; so is a patch that changes no file, when it is to be applied.
+ * What applies is what the patch says, line endings and all.
  */
 import { applyPatch, parsePatch, type StructuredPatch } from 'diff';
 import type { FileChanges } from './actions.ts';

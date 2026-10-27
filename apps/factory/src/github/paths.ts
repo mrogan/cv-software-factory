@@ -7,7 +7,7 @@
  * path the repository's CODEOWNERS gives a person.
  */
 
-import { inScope, pattern } from '@software-factory/events';
+import { inScope, PATH_CHARS, pattern } from '@software-factory/events';
 
 /** Never in a patch: the rules of the line, in the app's repository. */
 export const NEVER = ['.github/', 'deploy/'];
@@ -15,10 +15,12 @@ export const NEVER = ['.github/', 'deploy/'];
 /**
  * A path a patch may name: relative, with no empty, `.` or `..` segment, and no backslash, control character (C1's,
  * U+0080 to U+009F, included), line or paragraph separator, or format character (a bidi override, a zero-width
- * space): any of which a terminal or a page that shows the path could act on, or hide.
+ * space): any of which a terminal or a page that shows the path could act on, or hide. And no longer than an event
+ * records (`PATH_CHARS`), so the line can record what it did with the patch, and matching it to a scope stays cheap.
  */
 export function plainPath(path: string): boolean {
   return (
+    path.length <= PATH_CHARS &&
     !path.startsWith('/') &&
     !/[\\\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(path) &&
     path.split('/').every((part) => part !== '' && part !== '.' && part !== '..')

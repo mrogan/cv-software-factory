@@ -1,3 +1,4 @@
+import { PATH_CHARS } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { contentsReader, DryRunActions, LiveActions } from '../../src/github/actions.ts';
 import { applyTo, filesIn, PatchRefused } from '../../src/github/patches.ts';
@@ -140,6 +141,11 @@ describe('what a patch may not do', () => {
     for (const path of ['src/../.github/workflows/x.yml', '/etc/passwd', 'src//x.ts', './x.ts']) {
       expect(() => filesIn(header(path)), path).toThrow(PatchRefused);
     }
+  });
+
+  it('name a path longer than an event records', () => {
+    const long = `src/${'a/'.repeat(PATH_CHARS / 2)}x.ts`;
+    expect(() => filesIn(header(long))).toThrow('not a plain path');
   });
 
   it('name a path with a control character in it, as git quotes and escapes one', () => {

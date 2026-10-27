@@ -110,6 +110,13 @@ export const answersTo = (cause: HoldCause): HoldAnswer[] =>
   );
 
 /**
+ * The longest path an event records, in characters: a file a patch changes, a scope entry, a review finding's file. A
+ * patch that names a longer path is refused (`plainPath`), so a path the events could not record never reaches the
+ * scope fence, GitHub or the console, and `pattern` steps through no longer one from a patch.
+ */
+export const PATH_CHARS = 200;
+
+/**
  * A scope entry as a pattern: a file (`src/money.ts`), a folder ending in `/` (`test/`), or a pattern with `*` (one
  * path segment, or part of one) or `**` (as a segment of its own, any number of whole segments: `**` followed by `/`
  * stands for none or some folders, so `**` followed by `/test.ts` is `test.ts` in any folder, never `latest.ts`; within
