@@ -49,6 +49,10 @@ spec:
             # ALL_LOCAL here too whenever the gateway has it, so the settings page says every agent is on the local model.
             - name: FACTORY_PROFILE
               value: local
+            # The app's address as a browser reaches it, the local cluster's, which a flag's "Preview it" opens with
+            # ?preview=. The server writes its origin alone into the page; unset, there is no eye.
+            - name: APP_URL
+              value: http://website.localhost:8080
           readinessProbe:
             httpGet:
               path: /health
