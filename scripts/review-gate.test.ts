@@ -6,6 +6,8 @@ import {
   type PullRequest,
   QUEUE_BRANCH,
   type Review,
+  STACK_LIMIT,
+  stackOf,
   target as targetIn,
   together,
   verdict,
@@ -22,7 +24,7 @@ const pr = (author: number | null): PullRequest => ({
   number: 7,
   state: 'open',
   user: author === null ? null : { id: author },
-  head: { sha: HEAD, repo: { full_name: 'o/r' } },
+  head: { sha: HEAD, ref: 'fix/x', repo: { full_name: 'o/r' } },
   base: { ref: 'main', repo: { full_name: 'o/r' } },
 });
 const review = (id: number, state: string, commit = HEAD): Review => ({ user: { id }, state, commit_id: commit });
@@ -31,9 +33,9 @@ describe('the review gate (ADR 0014)', () => {
   it('passes a pull request Martin opened, by his id', () => {
     expect(verdict(pr(MARTIN), [])).toMatchObject({ pass: true });
     // From someone else's fork, his own pull request waits for his approval like any other.
-    const fork = { ...pr(MARTIN), head: { sha: HEAD, repo: { full_name: 'someone/r' } } };
+    const fork = { ...pr(MARTIN), head: { sha: HEAD, ref: 'fix/x', repo: { full_name: 'someone/r' } } };
     expect(verdict(fork, [])).toMatchObject({ pass: false });
-    expect(verdict({ ...fork, head: { sha: HEAD, repo: null } }, [])).toMatchObject({ pass: false });
+    expect(verdict({ ...fork, head: { sha: HEAD, ref: 'fix/x', repo: null } }, [])).toMatchObject({ pass: false });
     expect(verdict(fork, [review(MARTIN, 'APPROVED')])).toMatchObject({ pass: true });
   });
 
@@ -68,7 +70,7 @@ describe('the review gate (ADR 0014)', () => {
     expect(verdict(stacked(APP), [])).toMatchObject({ pass: false });
     expect(verdict(stacked(APP), [review(MARTIN, 'APPROVED', EARLIER)])).toMatchObject({ pass: false });
     expect(verdict(stacked(APP), [review(MARTIN, 'APPROVED')])).toMatchObject({ pass: true });
-    const fork = { ...stacked(MARTIN), head: { sha: HEAD, repo: { full_name: 'someone/r' } } };
+    const fork = { ...stacked(MARTIN), head: { sha: HEAD, ref: 'fix/x', repo: { full_name: 'someone/r' } } };
     expect(verdict(fork, [])).toMatchObject({ pass: false });
   });
 
@@ -158,7 +160,7 @@ describe('a head commit’s verdict', () => {
       at(7, { base: { ref: 'fix/below', repo: { full_name: 'o/r' } } }),
       // Merged, and containing the commit; or open with the commit below its head; or another repository's.
       at(3, { state: 'closed' }),
-      at(4, { head: { sha: EARLIER, repo: { full_name: 'o/r' } } }),
+      at(4, { head: { sha: EARLIER, ref: 'fix/x', repo: { full_name: 'o/r' } } }),
       at(5, { base: { ref: 'main', repo: { full_name: 'someone/r' } } }),
     ];
     expect(atHead(listed, HEAD, 'o/r').map((p) => p.number)).toEqual([7, 9]);
@@ -204,6 +206,100 @@ describe('a head commit’s verdict', () => {
       { number: 9, said: verdict(at(9), []) },
     ];
     expect(together(two).pass).toBe(false);
+  });
+});
+
+describe('a queued stack', () => {
+  /** A pull request from `head` into `base`, opened by the App. */
+  const from = (number: number, head: string, base: string, over: Partial<PullRequest> = {}): PullRequest => ({
+    ...pr(APP),
+    number,
+    head: { sha: HEAD, ref: head, repo: { full_name: 'o/r' } },
+    base: { ref: base, repo: { full_name: 'o/r' } },
+    ...over,
+  });
+  /** The open pull requests GitHub would list from each branch, as the gate asks for them. */
+  const listing = (prs: readonly PullRequest[]) => {
+    const asked: string[] = [];
+    const below = async (branch: string) => {
+      asked.push(branch);
+      return prs.filter((each) => each.head.ref === branch);
+    };
+    return { asked, below };
+  };
+  // As #665 was queued: #657 into main, and each above it into the branch of the one below.
+  const s657 = from(657, 'feat/flags-off', 'main');
+  const s658 = from(658, 'feat/flags-compare', 'feat/flags-off');
+  const s659 = from(659, 'feat/flags-checked', 'feat/flags-compare');
+
+  it('is one pull request, for one into main, and asks for nothing more', async () => {
+    const { asked, below } = listing([]);
+    expect(await stackOf(s657, 'o/r', below)).toEqual({ prs: [s657] });
+    expect(asked).toEqual([]);
+  });
+
+  it('follows each base down to the pull request into main, and is judged from the bottom up', async () => {
+    const { asked, below } = listing([s657, s658, s659]);
+    expect((await stackOf(s659, 'o/r', below)).prs?.map((p) => p.number)).toEqual([657, 658, 659]);
+    expect(asked).toEqual(['feat/flags-compare', 'feat/flags-off']);
+    // Every one is judged: one waiting for Martin holds the queue's commit of every pull request above it.
+    const held = verdict(s657, []);
+    const approved = verdict(s658, [review(MARTIN, 'APPROVED')]);
+    expect(
+      together([
+        { number: 657, said: held },
+        { number: 658, said: approved },
+      ]),
+    ).toEqual({ pass: false, title: '#657: Waits for Martin to approve aaaaaaa' });
+  });
+
+  it('counts only an open pull request from this repository’s branch of that name, into this repository', async () => {
+    const theirs = from(657, 'feat/flags-off', 'main', {
+      head: { sha: HEAD, ref: 'feat/flags-off', repo: { full_name: 'someone/r' } },
+    });
+    const gone = from(657, 'feat/flags-off', 'main', { head: { sha: HEAD, ref: 'feat/flags-off', repo: null } });
+    const elsewhere = from(657, 'feat/flags-off', 'main', { base: { ref: 'main', repo: { full_name: 'someone/r' } } });
+    for (const one of [theirs, gone, elsewhere, { ...s657, state: 'closed' }]) {
+      expect(await stackOf(s658, 'o/r', listing([one]).below)).toEqual({
+        reason: '#658 is into feat/flags-off, which no open pull request here comes from',
+      });
+    }
+    // The listing is GitHub's: one from another branch, however it came back, is not the one below.
+    const other = from(9, 'feat/other', 'main');
+    expect((await stackOf(s658, 'o/r', async () => [other])).reason).toContain('no open pull request here comes from');
+  });
+
+  it('fails when the one below has merged and the one above is not yet into main, until it is', async () => {
+    // GitHub retargets the one above to main once the one below merges; the queue's next try judges it as into main.
+    expect((await stackOf(s658, 'o/r', listing([]).below)).reason).toBe(
+      '#658 is into feat/flags-off, which no open pull request here comes from',
+    );
+    expect(await stackOf({ ...s658, base: s657.base }, 'o/r', listing([]).below)).toMatchObject({
+      prs: [{ number: 658 }],
+    });
+  });
+
+  it('fails when two pull requests come from the branch below, into different bases', async () => {
+    const twice = from(700, 'feat/flags-off', 'fix/elsewhere');
+    expect((await stackOf(s658, 'o/r', listing([s657, twice]).below)).reason).toBe(
+      '#658 is into feat/flags-off, which #657, #700 all come from: no one stack below it',
+    );
+  });
+
+  it('fails on a loop, and on a stack deeper than it follows', async () => {
+    const a = from(1, 'a', 'b');
+    const b = from(2, 'b', 'a');
+    expect((await stackOf(a, 'o/r', listing([a, b]).below)).reason).toBe('the stack below #1 comes back to #1');
+    const tall = Array.from({ length: STACK_LIMIT + 1 }, (_, i) =>
+      from(i + 1, `s${i + 1}`, i === 0 ? 'main' : `s${i}`),
+    );
+    const top = tall.at(-1) as PullRequest;
+    expect((await stackOf(top, 'o/r', listing(tall).below)).reason).toBe(
+      `the stack below #${top.number} is deeper than ${STACK_LIMIT}, which the gate follows`,
+    );
+    // One fewer is followed to main.
+    const fits = tall.at(-2) as PullRequest;
+    expect((await stackOf(fits, 'o/r', listing(tall).below)).prs).toHaveLength(STACK_LIMIT);
   });
 });
 
