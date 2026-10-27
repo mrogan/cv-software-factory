@@ -228,10 +228,18 @@ describe('the quantile, as histogram_quantile interpolates it', () => {
 });
 
 describe('the question to Prometheus', () => {
-  it('asks for the increase of each id’s buckets over the piece, so a generator restart is counted across', () => {
+  const buckets =
+    'factory_traffic_request_duration_seconds_bucket{job="software-factory/traffic", k8s_namespace_name="factory", ' +
+    'k8s_pod_label_app_kubernetes_io_name="traffic", share_id!="none"}';
+
+  it('asks for each id’s buckets from the generator’s pod alone, which the app cannot send', () => {
+    const selector = buckets.slice(buckets.indexOf('{'));
+    expect(figuresQuery(600).match(/\{[^}]*\}/g)).toEqual([selector, selector, selector]);
+  });
+
+  it('takes the increase of a series there as the piece began, so a generator restart is counted across, and the whole of one born in it, so its first count is not lost', () => {
     expect(figuresQuery(600)).toBe(
-      'sum by (share_id, status_class, le) (increase(factory_traffic_request_duration_seconds_bucket' +
-        '{job="software-factory/traffic", share_id!="none"}[600s]))',
+      `sum by (share_id, status_class, le) ((increase(${buckets}[600s]) and ${buckets} offset 600s) or ${buckets})`,
     );
   });
 });

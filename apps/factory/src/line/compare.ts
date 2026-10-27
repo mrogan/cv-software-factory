@@ -8,8 +8,10 @@
  *   rendered as the admin service writes it (`policy/flags.ts`), evaluated with flagd's evaluation library, the one
  *   the app's in-process provider evaluates with and at its version, in the context the app builds for a signed
  *   request. Which ids are on depends on the flag's name as well as its share.
- * - **The generator's own figures, by id** (`factory_traffic_request_duration_seconds`, TRAFFIC-GENERATOR.md): the app
- *   never labels them, so the code being judged does not mark its own work, and visitors are never in them. Requests
+ * - **The generator's own figures, by id** (`factory_traffic_request_duration_seconds`, TRAFFIC-GENERATOR.md), and only
+ *   the series the collector stamped as from the generator's pod (`provenance.ts`): the app may send the collector
+ *   metrics of any name and job, but not those labels, so the code being judged cannot mark its own work, and visitors
+ *   are never in them. Requests
  *   are the `+Inf` bucket; errors are 5xx answers and no answer at all; the 99th percentile is interpolated over each
  *   side's buckets as `histogram_quantile` does, after summing them, so the window's pieces join exactly.
  * - **The window**: from when the app holds Martin's move to now, less every canary's time in flight, whose two
@@ -22,6 +24,7 @@ import type { Share } from '../../../../policy/flags.ts';
 import { flagsSpec } from '../../../../policy/flags.ts';
 import { release as RELEASE, type Release } from '../../../../policy/release.ts';
 import type { Sample } from '../clients/http.ts';
+import { METRICS_FROM_THE_TRAFFIC_GENERATOR } from '../provenance.ts';
 import { IDS } from '../traffic/share.ts';
 
 /** The generator's histogram, and the `job` its metrics carry (`service.namespace/service.name`). */
@@ -52,7 +55,9 @@ export interface Sides {
 
 /** Each of the generator's ids on its side of the flag at the share, by flagd's own evaluation. */
 export function sidesOf(flag: string, share: Share): Sides {
-  const core = new FlagdCore(undefined, QUIET);
+  // Interpreted, not compiled: the library's default builds each rule into code it evaluates, which the line needs no
+  // more of. The test holds the interpreter's sides to the app's, which compiles.
+  const core = new FlagdCore(undefined, QUIET, { disableDynamicCodeGeneration: true });
   core.setConfigurations(JSON.stringify(flagsSpec({ [flag]: { stage: 'share', share } }, ANY_REVISION).flagSpec));
   const sides: Sides = { on: [], off: [] };
   for (const id of IDS) {
@@ -103,8 +108,13 @@ export function windowOf(from: number, to: number, canaries: readonly Span[]): W
 }
 
 /** What Prometheus is asked for one piece of the window, at its end: each id's buckets, by the class of its answer. */
-export const figuresQuery = (seconds: number): string =>
-  `sum by (share_id, status_class, le) (increase(${TRAFFIC_HISTOGRAM}_bucket{job="${TRAFFIC_JOB}", share_id!="none"}[${seconds}s]))`;
+export function figuresQuery(seconds: number): string {
+  const buckets = `${TRAFFIC_HISTOGRAM}_bucket{job="${TRAFFIC_JOB}", ${METRICS_FROM_THE_TRAFFIC_GENERATOR}, share_id!="none"}`;
+  // The increase over the piece, which counts across a generator restart, of each series there as it began; and the
+  // whole of each series born in it, which the generator makes at its first request of that id and class, and whose
+  // first count an increase would take as where it starts: so an id's first 5xx is not lost.
+  return `sum by (share_id, status_class, le) ((increase(${buckets}[${seconds}s]) and ${buckets} offset ${seconds}s) or ${buckets})`;
+}
 
 /** One side's figures, as `flag.compared` records them: none when it had no requests. */
 export interface SideFigures {

@@ -30,7 +30,7 @@ import { flagsFrom, stageWords } from '../../../../policy/flag-moves.ts';
 import { FLAGS_HELD, type Share, type Stage } from '../../../../policy/flags.ts';
 import { release as RELEASE } from '../../../../policy/release.ts';
 import type { Prometheus } from '../clients/prometheus.ts';
-import { figuresOf, figuresQuery, judge, type Span, sidesOf, windowOf } from './compare.ts';
+import { figuresOf, figuresQuery, judge, type Sides, type Span, sidesOf, windowOf } from './compare.ts';
 import { asEvent } from './gates.ts';
 import { countRecorded } from './metrics.ts';
 
@@ -87,17 +87,21 @@ export function flagsNext({ flags, items, only }: FlagFacts): FlagNext[] {
   for (const [flag, now] of Object.entries(told)) {
     const workItem = now.stagedOn;
     if (!workItem || (only !== null && workItem !== only)) continue;
-    // A work item closes once, whichever of its flags was turned off.
-    if (next.some((n) => n.workItem === workItem)) continue;
     const item = items[workItem];
-    if (!item?.improvement || item.sample || item.closed) continue;
+    if (!item?.improvement || item.sample) continue;
     const move = flags.records.findLast((r) => r.type === 'flag.staged' && r.flag === flag);
-    // Turned off, at any stage: Martin's last move went to Off, on this work item.
-    if (now.last?.to.stage === 'off') {
+    // Turned off, at any stage: Martin's last move went to Off, on this work item. It closes once, whichever of its
+    // flags was turned off.
+    if (
+      now.last?.to.stage === 'off' &&
+      !item.closed &&
+      !next.some((n) => n.do === 'close' && n.workItem === workItem)
+    ) {
       const reason = (move?.type === 'flag.staged' && move.reason) || NO_REASON;
       next.push({ do: 'close', flag, workItem, from: now.last.from, reason });
     }
-    // At Share, and not yet compared since Martin's move there: a move clears the comparison before it.
+    // At Share, and not yet compared since Martin's move there: a move clears the comparison before it. On a closed
+    // work item too: a flag turned off from Everyone may go back on, be narrowed to Share and wait on a comparison.
     if (now.last?.to.stage === 'share' && !now.compared && move) {
       next.push({ do: 'compare', flag, workItem, share: now.last.to.share, move: { seq: move.seq, ts: move.ts } });
     }
@@ -120,6 +124,7 @@ export interface FlagPassOptions {
 /** The pass: reads the flags' state, decides, and appends what it decided. */
 export class FlagPass {
   readonly #o: FlagPassOptions;
+  readonly #sides = new Map<string, Sides>();
 
   constructor(options: FlagPassOptions) {
     this.#o = options;
@@ -193,7 +198,7 @@ export class FlagPass {
         prometheus.instant(figuresQuery((piece.to - piece.from) / 1000), new Date(piece.to)),
       ),
     );
-    const { on, off } = figuresOf(answers.flat(), sidesOf(flag, share));
+    const { on, off } = figuresOf(answers.flat(), this.#sidesOf(flag, share));
     const judgement = judge(on, off, window.judgedMs);
     if (judgement.kind === 'wait') {
       this.#o.log.debug({ workItem, flag, why: judgement.why }, 'a flag at Share waits to be compared');
@@ -224,25 +229,34 @@ export class FlagPass {
     this.#o.log.info({ workItem, flag, share, outcome: judgement.outcome }, 'compared a flag’s two sides at Share');
   }
 
+  /** The sides of a flag at a share, which depend on nothing else: worked out once. */
+  #sidesOf(flag: string, share: Share): Sides {
+    const key = `${flag}@${share}`;
+    const known = this.#sides.get(key);
+    if (known) return known;
+    const sides = sidesOf(flag, share);
+    this.#sides.set(key, sides);
+    return sides;
+  }
+
   /**
-   * Each canary in the line's record that was in flight at any time since `since`: from its start to its promotion,
-   * rollback, abort or error, or none while it is still in flight. A dry run's release shipped nothing, and is left out.
+   * Each canary in the line's record that was in flight at any time since `since`: from each start (a retry starts the
+   * same release again) to the promotion, rollback, abort or error after it, or none while it is still in flight. A
+   * release recorded on several work items starts on each, and its spans overlap. A dry run's shipped nothing, and is
+   * left out.
    */
   async #canaries(since: Date, now: Date): Promise<{ started: Date; ended: Date | null }[]> {
     const sql = this.#o.sql;
     return sql<{ started: Date; ended: Date | null }[]>`
-      select s.started, e.ended from (
-        select r.payload->>'release' as release, min(r.ts) as started from events r
-        where r.type = 'release.started' and not r.sample and r.ts <= ${now}
-          and coalesce((r.payload->>'dryRun')::boolean, false) = false
-        group by r.payload->>'release'
-      ) s
+      select s.ts as started, e.ended from events s
       left join lateral (
         select min(x.ts) as ended from events x
         where x.type in ('release.promoted', 'release.rolled-back', 'release.aborted', 'release.errored')
-          and not x.sample and x.payload->>'release' = s.release
+          and not x.sample and x.payload->>'release' = s.payload->>'release' and x.ts >= s.ts
       ) e on true
-      where e.ended is null or e.ended >= ${since}`;
+      where s.type = 'release.started' and not s.sample and s.ts <= ${now}
+        and coalesce((s.payload->>'dryRun')::boolean, false) = false
+        and (e.ended is null or e.ended >= ${since})`;
   }
 
   async #items(workItems: string[]): Promise<Record<string, FlagItem>> {

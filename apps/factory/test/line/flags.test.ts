@@ -122,7 +122,11 @@ describe('what the flag pass decides', () => {
     ]);
     const checks = { ...flags, records: [records[0] as StoredFlagRecord] };
     expect(flagsNext({ flags: checks, items: { '7': open }, only: null })).toEqual([]);
-    expect(flagsNext({ flags, items: { '7': { ...open, closed: true } }, only: null })).toEqual([]);
+    // On a closed work item too: a flag back on from Everyone after it closed may be narrowed to Share, and Everyone
+    // waits on the comparison.
+    expect(flagsNext({ flags, items: { '7': { ...open, closed: true } }, only: null })).toMatchObject([
+      { do: 'compare' },
+    ]);
   });
 
   it('with just one, acts on that work item alone', () => {
@@ -478,6 +482,37 @@ describe('the flag pass, against the store', () => {
       now += enough;
       await line({ verify: { prometheus: fake } }).pass();
       expect(await compared(dry.workItem)).toMatchObject([{ payload: { outcome: 'passed', setAsideMinutes: 0 } }]);
+    });
+
+    it('sets aside each attempt of a retried release, and a retry still in flight runs to now', async () => {
+      const { workItem } = await atShare('dates');
+      const { fake } = prometheus();
+      const { pass } = line({ verify: { prometheus: fake } });
+      now += 5 * MINUTE;
+      await released('release.started', 'canary-3');
+      now += 5 * MINUTE;
+      await events.append([
+        event(null, 'release.aborted', {
+          release: 'canary-3',
+          version: 'v0.9.8',
+          restored: 'v0.9.7',
+          abortedAt: new Date(now).toISOString(),
+          by: 'martin',
+        }),
+      ]);
+      now += 10 * MINUTE;
+      await released('release.started', 'canary-3');
+      now += enough;
+      await pass();
+      // The retry is still in flight: the window is only what came before it, less the first attempt.
+      expect(await compared(workItem)).toEqual([]);
+      await released('release.promoted', 'canary-3');
+      now += enough;
+      await pass();
+      // Six minutes for the first attempt and the retry's span for the second, each padded by a minute in all.
+      expect(await compared(workItem)).toMatchObject([
+        { payload: { outcome: 'passed', setAsideMinutes: 6 + enough / MINUTE + 1 } },
+      ]);
     });
 
     it('waits without Prometheus', async () => {
