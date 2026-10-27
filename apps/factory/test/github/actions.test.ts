@@ -683,7 +683,7 @@ describe('the worker over HTTP', () => {
       health: () => ({ mode: 'test' }),
       log: quiet,
     });
-    await new Promise<void>((resolve) => server.listen(0, resolve));
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     close = () => server.close();
     const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     baseUrl = base;
@@ -733,7 +733,7 @@ describe('the worker over HTTP', () => {
       health: () => ({ mode: 'test' }),
       log: pino({ level: 'info' }, { write: (line: string) => void logged.push(JSON.parse(line)) }),
     });
-    await new Promise<void>((resolve) => server.listen(0, resolve));
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     close = () => server.close();
     const worker = new GitHubWorker(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
     await worker.act('openIssue', REPO, { title: 'A broken link', body: '…' }, { workItem: '1042', agent: 'coder' });
