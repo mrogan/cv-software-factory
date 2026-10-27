@@ -80,6 +80,7 @@ export async function startAdmin(
   const bound = (server.address() as AddressInfo).port;
   log.info(
     {
+      host: host ?? null,
       port: bound,
       origin: config.origin,
       rpId: config.rpId,
@@ -87,7 +88,7 @@ export async function startAdmin(
       flags: config.flags ?? null,
       checksFlagsHeld: held !== undefined,
     },
-    `admin service listening on :${bound}`,
+    `admin service listening on ${host ?? ''}:${bound}`,
   );
 
   const stop = async () => {
