@@ -406,6 +406,11 @@ function chapterOf(event: PublicEvent, item: ItemState): Pick<Chapter, 'label' |
       };
     case 'flag.compared':
       return { label: 'COMPARED', tone: event.payload.outcome === 'passed' ? 'ok' : 'attn' };
+    // Verify's checks with the probes at Checks and Preview; the baseline with the flag off moves nothing.
+    case 'flag.checked':
+      if (event.payload.stage === 'off') return undefined;
+      if (event.payload.outcome === 'unsure') return { label: 'CHECKED', tone: 'faint' };
+      return { label: 'CHECKED', tone: event.payload.outcome === 'passed' ? 'ok' : 'attn' };
     case 'work-item.closed':
       // A guardrail that worked needs nobody: quarantine is told in the quiet tone, as closed work is.
       if (event.payload.outcome === 'quarantined') return { label: 'QUARANTINED', tone: 'faint' };

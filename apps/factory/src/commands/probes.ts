@@ -13,7 +13,8 @@
  *
  * `run` also serves the page reader for triage (`POST /v1/pages` with a path, and `GET /health`) on PORT, 8080 by
  * default; and for the line's Verify, on VERIFY_PORT, 8081 by default, runs a ticket's probe or crawl again
- * (`POST /v1/verify`, `probes/verify.ts`). Given CANARY_URL, the canary Service's address, it pictures every page on
+ * (`POST /v1/verify`, `probes/verify.ts`), and checks a feature flag at its stage with the probes, picturing its pages
+ * (`POST /v1/flag-check`, `probes/flag-check.ts`), one run at a time. Given CANARY_URL, the canary Service's address, it pictures every page on
  * the stable version and on the canary while a canary runs, and compares them (`pictures/take.ts`), with requests
  * that carry `UNMEASURED` too. After each release, it deletes the pictures no release needs any more.
  *
@@ -32,10 +33,11 @@ import { log } from '../log.ts';
 import { inbox } from '../outbox.ts';
 import { PictureIndex } from '../pictures/index.ts';
 import { Pictures } from '../pictures/take.ts';
-import { probes } from '../probes/index.ts';
+import { flagCheck, flagCheckKey } from '../probes/flag-check.ts';
+import { PROBES, probes } from '../probes/index.ts';
 import { readerServer } from '../probes/reader.ts';
-import { Verifications, verifyCheck, verifyServer } from '../probes/verify.ts';
-import { UNMEASURED, versionOf } from '../senses/http.ts';
+import { Jobs, takingTurns, Verifications, verifyCheck, verifyServer } from '../probes/verify.ts';
+import { exchange, UNMEASURED, versionOf } from '../senses/http.ts';
 import { observeApp } from '../senses/observe.ts';
 import { SenseRunner } from '../senses/runner.ts';
 import { discover, httpGet } from '../traffic/traffic.ts';
@@ -124,10 +126,45 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
       log,
     });
   const limit = Number(process.env.CRAWL_LIMIT ?? 150);
+  // A verification and a flag's check each run a browser over the journeys: one at a time, whichever is asked.
+  const turn = takingTurns();
   const verifications = new Verifications((request) =>
-    verifyCheck((only) => observeApp(app, only, { store, log, limit }), request),
+    turn(() => verifyCheck((only) => observeApp(app, only, { store, log, limit }), request)),
   );
-  const verifier = verifyServer({ verify: (request) => verifications.ask(request), log });
+  const stable = app.replace(/\/$/, '');
+  const allProbes = PROBES.map((p) => ({ sense: 'probe', check: p.id }));
+  const flagChecks = new Jobs(
+    (request: Parameters<typeof flagCheck>[1]) =>
+      turn(() =>
+        flagCheck(
+          {
+            version: () => versionOf(stable, UNMEASURED),
+            revision: async () =>
+              (await exchange(stable, '/health', { headers: UNMEASURED })).headers['x-flags-revision'],
+            // The probes alone, never the crawl, with the device check, as the journeys gate runs them.
+            observe: (only, preview) =>
+              observeApp(stable, only ?? allProbes, { store, log, limit, device: true, preview }),
+            shoot: (path, { route, version }) =>
+              sense.withPage(async (page) => {
+                const url = new URL(path, stable);
+                if (url.origin !== new URL(stable).origin) throw new Error(`${path} is not a path on the app`);
+                await page.goto(url.href, { waitUntil: 'load' });
+                return capturePage(page, store, { route, version, maxHeight: PICTURE_HEIGHT });
+              }, UNMEASURED),
+            index,
+            store,
+            log,
+          },
+          request,
+        ),
+      ),
+    flagCheckKey,
+  );
+  const verifier = verifyServer({
+    verify: (request) => verifications.ask(request),
+    flagCheck: (request) => flagChecks.ask(request),
+    log,
+  });
   const reader = readerServer({ app, sense, store, version: () => versionOf(app, UNMEASURED), log });
   const port = Number(process.env.PORT ?? 8080);
   await new Promise<void>((resolve) => reader.listen(port, resolve));
@@ -137,6 +174,7 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
   log.info({ port: verifyPort }, 'the verification is listening');
   const stop = runner.start(seconds('VERSION_POLL', 15));
   const stopPictures = pictures ? pictures.start(seconds('VERSION_POLL', 15)) : async () => {};
+  const stopForgetting = forgetFlagPictures(index, store);
   if (pictures) log.info({ canary }, 'pictures are taken while a canary runs');
   await new Promise<void>((resolve) => {
     process.once('SIGINT', resolve);
@@ -144,8 +182,34 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
   });
   await stop();
   await stopPictures();
+  await stopForgetting();
   await new Promise((resolve) => reader.close(resolve));
   await new Promise((resolve) => verifier.close(resolve));
   await sql.end();
   return 0;
+}
+
+/** How often a flag's pictures no event came to name are looked for, and how long since its last storing an image is kept. */
+const FORGET_FLAG_PICTURES_MS = 6 * 60 * 60_000;
+const STORED_LATELY_MS = 10 * 60_000;
+
+/**
+ * Forgets a flag's pictures no event came to name, a day after they were taken (`PictureIndex.forgetFlagPictures`),
+ * when the worker starts and every six hours, with or without a canary to picture. Gives back how to stop it.
+ */
+function forgetFlagPictures(index: PictureIndex, store: DiskArtifacts): () => Promise<void> {
+  let current: Promise<unknown> = Promise.resolve();
+  const forget = () => {
+    const unusedSince = new Date(Date.now() - STORED_LATELY_MS);
+    current = index
+      .forgetFlagPictures(new Date(), (hash) => store.remove(hash, unusedSince))
+      .then((deleted) => deleted && log.info({ images: deleted }, 'deleted the flags’ pictures no event names'))
+      .catch((error: unknown) => log.warn({ err: String(error) }, 'the flags’ pictures could not be forgotten'));
+  };
+  forget();
+  const timer = setInterval(forget, FORGET_FLAG_PICTURES_MS);
+  return async () => {
+    clearInterval(timer);
+    await current;
+  };
 }

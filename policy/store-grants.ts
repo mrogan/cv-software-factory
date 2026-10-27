@@ -65,7 +65,9 @@ export const STORE_GRANTS = {
     calls: ['forget_reports(timestamp with time zone)'],
   },
   factory_line: {
-    for: "The line: its queue, its runners' job tokens and logs, spend, and the signals it leaves triage.",
+    for:
+      "The line: its queue, its runners' job tokens and logs, spend, the pictures it names, and the signals it leaves " +
+      'triage.',
     memberOf: ['factory_worker'],
     on: {
       line: [
@@ -77,6 +79,7 @@ export const STORE_GRANTS = {
       step_logs: ['select', 'insert (job, work_item, agent, part, pod, hash, size, ending, reason)'],
       model_calls: ['select'],
       pictures: ['select'],
+      flag_pictures: ['select'],
       looks: ['select'],
       inbox: [SIGNAL],
     },
@@ -88,7 +91,9 @@ export const STORE_GRANTS = {
     on: { model_calls: ['select', 'insert'], job_tokens: ['select'] },
   },
   factory_probes: {
-    for: "The probes: their signals, each release's pictures, and the looks they box on them.",
+    for:
+      "The probes: their signals, each release's pictures and each flag's (0034_flag-pictures.sql), and the looks " +
+      'they box on them.',
     memberOf: ['factory_worker'],
     on: {
       pictures: [
@@ -97,6 +102,7 @@ export const STORE_GRANTS = {
         'update (rollout)',
         'delete',
       ],
+      flag_pictures: ['select', 'insert (flag, stage, revision, version, path, route, shot, changed, diff)', 'delete'],
       looks: ['select', 'insert', 'update (path, elements, seen_at)'],
       inbox: ['select (signal, triaged_at)', SIGNAL],
     },

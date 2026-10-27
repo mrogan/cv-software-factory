@@ -7,7 +7,7 @@ import { type NewEvent, type PayloadOf, type Screenshot, VERSIONS } from '@softw
 import { AppendRefused, EventWriter, nextWorkItem } from '@software-factory/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
-import { IndexedArtifacts, type Picture, PictureIndex } from '../../src/pictures/index.ts';
+import { type FlagPicture, IndexedArtifacts, type Picture, PictureIndex } from '../../src/pictures/index.ts';
 
 let database: Database;
 beforeEach(async () => {
@@ -297,3 +297,125 @@ describe('the artifacts the line may attach', () => {
     await events.append(opened([shot('1', OLD), shot('2', NEW)]));
   });
 });
+
+describe('a flag’s pictures', () => {
+  const DAY = 24 * 60 * 60_000;
+  const hash = (fill: string) => fill.repeat(64);
+  /** A flag's page, its images named by the hex digit each hash repeats: the shot, and the diff at Checks. */
+  const flagPage = (stage: 'off' | 'checks', [s, d]: string, path = '/'): FlagPicture => ({
+    flag: 'gift-note',
+    stage,
+    revision: 'r7',
+    version: NEW,
+    path,
+    route: path,
+    shot: shot(s as string, NEW),
+    changed: stage === 'checks' ? 0.02 : null,
+    diff: d && d !== '-' ? shot(d, NEW) : null,
+  });
+
+  it('records a page once for each stage, flag set and version, and finds the baseline’s by its hash', async () => {
+    const index = new PictureIndex(database.as.probes);
+    await index.recordFlagPicture(flagPage('off', '1-'));
+    await index.recordFlagPicture({ ...flagPage('off', '9-'), route: '/again' });
+    await index.recordFlagPicture(flagPage('checks', '23'));
+    const key = { flag: 'gift-note', revision: 'r7', version: NEW, path: '/' };
+    expect(await index.flagPicture({ ...key, stage: 'off' })).toEqual(flagPage('off', '1-'));
+    expect(await index.flagPicture({ ...key, stage: 'checks' })).toEqual(flagPage('checks', '23'));
+    expect(await index.flagPicture({ ...key, stage: 'off', revision: 'r8' })).toBeUndefined();
+    expect((await index.flagOff('gift-note', hash('1')))?.path).toBe('/');
+    // Only the baseline's, and only the flag's own.
+    expect(await index.flagOff('gift-note', hash('2'))).toBeUndefined();
+    expect(await index.flagOff('dark-mode', hash('1'))).toBeUndefined();
+  });
+
+  it('are artifacts the line may attach, at their size', async () => {
+    await new PictureIndex(database.as.probes).recordFlagPicture(flagPage('checks', '23'));
+    const artifacts = new IndexedArtifacts(database.as.line);
+    expect(await artifacts.size(hash('2'))).toBe(1000 + '2'.charCodeAt(0));
+    expect(await artifacts.size(hash('3'))).toBe(1000 + '3'.charCodeAt(0));
+    expect(await artifacts.size(hash('4'))).toBeNull();
+  });
+
+  it('are kept while an event names them, forgotten a day after when none does, and never an image still named', async () => {
+    const index = new PictureIndex(database.as.probes);
+    // The baseline, named by its event; a check no event came to name; one taken just now; and a release's picture
+    // sharing an image with the unnamed check's.
+    await index.recordFlagPicture(flagPage('off', '1-'));
+    await index.recordFlagPicture(flagPage('checks', '23'));
+    await index.recordFlagPicture(flagPage('checks', '45', '/about'));
+    await index.record([{ ...picture('/'), before: shot('5', OLD), after: shot('6', NEW), diff: null }]);
+    const workItem = await nextWorkItem(database.as.triage);
+    const events = new EventWriter(database.as.line, {
+      kind: 'real',
+      artifacts: new IndexedArtifacts(database.as.line),
+    });
+    const stored = (type: NewEvent['type'], payload: unknown, artifacts: Screenshot[] = []): NewEvent =>
+      ({
+        id: crypto.randomUUID(),
+        ts: new Date().toISOString(),
+        work_item: workItem,
+        type,
+        version: VERSIONS[type],
+        actor: type === 'work-item.opened' ? 'martin' : 'factory',
+        summary: `${type} for the test`,
+        payload,
+        artifacts,
+      }) as NewEvent;
+    await writerAs(database.as.triage).append(
+      stored('work-item.opened', { kind: 'improvement', title: 'A gift note', sample: false }),
+    );
+    await events.append(
+      stored(
+        'flag.checked',
+        {
+          stage: 'off',
+          flag: 'gift-note',
+          version: NEW,
+          revision: 'r7',
+          journeys: { passed: 3, ran: 3 },
+          notClean: [],
+          pages: [{ page: '/', route: '/', off: hash('1') }],
+        },
+        [shot('1', NEW)],
+      ),
+    );
+    const removed: string[] = [];
+    const remove = async (h: string) => {
+      removed.push(h);
+      return true;
+    };
+    // Within the day, nothing is forgotten.
+    expect(await index.forgetFlagPictures(new Date(), remove)).toBe(0);
+    // A day on, the unnamed checks go, with their images; the release's picture keeps the image it shares.
+    await database.owner`update flag_pictures set taken_at = now() - interval '2 days' where path = '/'`;
+    expect(await index.forgetFlagPictures(new Date(), remove)).toBe(2);
+    expect(removed.sort()).toEqual([hash('2'), hash('3')]);
+    const key = { flag: 'gift-note', revision: 'r7', version: NEW };
+    expect(await index.flagPicture({ ...key, stage: 'off', path: '/' })).toBeDefined();
+    expect(await index.flagPicture({ ...key, stage: 'checks', path: '/' })).toBeUndefined();
+    expect(await index.flagPicture({ ...key, stage: 'checks', path: '/about' })).toBeDefined();
+    removed.length = 0;
+    // The one taken just now, a day on: its shot goes, and its diff, the image the release's picture names, stays.
+    expect(await index.forgetFlagPictures(new Date(Date.now() + 2 * DAY), remove)).toBe(1);
+    expect(removed).toEqual([hash('4')]);
+    expect(await index.flagPicture({ ...key, stage: 'checks', path: '/about' })).toBeUndefined();
+    expect(await index.flagPicture({ ...key, stage: 'off', path: '/' })).toBeDefined();
+  });
+
+  it('keep the images they name when a release’s pictures are forgotten', async () => {
+    const index = new PictureIndex(database.as.probes);
+    await index.record([{ ...picture('/'), canary: '1'.repeat(40), stable: OLD, before: shot('7', OLD) }]);
+    await index.record([{ ...picture('/'), canary: '2'.repeat(40), stable: '1'.repeat(40) }]);
+    await index.recordFlagPicture(flagPage('off', '7-'));
+    const removed: string[] = [];
+    await index.forget(1, '2'.repeat(40), async (h) => {
+      removed.push(h);
+      return true;
+    });
+    expect(removed).not.toContain(hash('7'));
+  });
+});
+
+const writerAs = (sql: Database['owner']) =>
+  new EventWriter(sql, { kind: 'real', artifacts: new IndexedArtifacts(sql) });

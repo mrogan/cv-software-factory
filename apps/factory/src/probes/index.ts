@@ -25,13 +25,32 @@ export interface ProbeOptions {
   log: { warn(fields: object, message: string): void };
   /** Whether to say what each probe's pages left on the device and which other origins they asked: the gates'. */
   device?: boolean;
+  /**
+   * A flag to ask the app to preview, as the console's "Preview it" link does, before the probes run: Verify's check
+   * of a flag at its opt-in stage. Every probe after it then runs with the preview cookie, which the `/device` check
+   * allows.
+   */
+  preview?: string | undefined;
 }
 
-export const probes = ({ app, store, log, device = false }: ProbeOptions): BrowserSense<Shop> =>
+/** The check that asks for a preview: its id, and the checks the watch makes of its page, which say nothing of a flag. */
+export const PREVIEW_CHECK = 'preview';
+
+/** Asks the app to preview a flag on its front page, and finds nothing itself: the probes after it look. */
+export const previewCheck = (flag: string): BrowserCheck<Shop> => ({
+  id: PREVIEW_CHECK,
+  route: '/',
+  run: async ({ preview }) => {
+    await preview(flag, '/');
+    return null;
+  },
+});
+
+export const probes = ({ app, store, log, device = false, preview }: ProbeOptions): BrowserSense<Shop> =>
   new BrowserSense({
     name: 'probe',
     app,
-    checks: PROBES,
+    checks: preview ? [previewCheck(preview), ...PROBES] : PROBES,
     store,
     log,
     shared: () => new Shop(app, UNMEASURED),

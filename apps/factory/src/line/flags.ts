@@ -20,9 +20,17 @@
  *     long enough and each side has enough requests, it waits and appends nothing; then it appends `flag.compared`,
  *     passed or failed, once for that move. Everyone waits on it (`policy/flag-moves.ts`). Without Prometheus
  *     (`PROMETHEUS_URL`, Verify's), it waits.
+ *   - **Checked with the probes** (`flag-checks.ts`): while an open improvement's flag is at Off, the probes take a
+ *     baseline of the stable version, once for each version and flag set it runs with: the journeys and the `/device` check, and
+ *     pictures of the spec's pages, all with the flag off, since every probe request carries the mark, which the flag
+ *     is on for from Checks. At Checks and at Preview, the same again, compared with the latest baseline, once for each
+ *     of Martin's moves there; at Preview a probe first asks to preview the flag. Each is asked once a pass, and the
+ *     probes join the run already going; each run checks the app held the flag set Martin's latest move wrote, before
+ *     and after, or it is tried again on the next pass. Then it appends `flag.checked`. Without the probes
+ *     (`PROBES_URL`, Verify's), it waits.
  * - **With just one** (`only`), it acts on that work item alone.
  */
-import type { EventWriter, FlagEvents } from '@software-factory/store';
+import type { EventWriter, FlagEvents, StoredFlagCheck } from '@software-factory/store';
 import { flagEvents, lastEnd } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
@@ -31,8 +39,10 @@ import { FLAGS_HELD, type Share, type Stage } from '../../../../policy/flags.ts'
 import { release as RELEASE } from '../../../../policy/release.ts';
 import type { Prometheus } from '../clients/prometheus.ts';
 import { figuresOf, figuresQuery, judge, type Sides, type Span, sidesOf, windowOf } from './compare.ts';
+import { type CheckAsked, checkedDraft, FRONT_PAGE, requestOf } from './flag-checks.ts';
 import { asEvent } from './gates.ts';
 import { countRecorded } from './metrics.ts';
+import type { FlagChecksPort } from './verify.ts';
 
 /** A work item a flag was last staged on, as the pass needs it. */
 export interface FlagItem {
@@ -69,27 +79,73 @@ export type FlagNext =
       share: Share;
       /** Martin's move to this share: its place in the store, and when it was made. */
       move: { seq: string; ts: string };
-    };
+    }
+  | ({ do: 'check' } & CheckAsked);
 
 /** The reason a close gives when Martin's move gave none, which no `flag.staged` to Off can. */
 const NO_REASON = 'Martin turned its flag off';
 
-/** The work items the pass needs to know about: each one a flag was last staged on. */
+/**
+ * The work items the pass needs to know about: each one a flag was last staged on, and each improvement whose spec
+ * names a flag at Off, whose baseline the probes take.
+ */
 export function itemsAsked(flags: FlagEvents): string[] {
   const told = flagsFrom(flags.records, flags.named);
-  return [...new Set(Object.values(told).flatMap((now) => (now.stagedOn ? [now.stagedOn] : [])))];
+  return [
+    ...new Set(
+      Object.values(told).flatMap((now) => [
+        ...(now.stagedOn ? [now.stagedOn] : []),
+        ...(now.stage?.stage === 'off' && now.workItem ? [now.workItem] : []),
+      ]),
+    ),
+  ];
 }
+
+/** Whether one place in the store comes after another. */
+const after = (seq: string, than: string) => BigInt(seq) > BigInt(than);
 
 /** What the pass does for each flag, given the flags' state: a pure function, so a test drives it with records. */
 export function flagsNext({ flags, items, only }: FlagFacts): FlagNext[] {
   const told = flagsFrom(flags.records, flags.named);
   const next: FlagNext[] = [];
+  const revision = flags.revision ?? 'none';
   for (const [flag, now] of Object.entries(told)) {
+    const move = flags.records.findLast((r) => r.type === 'flag.staged' && r.flag === flag);
+    const checks = flags.checked.filter((c) => c.check.flag === flag);
+    /** The latest baseline taken for an improvement: another's, which reused the flag's name, is none of its. */
+    const baselineOf = (item: string) => checks.findLast((c) => c.check.stage === 'off' && c.workItem === item) ?? null;
+    // At Off, on an open improvement whose spec names it: the baseline, once for each version the app runs, which the
+    // probes tell (`have`). Never staged on it: one staged on an earlier improvement may be named again by this one's
+    // spec, and one turned off on this one closes it.
+    const named = now.workItem;
+    const improvement = named ? items[named] : undefined;
+    const taken = named ? baselineOf(named) : null;
+    if (
+      now.stage?.stage === 'off' &&
+      named &&
+      now.stagedOn !== named &&
+      (only === null || named === only) &&
+      improvement?.improvement &&
+      !improvement.sample &&
+      !improvement.closed
+    ) {
+      next.push({
+        do: 'check',
+        flag,
+        workItem: named,
+        stage: 'off',
+        revision,
+        move: move?.seq ?? null,
+        // Taken again for a new flag set too: another flag moved meanwhile changes what the probes see.
+        ...(taken?.check.revision === revision && { have: taken.check.version }),
+        base: null,
+        pages: FRONT_PAGE,
+      });
+    }
     const workItem = now.stagedOn;
     if (!workItem || (only !== null && workItem !== only)) continue;
     const item = items[workItem];
     if (!item?.improvement || item.sample) continue;
-    const move = flags.records.findLast((r) => r.type === 'flag.staged' && r.flag === flag);
     // Turned off, at any stage: Martin's last move went to Off, on this work item. It closes once, whichever of its
     // flags was turned off.
     if (
@@ -105,9 +161,20 @@ export function flagsNext({ flags, items, only }: FlagFacts): FlagNext[] {
     if (now.last?.to.stage === 'share' && !now.compared && move) {
       next.push({ do: 'compare', flag, workItem, share: now.last.to.share, move: { seq: move.seq, ts: move.ts } });
     }
+    // At Checks or Preview, and not yet checked there since Martin's move: once for each move, against the latest
+    // baseline taken for this improvement, whichever version it was taken of.
+    const stage = now.last?.to.stage;
+    if ((stage === 'checks' || stage === 'preview') && move && !checkedSince(checks, stage, move.seq)) {
+      const base = baselineOf(workItem);
+      next.push({ do: 'check', flag, workItem, stage, revision, move: move.seq, base, pages: FRONT_PAGE });
+    }
   }
   return next;
 }
+
+/** Whether a flag was checked at a stage since a move. */
+const checkedSince = (checks: readonly StoredFlagCheck[], stage: 'checks' | 'preview', move: string) =>
+  checks.some((c) => c.check.stage === stage && after(c.seq, move));
 
 export interface FlagPassOptions {
   /** As the line's role. */
@@ -119,6 +186,8 @@ export interface FlagPassOptions {
   prometheus?: Prometheus | null;
   /** How often the line reads the app's releases, which records each up to that late: a canary's span is padded by it. */
   releaseEveryMs: number;
+  /** Verify's probes, which check a flag at Off, Checks and Preview: without them, those checks wait. */
+  probes?: FlagChecksPort | null;
 }
 
 /** The pass: reads the flags' state, decides, and appends what it decided. */
@@ -137,7 +206,14 @@ export class FlagPass {
     const items = await this.#items(asked);
     for (const next of flagsNext({ flags, items, only })) {
       if (next.do === 'close') await this.#close(next);
-      else {
+      else if (next.do === 'check') {
+        await this.#check(next).catch((error: unknown) =>
+          this.#o.log.warn(
+            { workItem: next.workItem, flag: next.flag, stage: next.stage, err: error },
+            'could not check a flag with the probes',
+          ),
+        );
+      } else {
         // One that Prometheus or the store fails waits for no other, and is tried again on the next pass.
         await this.#compare(next).catch((error: unknown) =>
           this.#o.log.warn(
@@ -227,6 +303,37 @@ export class FlagPass {
     await this.#o.events.append(drafts.map((draft) => asEvent(workItem, draft, now.toISOString())));
     countRecorded(drafts);
     this.#o.log.info({ workItem, flag, share, outcome: judgement.outcome }, 'compared a flag’s two sides at Share');
+  }
+
+  /**
+   * Asks the probes to check a flag at its stage, once a pass, and appends `flag.checked` once they have answered with
+   * a run that saw the stage: while it runs, the next pass asks again and joins it.
+   */
+  async #check(next: Extract<FlagNext, { do: 'check' }>): Promise<void> {
+    const { flag, workItem, stage } = next;
+    const probes = this.#o.probes;
+    if (!probes) {
+      this.#o.log.debug({ workItem, flag, stage }, 'cannot check a flag without the probes (PROBES_URL)');
+      return;
+    }
+    const answer = await probes.flagCheck(requestOf(next));
+    if (!answer || answer.kind === 'have') return;
+    if (answer.kind === 'not-held') {
+      this.#o.log.info(
+        { workItem, flag, stage, why: answer.message },
+        'a flag’s check did not see its stage; again later',
+      );
+      return;
+    }
+    // Martin may have moved it, or another flag, while the probes ran: then this check is of a flag set gone.
+    const now = await flagEvents(this.#o.sql, flag);
+    const latest = now.records.findLast((r) => r.type === 'flag.staged');
+    if ((latest?.seq ?? null) !== next.move || (now.revision ?? 'none') !== answer.revision) return;
+    const drafts = [checkedDraft(next, answer)];
+    const ts = this.#o.now().toISOString();
+    await this.#o.events.append(drafts.map((draft) => asEvent(workItem, draft, ts)));
+    countRecorded(drafts);
+    this.#o.log.info({ workItem, flag, stage, version: answer.version }, 'checked a flag with the probes');
   }
 
   /** The sides of a flag at a share, which depend on nothing else: worked out once. */
