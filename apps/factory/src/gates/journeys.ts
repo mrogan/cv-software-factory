@@ -25,6 +25,12 @@ export interface Seen {
   message?: string;
   /** What a failed check kept as proof. */
   evidence?: Evidence[];
+  /**
+   * A `/device` check's reading, as `<kind> <name>`: what the pages kept on the device beyond what is allowed, and the
+   * app's preview cookie, kept to its contract after the pass asked for a preview. Absent when there is neither.
+   */
+  kept?: string[];
+  allowed?: string[];
 }
 
 export interface Comparison {

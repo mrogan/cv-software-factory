@@ -1,7 +1,8 @@
 /**
  * The index of a release's pictures (migrations 0010 and 0013): which pages were compared for which canary, with their
- * screenshots' references, and where each sense last boxed an element. The images themselves are in the artifact
- * store, which the probes worker writes; the line has no way to that store, and reads this instead.
+ * screenshots' references, and where each sense last boxed an element; and of a feature flag's pictures (0034), its
+ * pages with the flag off and on, which Verify takes at Off and Checks (`probes/flag-check.ts`). The images themselves
+ * are in the artifact store, which the probes worker writes; the line has no way to that store, and reads this instead.
  */
 
 import type { Screenshot } from '@software-factory/events';
@@ -42,6 +43,27 @@ export interface Look {
   path: string;
   elements: Check[];
 }
+
+/**
+ * A page of a feature flag's, pictured by Verify: at `off`, the baseline, with the flag off; at `checks`, with it on,
+ * against the page with it off when there is one.
+ */
+export interface FlagPicture {
+  flag: string;
+  stage: 'off' | 'checks';
+  /** The flag set's revision the app reported, and its version. */
+  revision: string;
+  version: string;
+  path: string;
+  route: string;
+  shot: Screenshot;
+  /** At checks, the share of pixels that differ from the page with the flag off: none without one. */
+  changed: number | null;
+  diff: Screenshot | null;
+}
+
+/** How long a flag's picture no event names is kept: longer than Verify takes from a run to its event. */
+const FLAG_PICTURES_FOR_MS = 24 * 60 * 60_000;
 
 /** How long a look is boxed on the pictures after it was last seen: a defect that long gone has been dealt with. */
 const LOOKS_FOR_DAYS = 30;
@@ -157,12 +179,77 @@ export class PictureIndex {
         and not exists (
           select 1 from pictures
           where not ${forgotten}
-            and (before->>'hash' = hash or after->>'hash' = hash or diff->>'hash' = hash or rollout->>'hash' = hash))`;
+            and (before->>'hash' = hash or after->>'hash' = hash or diff->>'hash' = hash or rollout->>'hash' = hash))
+        and not exists (select 1 from flag_pictures where shot->>'hash' = hash or diff->>'hash' = hash)`;
     const left: string[] = [];
     for (const { hash } of unnamed) if (!(await remove(hash))) left.push(hash);
     await sql`
       delete from pictures where ${forgotten}
         and not (array[before->>'hash', after->>'hash', diff->>'hash', rollout->>'hash'] && ${left}::text[])`;
+    return unnamed.length - left.length;
+  }
+
+  /** A flag's page as Verify pictured it already, for the same stage, flag set and version: the same picture. */
+  async flagPicture(
+    key: Pick<FlagPicture, 'flag' | 'stage' | 'revision' | 'version' | 'path'>,
+  ): Promise<FlagPicture | undefined> {
+    const [row] = await this.#sql<FlagPicture[]>`
+      select flag, stage, revision, version, path, route, shot, changed, diff from flag_pictures
+      where flag = ${key.flag} and stage = ${key.stage} and revision = ${key.revision} and version = ${key.version}
+        and path = ${key.path}`;
+    return row;
+  }
+
+  /** The baseline's picture of a flag's page, by its screenshot's hash: the page with the flag off. */
+  async flagOff(flag: string, hash: string): Promise<FlagPicture | undefined> {
+    const [row] = await this.#sql<FlagPicture[]>`
+      select flag, stage, revision, version, path, route, shot, changed, diff from flag_pictures
+      where flag = ${flag} and stage = 'off' and shot->>'hash' = ${hash} order by taken_at desc limit 1`;
+    return row;
+  }
+
+  /** Records a flag's page as Verify pictured it. One recorded already keeps what it has. */
+  async recordFlagPicture(p: FlagPicture): Promise<void> {
+    const sql = this.#sql;
+    await sql`
+      insert into flag_pictures (flag, stage, revision, version, path, route, shot, changed, diff)
+      values (${p.flag}, ${p.stage}, ${p.revision}, ${p.version}, ${p.path}, ${p.route}, ${sql.json(p.shot as never)},
+              ${p.changed}, ${p.diff ? sql.json(p.diff as never) : null})
+      on conflict do nothing`;
+  }
+
+  /**
+   * Forgets the flags' pictures no event came to name, a day after they were taken: a run the line never recorded,
+   * because it could not tell what stage the app held, or Martin moved the flag meanwhile. One an event names is kept
+   * as long as the event. First `remove` is given each of their images that nothing else names: no event, no other
+   * flag's picture, no release's picture and no signal triage has still to take; then the rows go whose images are all
+   * gone, as `forget` does. Gives back how many images were deleted.
+   */
+  async forgetFlagPictures(now: Date, remove: (hash: string) => Promise<boolean>): Promise<number> {
+    const sql = this.#sql;
+    const before = new Date(now.getTime() - FLAG_PICTURES_FOR_MS);
+    // Named when a check's event carries its screenshot: each page's screenshots are among the event's artifacts.
+    const forgotten = sql`taken_at < ${before} and not exists (
+      select 1 from events e
+      where e.type = 'flag.checked' and e.artifacts @> jsonb_build_array(jsonb_build_object('hash', shot->>'hash')))`;
+    const unnamed = await sql<{ hash: string }[]>`
+      with gone as (
+        select distinct unnest(array[shot->>'hash', diff->>'hash']) as hash from flag_pictures where ${forgotten}
+      ), named as (
+        select m[1] as hash from events, regexp_matches(artifacts::text || payload::text, '([0-9a-f]{64})', 'g') m
+        union select m[1] from inbox, regexp_matches(signal::text, '([0-9a-f]{64})', 'g') m where triaged_at is null
+      )
+      select hash from gone
+      where hash is not null and hash not in (select hash from named)
+        and not exists (
+          select 1 from flag_pictures where not (${forgotten}) and (shot->>'hash' = hash or diff->>'hash' = hash))
+        and not exists (
+          select 1 from pictures
+          where before->>'hash' = hash or after->>'hash' = hash or diff->>'hash' = hash or rollout->>'hash' = hash)`;
+    const left: string[] = [];
+    for (const { hash } of unnamed) if (!(await remove(hash))) left.push(hash);
+    await sql`
+      delete from flag_pictures where ${forgotten} and not (array[shot->>'hash', diff->>'hash'] && ${left}::text[])`;
     return unnamed.length - left.length;
   }
 
@@ -210,13 +297,15 @@ export class IndexedArtifacts implements ArtifactStore {
   }
 
   async size(hash: string): Promise<number | null> {
-    // Each column's hash is indexed (migration 0010), so this does not read every picture.
+    // Each column's hash is indexed (migrations 0010 and 0034), so this does not read every picture.
     const [row] = await this.#sql<{ size: string }[]>`
       select size from (
         select before->>'hash' as hash, before->>'size' as size from pictures where before->>'hash' = ${hash}
         union all select after->>'hash', after->>'size' from pictures where after->>'hash' = ${hash}
         union all select diff->>'hash', diff->>'size' from pictures where diff->>'hash' = ${hash}
         union all select rollout->>'hash', rollout->>'size' from pictures where rollout->>'hash' = ${hash}
+        union all select shot->>'hash', shot->>'size' from flag_pictures where shot->>'hash' = ${hash}
+        union all select diff->>'hash', diff->>'size' from flag_pictures where diff->>'hash' = ${hash}
       ) as shots limit 1`;
     return row ? Number(row.size) : null;
   }

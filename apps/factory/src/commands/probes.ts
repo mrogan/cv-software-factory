@@ -13,7 +13,8 @@
  *
  * `run` also serves the page reader for triage (`POST /v1/pages` with a path, and `GET /health`) on PORT, 8080 by
  * default; and for the line's Verify, on VERIFY_PORT, 8081 by default, runs a ticket's probe or crawl again
- * (`POST /v1/verify`, `probes/verify.ts`). Given CANARY_URL, the canary Service's address, it pictures every page on
+ * (`POST /v1/verify`, `probes/verify.ts`), and checks a feature flag at its stage with the probes, picturing its pages
+ * (`POST /v1/flag-check`, `probes/flag-check.ts`), one run at a time. Given CANARY_URL, the canary Service's address, it pictures every page on
  * the stable version and on the canary while a canary runs, and compares them (`pictures/take.ts`), with requests
  * that carry `UNMEASURED` too. After each release, it deletes the pictures no release needs any more.
  *
@@ -32,10 +33,11 @@ import { log } from '../log.ts';
 import { inbox } from '../outbox.ts';
 import { PictureIndex } from '../pictures/index.ts';
 import { Pictures } from '../pictures/take.ts';
-import { probes } from '../probes/index.ts';
+import { flagCheck, flagCheckKey } from '../probes/flag-check.ts';
+import { PROBES, probes } from '../probes/index.ts';
 import { readerServer } from '../probes/reader.ts';
-import { Verifications, verifyCheck, verifyServer } from '../probes/verify.ts';
-import { UNMEASURED, versionOf } from '../senses/http.ts';
+import { Jobs, takingTurns, Verifications, verifyCheck, verifyServer } from '../probes/verify.ts';
+import { exchange, UNMEASURED, versionOf } from '../senses/http.ts';
 import { observeApp } from '../senses/observe.ts';
 import { SenseRunner } from '../senses/runner.ts';
 import { discover, httpGet } from '../traffic/traffic.ts';
@@ -124,10 +126,42 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
       log,
     });
   const limit = Number(process.env.CRAWL_LIMIT ?? 150);
+  // A verification and a flag's check each run a browser over the journeys: one at a time, whichever is asked.
+  const turn = takingTurns();
   const verifications = new Verifications((request) =>
-    verifyCheck((only) => observeApp(app, only, { store, log, limit }), request),
+    turn(() => verifyCheck((only) => observeApp(app, only, { store, log, limit }), request)),
   );
-  const verifier = verifyServer({ verify: (request) => verifications.ask(request), log });
+  const stable = app.replace(/\/$/, '');
+  const allProbes = PROBES.map((p) => ({ sense: 'probe', check: p.id }));
+  const flagChecks = new Jobs(
+    (request: Parameters<typeof flagCheck>[1]) =>
+      turn(() =>
+        flagCheck(
+          {
+            version: () => versionOf(stable, UNMEASURED),
+            revision: async () =>
+              (await exchange(stable, '/health', { headers: UNMEASURED })).headers['x-flags-revision'],
+            // The probes alone, never the crawl, with the device check, as the journeys gate runs them.
+            observe: (only, preview) =>
+              observeApp(stable, only ?? allProbes, { store, log, limit, device: true, preview }),
+            shoot: (path, { route, version }) =>
+              sense.withPage(async (page) => {
+                await page.goto(new URL(path, stable).href, { waitUntil: 'load' });
+                return capturePage(page, store, { route, version, maxHeight: PICTURE_HEIGHT });
+              }, UNMEASURED),
+            index,
+            store,
+          },
+          request,
+        ),
+      ),
+    flagCheckKey,
+  );
+  const verifier = verifyServer({
+    verify: (request) => verifications.ask(request),
+    flagCheck: (request) => flagChecks.ask(request),
+    log,
+  });
   const reader = readerServer({ app, sense, store, version: () => versionOf(app, UNMEASURED), log });
   const port = Number(process.env.PORT ?? 8080);
   await new Promise<void>((resolve) => reader.listen(port, resolve));

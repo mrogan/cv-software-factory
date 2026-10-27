@@ -136,9 +136,10 @@ export const PUBLIC_VIEWS = {
   // His controls of the line are everyone's to see too, as Controls shows them to visitors.
   'controls.changed': redacted,
   // His stages of the flags are everyone's to see, as Controls shows them to visitors, with his reason through the
-  // redactor; Verify's comparisons are figures alone.
+  // redactor; Verify's comparisons are figures alone, and its checks the probes' own words about the app's pages.
   'flag.staged': redacted,
   'flag.compared': redacted,
+  'flag.checked': redacted,
 } satisfies { [K in EventType]: PublicViewOf<K> };
 
 /** The public view of an event. Applying it twice changes nothing. */

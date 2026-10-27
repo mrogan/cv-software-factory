@@ -8,8 +8,9 @@
  * of it, a cookie or anything a script stores, or its pages asked another origin. The app keeps nothing on a visitor's
  * device and loads nothing from anywhere else, so the gate fails a change that starts to, as it fails any check that
  * passes on the base and fails on the change. The one exception is the app's preview cookie, kept to its contract,
- * once a check of the pass asked for a preview (`senses/device.ts`): without the ask, it fails like any other. Verify
- * and the probes that look after the live app do not ask.
+ * once a check of the pass asked for a preview (`senses/device.ts`): without the ask, it fails like any other, and
+ * with it, the device check lists it as allowed. Verify asks for one when it checks a flag at its opt-in stage
+ * (`preview`, `probes/flag-check.ts`); the probes that look after the live app do not ask.
  */
 import type { ArtifactStore } from '@software-factory/store';
 import { Crawler } from '../crawler/index.ts';
@@ -25,6 +26,8 @@ export interface ObserveOptions {
   limit: number;
   /** Whether each probe also says what is on the device and which other origins it asked: the gates'. */
   device?: boolean;
+  /** A flag to ask the app to preview before the probes run, on the front page: Verify's check at the opt-in stage. */
+  preview?: string | undefined;
 }
 
 /**
@@ -35,13 +38,13 @@ export interface ObserveOptions {
 export async function observeApp(
   url: string,
   only: readonly Pick<Seen, 'sense' | 'check'>[] | undefined,
-  { store, log, limit, device = false }: ObserveOptions,
+  { store, log, limit, device = false, preview }: ObserveOptions,
 ): Promise<{ version: string; seen: Seen[]; after: string | null }> {
   const app = url.replace(/\/$/, '');
   const version = await versionOf(app, UNMEASURED);
   const again = only && toRunAgain(only);
   const senses: Array<Sense & { close(): Promise<void> }> = [
-    ...(!again || again.probes.size ? [probes({ app, store, log, device })] : []),
+    ...(!again || again.probes.size ? [probes({ app, store, log, device, preview })] : []),
     ...(!again || again.crawl ? [new Crawler({ app, store, log, limit })] : []),
   ];
   const skip = again && new Set(PROBES.map((p) => p.id).filter((id) => !again.probes.has(id)));
@@ -69,7 +72,7 @@ export async function observeApp(
 }
 
 /** What was on the device after a probe, and what its pages asked of other origins, as a check of its own. */
-function deviceSeen(sense: Seen['sense'], check: string, { route, kept, asked, trouble }: Device): Seen {
+function deviceSeen(sense: Seen['sense'], check: string, { route, kept, allowed, asked, trouble }: Device): Seen {
   const said = [
     ...(kept.length ? [`left ${list(kept)} on the device`] : []),
     ...(asked.length ? [`asked ${list(asked)}`] : []),
@@ -82,6 +85,8 @@ function deviceSeen(sense: Seen['sense'], check: string, { route, kept, asked, t
     failed: said.length > 0,
     ...(said.length ? { message: `The pages ${said.join(', and ')}.` } : {}),
     ...(trouble && !said.length && { trouble }),
+    ...(kept.length > 0 && { kept }),
+    ...(allowed.length > 0 && { allowed }),
   };
 }
 

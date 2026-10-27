@@ -15,7 +15,7 @@
  * - Once the canary is promoted, each page with a box is taken again on the stable Service: the page after rollout.
  * - Between releases, the pictures no release needs any more are deleted, once for each stable version: all but the
  *   last few releases' (`policy/release.ts`), keeping those a work item waits at Verify for and every image an event
- *   or a waiting signal names.
+ *   or a waiting signal names; and a flag's pictures (`probes/flag-check.ts`) no event came to name within a day.
  */
 import type { Screenshot } from '@software-factory/events';
 import type { ArtifactStore, DiskArtifacts } from '@software-factory/store';
@@ -52,7 +52,10 @@ export interface PicturesOptions {
   /** The paths of the app's pages at an address, from its front door. */
   pages(app: string): Promise<string[]>;
   shoot: Shoot;
-  index: Pick<PictureIndex, 'pictured' | 'record' | 'awaitingRollout' | 'rolledOut' | 'looks' | 'forget'>;
+  index: Pick<
+    PictureIndex,
+    'pictured' | 'record' | 'awaitingRollout' | 'rolledOut' | 'looks' | 'forget' | 'forgetFlagPictures'
+  >;
   /** Where the diffs go, and the images no release needs are deleted from: the screenshots are put there by `shoot`. */
   store: ArtifactStore & Pick<DiskArtifacts, 'remove'>;
   /** How many releases' pictures are kept, besides those Verify waits for: the policy's by default. */
@@ -231,9 +234,10 @@ export class Pictures {
     if (!this.#due(key)) return null;
     this.#tries.set(key, (this.#tries.get(key) ?? 0) + 1);
     const unusedSince = new Date(this.#now().getTime() - STORED_LATELY_MS);
-    const deleted = await this.#o.index.forget(this.#o.keepReleases ?? release.pictures.keepReleases, version, (hash) =>
-      this.#o.store.remove(hash, unusedSince),
-    );
+    const remove = (hash: string) => this.#o.store.remove(hash, unusedSince);
+    const deleted =
+      (await this.#o.index.forget(this.#o.keepReleases ?? release.pictures.keepReleases, version, remove)) +
+      (await this.#o.index.forgetFlagPictures(this.#now(), remove));
     this.#done.add(key);
     if (!deleted) return null;
     this.#o.log.info({ version, images: deleted }, 'deleted the pictures no release needs');

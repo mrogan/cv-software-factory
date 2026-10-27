@@ -4,8 +4,9 @@
  * as a release's block is.
  *
  * What Verify finds at each stage comes in its own events: today the sheet draws its comparison at Share
- * (`flag.compared`). The probes' pictures of the pages off and on at Checks, and the device check at Preview, are
- * drawn once Verify records them; until then each block says what the stage does, and that its checks are to come.
+ * (`flag.compared`). Verify records the probes' pictures of the pages off and on at Checks, and the device check at
+ * Preview, as `flag.checked`, which the sheet does not draw yet; until it does, each block says what the stage does,
+ * and that its checks are to come.
  */
 import { clock, shortVersion, shortWhen } from '../format.ts';
 import { previewHref } from '../profile.ts';

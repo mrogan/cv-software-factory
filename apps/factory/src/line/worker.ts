@@ -153,6 +153,7 @@ import {
   closingComment,
   closingPullComment,
   type FirstSignal,
+  type FlagChecksPort,
   type Look,
   look,
   reopeningComment,
@@ -211,6 +212,8 @@ export interface LineOptions {
    * Tempo, the agreement check judges a missing log on the metrics and the log alone, and a wrong metric waits.
    */
   verify?: VerifyClients;
+  /** The probes worker, which checks each improvement's flag at Off, Checks and Preview (`flags.ts`): none, they wait. */
+  flagChecks?: FlagChecksPort | null;
   /**
    * The index of the pictures the probes worker took while each canary ran (`pictures/`), for the pages a verification
    * compares with the version before; null, as by default, compares none. The line's event writer must know the
@@ -339,6 +342,7 @@ export class Line {
       dryRun: false,
       dryRunReleaseMs: 60_000,
       verify: {},
+      flagChecks: null,
       pictures: null,
       verifyEveryMs: RELEASE.verify.everyMinutes * 60_000,
       verifyWaitMs: RELEASE.verify.waitHours * 60 * 60_000,
@@ -374,6 +378,7 @@ export class Line {
       now: this.#o.now,
       prometheus: this.#o.verify.prometheus ?? null,
       releaseEveryMs: this.#o.releaseEveryMs,
+      probes: this.#o.flagChecks,
     });
     this.#dryRunsEnded = this.#o.dryRun;
     this.#only = this.#o.only;

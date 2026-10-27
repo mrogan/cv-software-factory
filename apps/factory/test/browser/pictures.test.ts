@@ -71,6 +71,7 @@ describe('the pictures of a canary', () => {
           rolledOut: async () => {},
           looks: async () => looked,
           forget: async () => 0,
+          forgetFlagPictures: async () => 0,
         },
         store,
         log,
