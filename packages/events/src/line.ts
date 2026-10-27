@@ -250,9 +250,20 @@ const atTop = (path: string) => path.replace(/^\*\*\//, '');
  * Whether an entry touches a path by name, beyond the files they share: the entry, as text, matches the path read
  * with `**` followed by `/` as any text, folders or none; or the entry is or matches a folder's name without its slash.
  */
-const byName = (entry: string, path: string) =>
-  meet(automatonOf(entry, 'literal'), automatonOf(path, 'asText')) !== undefined ||
-  (path.endsWith('/') && sharedPath(entry, atTop(path).slice(0, -1)) !== undefined);
+const byName = (entry: string, path: string, automaton = automata()) =>
+  meet(automaton(entry, 'literal'), automaton(path, 'asText')) !== undefined ||
+  (path.endsWith('/') && meet(automaton(entry), automaton(atTop(path).slice(0, -1))) !== undefined);
+
+/** A maker of automata that makes each entry's, read each way, once. */
+function automata() {
+  const made = new Map<string, Automaton>();
+  return (entry: string, read: Parameters<typeof automatonOf>[1] = 'pattern') => {
+    const key = `${read}:${entry}`;
+    const automaton = made.get(key) ?? automatonOf(entry, read);
+    made.set(key, automaton);
+    return automaton;
+  };
+}
 
 /**
  * Whether a scope entry takes in any of the paths, which may be folders or patterns too: shares a file with one
@@ -271,19 +282,17 @@ export const touches = (entry: string, paths: readonly string[]) =>
 /**
  * The entries of one scope that may share a file with another's: each that shares a path with one of the other's
  * (`sharedPath`), or touches one by name, or is touched by one, which only adds to what is shared. The line keeps two
- * specs whose scopes overlap from running at once: a false overlap only makes one wait. Each entry's automaton is made
- * once, and each pair runs once.
+ * specs whose scopes overlap from running at once: a false overlap only makes one wait. Each entry's automata are
+ * made once.
  */
 export function scopesOverlap(a: readonly string[], b: readonly string[]): string[] {
-  const automata = new Map<string, Automaton>();
-  const automaton = (entry: string) => {
-    const made = automata.get(entry) ?? automatonOf(entry);
-    automata.set(entry, made);
-    return made;
-  };
+  const automaton = automata();
   return a.filter((entry) =>
     b.some(
-      (other) => byName(entry, other) || byName(other, entry) || meet(automaton(entry), automaton(other)) !== undefined,
+      (other) =>
+        byName(entry, other, automaton) ||
+        byName(other, entry, automaton) ||
+        meet(automaton(entry), automaton(other)) !== undefined,
     ),
   );
 }
