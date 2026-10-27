@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { listenLocal } from '@software-factory/testing';
 import { pino } from 'pino';
 import { describe, expect, it } from 'vitest';
 import { errSerializer, logOptions } from '../src/log.ts';
@@ -15,8 +15,7 @@ function logged(error: unknown) {
 describe('an error in the log', () => {
   it('says why fetch failed: a refused connection is not a name that did not resolve', async () => {
     const server = createServer();
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const { port } = server.address() as AddressInfo;
+    const { port } = await listenLocal(server);
     await new Promise((resolve) => server.close(resolve));
 
     const error = await fetch(`http://127.0.0.1:${port}/`).catch((e: unknown) => e);

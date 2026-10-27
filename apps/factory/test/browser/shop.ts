@@ -4,7 +4,7 @@
  * on a shop that is right and to fail, with the symptom it names, on one that is not.
  */
 import { createServer, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { listenLocal } from '@software-factory/testing';
 
 export type Fault =
   | 'catalogue-404'
@@ -301,9 +301,9 @@ export async function startShop(...faults: Fault[]): Promise<Shop> {
     requests.push({ url: req.url ?? '', headers: req.headers });
     handle(req, res).catch(() => send(res, 500, 'oops'));
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { url } = await listenLocal(server);
   return {
-    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    url,
     messages,
     requests,
     close: () => new Promise((resolve) => server.close(() => resolve())),

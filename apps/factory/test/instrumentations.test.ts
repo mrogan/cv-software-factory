@@ -3,9 +3,9 @@
  * the collector and a server that says what headers it was sent.
  */
 import { createServer, type IncomingHttpHeaders } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { SpanKind } from '@opentelemetry/api';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
+import { listenLocal } from '@software-factory/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { instrumentations } from '../src/instrumentations.ts';
 import { recordSpans } from './tracing.ts';
@@ -20,8 +20,7 @@ const server = createServer((req, res) => {
 let base = '';
 
 beforeAll(async () => {
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  base = (await listenLocal(server)).url;
 });
 afterAll(() => {
   server.closeAllConnections();

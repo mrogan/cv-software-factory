@@ -5,11 +5,11 @@
  */
 import { mkdtempSync } from 'node:fs';
 import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { context, ROOT_CONTEXT, SpanKind } from '@opentelemetry/api';
 import { DiskArtifacts, EventWriter, issueJobToken } from '@software-factory/store';
+import { listenLocal } from '@software-factory/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../packages/store/test/database.ts';
 import type { Handback, Step } from '../../runner/src/step.ts';
@@ -62,8 +62,7 @@ let gatewayUrl = '';
 let agents: AgentCalls;
 
 beforeAll(async () => {
-  await new Promise<void>((resolve) => provider.listen(0, '127.0.0.1', resolve));
-  providerUrl = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
+  providerUrl = (await listenLocal(provider)).url;
   database = await freshDatabase('spans');
   const sql = database.as.gateway;
   const events = new EventWriter(sql, {
@@ -87,8 +86,7 @@ beforeAll(async () => {
   });
   const judge = new Gateway({ sql, spend, cassettes: new Cassettes({ record: cassettes }), mode: 'live', log: quiet });
   gateway = createGatewayServer({ gateway: judge, agents, spend, log: quiet });
-  await new Promise<void>((resolve) => gateway.listen(0, '127.0.0.1', resolve));
-  gatewayUrl = `http://127.0.0.1:${(gateway.address() as AddressInfo).port}`;
+  gatewayUrl = (await listenLocal(gateway)).url;
 });
 afterAll(async () => {
   for (const server of [provider, gateway]) {
@@ -177,8 +175,7 @@ describe('a work item’s trace', () => {
       graceMs: 10,
     });
     const line = createServer(runners.handback());
-    await new Promise<void>((resolve) => line.listen(0, '127.0.0.1', resolve));
-    handback = `http://127.0.0.1:${(line.address() as AddressInfo).port}/v1/handback`;
+    handback = `${(await listenLocal(line)).url}/v1/handback`;
 
     const outcome = await inSpan('step', { [A.workItem]: '1001', [A.agent]: 'coder' }, () =>
       runners.run({ ...STEP, workItem: '1001', round: 1, deadlineSeconds: 60 }),
@@ -253,8 +250,7 @@ describe('a work item’s trace', () => {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ outcome: 'cleared', version: 'b'.repeat(40), runs: ['passed', 'passed'] }));
     });
-    await new Promise<void>((resolve) => probes.listen(0, '127.0.0.1', resolve));
-    const base = `http://127.0.0.1:${(probes.address() as AddressInfo).port}`;
+    const { url: base } = await listenLocal(probes);
     const asked = { sense: 'probe', check: 'search', route: '/search', version: 'b'.repeat(40) };
     const look = await inSpan('verify', {}, async (span) => {
       await new ProbesClient(base, { pollMs: 5 }).verify(asked as never);

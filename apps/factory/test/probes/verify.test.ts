@@ -3,6 +3,7 @@
  * beside the page reader. The senses are stood in for: what they see is the test's.
  */
 import type { Evidence } from '@software-factory/events';
+import { listenLocal } from '@software-factory/testing';
 import { describe, expect, it } from 'vitest';
 import type { Seen } from '../../src/gates/journeys.ts';
 import { ProbesClient } from '../../src/line/verify.ts';
@@ -160,8 +161,7 @@ describe('the probes worker’s verification endpoint, and the line’s client',
   async function serve(verify: (asked: typeof request) => Promise<VerifyAnswer>) {
     const verifications = new Verifications((r) => verify(r as typeof request));
     const server = verifyServer({ verify: (r) => verifications.ask(r), log });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    const { url: base } = await listenLocal(server);
     const post = (body: string, path = '/v1/verify') => fetch(`${base}${path}`, { method: 'POST', body });
     return { base, post, close: () => new Promise((resolve) => server.close(resolve)) };
   }

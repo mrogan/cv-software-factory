@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DiskArtifacts } from '@software-factory/store';
+import { listenLocal } from '@software-factory/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { APP_LOGIN, DryRunActions } from '../../src/github/actions.ts';
 import { DRY_RUN_CHECK_TITLE, DryRunReads } from '../../src/github/dry-run-reads.ts';
@@ -263,9 +263,8 @@ describe('the worker’s reads over HTTP', () => {
       health: () => ({}),
       log: quiet,
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { url } = await listenLocal(server);
     close = () => server.close();
-    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
     const pr = await new GitHubWorker(url, { dryRun: true }).read('pullRequest', REPO, { number });
     expect(pr.number).toBe(number);

@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Screenshot } from '@software-factory/events';
 import { DiskArtifacts } from '@software-factory/store';
+import { listenLocal } from '@software-factory/testing';
 import { describe, expect, it } from 'vitest';
 import type { Seen } from '../../src/gates/journeys.ts';
 import { ProbesClient } from '../../src/line/verify.ts';
@@ -266,8 +267,7 @@ describe('the server that answers for a flag’s check', () => {
       flagCheck: (request) => jobs.ask(request),
       log,
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    const { url: base } = await listenLocal(server);
     return { base, close: () => new Promise((resolve) => server.close(resolve)) };
   }
 
@@ -321,10 +321,9 @@ describe('the server that answers for a flag’s check', () => {
 
   it('is not served without a flag check of its own', async () => {
     const server = verifyServer({ verify: () => ({ state: 'running' }), log });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { url } = await listenLocal(server);
     try {
-      const { port } = server.address() as { port: number };
-      const response = await fetch(`http://127.0.0.1:${port}/v1/flag-check`, {
+      const response = await fetch(`${url}/v1/flag-check`, {
         method: 'POST',
         body: JSON.stringify(off()),
       });

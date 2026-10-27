@@ -1,6 +1,7 @@
 import { createServer } from 'node:net';
 import { metrics } from '@opentelemetry/api';
 import { type DataPoint, type Histogram, MeterProvider, MetricReader } from '@opentelemetry/sdk-metrics';
+import { listenLocal } from '@software-factory/testing';
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { connect } from '../src/client.ts';
 
@@ -74,9 +75,8 @@ describe("the store's client", () => {
 
   it('counts a connection that never opened, and the query that waited for it fails with its code', async () => {
     // A port that was free a moment ago, and that nothing listens on.
-    const server = createServer().listen(0, '127.0.0.1');
-    await new Promise((resolve) => server.once('listening', resolve));
-    const { port } = server.address() as { port: number };
+    const server = createServer();
+    const { port } = await listenLocal(server);
     await new Promise((resolve) => server.close(resolve));
 
     const sql = connect(`postgres://nobody:nothing@127.0.0.1:${port}/none`, { max: 1, connect_timeout: 2 });

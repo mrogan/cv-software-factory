@@ -1,5 +1,5 @@
 import { createServer, type IncomingHttpHeaders } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { listenLocal } from '@software-factory/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { exchange, UNMEASURED, versionOf } from '../../src/senses/http.ts';
 
@@ -12,8 +12,7 @@ const server = createServer((req, res) => {
 let app: string;
 
 beforeAll(async () => {
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  app = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  app = (await listenLocal(server)).url;
 });
 afterAll(() => server.close());
 

@@ -3,8 +3,8 @@
  * it is told so a test can check what the gateway never says.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { Writable } from 'node:stream';
+import { listenLocal } from '@software-factory/testing';
 import { pino } from 'pino';
 import type { JudgeRequest } from '../../src/gateway/gateway.ts';
 import type { TypeSafeRequest } from '../../src/gateway/typesafe.ts';
@@ -95,8 +95,7 @@ export async function fakeTypeSafe(): Promise<FakeTypeSafe> {
     res.end(JSON.stringify(answersTo(body.questions, body.model, fake.inputTokens)));
   };
   const server: Server = createServer((req, res) => void handle(req, res));
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  fake.url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  fake.url = (await listenLocal(server)).url;
   return fake;
 }
 

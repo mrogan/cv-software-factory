@@ -1,8 +1,8 @@
 import { mkdtemp, readdir, readFile } from 'node:fs/promises';
-import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DiskArtifacts } from '@software-factory/store';
+import { listenLocal } from '@software-factory/testing';
 import pino from 'pino';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DryRunActions, LiveActions } from '../../src/github/actions.ts';
@@ -683,9 +683,8 @@ describe('the worker over HTTP', () => {
       health: () => ({ mode: 'test' }),
       log: quiet,
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { url: base } = await listenLocal(server);
     close = () => server.close();
-    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     baseUrl = base;
     return (path: string, body?: unknown) =>
       fetch(`${base}${path}`, {
@@ -733,9 +732,9 @@ describe('the worker over HTTP', () => {
       health: () => ({ mode: 'test' }),
       log: pino({ level: 'info' }, { write: (line: string) => void logged.push(JSON.parse(line)) }),
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { url } = await listenLocal(server);
     close = () => server.close();
-    const worker = new GitHubWorker(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
+    const worker = new GitHubWorker(url);
     await worker.act('openIssue', REPO, { title: 'A broken link', body: '…' }, { workItem: '1042', agent: 'coder' });
     await worker.act('openIssue', REPO, { title: 'A broken link', body: '…' });
     await worker.act('openIssue', REPO, { title: 'A broken link', body: '…' }, { workItem: '1042 forged: yes' });

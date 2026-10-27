@@ -1,10 +1,10 @@
 import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { NewEvent } from '@software-factory/events';
 import { DiskArtifacts, EventWriter, endJobToken, issueJobToken } from '@software-factory/store';
+import { listenLocal } from '@software-factory/testing';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import type { SpendPolicy } from '../../../../policy/spend.ts';
@@ -94,9 +94,9 @@ async function fakeProvider() {
     );
   };
   const server: Server = createServer((req, res) => void handle(req, res));
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { url } = await listenLocal(server);
   return {
-    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    url,
     requests,
     script: (...next: Step[]) => void steps.push(...next),
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
@@ -182,8 +182,7 @@ async function start({
     log: captured.log,
   });
   server = createGatewayServer({ gateway, agents, spend, log: captured.log });
-  await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
-  url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  url = (await listenLocal(server)).url;
   const token = await issueJobToken(database.as.line, { job: 'coder-1001-1', workItem: '1001', agent: 'coder' });
   return { sql, token, events };
 }
