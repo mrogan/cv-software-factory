@@ -146,6 +146,9 @@ describe('what a patch may not do', () => {
   it('name a path longer than an event records', () => {
     const long = `src/${'a/'.repeat(PATH_CHARS / 2)}x.ts`;
     expect(() => filesIn(header(long))).toThrow(`a path of ${long.length} characters, longer than ${PATH_CHARS}`);
+    // Its quoted start is cut between characters, so a character outside the Basic Multilingual Plane stays whole.
+    const astral = `src/${'a'.repeat(55)}${'😀'.repeat(PATH_CHARS)}.ts`;
+    expect(() => filesIn(header(astral))).toThrow(`"src/${'a'.repeat(55)}😀"…`);
   });
 
   it('name a path with a control character in it, as git quotes and escapes one', () => {

@@ -75,11 +75,12 @@ export function filesIn(patch: string): FilePatch[] {
     const after = strip(p.newFileName, 'b');
     const path = after ?? before;
     if (!path) throw new PatchRefused('path', 'The patch names a file it does not say the path of.');
-    // Said first, and with the path cut short: the refusal reaches the coder's next try only in its first words.
+    // Said first, and with the path cut short, between characters: the refusal reaches the coder's next try only in
+    // its first words.
     if (path.length > PATH_CHARS)
       throw new PatchRefused(
         'path',
-        `The patch names a path of ${path.length} characters, longer than ${PATH_CHARS}, which is not a plain path: ${JSON.stringify(path.slice(0, 60))}…`,
+        `The patch names a path of ${path.length} characters, longer than ${PATH_CHARS}, which is not a plain path: ${JSON.stringify(Array.from(path).slice(0, 60).join(''))}…`,
       );
     if (!plainPath(path))
       throw new PatchRefused('path', `The patch names ${JSON.stringify(path)}, which is not a plain path.`);

@@ -360,8 +360,8 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose, app }: She
                 sheet.files && (
                   <Section title="The change" help="What the pull request touched.">
                     <div className="files">
-                      {sheet.files.map((file) => (
-                        <div key={file.path}>
+                      {keyedByPath(sheet.files).map(({ key, item: file }) => (
+                        <div key={key}>
                           <span>{file.path}</span>
                           <span className="plus">+{file.added}</span>
                           <span className="minus">−{file.removed}</span>
@@ -657,8 +657,8 @@ function SpecSection({ sheet }: { sheet: SheetData }) {
             </tr>
           </thead>
           <tbody>
-            {scope.rows.map((row) => (
-              <tr key={row.path} className={row.outside ? 'refused' : ''}>
+            {keyedByPath(scope.rows).map(({ key, item: row }) => (
+              <tr key={key} className={row.outside ? 'refused' : ''}>
                 <td className={`path ${row.added === undefined ? 'muted' : ''}`}>
                   {row.path}
                   {/* The line-through and the colour say it to the eye; this says it to a screen reader. */}
@@ -1151,4 +1151,17 @@ function Replay({ chapters, motion }: { chapters: Chapter[]; motion: boolean }) 
       </div>
     </div>
   );
+}
+
+/**
+ * Each item keyed by its path: two paths cut to what an event records (`recordedPath`) can read the same, so a path
+ * seen again is keyed by how many times.
+ */
+function keyedByPath<T extends { path: string }>(items: readonly T[]): { key: string; item: T }[] {
+  const seen = new Map<string, number>();
+  return items.map((item) => {
+    const n = (seen.get(item.path) ?? 0) + 1;
+    seen.set(item.path, n);
+    return { key: n > 1 ? `${item.path}#${n}` : item.path, item };
+  });
 }

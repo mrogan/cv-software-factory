@@ -1,7 +1,5 @@
-import { PATH_CHARS } from '@software-factory/events';
-import { PAYLOADS } from '@software-factory/events/schemas';
 import { describe, expect, it } from 'vitest';
-import { type CoderInput, coder, coderInputAfterRefusal, fenceFor, recordedPath } from '../../src/line/agents/coder.ts';
+import { type CoderInput, coder, coderInputAfterRefusal, fenceFor } from '../../src/line/agents/coder.ts';
 import { FIXTURES } from '../../src/line/bench/fixtures.ts';
 
 const input: CoderInput =
@@ -233,29 +231,5 @@ describe('the coder', () => {
     expect(fenceFor(patch('src/money.ts'), input).ok).toBe(true);
     const owned = fenceFor(patch('src/money.ts'), { ...input, protectedPaths: ['src/money.ts'] });
     expect(owned).toMatchObject({ ok: false, outside: ['src/money.ts'] });
-  });
-
-  it('records a path of the whole change longer than an event takes cut to fit, and marked, between characters', () => {
-    const fits = `src/${'a'.repeat(PATH_CHARS - 7)}.ts`;
-    expect(recordedPath(fits)).toEqual({ path: fits });
-    const long = `src/${'a'.repeat(PATH_CHARS)}/b.ts`;
-    const cut = recordedPath(long);
-    expect(cut).toEqual({ path: `${long.slice(0, PATH_CHARS - 1)}…`, cut: true });
-    expect(cut.path).toHaveLength(PATH_CHARS);
-    // A character outside the Basic Multilingual Plane across the cut is left out whole, not split.
-    const astral = `${'a'.repeat(PATH_CHARS - 2)}😀b`;
-    expect(recordedPath(astral)).toEqual({ path: `${'a'.repeat(PATH_CHARS - 2)}…`, cut: true });
-    const pushed = (path: string) =>
-      PAYLOADS['pull-request.pushed'].safeParse({
-        number: 12,
-        title: 'fix: a long path',
-        branch: 'factory/1-a-long-path',
-        attempt: 1,
-        testsFirst: true,
-        files: [{ path: 'src/money.ts', added: 1, removed: 1 }],
-        whole: [{ ...recordedPath(path), added: 1, removed: 0 }],
-      }).success;
-    expect(pushed(long)).toBe(true);
-    expect(pushed(astral)).toBe(true);
   });
 });

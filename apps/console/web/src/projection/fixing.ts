@@ -12,7 +12,7 @@
  * judged, pushed or refused.
  */
 import type { PayloadOf, PublicEvent, Stage } from '@software-factory/events';
-import { inScope, returnWords } from '@software-factory/events';
+import { knownInScope, returnWords } from '@software-factory/events';
 import { RULES } from './app.ts';
 import { deployWaitsForMartin, type Hold, type ItemState } from './items.ts';
 import type { Ended, Picture } from './reel.ts';
@@ -452,8 +452,7 @@ function mergePicture(item: ItemState): Picture | undefined {
     files: final.whole.length,
     added: final.whole.reduce((n, f) => n + f.added, 0),
     removed: final.whole.reduce((n, f) => n + f.removed, 0),
-    // A path cut to what an event records is not known to be in the scope.
-    inScope: Boolean(scope && final.whole.every((file) => !file.cut && inScope(file.path, scope))),
+    inScope: Boolean(scope && final.whole.every((file) => knownInScope(file, scope))),
   };
 }
 
