@@ -1069,7 +1069,8 @@ export const PAYLOADS = {
   /**
    * Martin set a flag's stage in the console (the admin service): the flag, the stage `flags` held it at before (none
    * when it held it in no stage's shape) and the one he set, with its share at the share stage, the revision of the
-   * flag set written with it, what the move was, and whether his passkey was fresh as it was taken. On the work item whose improvement's spec
+   * flag set written with it, what the move was, whether his passkey was fresh as it was taken, and any flag set by
+   * hand outside every stage that the write dropped. On the work item whose improvement's spec
    * names the flag. Turning it off takes his reason, for the audit log and the work item; any other move may give one.
    */
   'flag.staged': z
@@ -1082,6 +1083,8 @@ export const PAYLOADS = {
       revision: z.string().regex(/^[!-~]{1,128}$/, "the flag set's revision, as flagd holds it"),
       reason: text(200).optional(),
       steppedUp: z.boolean(),
+      /** The names `flags` held in no stage's shape (set by hand), which the write dropped, and so turned off. */
+      dropped: z.array(z.string().min(1).max(253)).min(1).max(100).optional(),
     })
     .refine((staged) => staged.to.stage !== 'off' || staged.reason !== undefined, {
       message: 'turning a flag off gives a reason',

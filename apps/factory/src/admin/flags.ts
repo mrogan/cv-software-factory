@@ -6,7 +6,10 @@
  * stages' shapes (deploy/base/admission/flagd/flag-stages.yaml), rendered by `policy/flags.ts`.
  *
  * - **Judged from what is so.** The flag's stage is read from `flags`, never the request's word; a move from a stage
- *   other than the one the slider showed is refused, as a release control naming another release is. What the move
+ *   other than the one the slider showed is refused, as a release control naming another release is; but for Off,
+ *   which only ever tightens, so a kill switch is never blocked by a record that lags `flags` (a move made and never
+ *   recorded): Off is taken from whatever stage `flags` holds, and that stage, not the slider's, is recorded as its
+ *   `from`. What the move
  *   is (`flag.to-checks`, `flag.widen`, `flag.back-on`, `flag.narrow` or `flag.off`), and whether it can be taken now,
  *   is `policy/flag-moves.ts`'s, which the console draws each stop from too: the passkey again when that action needs
  *   it, a canary in flight read from the app's Rollout (`rollout.ts`), another flag at Share read from `flags`, and
@@ -14,13 +17,14 @@
  *   records nothing.
  * - **The write.** `flags` is read, the one flag changed and every other flag kept at its stage, read back through
  *   `readFlags` and rendered again, so a flag in no stage's shape is never written back (it is dropped, which turns it
- *   off, and the answer names it), with a new `flag-set-revision`, and replaced whole, conditional on the
+ *   off, and both the answer and the move's `flag.staged` name it), with a new `flag-set-revision`, and replaced whole, conditional on the
  *   `resourceVersion` it read. When `flags` changed in between, it is read again and the move judged again, up to
  *   three times, so two moves at once never lose one.
  * - **Recorded once made,** as a control of the canary is: `flag.staged` is checked before the write, and appended
  *   after it, in a transaction of its own, so a write Kubernetes refuses leaves no event (502), and no connection to
  *   the store waits on Kubernetes. A write whose answer never came is read back, and counts as made if `flags` holds
- *   the revision it wrote. An append that fails is tried once more, and if that fails too, the move stands in `flags`,
+ *   the revision it wrote with the flag at its stage; as not made (502) if it does not; and, if it cannot be read back
+ *   either, the answer says whether it was made can't be told (504), and nothing is recorded. An append that fails is tried once more, and if that fails too, the move stands in `flags`,
  *   is logged, and the answer says it was not recorded (500). Martin's last move then lags `flags`, and what depends
  *   on it (turning back on, Everyone) is refused until a move is recorded again.
  */
@@ -40,7 +44,7 @@ import {
   sameStage,
   stageWords,
 } from '../../../../policy/flag-moves.ts';
-import { flagsSpec, isFlagName, readFlags, type Share, type Stage } from '../../../../policy/flags.ts';
+import { flagsSpec, isFlagName, REVISION_FLAG, readFlags, type Share, type Stage } from '../../../../policy/flags.ts';
 import type { RolloutRef } from '../release/rollout-ref.ts';
 import { KubeError, type KubeWriter } from '../runners/kube.ts';
 import type { ReleaseControls } from './rollout.ts';
@@ -82,11 +86,14 @@ const TRIES = 3;
 const LINE_ROLE = 'factory_line';
 
 /**
- * The next revision of the flag set: `r1`, `r2`, …, counting on from the one `flags` holds. After one of another
- * shape (written by hand), the count starts again from the time, in milliseconds, so it reuses none it held before.
+ * The next revision of the flag set: `r1`, `r2`, …, counting on from the one `flags` holds. With none it can read
+ * (written by hand in another shape, or taken away), the count starts again from the time, in milliseconds, so no pod
+ * still holding an old revision counts as holding the new set; `r1` only for a `flags` that holds no flag at all,
+ * which no pod can hold an older set of than the empty one.
  */
-export function nextRevision(held: string | undefined, now = Date.now()): string {
-  if (held === undefined) return 'r1';
+export function nextRevision(held: string | undefined, now = Date.now(), empty = false): string {
+  if (held === undefined && empty) return 'r1';
+  if (held === undefined) return `r${now}`;
   const n = /^r(\d{1,15})$/.exec(held)?.[1];
   return n === undefined ? `r${now}` : `r${Number(n) + 1}`;
 }
@@ -143,7 +150,7 @@ export class FlagStages {
     if (!read) throw new Refused('flags', 503, 'There is no `flags` for the admin service to write.');
     const held = readFlags(read.spec);
     const stage: Stage | null = held.outside.includes(flag) ? null : (held.stages[flag] ?? { stage: 'off' });
-    if (!sameStage(stage, asked.from as Stage | null)) {
+    if (asked.to.stage !== 'off' && !sameStage(stage, asked.from as Stage | null)) {
       throw new Refused(
         'flag',
         409,
@@ -168,16 +175,18 @@ export class FlagStages {
     if (move.refused) throw new Refused('stage', 409, move.refused);
     if (ACCESS[action].stepUp && !steppedUp) throw new Refused('step-up', 403, 'This needs your passkey again.');
 
-    const revision = nextRevision(held.revision);
+    const empty = Object.keys(held.stages).length === 0 && held.outside.length === 0;
+    const revision = nextRevision(held.revision, Date.now(), empty);
     const rendered = flagsSpec({ ...held.stages, [flag]: to }, revision).flagSpec.flags;
-    const dropped = held.outside.filter((name) => name !== flag && isFlagName(name));
+    // Every name `flags` held in no stage's shape, the revision's aside: each is dropped, and so off.
+    const dropped = held.outside.filter((name) => name !== flag && name !== REVISION_FLAG);
     // Checked before the write, so a move whose event the store would refuse changes nothing.
     // A flag once staged can always be turned off, on the work item it was staged on, though no spec names it now.
     const workItem = now.workItem ?? now.stagedOn;
     const event = checked(
       adminEvent(
         'flag.staged',
-        stagedSummary(flag, action, stage, to),
+        stagedSummary(flag, action, stage, to) + (dropped.length ? `, and dropped ${dropped.length} set by hand` : ''),
         {
           flag,
           from: stage as PayloadOfStaged['from'],
@@ -186,6 +195,7 @@ export class FlagStages {
           revision,
           ...(asked.reason && { reason: asked.reason }),
           steppedUp,
+          ...(dropped.length && { dropped }),
         },
         workItem,
       ),
@@ -275,8 +285,19 @@ export class FlagStages {
       // Made only if `flags` holds this revision with this flag at its stage: another move, of another flag, could
       // have written the same revision meanwhile.
       const now = await this.#kube.get(this.#path, featureFlag).catch(() => undefined);
-      const back = now && readFlags(now.spec);
-      if (!back || back.revision !== revision || !sameStage(back.stages[flag] ?? null, to)) throw error;
+      if (!now) {
+        this.#log.error({ err: error }, 'wrote flags, and could neither hear the answer nor read them back');
+        throw new Refused(
+          'kubernetes',
+          504,
+          "Kubernetes didn't answer, and whether the change was made can't be told: look again before trying again.",
+        );
+      }
+      const back = readFlags(now.spec);
+      if (back.revision !== revision || !sameStage(back.stages[flag] ?? null, to)) {
+        this.#log.error({ err: error }, 'wrote flags, and Kubernetes failed the write');
+        throw new Refused('kubernetes', 502, 'Kubernetes failed the change, and nothing was done.');
+      }
     }
   }
 
