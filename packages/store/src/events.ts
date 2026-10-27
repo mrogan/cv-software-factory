@@ -17,10 +17,10 @@ import type { JSONValue, Sql, TransactionSql } from 'postgres';
 import type { ArtifactStore } from './artifacts.ts';
 import { fromMartin } from './commands.ts';
 
-/** An append the store refused, with every reason it found. Nothing in the batch was stored. */
 /** A flag's own events, which a work item closed as turned off still takes: the flag outlives the close. */
 const FLAG_TYPES: ReadonlySet<string> = new Set(['flag.staged', 'flag.compared', 'flag.checked']);
 
+/** An append the store refused, with every reason it found. Nothing in the batch was stored. */
 export class AppendRefused extends Error {
   readonly problems: string[];
 
