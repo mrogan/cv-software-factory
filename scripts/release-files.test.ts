@@ -45,6 +45,8 @@ describe('the files a release changes', () => {
       'packages/samples/src/items/1276-otel-rollback.ts',
       // flagd's evaluation library's own package.json, as for the test above.
       'scripts/flagd-sides.ts',
+      // package.json's packageManager, beside mise.lock's pnpm, and not its version line.
+      'scripts/toolchain.test.ts',
     ]);
   });
 });

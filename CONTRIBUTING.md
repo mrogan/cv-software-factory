@@ -20,7 +20,7 @@ Because the repository is public, outside pull requests are treated as untrusted
 
 ## Working on it
 
-The toolchain is pinned in `mise.toml`, so one command installs it:
+The toolchain is in `mise.toml`, each tool with the releases it may move within, and `mise.lock` holds the exact version of each, with its checksum for a Mac, CI's runners and the dev container, so one command installs the same toolchain everywhere:
 
 ```sh
 mise install
@@ -29,6 +29,8 @@ make check    # lint, type-check, tests, design tokens, manifests
 pnpm dev      # the console on http://localhost:5173, with the samples
 make e2e      # the console in a browser (accessibility, security headers, speed, snapshots), and the probes
 ```
+
+The toolchain moves only when someone upgrades it. `mise upgrade` takes the newest release in each tool's range that is at least three days old (`--bump` goes past the range, and rewrites it), and writes `mise.lock`; both files go in a `chore(toolchain)` pull request, through the same checks as any other change. Dependabot does not read mise, so nothing proposes it. A tool held to a server's version (`kubectl`, `argocd`, `argo-rollouts`, `promtool`) moves past its minor release only with that server, Node only with the images (`scripts/image-pins.test.ts`), and pnpm with `packageManager` in `package.json` (`scripts/toolchain.test.ts` holds them together). Without the lock, every install would take that day's release in each range, and CI would undo Dependabot's cooldown and pnpm's one-day minimum release age; with it, CI installs with `--locked`, and fails on a request the lock does not hold.
 
 A snapshot that fails only on CI usually comes down to timing, and CI's runner is slower than a laptop. It often reproduces in the pinned image given less CPU: run the `docker run` line from `make e2e` with `--cpus=1.5`, and pass `-g "<test name>" --repeat-each=15` to `in-docker.sh`.
 

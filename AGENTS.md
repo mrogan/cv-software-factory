@@ -9,7 +9,7 @@ Everything you write here is public and part of the demo. Write for a thoughtful
 ## Working here
 
 ```sh
-mise install && pnpm install   # the pinned toolchain, dependencies and git hooks
+mise install && pnpm install   # the toolchain mise.lock holds, dependencies and git hooks
 make check                     # what CI requires: lint, types, tests, design tokens, manifests
 pnpm dev                       # the console on :5173 with the samples, reloading on change
 make e2e                       # the console in a browser, in the pinned Playwright image
@@ -112,6 +112,7 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
   ```
 - Files listed in `.github/CODEOWNERS` are the rules of the line, and a change to one merges only with Martin's approval. When the work needs one changed, change it in the same pull request, keep to what the work needs, and give each file a line in a section of the description of its own: what changed and why. Never leave one stale, or file an issue for a change that belongs in the pull request.
 - Merging is Martin's call. The factory's App opens the deploy and release pull requests; no workflow opens or approves one.
+- The toolchain moves only when someone upgrades it: `mise upgrade`, which writes `mise.lock`, and both files in a `chore(toolchain)` pull request ([`CONTRIBUTING.md`](CONTRIBUTING.md#working-on-it) says how far each tool may move). Dependabot does not read mise.
 - pnpm installs no release younger than a day, runs no dependency's install script unless `pnpm-workspace.yaml` allows it, and refuses a provenance downgrade. When it refuses, find out why; an exception goes in that file with its reason.
 - Refresh a Dependabot pull request with `@dependabot rebase` or `@dependabot recreate`. Don't close it: that tells Dependabot to skip the version.
 - A follow-up with no home yet is a [GitHub issue](https://github.com/the-roganator/cv-software-factory/issues) (`/issue` drafts one to the standard), on the milestone it waits for if it has one; never a code comment.

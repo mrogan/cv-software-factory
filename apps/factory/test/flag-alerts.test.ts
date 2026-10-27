@@ -19,7 +19,7 @@ import { METRICS_FROM_THE_ADMIN_SERVICE } from '../src/provenance.ts';
 
 /**
  * The alerts that say whether the app holds the flags as Martin set them, run by Prometheus's own rule tester
- * (`promtool test rules`, pinned in mise.toml at the server's version) against the rules file as committed: each fires
+ * (`promtool test rules`, held in mise.toml to the server's minor release) against the rules file as committed: each fires
  * when it should, at its level, and not before, nor for another pod's series.
  */
 interface Rule {

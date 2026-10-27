@@ -5,7 +5,7 @@
     // k3d runs the local cluster in Docker, so the container needs its own Docker daemon.
     "ghcr.io/devcontainers/features/docker-in-docker:4": {}
   },
-  "postCreateCommand": "mise trust && mise install && pnpm install",
+  "postCreateCommand": "mise trust && mise install --locked && pnpm install",
   "forwardPorts": [8080],
   "customizations": {
     "vscode": {
