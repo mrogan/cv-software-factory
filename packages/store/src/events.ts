@@ -138,7 +138,8 @@ export class EventWriter {
    * A work item opens once, before anything else happens to it, and nothing but its summary follows its close, until
    * it reopens; nothing, that is, but a flag's own events on a work item closed as turned off (Martin's moves, and the
    * line's judgements of them), as a flag outlives that close: one turned off from Everyone may go straight back on,
-   * and be narrowed and compared again, on the work item it was staged on. Only a closed work item reopens. The last of its closes and reopenings says whether it is closed.
+   * and be narrowed and compared again, on the work item it was staged on. Only a closed work item reopens. The last of
+   * its closes and reopenings says whether it is closed.
    */
   async #checkSequence(tx: TransactionSql, batch: readonly NewEvent[]): Promise<string[]> {
     const items = [...new Set(batch.flatMap((event) => (event.work_item ? [event.work_item] : [])))];
