@@ -8,9 +8,10 @@
  * Most pairs of entries are made from one path, each by writing some of its segments as `*`, `**` or part of a name,
  * so both take it in and the pair must overlap; the rest are made up apart, and mostly share nothing.
  *
- * The planner's check (`touches`) reads a pattern that matches anywhere as its name at the top, so a folder that could
- * hold such a file does not name it: it is held to refusing each path a protected entry takes in, each entry that takes
- * in a protected path or a file in a protected folder, and each entry it refused before overlap was exact.
+ * The planner's check (`touches`) holds a folder to a pattern that matches anywhere only at the top, so a folder that
+ * could hold such a file does not name it: it is held to refusing each path a protected entry takes in, each file or
+ * pattern that shares a path with one, each entry that takes in a protected path or a file in a protected folder, and
+ * each entry it refused before overlap was exact.
  *
  * A failure prints the seed and the shrunk counterexample: `fc.assert(..., { seed, path })` replays it.
  */
@@ -88,6 +89,20 @@ const pair = fc.oneof(
   fc.tuple(anyEntry, path),
 );
 
+/**
+ * `touches` as it read before `sharedPath`: the entry tried as text against each path, and a sample of each path, its
+ * `*` as `x`, tried against the entry. Kept here to hold the planner to refusing every scope it refused then, and the line to every overlap it saw.
+ */
+function touchedBefore(entry: string, paths: readonly string[]): boolean {
+  const asText = (p: string) => new RegExp(pattern(p).source.replaceAll('(?:.*/)?', '.*'), 's');
+  if (paths.some((p) => asText(p).test(entry))) return true;
+  const within = pattern(entry);
+  return paths.some((p) => {
+    const sample = p.replace(/^\*\*\//, '').replace(/\*/g, 'x');
+    return sample.endsWith('/') ? within.test(`${sample}x`) || within.test(sample.slice(0, -1)) : within.test(sample);
+  });
+}
+
 describe('two scope entries that share a file', () => {
   it('are made by the generator to take in the path they were made from', () => {
     fc.assert(
@@ -142,6 +157,15 @@ describe('two scope entries that share a file', () => {
     );
   });
 
+  it('overlap wherever they overlapped before', () => {
+    fc.assert(
+      fc.property(pair, ([a, b]) => {
+        if (touchedBefore(a, [b]) || touchedBefore(b, [a])) expect(scopesOverlap([a], [b])).toEqual([a]);
+      }),
+      { numRuns: 1000 },
+    );
+  });
+
   it('always include an entry and itself', () => {
     fc.assert(
       fc.property(anyEntry, (a) => {
@@ -151,20 +175,6 @@ describe('two scope entries that share a file', () => {
     );
   });
 });
-
-/**
- * `touches` as it read before `sharedPath`: the entry tried as text against each path, and a sample of each path, its
- * `*` as `x`, tried against the entry. Kept here to hold the planner to refusing every scope it refused then.
- */
-function touchedBefore(entry: string, paths: readonly string[]): boolean {
-  const asText = (p: string) => new RegExp(pattern(p).source.replaceAll('(?:.*/)?', '.*'), 's');
-  if (paths.some((p) => asText(p).test(entry))) return true;
-  const within = pattern(entry);
-  return paths.some((p) => {
-    const sample = p.replace(/^\*\*\//, '').replace(/\*/g, 'x');
-    return sample.endsWith('/') ? within.test(`${sample}x`) || within.test(sample.slice(0, -1)) : within.test(sample);
-  });
-}
 
 describe("the planner's check of a scope against the protected paths", () => {
   it('refuses every path a protected entry takes in', () => {
@@ -183,6 +193,16 @@ describe("the planner's check of a scope against the protected paths", () => {
         const names = target.split('/');
         const depth = cut % names.length;
         const guarded = depth === 0 ? target : `${names.slice(0, depth).join('/')}/`;
+        expect(touches(entry, [...others, guarded])).toBe(true);
+      }),
+      { numRuns: 500 },
+    );
+  });
+
+  it('refuses every file or pattern that shares a path with a protected entry', () => {
+    fc.assert(
+      fc.property(sharing, fc.array(anyEntry, { maxLength: 3 }), ([, entry, guarded], others) => {
+        fc.pre(!entry.endsWith('/'));
         expect(touches(entry, [...others, guarded])).toBe(true);
       }),
       { numRuns: 500 },

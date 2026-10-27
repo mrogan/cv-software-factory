@@ -118,6 +118,8 @@ describe('the planner’s scope', () => {
       // Patterns that take in a file in a protected folder, though not the folder's name.
       '**/workflows/ci.yml',
       '*/base/deployment.yaml',
+      // A pattern that takes in a file a protected pattern matches anywhere, unlike a folder that could hold one.
+      'src/*.md',
     ]) {
       const parsed = scoped('src/money.ts', entry);
       expect(parsed.success, entry).toBe(false);
