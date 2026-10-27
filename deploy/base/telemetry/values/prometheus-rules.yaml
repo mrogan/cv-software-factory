@@ -209,7 +209,7 @@ serverFiles:
               kind: "improvement-requested"
             annotations:
               summary: "An improvement was asked for"
-              description: "An improvement was asked for in the console: the line will plan it, and hold its spec."
+              description: "An improvement was asked for in the console, with the passkey given again."
           - alert: SecurityEvent
             expr: "max(increase(line_security_events_total{kind=\"improvement-approved\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
             for: 0s

@@ -178,7 +178,7 @@ const SECURITY_WORDS: Record<SecurityKind, { summary: string; description: strin
   },
   'improvement-requested': {
     summary: 'An improvement was asked for',
-    description: 'An improvement was asked for in the console: the line will plan it, and hold its spec.',
+    description: 'An improvement was asked for in the console, with the passkey given again.',
   },
   'improvement-approved': {
     summary: "An improvement's spec was approved",

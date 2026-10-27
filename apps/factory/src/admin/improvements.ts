@@ -14,9 +14,7 @@
  * - **Nothing else from the request.** The kind, the category and the title are the service's; only his words come
  *   from the body, held to the event's own rule for them.
  *
- * The line takes an improvement as it takes a ticket, behind every open ticket, and the planner holds its spec for
- * Martin before any code is written. A visitor's suggestion never comes here: Martin, having read one, asks in his
- * own words.
+ * A visitor's suggestion never comes here: Martin, having read one, asks in his own words.
  */
 import { type NewEvent, requestTitle } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
@@ -36,12 +34,15 @@ export interface Requested {
 
 /** Opens the improvement Martin asked for, with his request, or refuses having opened nothing. */
 export async function requestImprovement(store: AdminStore, session: Session, asked: Request): Promise<Requested> {
-  const words = asked.words.trim();
+  // Trimmed already, by the event's own rule for them.
+  const { words } = asked;
   const title = requestTitle(words);
   const { workItem } = await store.record(
     async (tx) => {
       await lockAppends(tx);
-      const [made] = await tx<{ work_item: string | null }[]>`select work_item from events where id = ${asked.id}`;
+      const [made] = await tx<
+        { work_item: string | null }[]
+      >`select work_item from events where id = ${asked.id} and type = 'improvement.requested'`;
       if (made) {
         throw new Refused('request', 409, `That request has been made already: it opened #${made.work_item}.`);
       }
