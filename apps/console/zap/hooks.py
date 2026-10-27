@@ -6,9 +6,49 @@ two writes it sends are the first halves of signing in and enrolling, which make
 """
 import json
 import os
+import subprocess
+import sys
+import threading
+
+# The status the scan ends with when ZAP stops before it answers; scan.ts reads it.
+STOPPED = 4
+
+# Set once ZAP answers zap-baseline.py, after which its stopping is the scan's end, not a failure.
+answered = threading.Event()
+
+
+def start_zap(port, extra_zap_params):
+    # Called just before zap-baseline.py starts ZAP. If ZAP stops before it answers, as when it cannot listen on its
+    # port, zap-baseline.py would wait ten minutes for it; this stops the scan as soon as ZAP does, with ZAP's log. The
+    # next process started is ZAP's, and its handle is kept here, as zap-baseline.py keeps none.
+    popen = subprocess.Popen
+
+    def start(*args, **kwargs):
+        subprocess.Popen = popen
+        zap = popen(*args, **kwargs)
+        threading.Thread(target=stop_with_zap, args=(zap,), daemon=True).start()
+        return zap
+
+    subprocess.Popen = start
+
+
+def stop_with_zap(zap):
+    zap.wait()
+    if answered.is_set():
+        return
+    try:
+        with open('zap.out') as log:
+            sys.stderr.write(log.read())
+    except OSError:
+        pass
+    sys.stderr.write('ZAP stopped before it answered: its log, if it wrote one, is above.\n')
+    sys.stderr.flush()
+    # Not 3, which zap-baseline.py exits with for any failure of its own.
+    os._exit(STOPPED)
 
 
 def zap_started(zap, target):
+    answered.set()
     # Every request ZAP sends, Martin's session with it: through the proxy, the console's server never sees the cookie.
     for header, value in (('Cookie', os.environ['SF_SESSION_COOKIE']), ('X-CSRF-Token', os.environ['SF_CSRF_TOKEN'])):
         zap.replacer.add_rule(description=header, enabled='true', matchtype='REQ_HEADER', matchregex='false',

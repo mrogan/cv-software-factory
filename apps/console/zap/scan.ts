@@ -28,6 +28,18 @@ const ZAP_IMAGE =
 
 const PORT = 18_330;
 
+/**
+ * ZAP's own proxy, through which zap-baseline.py drives it. On Linux ZAP shares the host's network, where the port
+ * zap-baseline.py picks for itself, at random from the range the kernel gives outgoing connections, can be taken by one
+ * (ZAP's own, fetching add-ons as it starts) before ZAP listens on it. This one is below that range as Linux, macOS and
+ * Windows set it by default, and clear of the harness's (`PORT` and the one after it), so only a program listening on
+ * it could hold it, and then the scan stops at once (`hooks.py`).
+ */
+const ZAP_PORT = 18_338;
+
+/** The status `hooks.py` ends the scan with when ZAP stops before it answers. */
+const ZAP_STOPPED = 4;
+
 /** What the scan must have reached, signed in, and how each must have answered. */
 const MUST_REACH: Record<string, number> = {
   'GET /': 200,
@@ -87,7 +99,7 @@ try {
       ...['--env', 'PYTHONDONTWRITEBYTECODE=1'],
       ZAP_IMAGE,
       'zap-baseline.py',
-      ...['-t', `${target}/`, '-c', 'rules.tsv', '--hook', '/zap/wrk/hooks.py'],
+      ...['-t', `${target}/`, '-P', String(ZAP_PORT), '-c', 'rules.tsv', '--hook', '/zap/wrk/hooks.py'],
       ...['-r', 'report.html', '-J', 'report.json', '-w', 'report.md'],
       // Anything more is the baseline's own: `-d` to see what it does.
       ...process.argv.slice(2),
@@ -111,10 +123,12 @@ try {
   try {
     rmSync(work, { recursive: true, force: true });
   } catch {}
-  // 0: nothing found; 1: a rule set to FAIL; 2: a warning, which is any finding `rules.tsv` keeps no exception for.
+  // 0: nothing found; 1: a rule set to FAIL; 2: a warning, which is any finding `rules.tsv` keeps no exception for; 3:
+  // zap-baseline.py failed; 4: ZAP stopped before it answered (`hooks.py`).
   status = exit ?? 1;
-  // A scan that reached nothing would find nothing, and pass: it must have read the page, and Martin's session.
-  const missed = unreached(join(REPORT, 'reached.json'));
+  // A scan that reached nothing would find nothing, and pass: it must have read the page, and Martin's session. When ZAP
+  // stopped before it answered, that it reached nothing says no more than ZAP's log above.
+  const missed = status === ZAP_STOPPED ? [] : unreached(join(REPORT, 'reached.json'));
   if (missed.length) {
     console.error(`ZAP did not reach, as it should have:\n${missed.map((line) => `  ${line}`).join('\n')}`);
     status = status || 1;
