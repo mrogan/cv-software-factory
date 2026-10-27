@@ -202,6 +202,27 @@ describe('appending', () => {
     await martin.append(staged('everyone', 'off', 'flag.off'));
     await samples().append(close);
     await martin.append(staged('off', 'everyone', 'flag.back-on'));
+    // Back on, narrowed to Checks, and checked there by the line.
+    await martin.append(staged('everyone', 'checks', 'flag.narrow'));
+    await samples().append({
+      ...opened(item),
+      id: uuid(),
+      type: 'flag.checked',
+      version: 1,
+      actor: 'factory',
+      summary: 'last-one at Checks: could not tell',
+      payload: {
+        stage: 'checks',
+        flag: 'last-one',
+        version: 'v0.9.5',
+        revision: 'r1',
+        against: null,
+        outcome: 'unsure',
+        journeys: { base: null, change: { passed: 1, ran: 1 } },
+        regressions: [],
+        pages: [],
+      },
+    } as NewEvent);
     await expect(samples().append(report(item))).rejects.toThrow(`work item ${item} is closed`);
 
     // Not on a work item closed any other way.

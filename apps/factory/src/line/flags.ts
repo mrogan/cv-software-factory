@@ -325,9 +325,10 @@ export class FlagPass {
       );
       return;
     }
-    // Martin may have moved it while the probes ran: then this check is of a stage it no longer holds.
-    const latest = (await flagEvents(this.#o.sql, flag)).records.findLast((r) => r.type === 'flag.staged');
-    if ((latest?.seq ?? null) !== next.move) return;
+    // Martin may have moved it, or another flag, while the probes ran: then this check is of a flag set gone.
+    const now = await flagEvents(this.#o.sql, flag);
+    const latest = now.records.findLast((r) => r.type === 'flag.staged');
+    if ((latest?.seq ?? null) !== next.move || (now.revision ?? 'none') !== answer.revision) return;
     const drafts = [checkedDraft(next, answer)];
     const ts = this.#o.now().toISOString();
     await this.#o.events.append(drafts.map((draft) => asEvent(workItem, draft, ts)));

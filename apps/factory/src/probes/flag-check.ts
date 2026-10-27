@@ -163,9 +163,10 @@ const watchOfThePreview = (s: Pick<Seen, 'check'>) =>
 
 export async function flagCheck(deps: FlagCheckDeps, request: FlagCheckRequest): Promise<FlagCheckAnswer> {
   const version = await deps.version();
-  if (request.stage === 'off' && request.have === version) return { kind: 'have', version };
+  // The flag set first: a baseline of this version is one of the flag set it saw, which the app must hold still.
   const held = await heldOrWhy(deps, request.revision);
   if (held) return { kind: 'not-held', version, message: held };
+  if (request.stage === 'off' && request.have === version) return { kind: 'have', version };
   const preview = request.stage === 'preview' ? request.flag : undefined;
   const moved: string[] = [];
   // The whole run, each check as last seen: one that failed and passed when run again passed, as the gate counts it.

@@ -982,6 +982,24 @@ describe('the flag pass, against the store', () => {
       expect((await flagEvents(database.as.line)).records).toMatchObject([{ type: 'flag.staged', to: CHECKS }]);
     });
 
+    it('records nothing of a check another flag’s move made stale while it ran', async () => {
+      const workItem = await improvement('dates');
+      const other = await improvement('wraps');
+      const { port } = probes();
+      const moving: FlagChecksPort = {
+        async flagCheck(request) {
+          const answer = await port.flagCheck(request);
+          if (answer && request.flag === 'dates') await move(other, 'wraps', OFF, CHECKS);
+          return answer;
+        },
+      };
+      const { pass } = line({ events: vouched(), flagChecks: moving });
+      await pass();
+      now += 30_000;
+      await pass();
+      expect(await checks(workItem)).toEqual([]);
+    });
+
     it('believes only the line’s checks, and reads the revision of Martin’s latest move of any flag', async () => {
       const workItem = await improvement('dates');
       const off = (sql: Sql) =>

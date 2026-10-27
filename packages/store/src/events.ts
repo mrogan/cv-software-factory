@@ -18,6 +18,9 @@ import type { ArtifactStore } from './artifacts.ts';
 import { fromMartin } from './commands.ts';
 
 /** An append the store refused, with every reason it found. Nothing in the batch was stored. */
+/** A flag's own events, which a work item closed as turned off still takes: the flag outlives the close. */
+const FLAG_TYPES: ReadonlySet<string> = new Set(['flag.staged', 'flag.compared', 'flag.checked']);
+
 export class AppendRefused extends Error {
   readonly problems: string[];
 
@@ -176,7 +179,7 @@ export class EventWriter {
       } else if (
         item.closed &&
         event.type !== 'work-item.summarised' &&
-        !(item.turnedOff && (event.type === 'flag.staged' || event.type === 'flag.compared'))
+        !(item.turnedOff && FLAG_TYPES.has(event.type))
       ) {
         problems.push(`${at}: work item ${event.work_item} is closed`);
       }

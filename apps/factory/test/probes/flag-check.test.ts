@@ -151,6 +151,9 @@ describe('a flag’s baseline, at Off', () => {
     expect(asked).toEqual([]);
     expect(shots).toEqual([]);
     expect(await flagCheck(deps, off({ have: V2 }))).toMatchObject({ kind: 'checked', version: V1 });
+    // The same version under another flag set is not the baseline taken.
+    const stale = app([], { revisions: ['r6'] });
+    expect(await flagCheck(stale.deps, off({ have: V1 }))).toMatchObject({ kind: 'not-held' });
   });
 
   it('judges nothing when the app holds another flag set, before the run or after, or moved meanwhile', async () => {
