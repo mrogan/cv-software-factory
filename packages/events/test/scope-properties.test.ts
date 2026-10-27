@@ -19,7 +19,7 @@
  */
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { inScope, pattern, scopesOverlap, sharedPath, touches } from '../src/line.ts';
+import { inScope, scopesOverlap, sharedPath, touches } from '../src/line.ts';
 
 /** A path segment: often a name entries share, sometimes one with a character a regular expression would read. */
 const segment = fc.oneof(
@@ -92,21 +92,33 @@ const pair = fc.oneof(
 );
 
 /**
- * `touches` as it read before `sharedPath`: the entry tried as text against each path, and a sample of each path, its
- * `*` as `x`, tried against the entry. Kept here to hold the planner to refusing every scope it refused then, and the
- * line to every overlap it saw.
+ * A scope entry as the regular expression that once matched it, kept here, apart from `pattern`, for `touchedBefore`
+ * alone: that reading is frozen, so nothing `pattern` becomes can change it.
+ */
+function regexOf(entry: string, anyFolders = '(?:.*/)?'): RegExp {
+  const parts = entry.split(/((?<=^|\/)\*\*\/|\*\*|\*)/).filter((part) => part !== '');
+  const source = parts
+    .map((part) =>
+      part === '**/'
+        ? anyFolders
+        : part === '**'
+          ? '.*'
+          : part === '*'
+            ? '[^/]*'
+            : part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'),
+    )
+    .join('');
+  return new RegExp(`^${source}${entry.endsWith('/') ? '.*' : ''}$`, 's');
+}
+
+/**
+ * `touches` as it read before `sharedPath`: the entry tried as text against each path, read with "any folders" as any
+ * text, and a sample of each path, its `*` as `x`, tried against the entry. Kept here to hold the planner to refusing
+ * every scope it refused then, and the line to every overlap it saw.
  */
 function touchedBefore(entry: string, paths: readonly string[]): boolean {
-  const asText = (p: string) => {
-    // Rebuilt from `pattern`'s text, where "any folders" is `(?:.*\/)?`: should that ever change, fail rather than
-    // quietly compare against something narrower.
-    const anyFolders = '(?:.*\\/)?';
-    const source = pattern(p).source;
-    if (/(^|\/)\*\*\//.test(p) && !source.includes(anyFolders)) throw new Error(`pattern reads differently: ${source}`);
-    return new RegExp(source.replaceAll(anyFolders, '.*'), 's');
-  };
-  if (paths.some((p) => asText(p).test(entry))) return true;
-  const within = pattern(entry);
+  if (paths.some((p) => regexOf(p, '.*').test(entry))) return true;
+  const within = regexOf(entry);
   return paths.some((p) => {
     const sample = p.replace(/^\*\*\//, '').replace(/\*/g, 'x');
     return sample.endsWith('/') ? within.test(`${sample}x`) || within.test(sample.slice(0, -1)) : within.test(sample);
@@ -227,5 +239,53 @@ describe("the planner's check of a scope against the protected paths", () => {
       }),
       { numRuns: 1000 },
     );
+  });
+});
+
+describe("a scope entry's test of a path", () => {
+  /** A path near one: a character left out, put in, or changed, where a pattern's test is most likely to slip. */
+  const nearPath = (target: string) =>
+    fc
+      .tuple(fc.nat(), fc.constantFrom('drop', 'add', 'change'), fc.constantFrom('/', 'a', '.', 'x', ' '))
+      .map(([n, how, char]) => {
+        const i = n % (target.length + 1);
+        const after = how === 'add' ? i : i + 1;
+        return `${target.slice(0, i)}${how === 'drop' ? '' : char}${target.slice(after)}`;
+      });
+
+  it('takes in each path its regular expression took in, and no other', () => {
+    const entryAndPath = fc.oneof(
+      fc.tuple(anyEntry, path),
+      sharing.map(([target, entry]) => [entry, target] as const),
+      sharing.chain(([target, entry]) => fc.tuple(fc.constant(entry), nearPath(target))),
+    );
+    fc.assert(
+      fc.property(entryAndPath, ([entry, target]) => {
+        expect(inScope(target, [entry])).toBe(regexOf(entry).test(target));
+      }),
+      { numRuns: 2000 },
+    );
+  });
+
+  it('answers quickly however many `*` an entry has, a near miss too', () => {
+    // A regular expression tries every way of splitting a near miss between the `*`s: `a*a*…b` against a long run of
+    // `a`, which never ends in `b`, took seconds at 8 `*` and minutes at 10. The entries here have 30 to 66.
+    const manyStars = fc
+      .array(fc.constantFrom('a', 'b', 'ab', '/a', 'a/'), { minLength: 30, maxLength: 66 })
+      .map((parts) => `${parts.join('*')}*b`.slice(0, 200));
+    fc.assert(
+      fc.property(manyStars, fc.integer({ min: 100, max: 200 }), fc.constantFrom('a', 'ab', 'a/'), (entry, n, unit) => {
+        const target = unit.repeat(n).slice(0, n);
+        const started = performance.now();
+        inScope(target, [entry]);
+        expect(performance.now() - started).toBeLessThan(100);
+      }),
+      { numRuns: 50 },
+    );
+    const worst = `${'a*'.repeat(99)}b`;
+    const started = performance.now();
+    expect(inScope('a'.repeat(200), [worst])).toBe(false);
+    expect(inScope(`${'a'.repeat(199)}b`, [worst])).toBe(true);
+    expect(performance.now() - started).toBeLessThan(100);
   });
 });

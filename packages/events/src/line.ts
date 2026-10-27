@@ -113,24 +113,18 @@ export const answersTo = (cause: HoldCause): HoldAnswer[] =>
  * A scope entry as a pattern: a file (`src/money.ts`), a folder ending in `/` (`test/`), or a pattern with `*` (one
  * path segment, or part of one) or `**` (as a segment of its own, any number of whole segments: `**` followed by `/`
  * stands for none or some folders, so `**` followed by `/test.ts` is `test.ts` in any folder, never `latest.ts`; within
- * a segment it is any text, slashes too). `.` takes in every character (the `s` flag), so a line or paragraph separator
- * in a path cannot slip it past a folder or a `**`.
+ * a segment it is any text, slashes too). `*` and `**` take in any character, a line or paragraph separator too, so
+ * none can slip a path past a folder or a `**`.
+ *
+ * It tests a path by stepping it through the entry's automaton (`automatonOf`) a character at a time, keeping every
+ * state the characters so far could have reached: at most the path's length times the entry's steps, whatever the
+ * entry. A backtracking regular expression would try every way of splitting a near miss between the `*`s, which grows
+ * exponentially with them: the planner writes scopes from strangers' reports, and must not be able to stall the fence.
  */
-export const pattern = (entry: string) =>
-  new RegExp(
-    `^${partsOf(entry)
-      .map((part) =>
-        part === '**/'
-          ? '(?:.*/)?'
-          : part === '**'
-            ? '.*'
-            : part === '*'
-              ? '[^/]*'
-              : part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'),
-      )
-      .join('')}${entry.endsWith('/') ? '.*' : ''}$`,
-    's',
-  );
+export function pattern(entry: string): { test: (path: string) => boolean } {
+  const automaton = automatonOf(entry);
+  return { test: (path) => takesIn(automaton, path) };
+}
 
 /** A scope entry's parts: `**` followed by `/` as a segment of its own, `**` and `*` anywhere else, and the text between. */
 // `**` followed by `/` stands for folders only as a segment of its own: in `a**/b` it is any text, then the slash.
@@ -155,8 +149,8 @@ interface Automaton {
 }
 
 /**
- * A scope entry as a small automaton that reads a path a character at a time, ending at `end` on each path `pattern`
- * matches: a state per character of text, a loop for `*` and `**`, and for `**` followed by `/` a way past it and a way
+ * A scope entry as a small automaton that reads a path a character at a time, ending at `end` on each path the entry
+ * takes in (`pattern` tests a path on it): a state per character of text, a loop for `*` and `**`, and for `**` followed by `/` a way past it and a way
  * through any folders, or, read `asText`, a loop for any text. Plain text (`literal`) is a state per character alone.
  */
 function automatonOf(entry: string, read: 'pattern' | 'asText' | 'literal' = 'pattern'): Automaton {
@@ -177,7 +171,7 @@ function automatonOf(entry: string, read: 'pattern' | 'asText' | 'literal' = 'pa
     } else if (part === '**') move(at, 'any', at);
     else if (part === '*') move(at, 'segment', at);
     else {
-      // A character at a time as JavaScript strings hold them, as the regular expression reads them.
+      // A character at a time as JavaScript strings hold them: UTF-16 code units, as `takesIn` reads a path.
       for (let i = 0; i < part.length; i++) {
         const next = state();
         move(at, part.charAt(i), next);
@@ -191,6 +185,37 @@ function automatonOf(entry: string, read: 'pattern' | 'asText' | 'literal' = 'pa
 
 /** Whether a move reads a character. */
 const reads = (move: string, char: string) => move === 'any' || (move === 'segment' ? char !== '/' : move === char);
+
+/**
+ * Whether an automaton ends on a path: the set of states it could be in, stepped a character at a time, each state
+ * taken once a step with every state its moves that read nothing reach. It stops as soon as no state is left.
+ */
+function takesIn({ moves, end }: Automaton, path: string): boolean {
+  // The step at which each state was last taken, so a state joins a step's set once.
+  const taken = new Int32Array(moves.length).fill(-1);
+  let states: number[] = [];
+  const take = (into: number[], state: number, step: number) => {
+    const stack = [state];
+    for (let at = stack.pop(); at !== undefined; at = stack.pop()) {
+      if (taken[at] === step) continue;
+      taken[at] = step;
+      into.push(at);
+      for (const { reads: r, to } of moves[at] ?? []) if (r === null) stack.push(to);
+    }
+  };
+  take(states, 0, 0);
+  for (let i = 0; i < path.length; i++) {
+    // A character at a time as JavaScript strings hold them, as the automaton was made.
+    const char = path.charAt(i);
+    const next: number[] = [];
+    for (const state of states) {
+      for (const { reads: r, to } of moves[state] ?? []) if (r !== null && reads(r, char)) take(next, to, i + 1);
+    }
+    if (!next.length) return false;
+    states = next;
+  }
+  return taken[end] === path.length;
+}
 
 /**
  * A path two automata both end on, if there is one: they run side by side, a pair of states at a time, breadth first,
