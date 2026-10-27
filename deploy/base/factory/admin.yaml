@@ -88,6 +88,13 @@ spec:
             # The app's Rollout, which the canary's controls patch, as the line is given it (line.yaml).
             - name: RELEASE_ROLLOUT
               value: website/website
+            # The one FeatureFlag the admin service stages Martin's flags in: its Role there gets and updates it by name
+            # (deploy/base/flagd/admin-stages-flags.yaml), and admission holds each change to the stages' shapes
+            # (deploy/base/admission/flagd/flag-stages.yaml). With it and RELEASE_ROLLOUT, the service also asks each of
+            # the app's pods every 60 seconds which revision of it they hold. Unset, every move is refused (503), and the
+            # check is off.
+            - name: FEATURE_FLAGS
+              value: flagd/flags
             # The gateway's profile (gateway.yaml): the bounds Martin's settings are held to, and their defaults.
             - name: FACTORY_PROFILE
               value: local
