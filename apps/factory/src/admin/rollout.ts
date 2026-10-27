@@ -401,7 +401,8 @@ export class ReleaseControls {
    * applied to a release that moved on.
    *
    * A patch whose answer never came (the connection failed, or timed out), or came as a server error, may have been
-   * made: the Rollout is read again, and counts as made if it shows the patch.
+   * made: the Rollout is read again, and counts as made if it shows the patch; as not made (502) if it does not; and,
+   * when it can't be read back either, the answer says whether it was made can't be told (504).
    */
   async #first(plan: Plan, canary: Canary): Promise<void> {
     const precondition = { metadata: { resourceVersion: canary.resourceVersion } };
@@ -412,7 +413,19 @@ export class ReleaseControls {
       await this.#kube.patch(path, { ...precondition, [part]: set });
     } catch (error) {
       const answered = error instanceof KubeError && error.kind !== 'server';
-      if (answered || !(await this.#shows(set, part))) throw kubeRefusal(error) ?? error;
+      if (answered) throw kubeRefusal(error) ?? error;
+      const shows = await this.#shows(set, part);
+      if (shows === true) return;
+      if (shows === undefined) {
+        this.#log.error({ err: error }, 'patched the Rollout, and could neither hear the answer nor read it back');
+        throw new Refused(
+          'kubernetes',
+          504,
+          "Kubernetes didn't answer, and whether the change was made can't be told: look again before trying again.",
+        );
+      }
+      this.#log.error({ err: error }, 'patched the Rollout, and Kubernetes failed the patch');
+      throw new Refused('kubernetes', 502, 'Kubernetes failed the change, and nothing was done.');
     }
   }
 
@@ -437,7 +450,7 @@ export class ReleaseControls {
         const conflict = error instanceof KubeError && error.status === 409;
         if (conflict && attempt < TRIES) continue;
         const unanswered = !(error instanceof KubeError) || error.kind === 'server';
-        if (!conflict && unanswered && (await this.#shows(spec, 'spec'))) return true;
+        if (!conflict && unanswered && (await this.#shows(spec, 'spec')) === true) return true;
         this.#log.error({ err: error }, 'made a control of the canary, and could not resume it: it stays paused');
         return false;
       }
@@ -447,10 +460,16 @@ export class ReleaseControls {
   /**
    * Whether the Rollout now shows a patch to its spec or its status: each field it sets, as it sets it. The controller
    * acts on a promotion at once, so one shows by where the canary is: at or past the step it moved to, whatever the
-   * pauses there say now, or, promoted fully, already all of the traffic, which clears `promoteFull`.
+   * pauses there say now, or, promoted fully, already all of the traffic, which clears `promoteFull`. Undefined when
+   * the Rollout can't be read: whether it shows the patch can't be told.
    */
-  async #shows(set: Record<string, unknown>, part: 'spec' | 'status'): Promise<boolean> {
-    const now = await this.#kube.get(this.#path, rolloutRaw).catch(() => undefined);
+  async #shows(set: Record<string, unknown>, part: 'spec' | 'status'): Promise<boolean | undefined> {
+    const read = await this.#kube.get(this.#path, rolloutRaw).then(
+      (rollout) => ({ rollout }),
+      () => undefined,
+    );
+    if (!read) return undefined;
+    const now = read.rollout;
     if (!now) return false;
     const { status } = now;
     if (part === 'status' && typeof set.currentStepIndex === 'number') {
