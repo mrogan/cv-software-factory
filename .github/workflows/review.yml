@@ -88,11 +88,13 @@ jobs:
           ref: ${{ job.workflow_sha }}
           sparse-checkout: |
             mise.toml
+            mise.lock
             scripts/review-gate.ts
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
+          version: 2026.10.17
           install_args: node
       # A token for checks alone: with it, the gate can post a check run and do nothing else.
       - id: app
