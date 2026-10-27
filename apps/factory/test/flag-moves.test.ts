@@ -112,8 +112,12 @@ describe('a move', () => {
   });
 
   it('turns back on straight to Everyone only a flag turned off from Everyone', () => {
-    const offFromEveryone = at(off, { last: { from: everyone, to: off } });
+    const offFromEveryone = at(off, { stagedOn: '1316', last: { from: everyone, to: off } });
     expect(refused(offFromEveryone, everyone)).toBeUndefined();
+    // Not for a later improvement whose spec reuses the flag: it widens from Checks.
+    const reused = at(off, { workItem: '1400', stagedOn: '1316', last: { from: everyone, to: off } });
+    expect(refused(reused, everyone)).toMatch(/Checks comes first/);
+    expect(refused(reused, checks)).toBeUndefined();
     expect(refused(at(off, { last: { from: share(50), to: off } }), everyone)).toMatch(/Checks comes first/);
     expect(refused(at(off), everyone)).toMatch(/Checks comes first/);
   });

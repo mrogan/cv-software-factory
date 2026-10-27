@@ -25,7 +25,7 @@
  *   with `only` too, for that work item.
  * - About every thirty seconds, while the line runs, it judges each improvement's work item at the stage Martin set its
  *   flag at, from the flags' events, not the ticket machine (`flags.ts`): a flag turned off closes its improvement as
- *   turned off. In every mode, and with `only`, for that work item alone.
+ *   turned off. Live and in a dry run, and with `only`, for that work item alone.
  * - About every thirty seconds, it reads the app's Rollout and its AnalysisRuns, and records each release on the work
  *   items it carries, or on the line when it carries none (`release.ts`). It changes nothing in Kubernetes. In a dry
  *   run, it answers for the releases of the dry run's merges, which never shipped.

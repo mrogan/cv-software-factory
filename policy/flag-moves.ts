@@ -100,9 +100,15 @@ export function comparisonOf(now: FlagNow): Comparison | undefined {
   return now.compared.outcome;
 }
 
-/** Whether a flag that is off was turned off from Everyone, by Martin's last move of it, and may go straight back. */
+/**
+ * Whether a flag that is off was turned off from Everyone, by Martin's last move of it, on the work item whose spec
+ * names it, and may go straight back. A later improvement whose spec reuses the flag widens it afresh, from Checks.
+ */
 export const turnedOffFromEveryone = (now: FlagNow): boolean =>
-  now.stage?.stage === 'off' && now.last?.to.stage === 'off' && now.last.from?.stage === 'everyone';
+  now.stage?.stage === 'off' &&
+  now.last?.to.stage === 'off' &&
+  now.last.from?.stage === 'everyone' &&
+  now.stagedOn === now.workItem;
 
 /** A move of a flag to a stage, judged against where it stands and what is around it. */
 export function moveOf(flag: string, now: FlagNow, to: Stage, around: Around = {}): Move {

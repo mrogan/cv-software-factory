@@ -3,7 +3,7 @@
  * item at the stage Martin set its flag at. It is driven by the flags' state, as the admin service records Martin's
  * moves (`flag.staged`) and the line's own judgements of them, never by the ticket machine (`machine.ts`): the line's
  * queue takes tickets, and an improvement is not on it. So it runs as a pass of its own, beside the release watch,
- * about every thirty seconds while the line runs, in every mode (a flag is real in a dry run too), and takes no lease:
+ * about every thirty seconds while the line runs, live and in a dry run (a flag is real there too), and takes no lease:
  * it appends only what the flags' events call for, which the next pass reads.
  *
  * - **Read from the store** (`flagEvents`, the reader the admin service judges a move by): Martin's moves from his
