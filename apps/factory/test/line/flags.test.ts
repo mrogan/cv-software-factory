@@ -369,14 +369,14 @@ describe('the flag pass, against the store', () => {
         where work_item = ${workItem} and type = 'flag.compared' order by seq`;
 
     /** A release in the line's record, on the line. */
-    const released = (type: 'release.started' | 'release.promoted', id: string, dryRun = false) =>
+    const released = (type: 'release.started' | 'release.promoted', id: string, dryRun = false, watched = true) =>
       events.append([
         type === 'release.started'
           ? event(null, type, {
               release: id,
               version: 'v0.9.8',
               previous: 'v0.9.7',
-              watched: true,
+              watched,
               steps: null,
               dryRun,
               ...(!dryRun && { image: { digest: `sha256:${'c'.repeat(64)}`, signed: true, admitted: true } }),
@@ -465,7 +465,7 @@ describe('the flag pass, against the store', () => {
       ]);
     });
 
-    it('runs a canary still in flight to now, and leaves out a dry run’s', async () => {
+    it('runs a canary still in flight to now, and leaves out a dry run’s and a version found live', async () => {
       const inFlight = await atShare('dates');
       const { fake } = prometheus();
       now += 5 * MINUTE;
@@ -479,6 +479,9 @@ describe('the flag pass, against the store', () => {
       // Only one flag is at Share at a time; the other is turned off, and closes.
       await move(inFlight.workItem, 'dates', SHARE, OFF, 'Not now');
       await released('release.started', 'dry-1', true);
+      // A version found live is recorded started and promoted at once: no canary.
+      await released('release.started', 'found-1', false, false);
+      await released('release.promoted', 'found-1');
       now += enough;
       await line({ verify: { prometheus: fake } }).pass();
       expect(await compared(dry.workItem)).toMatchObject([{ payload: { outcome: 'passed', setAsideMinutes: 0 } }]);

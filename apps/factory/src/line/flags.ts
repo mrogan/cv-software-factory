@@ -242,8 +242,8 @@ export class FlagPass {
   /**
    * Each canary in the line's record that was in flight at any time since `since`: from each start (a retry starts the
    * same release again) to the promotion, rollback, abort or error after it, or none while it is still in flight. A
-   * release recorded on several work items starts on each, and its spans overlap. A dry run's shipped nothing, and is
-   * left out.
+   * release recorded on several work items starts on each, and its spans overlap. A dry run's shipped nothing, and one
+   * found live (`watched: false`) was recorded started and promoted at once, with no canary: both are left out.
    */
   async #canaries(since: Date, now: Date): Promise<{ started: Date; ended: Date | null }[]> {
     const sql = this.#o.sql;
@@ -256,6 +256,7 @@ export class FlagPass {
       ) e on true
       where s.type = 'release.started' and not s.sample and s.ts <= ${now}
         and coalesce((s.payload->>'dryRun')::boolean, false) = false
+        and coalesce((s.payload->>'watched')::boolean, true)
         and (e.ended is null or e.ended >= ${since})`;
   }
 
