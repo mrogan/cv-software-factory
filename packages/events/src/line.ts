@@ -116,17 +116,12 @@ export const answersTo = (cause: HoldCause): HoldAnswer[] =>
  * a segment it is any text, slashes too). `.` takes in every character (the `s` flag), so a line or paragraph separator
  * in a path cannot slip it past a folder or a `**`.
  */
-export const pattern = (entry: string) => regExpOf(entry, '(?:.*/)?');
-
-/** A scope entry as a regular expression, with what `**` followed by `/` stands for. */
-const regExpOf = (entry: string, anyFolders: string) =>
+export const pattern = (entry: string) =>
   new RegExp(
-    `^${entry
-      // `**` followed by `/` stands for folders only as a segment of its own: in `a**/b` it is any text, then the slash.
-      .split(/((?<=^|\/)\*\*\/|\*\*|\*)/)
+    `^${partsOf(entry)
       .map((part) =>
         part === '**/'
-          ? anyFolders
+          ? '(?:.*/)?'
           : part === '**'
             ? '.*'
             : part === '*'
@@ -137,30 +132,170 @@ const regExpOf = (entry: string, anyFolders: string) =>
     's',
   );
 
+/** A scope entry's parts: `**` followed by `/` as a segment of its own, `**` and `*` anywhere else, and the text between. */
+// `**` followed by `/` stands for folders only as a segment of its own: in `a**/b` it is any text, then the slash.
+const partsOf = (entry: string) => entry.split(/((?<=^|\/)\*\*\/|\*\*|\*)/).filter((part) => part !== '');
+
 /** Whether any entry of a scope matches a path: the scope fence's rule, and the GitHub worker's. */
 export const inScope = (path: string, scope: readonly string[]) => scope.some((entry) => pattern(entry).test(path));
 
 /**
- * Whether a scope entry takes in any of the paths, which may be folders or patterns too: names one, is a folder or
- * pattern with one in it, or is a folder's name without its slash. A folder stands for a file in it, and a pattern
- * that matches anywhere (one under any folder) for its name at the top. The planner keeps its scope out of the protected
- * paths by it, and the line tells two specs that share a file by it.
- *
- * It errs towards sharing. An entry is tried as a path against each of the paths, which reads `**` followed by `/`
- * as any text, folders or none, so `docs/*AGENTS.md`, which takes in `docs/AGENTS.md`, touches `**` + `/AGENTS.md`.
+ * One move of a scope entry's automaton, to state `to`: it reads one character (a string of one), any character but
+ * `/` (`segment`), any character (`any`), or none (`null`).
  */
-export function touches(entry: string, paths: readonly string[]): boolean {
-  if (paths.some((path) => regExpOf(path, '.*').test(entry))) return true;
-  const within = pattern(entry);
-  return paths.some((path) => {
-    const sample = path.replace(/^\*\*\//, '').replace(/\*/g, 'x');
-    return sample.endsWith('/') ? within.test(`${sample}x`) || within.test(sample.slice(0, -1)) : within.test(sample);
-  });
+interface Move {
+  reads: string | null;
+  to: number;
 }
 
-/** The entries of one scope that share a file with another's: in either direction, as `touches` reads them. */
-export const scopesOverlap = (a: readonly string[], b: readonly string[]): string[] =>
-  a.filter((entry) => b.some((other) => touches(entry, [other]) || touches(other, [entry])));
+/** A scope entry as a small automaton: the moves from each state, and the state it ends at. */
+interface Automaton {
+  moves: Move[][];
+  end: number;
+}
+
+/**
+ * A scope entry as a small automaton that reads a path a character at a time, ending at `end` on each path `pattern`
+ * matches: a state per character of text, a loop for `*` and `**`, and for `**` followed by `/` a way past it and a way
+ * through any folders, or, read `asText`, a loop for any text. Plain text (`literal`) is a state per character alone.
+ */
+function automatonOf(entry: string, read: 'pattern' | 'asText' | 'literal' = 'pattern'): Automaton {
+  const moves: Move[][] = [[]];
+  const state = () => moves.push([]) - 1;
+  const move = (from: number, reads: string | null, to: number) => moves[from]?.push({ reads, to });
+  let at = 0;
+  for (const part of read === 'literal' ? [entry] : partsOf(entry)) {
+    if (part === '**/' && read === 'asText') move(at, 'any', at);
+    else if (part === '**/') {
+      const folders = state();
+      const next = state();
+      move(at, null, next);
+      move(at, null, folders);
+      move(folders, 'any', folders);
+      move(folders, '/', next);
+      at = next;
+    } else if (part === '**') move(at, 'any', at);
+    else if (part === '*') move(at, 'segment', at);
+    else {
+      // A character at a time as JavaScript strings hold them, as the regular expression reads them.
+      for (let i = 0; i < part.length; i++) {
+        const next = state();
+        move(at, part.charAt(i), next);
+        at = next;
+      }
+    }
+  }
+  if (entry.endsWith('/') && read !== 'literal') move(at, 'any', at);
+  return { moves, end: at };
+}
+
+/** Whether a move reads a character. */
+const reads = (move: string, char: string) => move === 'any' || (move === 'segment' ? char !== '/' : move === char);
+
+/**
+ * A path two automata both end on, if there is one: they run side by side, a pair of states at a time, breadth first,
+ * until both end at once or every pair they can reach together has been tried. Each pair is visited once, and keeps the
+ * pair it was reached from and the character read on the way, so the path is put together only when one is found.
+ */
+function meet(x: Automaton, y: Automaton): string | undefined {
+  const width = y.moves.length;
+  const pairs = x.moves.length * width;
+  const before = new Int32Array(pairs).fill(-1);
+  const read: string[] = [];
+  const queue = new Int32Array(pairs);
+  let tail = 0;
+  const visit = (pair: number, from: number, char: string) => {
+    if (pair === 0 || before[pair] !== -1) return;
+    before[pair] = from;
+    read[pair] = char;
+    queue[tail++] = pair;
+  };
+  queue[tail++] = 0;
+  for (let head = 0; head < tail; head++) {
+    const pair = queue[head] ?? 0;
+    const p = Math.floor(pair / width);
+    const q = pair % width;
+    if (p === x.end && q === y.end) {
+      let path = '';
+      for (let at = pair; at !== 0; at = before[at] ?? 0) path = `${read[at] ?? ''}${path}`;
+      return path;
+    }
+    const xs = x.moves[p] ?? [];
+    const ys = y.moves[q] ?? [];
+    for (const m of xs) if (m.reads === null) visit(m.to * width + q, pair, '');
+    for (const n of ys) if (n.reads === null) visit(p * width + n.to, pair, '');
+    for (const { reads: r, to } of xs) {
+      if (r === null) continue;
+      for (const { reads: s, to: other } of ys) {
+        if (s === null) continue;
+        // A character both read: one either names, or any but `/` when both read a class of them.
+        const char = [r, s, 'x'].find((c) => c.length === 1 && reads(r, c) && reads(s, c));
+        if (char !== undefined) visit(to * width + other, pair, char);
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * A path two scope entries both take in, if there is one, found by running their automata together. Exact, not a
+ * sample: it finds a path whenever `inScope` takes one in for both entries, and the path it finds is one.
+ */
+export const sharedPath = (a: string, b: string) => meet(automatonOf(a), automatonOf(b));
+
+/** A path as it stands at the top: a pattern that matches anywhere (one under any folder) without its leading `**`. */
+const atTop = (path: string) => path.replace(/^\*\*\//, '');
+
+/**
+ * Whether an entry touches a path by name, beyond the files they share: the entry, as text, matches the path read
+ * with `**` followed by `/` as any text, folders or none; or the entry is or matches a folder's name without its slash.
+ */
+const byName = (entry: string, path: string, automaton = automata()) =>
+  meet(automaton(entry, 'literal'), automaton(path, 'asText')) !== undefined ||
+  (path.endsWith('/') && meet(automaton(entry), automaton(atTop(path).slice(0, -1))) !== undefined);
+
+/** A maker of automata that makes each entry's, read each way, once. */
+function automata() {
+  const made = new Map<string, Automaton>();
+  return (entry: string, read: Parameters<typeof automatonOf>[1] = 'pattern') => {
+    const key = `${read}:${entry}`;
+    const automaton = made.get(key) ?? automatonOf(entry, read);
+    made.set(key, automaton);
+    return automaton;
+  };
+}
+
+/**
+ * Whether a scope entry takes in any of the paths, which may be folders or patterns too: shares a file with one
+ * (`sharedPath`), or touches it by name. A folder is held to a pattern that matches anywhere only at the top, so
+ * `src/`, which could hold an `AGENTS.md`, does not touch `**` + `/AGENTS.md`: the scope fence refuses that file if a
+ * patch changes it. A file or pattern is held to every path the pattern takes in, so `src/*.md` touches it. The planner
+ * keeps its scope out of the protected paths by it.
+ *
+ * It errs towards sharing: by name, `docs/LATEST-AGENTS.md` touches `**` + `/AGENTS.md` too.
+ */
+export const touches = (entry: string, paths: readonly string[]) =>
+  paths.some(
+    (path) => byName(entry, path) || sharedPath(entry, entry.endsWith('/') ? atTop(path) : path) !== undefined,
+  );
+
+/**
+ * The entries of one scope that may share a file with another's: each that shares a path with one of the other's
+ * (`sharedPath`), or touches one by name, or is touched by one, which only adds to what is shared. The line keeps two
+ * specs whose scopes overlap from running at once: a false overlap only makes one wait. Each entry's automata are
+ * made once.
+ */
+export function scopesOverlap(a: readonly string[], b: readonly string[]): string[] {
+  const automaton = automata();
+  return a.filter((entry) =>
+    b.some(
+      (other) =>
+        byName(entry, other, automaton) ||
+        byName(other, entry, automaton) ||
+        meet(automaton(entry), automaton(other)) !== undefined,
+    ),
+  );
+}
 
 /** Work items in words: "work item #1033", "work items #1033 and #1040", or `none` for none. */
 export function workItemsWords(items: readonly string[], none: string): string {
