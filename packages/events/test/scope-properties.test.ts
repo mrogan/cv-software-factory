@@ -97,7 +97,14 @@ const pair = fc.oneof(
  * line to every overlap it saw.
  */
 function touchedBefore(entry: string, paths: readonly string[]): boolean {
-  const asText = (p: string) => new RegExp(pattern(p).source.replaceAll('(?:.*/)?', '.*'), 's');
+  const asText = (p: string) => {
+    // Rebuilt from `pattern`'s text, where "any folders" is `(?:.*\/)?`: should that ever change, fail rather than
+    // quietly compare against something narrower.
+    const anyFolders = '(?:.*\\/)?';
+    const source = pattern(p).source;
+    if (/(^|\/)\*\*\//.test(p) && !source.includes(anyFolders)) throw new Error(`pattern reads differently: ${source}`);
+    return new RegExp(source.replaceAll(anyFolders, '.*'), 's');
+  };
   if (paths.some((p) => asText(p).test(entry))) return true;
   const within = pattern(entry);
   return paths.some((p) => {
