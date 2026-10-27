@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { connect } from '@software-factory/store';
 import type { Sql } from 'postgres';
-import { listen } from '../listen.ts';
+import { listenOn } from '../listen.ts';
 import { log } from '../log.ts';
 import { type KubeWriter, kubeFrom } from '../runners/kube.ts';
 import { createAdminApp } from './app.ts';
@@ -74,11 +74,18 @@ export async function startAdmin(
   server.requestTimeout = 30_000;
   server.headersTimeout = 10_000;
   try {
-    await listen(server, port, host);
+    await listenOn(server, port, host);
   } catch (error) {
-    // A port it cannot have: what it opened is let go, and the caller is told why.
-    await events.stop();
-    await sql.end();
+    // A port it cannot have: what it opened is let go, and the caller is told why, whatever the letting go says.
+    await (async () => {
+      try {
+        await events.stop();
+      } finally {
+        await sql.end();
+      }
+    })().catch((cleanup: unknown) =>
+      log.warn({ err: cleanup }, 'could not close the admin service after it failed to listen'),
+    );
     throw error;
   }
   // A narrowing or Off written just before this start: its minute goes on, rather than being forgotten by the restart.

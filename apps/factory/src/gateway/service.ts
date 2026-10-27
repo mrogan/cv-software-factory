@@ -8,7 +8,7 @@ import { MODEL as TRIAGE_MODEL } from '@software-factory/triage';
 import { MODELS } from '../../../../policy/models.ts';
 import type { Profile } from '../../../../policy/spend.ts';
 import { sendCounts } from '../counts.ts';
-import { listen } from '../listen.ts';
+import { listenOn } from '../listen.ts';
 import { log } from '../log.ts';
 import { SettingsReader } from '../settings.ts';
 import { AgentCassettes } from './agent-cassettes.ts';
@@ -120,19 +120,24 @@ export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv
       ? startPruning({ sql, dir: config.cassettesDir, agentsOnly: gateway.mode !== 'record' }, log)
       : undefined;
 
-  /** Stops the ledger, the caps and the pruner, then lets go of the store. */
+  /** Stops the ledger, the caps and the pruner, then lets go of the store, even when one of them fails to stop. */
   const release = async () => {
-    await spend.stop();
-    await caps.stop();
-    await pruner?.stop();
-    await sql.end();
+    try {
+      await spend.stop();
+      await caps.stop();
+      await pruner?.stop();
+    } finally {
+      await sql.end();
+    }
   };
   const server = createGatewayServer({ gateway, agents, spend, log });
   try {
-    await listen(server, config.port);
+    await listenOn(server, config.port);
   } catch (error) {
-    // A port it cannot have: what it started is stopped, and the caller is told why.
-    await release();
+    // A port it cannot have: what it started is stopped, and the caller is told why, whatever the stopping says.
+    await release().catch((cleanup: unknown) =>
+      log.warn({ err: cleanup }, 'could not stop the gateway after it failed to listen'),
+    );
     throw error;
   }
   log.info(
