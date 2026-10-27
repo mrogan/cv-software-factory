@@ -601,7 +601,7 @@ A group of its own, **Flags**, between What the line takes and Spend, with how m
 
 A flag turned off before everyone had it, and its work item closed, folds under **Turned off and closed** at the group's foot, its slider read-only.
 
-Under the flags, under a hairline, whether **the app holds the flags as set**: a tick and "The app holds every flag as set: r7, checked 40s ago"; while a change is being taken, a ring, and that his phone hears if it has not within a minute; and when the app's revision has lagged, in `attn`, which revision it holds and since when, and that his phone hears at five minutes. With no flag yet, the group says an improvement ships behind one, off, and it shows here once its release is out.
+Under the flags, under a hairline, whether **the app holds the flags as set**: a tick and "The app holds every flag as set: r7, checked 40s ago"; while a change is being taken, a ring, and that his phone hears if it has not within a minute; and when the app's revision has lagged, in `attn`, which revision it holds and since when, and when his phone hears: at five minutes, or at a minute after a narrowing or Off. With no flag yet, the group says an improvement ships behind one, off, and it shows here once its release is out.
 
 ### In Needs you
 
