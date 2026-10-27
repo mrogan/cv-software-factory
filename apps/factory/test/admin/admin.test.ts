@@ -2853,3 +2853,18 @@ describe('factory admin enrol', () => {
     expect(await db.reader`select 1 from events where type = 'passkey.revoked'`).not.toHaveLength(0);
   });
 });
+
+describe('starting', () => {
+  it('rejects when it cannot listen, and lets go of the store it was given', async () => {
+    // The port the service started for this test holds.
+    const { port } = service.server.address() as AddressInfo;
+    const sql = as('factory_admin', PASSWORDS.admin);
+    await expect(
+      startAdmin(
+        { origin: ORIGIN, rpId: RP_ID, trusted: proxies(''), port, profile: 'local' },
+        { sql, port, host: '127.0.0.1', recheckMs: 100, held: false },
+      ),
+    ).rejects.toMatchObject({ code: 'EADDRINUSE' });
+    await expect(sql`select 1`).rejects.toMatchObject({ code: 'CONNECTION_ENDED' });
+  });
+});

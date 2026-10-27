@@ -204,6 +204,7 @@ async function serve(): Promise<number> {
   const { Runners } = await import('../runners/steps.ts');
   const { telemetryFrom } = await import('../clients/env.ts');
   const { lineServers } = await import('../runners/serve.ts');
+  const { listenOn } = await import('../listen.ts');
   const { GitHubWorker } = await import('../github/worker-client.ts');
   const sql = connect(DATABASE_URL);
   const env = process.env;
@@ -230,8 +231,8 @@ async function serve(): Promise<number> {
   const port = Number(env.PORT ?? 8080);
   const handbackPort = Number(env.HANDBACK_PORT ?? 8081);
   // The step API on loopback only: a port-forward reaches it, and no pod can. Agent pods call the handback.
-  await new Promise<void>((resolve) => api.listen(port, '127.0.0.1', resolve));
-  await new Promise<void>((resolve) => handback.listen(handbackPort, resolve));
+  await listenOn(api, port, '127.0.0.1');
+  await listenOn(handback, handbackPort);
   log.info(
     { port, handbackPort, mode, only, take, rollout: rolloutSetting || null },
     `line listening on :${port}, the handback on :${handbackPort}`,

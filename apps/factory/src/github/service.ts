@@ -4,6 +4,7 @@
  */
 import { DiskArtifacts } from '@software-factory/store';
 import type { Logger } from 'pino';
+import { listenOn } from '../listen.ts';
 import { type Actions, contentsReader, DryRunActions, LiveActions } from './actions.ts';
 import { GitHub } from './client.ts';
 import type { GitHubConfig } from './config.ts';
@@ -58,7 +59,8 @@ export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
     health: () => ({ mode, watching: poller.watching }),
     log,
   });
-  await new Promise<void>((resolve) => server.listen(config.port, config.host, resolve));
+  // Nothing runs before it listens, so a port it cannot have leaves nothing to close.
+  await listenOn(server, config.port, config.host);
   poller.start();
   log.info(
     { host: config.host, port: config.port, mode, repositories: config.repositories },

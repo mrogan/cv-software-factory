@@ -29,6 +29,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connect, DiskArtifacts } from '@software-factory/store';
 import { capturePage } from '../capture.ts';
+import { listenOn } from '../listen.ts';
 import { log } from '../log.ts';
 import { inbox } from '../outbox.ts';
 import { PictureIndex } from '../pictures/index.ts';
@@ -167,11 +168,18 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
   });
   const reader = readerServer({ app, sense, store, version: () => versionOf(app, UNMEASURED), log });
   const port = Number(process.env.PORT ?? 8080);
-  await new Promise<void>((resolve) => reader.listen(port, resolve));
-  log.info({ port }, 'the page reader is listening');
   const verifyPort = Number(process.env.VERIFY_PORT ?? 8081);
-  await new Promise<void>((resolve) => verifier.listen(verifyPort, resolve));
-  log.info({ port: verifyPort }, 'the verification is listening');
+  try {
+    await listenOn(reader, port);
+    log.info({ port }, 'the page reader is listening');
+    await listenOn(verifier, verifyPort);
+    log.info({ port: verifyPort }, 'the verification is listening');
+  } catch (error) {
+    // A port it cannot have: `run` reports it and returns, so nothing left open may keep the process alive.
+    if (reader.listening) await new Promise((resolve) => reader.close(resolve));
+    await sql.end();
+    throw error;
+  }
   const stop = runner.start(seconds('VERSION_POLL', 15));
   const stopPictures = pictures ? pictures.start(seconds('VERSION_POLL', 15)) : async () => {};
   const stopForgetting = forgetFlagPictures(index, store);
