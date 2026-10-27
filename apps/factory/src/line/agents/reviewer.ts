@@ -30,7 +30,7 @@
  * make twice, then the comment review, which is not, then the answered threads; each is done once for a handback
  * (`EffectsContext.once`), so GitHub failing between them tries only what is left, and never runs the reviewer again.
  */
-import { MAX_FINDINGS, type PayloadOf } from '@software-factory/events';
+import { MAX_FINDINGS, PATH_CHARS, type PayloadOf } from '@software-factory/events';
 import { z } from 'zod';
 import { LIMITS, suggestionsGoBack, type WorkItemState } from '../machine.ts';
 import { answerThreads, cites, type Finding, lineage, reviewInGitHub, threadAnswers } from '../review.ts';
@@ -61,7 +61,7 @@ export interface ReviewerInput {
 
 const finding = z.strictObject({
   /** A file the change changes, from the repository's root. */
-  path: words(200),
+  path: words(PATH_CHARS),
   /** A line in the change's version of the file, that the diff shows. */
   line: z.number().int().positive(),
   blocking: z.boolean(),

@@ -145,7 +145,7 @@ describe('what a patch may not do', () => {
 
   it('name a path longer than an event records', () => {
     const long = `src/${'a/'.repeat(PATH_CHARS / 2)}x.ts`;
-    expect(() => filesIn(header(long))).toThrow('not a plain path');
+    expect(() => filesIn(header(long))).toThrow(`a path of ${long.length} characters, longer than ${PATH_CHARS}`);
   });
 
   it('name a path with a control character in it, as git quotes and escapes one', () => {

@@ -24,6 +24,7 @@ import { BranchRefused } from './branches.ts';
 import { GitHubError } from './client.ts';
 import { DeployRefused, MAX_CARRIES } from './deploys.ts';
 import { PatchRefused } from './patches.ts';
+import { plainPath } from './paths.ts';
 import type { Reads } from './reads.ts';
 import { DIGEST, RegistryError } from './registry.ts';
 
@@ -35,11 +36,8 @@ const branch = z
   .min(1)
   .max(200)
   .regex(/^(?!\/|.*\/$|.*\.\.|.*\/\/)[A-Za-z0-9._/-]+$/, 'a branch name of letters, digits, dots, dashes and slashes');
-const path = z
-  .string()
-  .min(1)
-  .max(400)
-  .refine((p) => !p.startsWith('/') && !p.split('/').some((part) => part === '..' || part === ''), 'a relative path');
+/** A path a commit names: one a patch may name (`plainPath`), whether or not it came from one. */
+const path = z.string().refine(plainPath, 'a plain relative path');
 const number = z.number().int().positive();
 const text = (max: number) => z.string().max(max);
 const digest = z.string().regex(DIGEST);

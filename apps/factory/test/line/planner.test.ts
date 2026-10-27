@@ -1,4 +1,4 @@
-import type { PayloadOf } from '@software-factory/events';
+import { PATH_CHARS, type PayloadOf } from '@software-factory/events';
 import { validateSignal } from '@software-factory/events/schemas';
 import { describe, expect, it } from 'vitest';
 import type { EffectsContext } from '../../src/line/agents/agent.ts';
@@ -138,6 +138,11 @@ describe('the planner’s scope', () => {
     ]) {
       expect(scoped(entry).success, entry).toBe(false);
     }
+  });
+
+  it('is no longer than an event records, a folder’s slash and all', () => {
+    expect(scoped(`src/${'a'.repeat(PATH_CHARS - 5)}/`).success).toBe(true);
+    expect(scoped(`src/${'a'.repeat(PATH_CHARS - 4)}/`).success).toBe(false);
   });
 
   it('never names a protected folder without its slash', () => {

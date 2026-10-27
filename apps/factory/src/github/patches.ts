@@ -11,6 +11,7 @@
  * apply cleanly are refused, each with a `PatchRefused`; so is a patch that changes no file, when it is to be applied.
  * What applies is what the patch says, line endings and all.
  */
+import { PATH_CHARS } from '@software-factory/events';
 import { applyPatch, parsePatch, type StructuredPatch } from 'diff';
 import type { FileChanges } from './actions.ts';
 import { plainPath } from './paths.ts';
@@ -74,6 +75,12 @@ export function filesIn(patch: string): FilePatch[] {
     const after = strip(p.newFileName, 'b');
     const path = after ?? before;
     if (!path) throw new PatchRefused('path', 'The patch names a file it does not say the path of.');
+    // Said first, and with the path cut short: the refusal reaches the coder's next try only in its first words.
+    if (path.length > PATH_CHARS)
+      throw new PatchRefused(
+        'path',
+        `The patch names a path of ${path.length} characters, longer than ${PATH_CHARS}, which is not a plain path: ${JSON.stringify(path.slice(0, 60))}…`,
+      );
     if (!plainPath(path))
       throw new PatchRefused('path', `The patch names ${JSON.stringify(path)}, which is not a plain path.`);
     if (before && after && before !== after)

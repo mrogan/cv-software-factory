@@ -548,7 +548,7 @@ function changedFiles(patch: string): { path: string; added: number; removed: nu
   return filesIn(patch).map(({ path, patch: file }) => {
     const lines = file.hunks.flatMap((hunk) => hunk.lines);
     return {
-      path: path.slice(0, 200),
+      path,
       added: lines.filter((l) => l.startsWith('+')).length,
       removed: lines.filter((l) => l.startsWith('-')).length,
     };
