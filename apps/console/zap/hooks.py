@@ -6,28 +6,34 @@ two writes it sends are the first halves of signing in and enrolling, which make
 """
 import json
 import os
+import subprocess
 import sys
 import threading
-import time
+
+# The status the scan ends with when ZAP stops before it answers; scan.ts reads it.
+STOPPED = 4
 
 # Set once ZAP answers zap-baseline.py, after which its stopping is the scan's end, not a failure.
 answered = threading.Event()
 
 
 def start_zap(port, extra_zap_params):
-    # Called as zap-baseline.py starts ZAP. If ZAP stops before it answers, as when it cannot listen on its port,
-    # zap-baseline.py would wait ten minutes for it; this stops the scan as soon as ZAP does, with ZAP's log.
-    threading.Thread(target=stop_with_zap, daemon=True).start()
+    # Called just before zap-baseline.py starts ZAP. If ZAP stops before it answers, as when it cannot listen on its
+    # port, zap-baseline.py would wait ten minutes for it; this stops the scan as soon as ZAP does, with ZAP's log. The
+    # next process started is ZAP's, and its handle is kept here, as zap-baseline.py keeps none.
+    popen = subprocess.Popen
+
+    def start(*args, **kwargs):
+        subprocess.Popen = popen
+        zap = popen(*args, **kwargs)
+        threading.Thread(target=stop_with_zap, args=(zap,), daemon=True).start()
+        return zap
+
+    subprocess.Popen = start
 
 
-def stop_with_zap():
-    # ZAP's script, which zap-baseline.py starts as its child.
-    while (zap := next(children('/zap/zap-x.sh'), None)) is None:
-        time.sleep(0.1)
-    try:
-        os.waitpid(zap, 0)
-    except ChildProcessError:
-        pass  # Python's subprocess module reaped it first: it has stopped all the same.
+def stop_with_zap(zap):
+    zap.wait()
     if answered.is_set():
         return
     try:
@@ -37,21 +43,8 @@ def stop_with_zap():
         pass
     sys.stderr.write('ZAP stopped before it answered: its log, if it wrote one, is above.\n')
     sys.stderr.flush()
-    os._exit(3)
-
-
-def children(program):
-    # This process's children running `program`.
-    me = str(os.getpid())
-    for pid in filter(str.isdigit, os.listdir('/proc')):
-        try:
-            with open(f'/proc/{pid}/stat') as stat, open(f'/proc/{pid}/cmdline', 'rb') as cmdline:
-                # pid (name) state ppid …, and the name may hold spaces or brackets.
-                if (stat.read().rsplit(')', 1)[1].split()[1] == me
-                        and program.encode() in cmdline.read().split(b'\0')):
-                    yield int(pid)
-        except (OSError, IndexError):
-            pass
+    # Not 3, which zap-baseline.py exits with for any failure of its own.
+    os._exit(STOPPED)
 
 
 def zap_started(zap, target):

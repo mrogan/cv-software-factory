@@ -37,6 +37,9 @@ const PORT = 18_330;
  */
 const ZAP_PORT = 18_338;
 
+/** The status `hooks.py` ends the scan with when ZAP stops before it answers. */
+const ZAP_STOPPED = 4;
+
 /** What the scan must have reached, signed in, and how each must have answered. */
 const MUST_REACH: Record<string, number> = {
   'GET /': 200,
@@ -121,11 +124,11 @@ try {
     rmSync(work, { recursive: true, force: true });
   } catch {}
   // 0: nothing found; 1: a rule set to FAIL; 2: a warning, which is any finding `rules.tsv` keeps no exception for; 3:
-  // ZAP did not run, or stopped before it answered.
+  // zap-baseline.py failed; 4: ZAP stopped before it answered (`hooks.py`).
   status = exit ?? 1;
   // A scan that reached nothing would find nothing, and pass: it must have read the page, and Martin's session. When ZAP
-  // did not run, that it reached nothing says no more.
-  const missed = status === 3 ? [] : unreached(join(REPORT, 'reached.json'));
+  // stopped before it answered, that it reached nothing says no more than ZAP's log above.
+  const missed = status === ZAP_STOPPED ? [] : unreached(join(REPORT, 'reached.json'));
   if (missed.length) {
     console.error(`ZAP did not reach, as it should have:\n${missed.map((line) => `  ${line}`).join('\n')}`);
     status = status || 1;

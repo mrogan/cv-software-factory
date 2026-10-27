@@ -46,3 +46,13 @@ it('gives ZAP a port of its own, clear of the harness and below the range outgoi
   expect([constant('PORT'), constant('PORT') + 1]).not.toContain(port);
   expect(scan).toContain("'-P', String(ZAP_PORT)");
 });
+
+it("reads the status hooks.py ends the scan with when ZAP stops before it answers, which is zap-baseline's none", () => {
+  const scan = readFileSync(new URL('../zap/scan.ts', import.meta.url), 'utf-8');
+  const hooks = readFileSync(new URL('../zap/hooks.py', import.meta.url), 'utf-8');
+  const stopped = /^STOPPED = (\d+)$/m.exec(hooks)?.[1];
+  expect(stopped).toBeDefined();
+  // zap-baseline.py exits 0 to 3 for its own outcomes.
+  expect(Number(stopped)).toBeGreaterThan(3);
+  expect(scan).toContain(`const ZAP_STOPPED = ${stopped};`);
+});
