@@ -11,7 +11,8 @@
 #                          what is left to check (its description, checks, threads and summary): its worktree and
 #                          branch may be gone. Whether a branch is behind main is never checked: the merge queue
 #                          tests it on main as it will be.
-#   verify.sh <key>        skipped: nothing was left behind, no branch pushed and no pull request opened.
+#   verify.sh <key>        skipped: nothing was left behind (no commit on the worktree that origin lacks, so one made
+#                          from a stack's branch below counts from there), no branch pushed and no pull request opened.
 # A key of 278-2 is issue 278's second pull request. A key that begins app- is a work item in the app's repository
 # (repo.sh): its pull request, CODEOWNERS, branch and origin/main are the app's, and its worktree is still under this
 # checkout's scratch/worktrees/; app-278 is this repository's issue 278, which its description names in full
@@ -29,7 +30,7 @@ if [[ -z $pr ]]; then
   if [[ -d $wt ]]; then
     branch=$(git -C "$wt" branch --show-current)
     say worktree "$wt on $branch"
-    ahead=$(git -C "$wt" rev-list --count origin/main..HEAD)
+    ahead=$(own_commits "$wt")
     (( ahead == 0 )) || bad commits "$ahead commit(s) on $branch"
     [[ -z $(git -C "$wt" status --porcelain) ]] || bad worktree "uncommitted changes in $wt"
     if git -C "$checkout" ls-remote -q --exit-code --heads origin "$branch" >/dev/null; then bad branch "$branch was pushed"; fi

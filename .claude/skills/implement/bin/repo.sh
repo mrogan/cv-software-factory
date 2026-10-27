@@ -1,4 +1,4 @@
-# Sourced by worktree.sh, copilot.sh and verify.sh: the repository a work item's key names, and where it is checked out.
+# Sourced by worktree.sh, copilot.sh and verify.sh, and by its test: the repository a work item's key names, and where it is checked out.
 # A key that begins app- (app-flag-context) is a work item in the app's repository, checked out at APP_DIR, by default
 # beside this one; any other key is this repository's. Every worktree lives under this checkout's
 # scratch/worktrees/<key>, whichever repository it belongs to. `root` is this checkout, found from where the scripts
@@ -19,6 +19,11 @@ for_key() {
   if [[ $key == app-* && $repo != */cv-worlds-worst-website ]]; then
     echo "$checkout is a checkout of $repo, not the app's: set APP_DIR" >&2; exit 2
   fi
+}
+# own_commits <worktree>: how many commits its HEAD has that no branch on its origin has. A worktree is made from
+# origin/main or, in a stack, from the branch below, which is pushed, so this counts what was added since, either way.
+own_commits() {
+  git -C "$1" rev-list --count HEAD --not --remotes=origin
 }
 # repo_of <checkout>: owner/name of its origin on GitHub, read from git rather than asked of GitHub.
 repo_of() {
