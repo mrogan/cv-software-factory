@@ -113,8 +113,8 @@ export const answersTo = (cause: HoldCause): HoldAnswer[] =>
  * A scope entry as a pattern: a file (`src/money.ts`), a folder ending in `/` (`test/`), or a pattern with `*` (one
  * path segment, or part of one) or `**` (as a segment of its own, any number of whole segments: `**` followed by `/`
  * stands for none or some folders, so `**` followed by `/test.ts` is `test.ts` in any folder, never `latest.ts`; within
- * a segment it is any text, slashes too). `.` takes in every
- * character (the `s` flag), so a line or paragraph separator in a path cannot slip it past a folder or a `**`.
+ * a segment it is any text, slashes too). `.` takes in every character (the `s` flag), so a line or paragraph separator
+ * in a path cannot slip it past a folder or a `**`.
  */
 export const pattern = (entry: string) => regExpOf(entry, '(?:.*/)?');
 
