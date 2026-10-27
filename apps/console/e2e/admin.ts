@@ -51,16 +51,23 @@ export async function startHarness(
 ): Promise<Harness> {
   const given = process.env.TEST_DATABASE_URL;
   const postgres = given ? { url: given, stop: () => {} } : await startPostgres();
-  // What is started so far, stopped in reverse: by `stop`, or when a later part cannot start.
+  // What is started so far, stopped in reverse: by `stop`, or when a later part cannot start. Each is stopped whatever
+  // the one before it does, and the first that fails is the one `stop` throws.
   const started: (() => Promise<void> | void)[] = [() => postgres.stop()];
   const stop = async () => {
-    for (const each of started.splice(0).reverse()) await each();
+    const failed: unknown[] = [];
+    for (const each of started.splice(0).reverse())
+      await Promise.resolve()
+        .then(each)
+        .catch((e) => failed.push(e));
+    if (failed.length) throw failed[0];
   };
   try {
     // The same object, not a copy: the proxy counts cookies on it.
     return Object.assign(await startOn(postgres.url, started, port, name, release), { stop });
   } catch (error) {
-    await stop();
+    // Why it could not start, not what stopping the rest said.
+    await stop().catch(() => {});
     throw error;
   }
 }
@@ -215,7 +222,8 @@ function parsed(line: string): { level?: number; msg?: string; err?: { message?:
 }
 
 export async function stopConsole(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null) return;
+  // Gone already, by its own exit or a signal: its `exit` has been and will not come again.
+  if (child.exitCode !== null || child.signalCode !== null) return;
   await new Promise<void>((resolve) => {
     child.once('exit', () => resolve());
     child.kill('SIGKILL');

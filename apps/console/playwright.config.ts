@@ -61,11 +61,13 @@ export default defineConfig({
       EVENT_LOG: log,
       EVENT_LOG_NOW: new Date(now).toISOString(),
       NODE_ENV: 'production',
-      LOG_LEVEL: 'silent',
+      // Only what went wrong, such as a port it could not listen on, which Playwright shows.
+      LOG_LEVEL: 'error',
       OTEL_SDK_DISABLED: 'true',
       // The app a flag's "Preview it" opens: the local cluster's, as its Deployment names it.
       APP_URL: 'http://website.localhost:8080',
     },
+    stdout: 'pipe' as const,
     reuseExistingServer: false,
   })),
 });
