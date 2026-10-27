@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { ANSWERS, answersTo, inScope, returnWords, sameVersion, scopesOverlap, WORDS_LEAVE_HELD } from '../src/line.ts';
+import {
+  ANSWERS,
+  answersTo,
+  inScope,
+  returnWords,
+  sameVersion,
+  scopesOverlap,
+  sharedPath,
+  WORDS_LEAVE_HELD,
+} from '../src/line.ts';
 import { formatLog, parseLog } from '../src/log-format.ts';
 import { PUBLIC_VIEWS, publicView, redactSecrets } from '../src/public.ts';
 import { validate, validateSignal } from '../src/schemas.ts';
@@ -1091,6 +1100,14 @@ describe('two scopes that share a file', () => {
     expect(scopesOverlap(['src/'], ['src/**/*.ts'])).toEqual(['src/']);
     expect(scopesOverlap(['docs/*AGENTS.md'], ['**/AGENTS.md'])).toEqual(['docs/*AGENTS.md']);
     expect(scopesOverlap(['src/*test.ts'], ['**/test.ts'])).toEqual(['src/*test.ts']);
+  });
+
+  it('share a file two patterns both take in, though neither takes in the other', () => {
+    // Both take in `src/test.ts`; tried as samples of each other, neither did.
+    expect(sharedPath('**/test.ts', 'src/**')).toBe('src/test.ts');
+    expect(scopesOverlap(['**/test.ts'], ['src/**'])).toEqual(['**/test.ts']);
+    expect(scopesOverlap(['src/**'], ['**/test.ts'])).toEqual(['src/**']);
+    expect(scopesOverlap(['*/money.ts'], ['src/*.ts'])).toEqual(['*/money.ts']);
   });
 
   it('share nothing when no file is in both', () => {
