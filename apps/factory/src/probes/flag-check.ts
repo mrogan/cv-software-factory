@@ -26,7 +26,7 @@
 import type { Screenshot } from '@software-factory/events';
 import type { ArtifactStore } from '@software-factory/store';
 import { z } from 'zod';
-import { type Count, compareJourneys, type Seen } from '../gates/journeys.ts';
+import { type Count, compareJourneys, keyOf, type Seen } from '../gates/journeys.ts';
 import { compare } from '../pictures/compare.ts';
 import type { PictureIndex } from '../pictures/index.ts';
 import { FLAG_NAME } from '../senses/device.ts';
@@ -41,9 +41,10 @@ export const MOST_PAGES = 6;
 /** The most checks a baseline names as not clean, as `flag.checked` takes them. */
 export const MOST_NOT_CLEAN = 200;
 
+/** A path on the app: never one a URL would read as another host's (`//host`, `/\\host`). */
 const path = z
   .string()
-  .regex(/^\/[^\s?#]*$/)
+  .regex(/^\/(?![/\\])[^\s?#\\]*$/)
   .max(200);
 const version = z.string().regex(/^(v\d+\.\d+\.\d+|[0-9a-f]{7,40})$/);
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
@@ -52,7 +53,6 @@ const notClean = z.strictObject({
   sense: z.enum(['probe', 'crawler']),
   check: z.string().min(1).max(120),
   route: z.union([
-    path,
     z.literal('*'),
     z
       .string()
@@ -137,6 +137,7 @@ export interface FlagCheckDeps {
   /** Pictures a page of the app, with the mark: its PNG and its reference. */
   shoot(path: string, shot: { route: string; version: string }): Promise<{ png: Uint8Array; screenshot: Screenshot }>;
   index: Pick<PictureIndex, 'flagPicture' | 'flagOff' | 'recordFlagPicture'>;
+  log: { warn(fields: object, message: string): void };
   /** Where the screenshots are, and the diffs go. */
   store: ArtifactStore;
 }
@@ -167,13 +168,16 @@ export async function flagCheck(deps: FlagCheckDeps, request: FlagCheckRequest):
   if (held) return { kind: 'not-held', version, message: held };
   const preview = request.stage === 'preview' ? request.flag : undefined;
   const moved: string[] = [];
-  // The whole run, as first seen: what the journeys count, and the device read, are of it.
-  let seen: Seen[] = [];
+  // The whole run, each check as last seen: one that failed and passed when run again passed, as the gate counts it.
+  const seen = new Map<string, Seen>();
   const observe = async (only?: readonly Pick<Seen, 'sense' | 'check'>[]) => {
     const looked = await deps.observe(only, preview);
-    if (looked.version !== version || looked.after !== version) moved.push(looked.after ?? looked.version);
-    const kept = looked.seen.filter((s) => !watchOfThePreview(s));
-    if (!only) seen = kept;
+    if (looked.version !== version) moved.push(`The app moved to ${looked.version}`);
+    else if (looked.after === null) moved.push('The app did not say its version after the run');
+    else if (looked.after !== version) moved.push(`The app moved to ${looked.after}`);
+    // Named as an event keeps them, so the baseline's names and this run's are the same.
+    const kept = looked.seen.filter((s) => !watchOfThePreview(s)).map((s) => ({ ...s, check: s.check.slice(0, 120) }));
+    for (const s of kept) seen.set(keyOf(s), s);
     return kept;
   };
   const base = request.stage === 'off' ? undefined : request.base;
@@ -199,26 +203,28 @@ export async function flagCheck(deps: FlagCheckDeps, request: FlagCheckRequest):
     );
     regressions = comparison.regressions;
   } else {
-    await observe();
+    // A check that did not pass cleanly is run again, as the gate does, so one flake does not make a check the
+    // baseline says nothing of.
+    const first = await observe();
+    const again = first.filter(bad);
+    if (again.length) await observe(again);
   }
   const pages = request.stage === 'preview' ? [] : await picture(deps, request, version);
   const after = await deps.version().catch(() => null);
-  if (moved.length || after !== version) {
-    return {
-      kind: 'not-held',
-      version,
-      message: `The app moved to ${moved[0] ?? after ?? 'a version it did not say'}`,
-    };
-  }
+  if (after !== version)
+    moved.push(after === null ? 'The app did not say its version after the run' : `The app moved to ${after}`);
+  const [why] = moved;
+  if (why) return { kind: 'not-held', version, message: why };
   const still = await heldOrWhy(deps, request.revision);
   if (still) return { kind: 'not-held', version, message: `After the run: ${still}` };
-  const devices = seen.filter((s) => s.check.endsWith('/device'));
+  const run = [...seen.values()];
+  const devices = run.filter((s) => s.check.endsWith('/device'));
   return {
     kind: 'checked',
     version,
     revision: request.revision,
-    journeys: { passed: seen.filter((s) => !bad(s)).length, ran: seen.length },
-    notClean: seen.filter(bad).map(asNotClean),
+    journeys: { passed: run.filter((s) => !bad(s)).length, ran: run.length },
+    notClean: run.filter(bad).map(asNotClean),
     ...(regressions && { regressions: regressions.map(asNotClean) }),
     device: {
       allowed: [...new Set(devices.flatMap((s) => s.allowed ?? []))],
@@ -257,7 +263,9 @@ async function picture(deps: FlagCheckDeps, request: FlagCheckRequest, version: 
       let shot: Awaited<ReturnType<FlagCheckDeps['shoot']>>;
       try {
         shot = await deps.shoot(path, { route, version });
-      } catch {
+      } catch (error) {
+        // Left out of the answer, which names only the pages pictured; the run goes on.
+        deps.log.warn({ flag: request.flag, path, err: String(error) }, 'a page of a flag could not be pictured');
         continue;
       }
       const against = off && (await bytesOf(deps.store, off.hash));

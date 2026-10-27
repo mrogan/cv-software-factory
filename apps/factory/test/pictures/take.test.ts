@@ -45,17 +45,11 @@ class FakeIndex implements Index {
   /** The releases forgotten, as the most kept each time; and the images to delete, as the index would give them. */
   readonly forgot: number[] = [];
   unnamed: string[] = [];
-  flagsUnnamed: string[] = [];
 
   async forget(keep: number, _stable: string, remove: (hash: string) => Promise<boolean>) {
     this.forgot.push(keep);
     for (const hash of this.unnamed) await remove(hash);
     return this.unnamed.length;
-  }
-
-  async forgetFlagPictures(_now: Date, remove: (hash: string) => Promise<boolean>) {
-    for (const hash of this.flagsUnnamed) await remove(hash);
-    return this.flagsUnnamed.length;
   }
 }
 
@@ -303,15 +297,5 @@ describe('the pictures of a canary', () => {
     expect(index.forgot).toEqual([2]);
     expect(await pictures.tick()).toBeNull();
     expect(index.forgot).toEqual([2]);
-  });
-
-  it('deletes a flag’s pictures no event came to name in the same pass', async () => {
-    const { pictures, versions, index, stored } = setup();
-    delete versions[CANARY];
-    const hash = 'f'.repeat(64);
-    stored.set(hash, png(4, 3));
-    index.flagsUnnamed = [hash];
-    expect(await pictures.tick()).toEqual({ deleted: 1 });
-    expect(stored.has(hash)).toBe(false);
   });
 });

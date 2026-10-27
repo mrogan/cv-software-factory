@@ -32,7 +32,7 @@
 import { context, ROOT_CONTEXT } from '@opentelemetry/api';
 import type { Evidence, PayloadOf, Sense, SignalSource, SymptomClass } from '@software-factory/events';
 import { clearedOnWords, SENSES, sameVersion } from '@software-factory/events';
-import { evidence as evidenceSchema } from '@software-factory/events/schemas';
+import { artifactRef, evidence as evidenceSchema } from '@software-factory/events/schemas';
 import { CANARY_ANY_ROUTE } from '@software-factory/triage';
 import { z } from 'zod';
 import { objectives as OBJECTIVES, type Objectives } from '../../../../policy/objectives.ts';
@@ -583,24 +583,41 @@ const verifyAnswer = z.object({
   evidence: z.unknown().optional(),
 }) as z.ZodType<VerifyAnswer>;
 
-/**
- * A flag's check as the probes answered it, in outline: the event it is recorded as is checked in full as it is
- * appended, screenshots and all.
- */
+/** A screenshot the probes name, as an event's artifacts take it. */
+const screenshot = artifactRef.options[0];
+/** A check the probes name: one that did not pass cleanly, or regressed. */
+const journeyCheck = z.strictObject({
+  sense: z.enum(['probe', 'crawler']),
+  check: z.string().min(1).max(120),
+  route: z.string().min(1).max(200),
+  failed: z.boolean(),
+  message: z.string().max(300).optional(),
+});
+
+/** A flag's check as the probes answered it, checked where it enters, as the event it makes is again when appended. */
 const flagCheckAnswer = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('have'), version: z.string() }),
-  z.object({ kind: z.literal('not-held'), version: z.string().nullable(), message: z.string() }),
-  z.object({
+  z.strictObject({ kind: z.literal('have'), version: z.string() }),
+  z.strictObject({ kind: z.literal('not-held'), version: z.string().nullable(), message: z.string() }),
+  z.strictObject({
     kind: z.literal('checked'),
     version: z.string(),
     revision: z.string(),
-    journeys: z.object({ passed: z.number(), ran: z.number() }),
-    notClean: z.array(z.object({}).loose()),
-    regressions: z.array(z.object({}).loose()).optional(),
-    device: z.object({ allowed: z.array(z.string()), kept: z.array(z.string()) }),
-    pages: z.array(z.object({ path: z.string(), route: z.string() }).loose()),
+    journeys: z.strictObject({ passed: z.number().int().min(0), ran: z.number().int().min(0) }),
+    notClean: z.array(journeyCheck),
+    regressions: z.array(journeyCheck).optional(),
+    device: z.strictObject({ allowed: z.array(z.string()), kept: z.array(z.string()) }),
+    pages: z.array(
+      z.strictObject({
+        path: z.string(),
+        route: z.string(),
+        off: screenshot.optional(),
+        on: screenshot.optional(),
+        changed: z.number().min(0).max(1).optional(),
+        diff: screenshot.optional(),
+      }),
+    ),
   }),
-]) as unknown as z.ZodType<FlagCheckAnswer>;
+]) as z.ZodType<FlagCheckAnswer>;
 
 /**
  * The probes worker over HTTP. Asking starts the verification, and asking again collects its answer: a crawl run four

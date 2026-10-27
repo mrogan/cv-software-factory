@@ -95,9 +95,7 @@ export function checkedDraft(asked: CheckAsked, answer: Checked): Draft {
   const { flag } = asked;
   const { version, revision, journeys } = answer;
   if (asked.stage === 'off') {
-    const pages = answer.pages.flatMap((p) =>
-      p.off ? [{ page: p.path.slice(0, 60), route: p.route, off: p.off }] : [],
-    );
+    const pages = answer.pages.flatMap((p) => (p.off ? [{ page: p.path, route: p.route, off: p.off }] : []));
     return {
       type: 'flag.checked',
       actor: 'factory',
@@ -116,7 +114,9 @@ export function checkedDraft(asked: CheckAsked, answer: Checked): Draft {
   }
   const off = asked.base?.check.stage === 'off' ? asked.base.check : undefined;
   const regressions = answer.regressions ?? [];
-  const { outcome, reason } = judged(asked.stage, off !== undefined, regressions, answer.device);
+  // A baseline that names fewer checks than did not pass cleanly (more than an event keeps) cannot say which passed.
+  const whole = off !== undefined && off.notClean.length === off.journeys.ran - off.journeys.passed;
+  const { outcome, reason } = judged(asked.stage, off !== undefined, whole, regressions, answer.device);
   const common = {
     flag,
     version,
@@ -139,7 +139,7 @@ export function checkedDraft(asked: CheckAsked, answer: Checked): Draft {
         stage: 'checks',
         ...common,
         pages: pages.map((p) => ({
-          page: p.path.slice(0, 60),
+          page: p.path,
           route: p.route,
           ...(p.off && { off: p.off.hash }),
           on: p.on.hash,
@@ -167,10 +167,17 @@ export function checkedDraft(asked: CheckAsked, answer: Checked): Draft {
 function judged(
   stage: 'checks' | 'preview',
   based: boolean,
+  whole: boolean,
   regressions: readonly NotClean[],
   device: Checked['device'],
 ): { outcome: 'passed' | 'failed' | 'unsure'; reason?: string } {
   const why: string[] = [];
+  if (based && !whole && regressions.length) {
+    return {
+      outcome: 'unsure',
+      reason: 'The run with the flag off names fewer of its failing checks than failed, so a regression cannot be told',
+    };
+  }
   if (regressions.length) {
     const [first] = regressions;
     const n = regressions.length;

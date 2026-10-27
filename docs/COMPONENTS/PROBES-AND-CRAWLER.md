@@ -64,9 +64,10 @@ For the line's [Verify](RELEASE-AND-VERIFY.md#verify): `POST /v1/verify` with a 
 For the line's [Verify by variant](RELEASE-AND-VERIFY.md#the-probes-checks): `POST /v1/flag-check` on the same port, with the flag, the stage (`off`, `checks` or `preview`), the revision of the flag set the app must hold, the pages to picture, and, at Off, the version a baseline was last taken of, or, at Checks and Preview, the baseline to compare with: its checks that did not pass cleanly, and its pictures by hash (`probes/flag-check.ts`). Asked and polled as a verification is, with requests up to 64 kB.
 
 - **The probes alone,** never the crawl, with the `/device` check, against the stable Service, every request with the mark: so they see the flag off at Off and on from Checks.
-- **At Off,** for a version the baseline was not taken of: every probe once, and each page pictured with the flag off. For the version it was, nothing runs.
+- **At Off,** for a version or flag set the baseline was not taken of: every probe, each that did not pass cleanly run again (one that passes then passed), and each page pictured with the flag off. For the version it was, nothing runs; the line asks without it for a new flag set.
 - **At Checks,** the journeys gate's comparison with the baseline as its base: a check the baseline did not name passed there, so one that fails twice now regressed; a check it named says nothing of the flag. Each page pictured with the flag on, and compared pixel by pixel with the baseline's picture of it, found in the index by its hash: never a file the request merely names.
 - **At Preview,** a check of its own runs first and asks the app to preview the flag on the front page (`preview(flag, '/')`), so the probes after it run with the preview cookie, and their `/device` check allows it. The checks its watch makes of the front page are left out, as the probes after it watch the same page and the baseline has none to compare them with; its own, whether the ask was answered, and its `/device` check stay. No pictures.
+- **Paths only.** A page is a path on the app: none that a URL would read as another host's (`//host`, `/\host`), and the browser is sent to none off the app's origin.
 - **The stage seen.** It reads the app's revision (`x-flags-revision` on a marked `/health`) and version before the run and after; either not as asked, or moved, and it answers that it did not see the stage, judging nothing.
 
 ## Pictures
@@ -119,7 +120,7 @@ then the rows whose images are all gone.
 
 - A verification's pages stay as long as its event does.
 - A diff, which no event names, goes with its release.
-- A flag's pictures stay as long as a `flag.checked` names them. One none came to name (a run that did not see its stage, or a stage Martin left while it ran) is forgotten a day after it was taken, in the same pass, with each of its images nothing else names: no event, no other picture of either kind, and no waiting signal. A release's pictures keep every image a flag's picture names.
+- A flag's pictures stay as long as a `flag.checked` names them. One none came to name (a run that did not see its stage, or a stage Martin left while it ran) is forgotten a day after it was taken, looked for when the worker starts and every six hours, canary or none, with each of its images nothing else names: no event, no other picture of either kind, and no waiting signal. A release's pictures keep every image a flag's picture names.
 - A release's pictures take about 12 MB, and at most about 26.
 
 ## The crawler

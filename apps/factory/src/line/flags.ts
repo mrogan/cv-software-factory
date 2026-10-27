@@ -21,7 +21,7 @@
  *     passed or failed, once for that move. Everyone waits on it (`policy/flag-moves.ts`). Without Prometheus
  *     (`PROMETHEUS_URL`, Verify's), it waits.
  *   - **Checked with the probes** (`flag-checks.ts`): while an open improvement's flag is at Off, the probes take a
- *     baseline of the stable version, once for each version it runs: the journeys and the `/device` check, and
+ *     baseline of the stable version, once for each version and flag set it runs with: the journeys and the `/device` check, and
  *     pictures of the spec's pages, all with the flag off, since every probe request carries the mark, which the flag
  *     is on for from Checks. At Checks and at Preview, the same again, compared with the latest baseline, once for each
  *     of Martin's moves there; at Preview a probe first asks to preview the flag. Each is asked once a pass, and the
@@ -112,12 +112,14 @@ export function flagsNext({ flags, items, only }: FlagFacts): FlagNext[] {
   for (const [flag, now] of Object.entries(told)) {
     const move = flags.records.findLast((r) => r.type === 'flag.staged' && r.flag === flag);
     const checks = flags.checked.filter((c) => c.check.flag === flag);
-    const baseline = checks.findLast((c) => c.check.stage === 'off') ?? null;
+    /** The latest baseline taken for an improvement: another's, which reused the flag's name, is none of its. */
+    const baselineOf = (item: string) => checks.findLast((c) => c.check.stage === 'off' && c.workItem === item) ?? null;
     // At Off, on an open improvement whose spec names it: the baseline, once for each version the app runs, which the
     // probes tell (`have`). Never staged on it: one staged on an earlier improvement may be named again by this one's
     // spec, and one turned off on this one closes it.
     const named = now.workItem;
     const improvement = named ? items[named] : undefined;
+    const taken = named ? baselineOf(named) : null;
     if (
       now.stage?.stage === 'off' &&
       named &&
@@ -134,7 +136,8 @@ export function flagsNext({ flags, items, only }: FlagFacts): FlagNext[] {
         stage: 'off',
         revision,
         move: move?.seq ?? null,
-        ...(baseline && { have: baseline.check.version }),
+        // Taken again for a new flag set too: another flag moved meanwhile changes what the probes see.
+        ...(taken?.check.revision === revision && { have: taken.check.version }),
         base: null,
         pages: FRONT_PAGE,
       });
@@ -159,10 +162,11 @@ export function flagsNext({ flags, items, only }: FlagFacts): FlagNext[] {
       next.push({ do: 'compare', flag, workItem, share: now.last.to.share, move: { seq: move.seq, ts: move.ts } });
     }
     // At Checks or Preview, and not yet checked there since Martin's move: once for each move, against the latest
-    // baseline, whichever version it was taken of.
+    // baseline taken for this improvement, whichever version it was taken of.
     const stage = now.last?.to.stage;
     if ((stage === 'checks' || stage === 'preview') && move && !checkedSince(checks, stage, move.seq)) {
-      next.push({ do: 'check', flag, workItem, stage, revision, move: move.seq, base: baseline, pages: FRONT_PAGE });
+      const base = baselineOf(workItem);
+      next.push({ do: 'check', flag, workItem, stage, revision, move: move.seq, base, pages: FRONT_PAGE });
     }
   }
   return next;

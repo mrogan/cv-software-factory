@@ -146,11 +146,14 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
               observeApp(stable, only ?? allProbes, { store, log, limit, device: true, preview }),
             shoot: (path, { route, version }) =>
               sense.withPage(async (page) => {
-                await page.goto(new URL(path, stable).href, { waitUntil: 'load' });
+                const url = new URL(path, stable);
+                if (url.origin !== new URL(stable).origin) throw new Error(`${path} is not a path on the app`);
+                await page.goto(url.href, { waitUntil: 'load' });
                 return capturePage(page, store, { route, version, maxHeight: PICTURE_HEIGHT });
               }, UNMEASURED),
             index,
             store,
+            log,
           },
           request,
         ),
@@ -171,6 +174,7 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
   log.info({ port: verifyPort }, 'the verification is listening');
   const stop = runner.start(seconds('VERSION_POLL', 15));
   const stopPictures = pictures ? pictures.start(seconds('VERSION_POLL', 15)) : async () => {};
+  const stopForgetting = forgetFlagPictures(index, store);
   if (pictures) log.info({ canary }, 'pictures are taken while a canary runs');
   await new Promise<void>((resolve) => {
     process.once('SIGINT', resolve);
@@ -178,8 +182,34 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
   });
   await stop();
   await stopPictures();
+  await stopForgetting();
   await new Promise((resolve) => reader.close(resolve));
   await new Promise((resolve) => verifier.close(resolve));
   await sql.end();
   return 0;
+}
+
+/** How often a flag's pictures no event came to name are looked for, and how long since its last storing an image is kept. */
+const FORGET_FLAG_PICTURES_MS = 6 * 60 * 60_000;
+const STORED_LATELY_MS = 10 * 60_000;
+
+/**
+ * Forgets a flag's pictures no event came to name, a day after they were taken (`PictureIndex.forgetFlagPictures`),
+ * when the worker starts and every six hours, with or without a canary to picture. Gives back how to stop it.
+ */
+function forgetFlagPictures(index: PictureIndex, store: DiskArtifacts): () => Promise<void> {
+  let current: Promise<unknown> = Promise.resolve();
+  const forget = () => {
+    const unusedSince = new Date(Date.now() - STORED_LATELY_MS);
+    current = index
+      .forgetFlagPictures(new Date(), (hash) => store.remove(hash, unusedSince))
+      .then((deleted) => deleted && log.info({ images: deleted }, 'deleted the flags’ pictures no event names'))
+      .catch((error: unknown) => log.warn({ err: String(error) }, 'the flags’ pictures could not be forgotten'));
+  };
+  forget();
+  const timer = setInterval(forget, FORGET_FLAG_PICTURES_MS);
+  return async () => {
+    clearInterval(timer);
+    await current;
+  };
 }

@@ -94,6 +94,7 @@ function app(runs: Run[] = [], { revisions = ['r7'], version = V1 } = {}) {
       recordFlagPicture: async (picture) => void pictures.push(picture),
     },
     store,
+    log,
   };
   return {
     deps,
@@ -122,7 +123,8 @@ const checked = (answer: FlagCheckAnswer) => {
 
 describe('a flag’s baseline, at Off', () => {
   it('runs the journeys with the device check, and pictures each page with the flag off', async () => {
-    const { deps, pictures, asked } = app([{ failing: ['search'], troubled: ['home/console'] }]);
+    const run = { failing: ['search'], troubled: ['home/console'] };
+    const { deps, pictures, asked } = app([run, run]);
     const answer = checked(await flagCheck(deps, off()));
     expect(answer).toMatchObject({ version: V1, revision: 'r7', journeys: { passed: 3, ran: 5 } });
     expect(answer.notClean).toEqual([
@@ -130,9 +132,17 @@ describe('a flag’s baseline, at Off', () => {
       { sense: 'probe', check: 'search', route: '/', failed: true, message: 'search failed' },
     ]);
     expect(answer.regressions).toBeUndefined();
-    expect(asked).toEqual([{ only: undefined, preview: undefined }]);
+    expect(asked.map((a) => a.only?.map((o) => o.check))).toEqual([undefined, ['home/console', 'search']]);
     expect(answer.pages).toEqual([{ path: '/', route: '/', off: pictures[0]?.shot }]);
     expect(pictures).toMatchObject([{ flag: 'gift-note', stage: 'off', revision: 'r7', version: V1, changed: null }]);
+  });
+
+  it('runs a check that did not pass cleanly again, and counts one that passes then as passed', async () => {
+    const { deps, asked } = app([{ failing: ['search', 'home'] }, { failing: ['search'] }]);
+    const answer = checked(await flagCheck(deps, off()));
+    expect(asked[1]?.only?.map((o) => o.check).sort()).toEqual(['home', 'search']);
+    expect(answer.notClean.map((c) => c.check)).toEqual(['search']);
+    expect(answer.journeys).toEqual({ passed: 4, ran: 5 });
   });
 
   it('runs nothing for a version it was taken of already', async () => {
@@ -164,7 +174,7 @@ describe('a flag’s baseline, at Off', () => {
 describe('a flag at Checks and Preview', () => {
   /** A baseline taken, then the flag turned on. */
   async function baselined(runs: Run[], baseRun: Run = { failing: ['search'] }) {
-    const it = app([baseRun, ...runs]);
+    const it = app([baseRun, baseRun, ...runs]);
     const base = checked(await flagCheck(it.deps, off()));
     it.turnOn();
     const request = (stage: 'checks' | 'preview'): FlagCheckRequest => ({
@@ -238,7 +248,7 @@ describe('a flag at Checks and Preview', () => {
   });
 
   it('with no baseline, compares nothing', async () => {
-    const it = app([{ failing: ['home'] }]);
+    const it = app([{ failing: ['home'] }, { failing: ['home'] }]);
     const answer = checked(await flagCheck(it.deps, { ...off(), stage: 'checks', base: null }));
     expect(answer.regressions).toBeUndefined();
     expect(answer.notClean).toMatchObject([{ check: 'home' }]);
@@ -291,6 +301,8 @@ describe('the server that answers for a flag’s check', () => {
         JSON.stringify({ ...off(), flag: 'Not A Flag' }),
         JSON.stringify({ ...off(), stage: 'share' }),
         JSON.stringify({ ...off(), pages: ['https://elsewhere.example/'] }),
+        JSON.stringify({ ...off(), pages: ['//elsewhere.example/'] }),
+        JSON.stringify({ ...off(), pages: ['/\\elsewhere.example/'] }),
       ]) {
         expect((await post(body)).status).toBe(400);
       }

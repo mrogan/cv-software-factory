@@ -174,10 +174,15 @@ describe('which checks of a flag the pass asks the probes for', () => {
     expect(flagsNext({ flags, items: { '7': open }, only: null })).toEqual([
       { do: 'check', flag: 'dates', workItem: '7', stage: 'off', revision: 'r3', move: null, base: null, pages: ['/'] },
     ]);
-    const taken = { ...flags, checked: [baseline('a'.repeat(40)), baseline('b'.repeat(40))] };
+    const taken = { ...flags, checked: [baseline('a'.repeat(40)), { ...baseline('b'.repeat(40)) }] };
+    for (const c of taken.checked) c.check.revision = 'r3';
     expect(flagsNext({ flags: taken, items: { '7': open }, only: null })).toMatchObject([
       { do: 'check', stage: 'off', have: 'b'.repeat(40) },
     ]);
+    // Another flag moved since: a new flag set, so the same version is taken again.
+    expect(flagsNext({ flags: { ...taken, revision: 'r4' }, items: { '7': open }, only: null })[0]).not.toHaveProperty(
+      'have',
+    );
     // Before Martin's first move of any flag, the app holds no flag set.
     expect(flagsNext({ flags: told({ dates: '7' }, []), items: { '7': open }, only: null })).toMatchObject([
       { revision: 'none' },
@@ -233,6 +238,9 @@ describe('which checks of a flag the pass asks the probes for', () => {
     // Back to Checks from Preview: checked again, as it is a move.
     const back = { ...previewed, records: [toChecks, toPreview, staged('dates', '7', PREVIEW, CHECKS)] };
     expect(flagsNext({ flags: back, items: { '7': open }, only: null })).toMatchObject([{ stage: 'checks' }]);
+    // Another improvement's baseline, which reused the flag's name, is none of this one's.
+    const theirs = told({ dates: '7' }, [toChecks], { checked: [{ ...base, workItem: '6' }] });
+    expect(flagsNext({ flags: theirs, items: { '7': open }, only: null })).toMatchObject([{ base: null }]);
     // With no baseline, it is still checked, against none.
     expect(flagsNext({ flags: told({ dates: '7' }, [toChecks]), items: { '7': open }, only: null })).toMatchObject([
       { stage: 'checks', base: null },
@@ -369,6 +377,16 @@ describe('the flag.checked the pass records', () => {
     });
     const many = Array.from({ length: 10 }, (_, i) => ({ ...regression, check: `probe-${i}/device` }));
     expect(valid(checkedDraft(asked('checks'), answer({ regressions: many }))).payload).toMatchObject({ more: 2 });
+  });
+
+  it('is unsure of a regression when the baseline named fewer of its failing checks than failed', () => {
+    const regression = { sense: 'probe' as const, check: 'home', route: '/', failed: true };
+    const offCheck = base.check as Extract<PayloadOf<'flag.checked'>, { stage: 'off' }>;
+    const cut = { ...asked('checks'), base: { ...base, check: { ...offCheck, journeys: { passed: 5, ran: 10 } } } };
+    expect(valid(checkedDraft(cut, answer({ regressions: [regression] }))).payload).toMatchObject({
+      outcome: 'unsure',
+    });
+    expect(valid(checkedDraft(cut, answer())).payload).toMatchObject({ outcome: 'passed' });
   });
 
   it('is unsure of Checks with no baseline', () => {

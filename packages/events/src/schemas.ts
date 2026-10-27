@@ -1165,7 +1165,7 @@ export const PAYLOADS = {
       journeys: journeysCount,
       /** Each check that failed, or could not tell: the checks a later stage's regressions are not counted on. */
       notClean: z.array(journeyCheck).max(200),
-      pages: z.array(z.strictObject({ page: text(60), route, off: sha256 })).max(6),
+      pages: z.array(z.strictObject({ page: route, route, off: sha256 })).max(6),
     }),
     z.strictObject({
       stage: z.literal('checks'),
@@ -1176,7 +1176,8 @@ export const PAYLOADS = {
       pages: z
         .array(
           z.strictObject({
-            page: text(60),
+            /** The page's path. */
+            page: route,
             route,
             /** The page with the flag off, from the run compared with: none without one. */
             off: sha256.optional(),
