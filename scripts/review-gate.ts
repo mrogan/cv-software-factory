@@ -191,12 +191,6 @@ async function post(repo: string, token: string, commit: string, pass: boolean, 
   console.log(`Posted ${CHECK}: ${pass ? 'success' : 'failure'} on ${commit}.`);
 }
 
-/** Says a line in the run's log and its summary. */
-function say(line: string): void {
-  console.log(line);
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${line}\n`);
-}
-
 const RULE = 'Passes when Martin opened the pull request, or approved its head after the last push (ADR 0014).';
 
 async function main(): Promise<void> {
@@ -219,7 +213,7 @@ async function main(): Promise<void> {
       : { kind: 'none', reason: `no open pull request has ${owner}:${branch}` };
   }
   if (asked.kind === 'none') {
-    say(`Nothing to judge: ${asked.reason}.`);
+    console.log(`Nothing to judge: ${asked.reason}.`);
     if (asked.commit) {
       const title = asked.reason.charAt(0).toUpperCase() + asked.reason.slice(1);
       await post(repo, token, asked.commit, false, title, `No pull request to judge. ${RULE}`);
@@ -237,7 +231,7 @@ async function main(): Promise<void> {
   // a stacked one's, vouches for its own change and not for those below it, which the commit carries too.
   if (asked.kind === 'queue' && pr.base.ref !== 'main') {
     const title = `The merge queue's branch names #${pr.number}, which is into ${pr.base.ref}, not main`;
-    say(`Nothing to judge: ${title}.`);
+    console.log(`Nothing to judge: ${title}.`);
     await post(
       repo,
       token,
@@ -250,7 +244,10 @@ async function main(): Promise<void> {
   }
   const said = verdict(pr, await reviewsOf(repo, pr.number, read));
   const where = asked.kind === 'queue' ? `the merge queue's ${short(commit)}` : short(commit);
-  say(`#${pr.number} into ${pr.base.ref}, on ${where}: ${said.pass ? `passes: ${said.title}` : said.title}.`);
+  const line = `#${pr.number} on ${where}: ${said.pass ? `passes: ${said.title}` : said.title}.`;
+  console.log(`${line} It is into ${pr.base.ref}.`);
+  // The summary is written with nothing a branch's name could carry: the line names only numbers and commits.
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${line}\n`);
   await post(repo, token, commit, said.pass, said.title, `${RULE} Judged on #${pr.number} at ${short(pr.head.sha)}.`);
 }
 
