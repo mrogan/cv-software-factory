@@ -1,4 +1,4 @@
-# Sourced by worktree.sh, copilot.sh and verify.sh, and by its test: the repository a work item's key names, and where it is checked out.
+# Sourced by worktree.sh, copilot.sh and verify.sh: the repository a work item's key names, and where it is checked out.
 # A key that begins app- (app-flag-context) is a work item in the app's repository, checked out at APP_DIR, by default
 # beside this one; any other key is this repository's. Every worktree lives under this checkout's
 # scratch/worktrees/<key>, whichever repository it belongs to. `root` is this checkout, found from where the scripts
@@ -20,10 +20,14 @@ for_key() {
     echo "$checkout is a checkout of $repo, not the app's: set APP_DIR" >&2; exit 2
   fi
 }
-# own_commits <worktree>: how many commits its HEAD has that no branch on its origin has. A worktree is made from
-# origin/main or, in a stack, from the branch below, which is pushed, so this counts what was added since, either way.
+# own_commits <worktree>: how many commits its HEAD has that the commit its branch was made from does not. The branch's
+# reflog starts there, whether that was origin/main or, in a stack, the branch below, so it counts what was added since
+# even once the branch below has merged and gone; with no reflog, it counts from origin/main.
 own_commits() {
-  git -C "$1" rev-list --count HEAD --not --remotes=origin
+  local branch base
+  branch=$(git -C "$1" branch --show-current)
+  base=$(git -C "$1" reflog show --format=%H "refs/heads/$branch" -- 2>/dev/null | tail -1)
+  git -C "$1" rev-list --count "${base:-origin/main}..HEAD"
 }
 # repo_of <checkout>: owner/name of its origin on GitHub, read from git rather than asked of GitHub.
 repo_of() {
