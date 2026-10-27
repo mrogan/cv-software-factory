@@ -314,7 +314,13 @@ describe('the flag.checked the pass records', () => {
     ...more,
   });
   const valid = (draft: ReturnType<typeof checkedDraft>) => {
-    const event = { id: crypto.randomUUID(), ts: new Date().toISOString(), work_item: '7', version: 1, ...draft };
+    const event = {
+      id: crypto.randomUUID(),
+      ts: new Date().toISOString(),
+      work_item: '7',
+      version: VERSIONS['flag.checked'],
+      ...draft,
+    };
     expect(validate({ ...event, artifacts: draft.artifacts ?? [] })).toEqual({ ok: true });
     return draft;
   };

@@ -208,7 +208,7 @@ describe('appending', () => {
       ...opened(item),
       id: uuid(),
       type: 'flag.checked',
-      version: 1,
+      version: 2,
       actor: 'factory',
       summary: 'last-one at Checks: could not tell',
       payload: {
