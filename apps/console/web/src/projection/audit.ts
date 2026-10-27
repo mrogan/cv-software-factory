@@ -207,6 +207,8 @@ export function auditRows(events: readonly PublicEvent[], t: number, profile: Pr
           `${p.from ? stageWords(p.from).toLowerCase() : 'outside every stage'} → ${stageWords(p.to).toLowerCase()}`,
         );
         if (p.reason) parts.push(quoted(p.reason));
+        // Flags set by hand outside every stage, which the write dropped, and so turned off.
+        if (p.dropped?.length) parts.push(`dropped ${p.dropped.join(', ')}, set by hand`);
         break;
       }
       case 'release.controlled': {

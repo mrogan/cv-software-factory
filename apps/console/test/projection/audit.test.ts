@@ -388,6 +388,23 @@ describe('the detail under a row', () => {
       martin: true,
       detail: 'share 50% → off · “The date is wrong on Sundays”',
     });
+    const dropping = event(
+      2,
+      'flag.staged',
+      'martin',
+      {
+        flag: 'delivery-dates',
+        from: { stage: 'checks' },
+        to: { stage: 'preview' },
+        action: 'flag.widen',
+        revision: 'r8',
+        steppedUp: true,
+        dropped: ['hand-made'],
+      },
+      'Martin widened delivery-dates from Checks to Preview, and dropped 1 set by hand',
+      '1294',
+    );
+    expect(only([dropping]).detail).toBe('checks → preview · dropped hand-made, set by hand');
   });
 
   it('is nothing more for a sign-in than its summary', () => {

@@ -40,6 +40,18 @@ function byWords(block: Extract<FlagBlock, { kind: 'staged' }>): string {
   return `${how}${block.from ? ` from ${stageWords(block.from)}` : ''}${block.passkey ? ', with his passkey' : ''}`;
 }
 
+/** Flags set by hand outside every stage that a move's write dropped, and so turned off, in a sentence. */
+function Dropped({ block }: { block: FlagBlock }) {
+  if (block.kind !== 'staged' || !block.dropped.length) return null;
+  const names = block.dropped.join(', ');
+  return (
+    <p className="rel-end">
+      The write also dropped {block.dropped.length === 1 ? 'a flag' : 'flags'} set by hand outside every stage, which
+      turned {block.dropped.length === 1 ? 'it' : 'them'} off: <code className="flagname">{names}</code>.
+    </p>
+  );
+}
+
 function Body({ block, flag, app }: { block: FlagBlock; flag: FlagSheet; app: string | undefined }) {
   const { row } = flag;
   if (block.kind === 'released') {
@@ -193,12 +205,14 @@ function Block({
           <span className="more">Show this stage</span>
         </summary>
         <Body block={block} flag={flag} app={app} />
+        <Dropped block={block} />
       </details>
     );
   return (
     <article className="rel">
       <div className="rel-head">{head}</div>
       <Body block={block} flag={flag} app={app} />
+      <Dropped block={block} />
     </article>
   );
 }

@@ -160,6 +160,16 @@ describe('a flag', () => {
     expect(needs).toEqual([]);
   });
 
+  it('says on the sheet which flags set by hand a move’s write dropped', () => {
+    const item = improvement('2012', 'tidy').add(70, 'flag.staged', 'martin', {
+      ...staged('tidy', { stage: 'off' }, { stage: 'checks' }, 'flag.to-checks'),
+      dropped: ['hand-made'],
+    });
+    const blocks = projectSheet(item.events, '2012', START + 1000 * 60_000)?.flag?.blocks;
+    expect(blocks?.[0]).toMatchObject({ kind: 'staged', dropped: ['hand-made'] });
+    expect(blocks?.[1]).toMatchObject({ kind: 'released' });
+  });
+
   it('believes only Martin’s moves, which only his roles can append', () => {
     const item = improvement('2006', 'forged').add(
       70,

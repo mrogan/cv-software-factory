@@ -204,6 +204,36 @@ test('Martin widens with his passkey, chooses Share’s share with Preview skipp
   });
 });
 
+test('Kubernetes failing a move is said in the service’s words, and what each answer means', async ({ page }) => {
+  await heldAs(page, 'held');
+  const answers = [
+    {
+      status: 502,
+      message: 'Kubernetes refused the change, and nothing was done.',
+      means: 'The flag stands where it was: try again in a moment.',
+    },
+    {
+      status: 504,
+      message:
+        "Kubernetes didn't answer, and whether the change was made can't be told: look again before trying again.",
+      means: 'If it was made, the slider moves to it, and the line under the flags says when the app has it.',
+    },
+  ];
+  let next = 0;
+  await page.route('**/admin/flags/*/stage', (route) => {
+    const { status, message } = answers[Math.min(next, answers.length - 1)] as (typeof answers)[number];
+    next += 1;
+    return route.fulfill({ status, json: { refused: 'kubernetes', message } });
+  });
+  await open(page, 'martin');
+  for (const { message, means } of answers) {
+    await flag(page, 'delivery-dates').getByRole('button', { name: 'Narrow to Checks, delivery-dates' }).click();
+    await dialog(page).getByRole('button', { name: 'Narrow' }).click();
+    await expect(dialog(page).getByRole('alert')).toHaveText(`${message} ${means}`);
+    await page.keyboard.press('Escape');
+  }
+});
+
 test('a flag turned off from Everyone goes straight back, and one turned off and closed folds at the foot', async ({
   page,
 }) => {

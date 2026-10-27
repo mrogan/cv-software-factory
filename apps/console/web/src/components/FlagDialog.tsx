@@ -5,7 +5,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { SHARES } from '../../../../../policy/flags.ts';
 import { FLAG_STEP_UP } from '../access.ts';
-import { said, write } from '../admin.ts';
+import { type Answer, said, write } from '../admin.ts';
 import {
   type FlagRow,
   type FlagStage,
@@ -23,6 +23,20 @@ import { useStepUp } from './StepUp.tsx';
 
 /** The most a reason may be, as `flag.staged` takes it. */
 const REASON = 200;
+
+/**
+ * What the admin service said when it did not make the move, in its own words, and what that means here: Kubernetes
+ * refused or failed the write, and nothing was done (502); or its answer was lost, and whether it was made can't be
+ * told (504), so the slider and the line under the flags say, once they know.
+ */
+function refusalWords(got: Answer): string {
+  const words = said(got);
+  if (got.body?.refused !== 'kubernetes') return words;
+  if (got.status === 502) return `${words} The flag stands where it was: try again in a moment.`;
+  if (got.status === 504)
+    return `${words} If it was made, the slider moves to it, and the line under the flags says when the app has it.`;
+  return words;
+}
 
 /** What a move is, in the confirmation's words: its title, and its button. */
 function moveWords(row: FlagRow, move: Move): { title: string; button: string } {
@@ -101,7 +115,12 @@ export function FlagDialog({
     // Closed while it asked: nothing more is sent, and nothing to say.
     if (!live.current) return;
     setBusy(false);
-    if (got.status !== 200) return setRefusal(refused ?? said(got));
+    if (got.status !== 200) {
+      // Kubernetes's answer was lost, and the service could not read `flags` back: the move may have been made. The
+      // page asks again soon whether the app holds the flags, and the slider moves if its event arrives.
+      if (got.status === 504) onMoved?.();
+      return setRefusal(refused ?? refusalWords(got));
+    }
     onMoved?.();
     onClose();
   };

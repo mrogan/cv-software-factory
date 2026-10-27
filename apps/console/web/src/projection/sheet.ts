@@ -167,6 +167,8 @@ export type FlagBlock =
       /** Whether his passkey was given for it: every widening past Checks. */
       passkey: boolean;
       reason: string | undefined;
+      /** Flags set by hand outside every stage that the write dropped, and so turned off. */
+      dropped: string[];
       /** The move the flag stands at now. */
       current: boolean;
       /** At Share, Verify's comparison there, if it has judged. */
@@ -1094,7 +1096,7 @@ function flagBlocks(item: ItemState, row: FlagRow): FlagBlock[] {
   }
   for (const event of item.events) {
     if (event.type === 'flag.staged' && event.actor === 'martin' && event.payload.flag === row.name) {
-      const { to, from, action, steppedUp, reason } = event.payload;
+      const { to, from, action, steppedUp, reason, dropped = [] } = event.payload;
       blocks.push({
         kind: 'staged',
         at: Date.parse(event.ts),
@@ -1103,6 +1105,7 @@ function flagBlocks(item: ItemState, row: FlagRow): FlagBlock[] {
         action,
         passkey: steppedUp && FLAG_STEP_UP[action],
         reason,
+        dropped,
         current: false,
         compared: undefined,
       });
