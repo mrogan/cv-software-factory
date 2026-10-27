@@ -151,6 +151,8 @@ describe('a flag', () => {
     item.add(75, 'flag.checked', 'martin', checked('checked', 'checks', 'passed'));
     expect(viewOf(item.events).flags[0]?.check).toBe('checking');
     expect(block()).toMatchObject({ checked: undefined });
+    item.add(76, 'flag.checked', 'triage', checked('checked', 'checks', 'passed'));
+    expect(viewOf(item.events).flags[0]?.check).toBe('checking');
 
     item.add(80, 'flag.checked', 'factory', {
       ...checked('checked', 'checks', 'passed'),

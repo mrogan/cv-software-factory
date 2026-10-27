@@ -87,8 +87,12 @@ export function checkedOf(event: PublicEvent & { type: 'flag.checked' }): Checke
 export const shotOf = (checked: Checked, hash: string | undefined): Screenshot | undefined =>
   hash === undefined ? undefined : checked.shots.find((shot) => shot.hash === hash);
 
-/** Whether an event is Verify's: the line appends it as the factory, never as Martin or a visitor. */
-export const fromVerify = (event: PublicEvent) => event.actor !== 'martin' && event.actor !== 'visitor';
+/**
+ * Whether an event may be Verify's: the line appends its comparisons and checks as the factory. The public log does not
+ * say which role appended an event, as the store and the admin service read it, so another worker's under that actor
+ * is still drawn: the service refuses by the store's reading.
+ */
+export const fromVerify = (event: PublicEvent) => event.actor === 'factory';
 
 export interface FlagRow {
   name: string;
