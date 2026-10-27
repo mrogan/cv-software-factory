@@ -26,7 +26,7 @@ The scripts read the repository from the key: `worktree.sh` makes the worktree f
 - Its `.github/CODEOWNERS` is the one that names the files that are Martin's.
 - Name the repository in every `gh` command you run yourself (`-R the-roganator/cv-worlds-worst-website`); the scripts take it from the key. The one exception is an issue (`app-<n>`), which is this repository's: read it with `gh issue view <n> -R the-roganator/cv-software-factory`.
 - The reviewer works in your worktree: give it the absolute path, and have it review `git -C <worktree> diff origin/main...HEAD` against the app's `docs/REVIEWERS.md`.
-- The note's first line names your worktree as the checkout the branch is in, so `/visual-pr` reads the app's pull request template and recent descriptions. Run `gh pr create` in your worktree, and `.claude/skills/visual-pr/bin/check.ts --pr <pr>` there too, by this checkout's absolute path to it: it reads the pull request from the repository it runs in.
+- The note's first line names your worktree as the checkout the branch is in, so `/visual-pr` reads the app's pull request template and recent descriptions. Run `gh pr create` and `gh stack link` in your worktree, and `.claude/skills/visual-pr/bin/check.ts --pr <pr>` there too, by this checkout's absolute path to it: it reads the pull request from the repository it runs in.
 - For an issue (`app-<n>`), the issue is this repository's: the body says `Closes the-roganator/cv-software-factory#<n>` or `Part of the-roganator/cv-software-factory#<n>`.
 
 A pull request that needs one in the other repository merged first (in either direction) says so in its description, naming it; the orchestrator orders them.
@@ -36,7 +36,7 @@ A pull request that needs one in the other repository merged first (in either di
 Your job is to finish this item, not to find more work. Never open an issue.
 
 - What the item needs to be done properly goes in this pull request: the docs and tests that change with it, comments it makes stale, and files CODEOWNERS gives Martin (below).
-- If the item is right but too big or too mixed for one review, open a second pull request on it yourself, with every step below again, and report both as `pr-open`: `worktree.sh <key>-2 <branch>`, and `Part of #<n>` for an issue. If it builds on the first's unmerged work, stack it on the first, as [Stacks](#stacks) says; if it does not, branch it from `origin/main`. In the app's repository, which cannot stack yet, one that builds on the first is a `split` instead, for the orchestrator to queue once the first merges.
+- If the item is right but too big or too mixed for one review, open a second pull request on it yourself, with every step below again, and report both as `pr-open`: `worktree.sh <key>-2 <branch>`, and `Part of #<n>` for an issue. If it builds on the first's unmerged work, stack it on the first, as [Stacks](#stacks) says; if it does not, branch it from `origin/main`.
 - If finishing it needs work outside the item, stop at what is complete and report `split`, with each part you propose and why it cannot be part of this item.
 - Something unrelated you notice (a fault that predates the change, a doc that is wrong elsewhere) goes under `found` in your report, with its file and line. The orchestrator decides what becomes of it.
 
@@ -66,7 +66,7 @@ Never merge, approve, or push to `main`, and never enqueue a pull request or a s
 
 ## Stacks
 
-A stack is for pull requests that build on each other's unmerged work, and only for that: independent work branches from `origin/main`. Stacks work here with the merge queue and the review gate ([ADR 0014](../../../docs/architecture/adr/0014-merge-queue-and-review-gate.md)); there is nothing to check first. They do not yet work in the app's repository, whose review workflows predate them: there, branch every pull request from `origin/main`.
+A stack is for pull requests that build on each other's unmerged work, and only for that: independent work branches from `origin/main`. Stacks work with the merge queue and the review gate in both repositories ([ADR 0014](../../../docs/architecture/adr/0014-merge-queue-and-review-gate.md)); there is nothing to check first. A stack never spans the two.
 
 - Make the worktree from the branch below, with `worktree.sh`'s third argument (`origin/<branch below>`), and give that branch to `/visual-pr` as the base, to `/code-review` and `/security-review` as the diff's base, and to `gh pr create --base`.
 - The description names the pull request below. Once it is open, link it into the stack: `gh stack link <bottom> … <top>`, with the pull requests' numbers, bottom first, or `gh stack link <stack> <pr>` to add it to the top of a stack already linked. If `gh stack` is missing, `gh extension install github/gh-stack`. Put the stack's number in your report.
