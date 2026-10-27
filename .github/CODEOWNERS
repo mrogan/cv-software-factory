@@ -16,6 +16,7 @@
 # Gate configuration
 /Makefile                    @mrogan
 /mise.toml                   @mrogan
+/mise.lock                   @mrogan
 /lefthook.yml                @mrogan
 /biome.json                  @mrogan
 /tsconfig.base.json          @mrogan
