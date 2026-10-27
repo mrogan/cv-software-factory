@@ -22,6 +22,7 @@ Deterministic gates (spec 4.1). Part of the [GitHub plane](README.md#github-plan
 
 - **Any finding fails it,** unless `apps/console/zap/rules.tsv` keeps an exception with its reason beside it; a test fails an exception with none.
 - **A scan that reached nothing fails too:** it must have read the page and Martin's session, signed in.
+- **A ZAP that stops before it answers stops the scan then,** with ZAP's log, rather than after zap-baseline's ten-minute wait. Its proxy has a port of its own, below the range outgoing connections take theirs from, since on Linux it shares the runner's network.
 - The report is the job's artifact, `zap-report`. ZAP's image moves by hand, so a new release's rules are read before it is taken.
 - It passes into the required `browser tests` check, as the browser tests do.
 

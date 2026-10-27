@@ -6,9 +6,54 @@ two writes it sends are the first halves of signing in and enrolling, which make
 """
 import json
 import os
+import sys
+import threading
+import time
+
+# Set once ZAP answers zap-baseline.py, after which its stopping is the scan's end, not a failure.
+answered = threading.Event()
+
+
+def start_zap(port, extra_zap_params):
+    # Called as zap-baseline.py starts ZAP. If ZAP stops before it answers, as when it cannot listen on its port,
+    # zap-baseline.py would wait ten minutes for it; this stops the scan as soon as ZAP does, with ZAP's log.
+    threading.Thread(target=stop_with_zap, daemon=True).start()
+
+
+def stop_with_zap():
+    # ZAP's script is this process's one child: zap-baseline.py starts nothing else before ZAP answers.
+    while (zap := next(children(), None)) is None:
+        time.sleep(0.1)
+    try:
+        os.waitpid(zap, 0)
+    except ChildProcessError:
+        pass  # Python's subprocess module reaped it first: it has stopped all the same.
+    if answered.is_set():
+        return
+    try:
+        with open('zap.out') as log:
+            sys.stderr.write(log.read())
+    except OSError:
+        pass
+    sys.stderr.write('ZAP stopped before it answered: its log, if it wrote one, is above.\n')
+    sys.stderr.flush()
+    os._exit(3)
+
+
+def children():
+    me = str(os.getpid())
+    for pid in filter(str.isdigit, os.listdir('/proc')):
+        try:
+            with open(f'/proc/{pid}/stat') as stat:
+                # pid (name) state ppid …, and the name may hold spaces or brackets.
+                if stat.read().rsplit(')', 1)[1].split()[1] == me:
+                    yield int(pid)
+        except (OSError, IndexError):
+            pass
 
 
 def zap_started(zap, target):
+    answered.set()
     # Every request ZAP sends, Martin's session with it: through the proxy, the console's server never sees the cookie.
     for header, value in (('Cookie', os.environ['SF_SESSION_COOKIE']), ('X-CSRF-Token', os.environ['SF_CSRF_TOKEN'])):
         zap.replacer.add_rule(description=header, enabled='true', matchtype='REQ_HEADER', matchregex='false',

@@ -33,3 +33,12 @@ it('runs ZAP from an image pinned by digest', () => {
   const image = /ZAP_IMAGE =\s+'([^']+)'/.exec(scan)?.[1];
   expect(image).toMatch(/^ghcr\.io\/zaproxy\/zaproxy:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}$/);
 });
+
+it('gives ZAP its own port, below the range outgoing connections take theirs from', () => {
+  const scan = readFileSync(new URL('../zap/scan.ts', import.meta.url), 'utf-8');
+  const port = Number(/ZAP_PORT = ([\d_]+);/.exec(scan)?.[1]?.replaceAll('_', ''));
+  // Linux's ephemeral range starts at 32768, and macOS's and Windows's higher still.
+  expect(port).toBeGreaterThan(1024);
+  expect(port).toBeLessThan(32_768);
+  expect(scan).toContain("'-P', String(ZAP_PORT)");
+});

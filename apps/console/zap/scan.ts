@@ -28,6 +28,14 @@ const ZAP_IMAGE =
 
 const PORT = 18_330;
 
+/**
+ * ZAP's own proxy, through which zap-baseline.py drives it. On Linux ZAP shares the host's network, where the port
+ * zap-baseline.py picks for itself, at random from the range the kernel gives outgoing connections, can be taken by
+ * one (ZAP's own, fetching add-ons as it starts) before ZAP listens on it. This one is below every system's ephemeral
+ * range, so only a program listening on it could hold it, and then the scan stops at once (`hooks.py`).
+ */
+const ZAP_PORT = 18_331;
+
 /** What the scan must have reached, signed in, and how each must have answered. */
 const MUST_REACH: Record<string, number> = {
   'GET /': 200,
@@ -87,7 +95,7 @@ try {
       ...['--env', 'PYTHONDONTWRITEBYTECODE=1'],
       ZAP_IMAGE,
       'zap-baseline.py',
-      ...['-t', `${target}/`, '-c', 'rules.tsv', '--hook', '/zap/wrk/hooks.py'],
+      ...['-t', `${target}/`, '-P', String(ZAP_PORT), '-c', 'rules.tsv', '--hook', '/zap/wrk/hooks.py'],
       ...['-r', 'report.html', '-J', 'report.json', '-w', 'report.md'],
       // Anything more is the baseline's own: `-d` to see what it does.
       ...process.argv.slice(2),
@@ -111,7 +119,8 @@ try {
   try {
     rmSync(work, { recursive: true, force: true });
   } catch {}
-  // 0: nothing found; 1: a rule set to FAIL; 2: a warning, which is any finding `rules.tsv` keeps no exception for.
+  // 0: nothing found; 1: a rule set to FAIL; 2: a warning, which is any finding `rules.tsv` keeps no exception for; 3:
+  // ZAP did not run, or stopped before it answered.
   status = exit ?? 1;
   // A scan that reached nothing would find nothing, and pass: it must have read the page, and Martin's session.
   const missed = unreached(join(REPORT, 'reached.json'));
