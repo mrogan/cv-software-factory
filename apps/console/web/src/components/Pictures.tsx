@@ -77,6 +77,7 @@ export function Shot({
   marks: given,
   numbered = false,
   anchor,
+  alt: said,
 }: {
   shot: Screenshot;
   eager?: boolean;
@@ -85,13 +86,17 @@ export function Shot({
   numbered?: boolean;
   /** The mark to place the window by, when not the shot's own first: two shots compared share one window. */
   anchor?: Mark | undefined;
+  /** What the picture shows, when it is no plain screenshot of the page: where two pictures of it differ. */
+  alt?: string;
 }) {
   const url = useArtifactUrl();
   const [failed, setFailed] = useState(false);
   const [frame, ratio] = useFrame();
   const marks: Mark[] = given ?? shot.boxes.map((box, i) => ({ ...box, ...(numbered && { n: i + 1 }) }));
   const named = marks.map((mark) => [mark.n, mark.label].filter(Boolean).join(' ')).filter(Boolean);
-  const alt = `Screenshot of ${pageName(shot.route)} at ${shortVersion(shot.version)}${named.length ? `, marked: ${named.join('; ')}` : ''}`;
+  const alt =
+    said ??
+    `Screenshot of ${pageName(shot.route)} at ${shortVersion(shot.version)}${named.length ? `, marked: ${named.join('; ')}` : ''}`;
   // The shot's height the frame shows, in the shot's own pixels, from where the window starts.
   const shown = shot.width * ratio;
   const first = anchor ?? marks[0];

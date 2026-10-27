@@ -31,6 +31,7 @@ export type { ControlsView } from './controls.ts';
 export type { Attempt, DeployRecord, Finding, ThreadReview } from './fixing.ts';
 export { deployWords } from './fixing.ts';
 export type {
+  Checked,
   Compared,
   FlagNeed,
   FlagRow,
@@ -41,7 +42,7 @@ export type {
   StageName as FlagStageName,
   Stop,
 } from './flags.ts';
-export { comparedWords, moveTo, STAGE_NAME, stageAt, stageSays } from './flags.ts';
+export { checkedWords, comparedWords, moveTo, STAGE_NAME, shotOf, stageAt, stageSays } from './flags.ts';
 export type { Capture, ItemState, Outcome } from './items.ts';
 export type {
   CapSpell,

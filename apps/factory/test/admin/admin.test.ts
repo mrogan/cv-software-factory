@@ -2267,6 +2267,27 @@ describe('the flags’ stages', () => {
       }),
     ]);
 
+  /** Verify's check of the flag with the probes at Checks or Preview, as the line appends it, or as another role would. */
+  const checked = (
+    workItem: string,
+    stage: 'checks' | 'preview',
+    outcome: 'passed' | 'failed' | 'unsure',
+    { sql = db.as.line, flag = FLAG } = {},
+  ) =>
+    append(sql, [
+      event(workItem, 'flag.checked', 'factory', {
+        stage,
+        flag,
+        version: 'v0.9.5',
+        revision: 'r1',
+        against: 'v0.9.5',
+        outcome,
+        journeys: { base: { passed: 24, ran: 24 }, change: { passed: 24, ran: 24 } },
+        regressions: [],
+        ...(stage === 'checks' ? { pages: [] } : { device: { allowed: ['cookie preview'], kept: [] } }),
+      }),
+    ]);
+
   const move = (browser: Browser, from: object | null, to: object, more: Body = {}, flag = FLAG) =>
     browser.post(`/admin/flags/${flag}/stage`, { from, to, ...more });
 
@@ -2339,6 +2360,7 @@ describe('the flags’ stages', () => {
     const workItem = await improvement(FLAG);
     const { browser, passkey } = await signedIn();
     expect((await move(browser, off, checks)).status).toBe(200);
+    await checked(workItem, 'checks', 'passed');
     expect(await move(browser, checks, share(50))).toMatchObject({ status: 403, body: { refused: 'step-up' } });
     expect(held()).toEqual(checks);
     expect((await stepUp(browser, passkey)).status).toBe(200);
@@ -2370,7 +2392,7 @@ describe('the flags’ stages', () => {
   });
 
   it('refuses a skipped stage but Preview, and turning back on a flag not turned off from Everyone', async () => {
-    await improvement(FLAG);
+    const workItem = await improvement(FLAG);
     const { browser, passkey } = await signedIn();
     expect((await stepUp(browser, passkey)).status).toBe(200);
     for (const to of [preview, share(50), everyone]) {
@@ -2380,6 +2402,7 @@ describe('the flags’ stages', () => {
       });
     }
     expect((await move(browser, off, checks)).status).toBe(200);
+    await checked(workItem, 'checks', 'passed');
     expect((await move(browser, checks, everyone)).body.message).toMatch(/stage at a time/);
     expect((await move(browser, checks, share(30))).body.message).toBe('A share is 10, 25 or 50%.');
     expect((await move(browser, checks, share(25))).status).toBe(200);
@@ -2393,6 +2416,7 @@ describe('the flags’ stages', () => {
     const { browser, passkey } = await signedIn();
     expect((await stepUp(browser, passkey)).status).toBe(200);
     expect((await move(browser, off, checks)).status).toBe(200);
+    await checked(workItem, 'checks', 'passed');
     expect((await move(browser, checks, share(50))).status).toBe(200);
     expect((await move(browser, share(50), everyone)).body.message).toMatch(/still comparing/);
     // A comparison any other role appended is no comparison of Verify's.
@@ -2406,6 +2430,37 @@ describe('the flags’ stages', () => {
     expect((await move(browser, share(25), everyone)).body.message).toMatch(/still comparing/);
     await compared(workItem, 25, 'passed');
     expect((await move(browser, share(25), everyone)).status).toBe(200);
+  });
+
+  it('refuses a widening past Checks or Preview until the line’s check there since its last move has passed', async () => {
+    const workItem = await improvement(FLAG);
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect((await move(browser, off, checks)).status).toBe(200);
+    expect(await move(browser, checks, preview)).toMatchObject({
+      status: 409,
+      body: { refused: 'stage', message: expect.stringMatching(/still checking the flag at Checks/) },
+    });
+    // A check any other role appended is no check of Verify's.
+    await checked(workItem, 'checks', 'passed', { sql: db.as.triage });
+    expect((await move(browser, checks, share(50))).body.message).toMatch(/still checking/);
+    await checked(workItem, 'checks', 'unsure');
+    expect((await move(browser, checks, share(50))).body.message).toMatch(/at Checks could not tell/);
+    await checked(workItem, 'checks', 'failed');
+    expect((await move(browser, checks, preview)).body.message).toMatch(/at Checks failed/);
+    await checked(workItem, 'checks', 'passed');
+    expect((await move(browser, checks, preview)).status).toBe(200);
+    // Moved since, the check at Checks is of the flag as it was: Preview is checked in its own right.
+    expect((await move(browser, preview, share(50))).body.message).toMatch(/still checking the flag at Preview/);
+    await checked(workItem, 'preview', 'failed');
+    expect((await move(browser, preview, share(50))).body.message).toMatch(/at Preview failed/);
+    // Narrowing is never held by it.
+    expect((await move(browser, preview, checks)).status).toBe(200);
+    expect((await move(browser, checks, preview)).body.message).toMatch(/still checking the flag at Checks/);
+    await checked(workItem, 'checks', 'passed');
+    expect((await move(browser, checks, preview)).status).toBe(200);
+    await checked(workItem, 'preview', 'passed');
+    expect((await move(browser, preview, share(50))).status).toBe(200);
   });
 
   it('refuses Share while a canary is in flight, or that can’t be told, or another flag is at Share', async () => {
@@ -2480,10 +2535,11 @@ describe('the flags’ stages', () => {
   });
 
   it('reads `flags` again and judges again when it changed meanwhile, so two moves at once lose neither', async () => {
-    await improvement(FLAG);
-    kube.flags = flagsSpec({ [FLAG]: { stage: 'checks' } }, 'r1').flagSpec.flags;
+    const workItem = await improvement(FLAG);
     const { browser, passkey } = await signedIn();
     expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect((await move(browser, off, checks)).status).toBe(200);
+    await checked(workItem, 'checks', 'passed');
     // Another tab puts another flag at Share between this move's read and its write.
     kube.meanwhile = (flags) => ({
       ...flags,
@@ -2538,6 +2594,7 @@ describe('the flags’ stages', () => {
     const { browser, passkey } = await signedIn();
     expect((await stepUp(browser, passkey)).status).toBe(200);
     expect((await move(browser, off, checks)).status).toBe(200);
+    await checked(workItem, 'checks', 'passed');
     expect((await move(browser, checks, share(50))).status).toBe(200);
     await compared(workItem, 50, 'passed');
     expect((await move(browser, share(50), everyone)).status).toBe(200);
@@ -2564,6 +2621,7 @@ describe('the flags’ stages', () => {
     const flag = `${FLAG}-preview`;
     const other = await improvement(flag);
     expect((await move(browser, off, checks, {}, flag)).status).toBe(200);
+    await checked(other, 'checks', 'passed', { flag });
     expect((await move(browser, checks, preview, {}, flag)).status).toBe(200);
     expect((await move(browser, preview, off, { reason: 'Not wanted' }, flag)).status).toBe(200);
     await closed(other, 'Not wanted');
@@ -2592,10 +2650,11 @@ describe('the flags’ stages', () => {
     }
     const told = new Told();
     await withFlags(undefined, undefined, told as unknown as FlagsHeld);
-    await improvement(FLAG);
+    const workItem = await improvement(FLAG);
     const { browser, passkey } = await signedIn();
     expect((await stepUp(browser, passkey)).status).toBe(200);
     expect((await move(browser, off, checks)).status).toBe(200);
+    await checked(workItem, 'checks', 'passed');
     expect((await move(browser, checks, share(50))).status).toBe(200);
     expect((await move(browser, share(50), share(10))).status).toBe(200);
     // Refused, or to where it is already: nothing written, nothing told.

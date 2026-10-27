@@ -16,6 +16,10 @@
  *   once staged can always be turned off, on the work item it was staged on.
  * - **Share** is refused while a canary is in flight, whose two versions would mix the two sides, or can't be told to
  *   be, and while another flag is at Share: one at a time, so each comparison varies one thing.
+ * - **Past Checks, and past Preview,** waits for Verify's check of the flag at that stage with the probes
+ *   (`flag.checked`) since Martin last set its stage, so each stage is checked before the flag goes past it: from
+ *   Checks, Preview and Share are refused while it is still checking, when it failed, and when it could not tell; from
+ *   Preview, Share the same. The journeys at Checks must pass before the flag reaches anyone but the factory's checks.
  * - **Everyone** waits for Verify's comparison of the flag at Share (`flag.compared`) since Martin last set its stage:
  *   refused while it is still comparing, and when it failed.
  * - Only a flag an improvement's spec names is staged here, so each move is on that improvement's work item.
@@ -26,7 +30,7 @@
  *
  * Human-owned: see `README.md`.
  */
-import type { FlagActionName, FlagComparison } from '../packages/events/src/vocabulary.ts';
+import type { FlagActionName, FlagCheck, FlagComparison } from '../packages/events/src/vocabulary.ts';
 import { EVERY_STAGE, SHARES, type Share, STAGES, type Stage, type StageName } from './flags.ts';
 
 /** The access table's action a move is (`policy/access.ts`). */
@@ -44,7 +48,12 @@ export interface FlagNow {
   last?: { from: Stage | null; to: Stage };
   /** Verify's latest comparison of it at the share stage since that move, if there is one. */
   compared?: { share: Share; outcome: FlagComparison };
+  /** Verify's latest check of it with the probes at Checks or Preview since that move, if there is one. */
+  checked?: { stage: CheckedStage; outcome: FlagCheck };
 }
+
+/** The stages Verify checks a flag at with the probes, and a widening past waits for. */
+export type CheckedStage = 'checks' | 'preview';
 
 /** What else a move into Share is judged against. */
 export interface Around {
@@ -56,6 +65,9 @@ export interface Around {
 
 /** Where Verify's comparison of a flag at Share stands: still comparing until it has judged since the last move. */
 export type Comparison = 'comparing' | FlagComparison;
+
+/** Where Verify's check of a flag at Checks or Preview stands: still checking until it has run since the last move. */
+export type Check = 'checking' | FlagCheck;
 
 /** A move to a stage, judged: its action (none when the flag is there already), and why it can't be taken now. */
 export interface Move {
@@ -98,6 +110,14 @@ export function comparisonOf(now: FlagNow): Comparison | undefined {
   if (now.stage?.stage !== 'share') return undefined;
   if (!now.compared || now.compared.share !== now.stage.share) return 'comparing';
   return now.compared.outcome;
+}
+
+/** Verify's check of a flag at Checks or Preview, as it stands: undefined when the flag is at neither. */
+export function checkOf(now: FlagNow): Check | undefined {
+  const stage = now.stage?.stage;
+  if (stage !== 'checks' && stage !== 'preview') return undefined;
+  if (!now.checked || now.checked.stage !== stage) return 'checking';
+  return now.checked.outcome;
 }
 
 /**
@@ -172,6 +192,18 @@ function refusalOf(
       return `${around.canary.version} is at ${around.canary.weight}%, and its two versions would mix the two sides. Share can be taken once it ends.`;
     }
   }
+  // Each stage is checked before the flag goes past it: from Checks, to Preview or Share; from Preview, to Share.
+  if (action === 'flag.widen' && (from.stage === 'checks' || from.stage === 'preview')) {
+    const at = stageWords(from);
+    const next = to.stage === 'share' ? 'Share' : 'Preview';
+    const check = checkOf(now);
+    if (check === 'checking') {
+      return `Verify is still checking the flag at ${at}: ${next} can be taken once the check has passed.`;
+    }
+    const after = from.stage === 'checks' ? 'Turn it off' : 'Narrow it to Checks to check it again, or turn it off';
+    if (check === 'failed') return `Verify's check at ${at} failed: ${next} can't be taken. ${after}.`;
+    if (check === 'unsure') return `Verify's check at ${at} could not tell: ${next} can't be taken. ${after}.`;
+  }
   if (to.stage === 'everyone' && action === 'flag.widen') {
     const comparison = comparisonOf(now);
     if (comparison === 'comparing') {
@@ -187,10 +219,11 @@ function refusalOf(
 /** One of the events a flag's state is read from, as each reader has it, oldest first. */
 export type FlagRecord =
   | { type: 'flag.staged'; flag: string; workItem: string; from: Stage | null; to: Stage }
-  | { type: 'flag.compared'; flag: string; share: Share; outcome: FlagComparison };
+  | { type: 'flag.compared'; flag: string; share: Share; outcome: FlagComparison }
+  | { type: 'flag.checked'; flag: string; stage: CheckedStage; outcome: FlagCheck };
 
 /**
- * Each flag as Martin's stages and Verify's comparisons tell it, from their events oldest first (only those Martin's
+ * Each flag as Martin's stages and Verify's comparisons and checks tell it, from their events oldest first (only those Martin's
  * roles appended, and Verify's, the line's), with the flags improvements' specs name and their work items: what the
  * console reads where the admin service reads `flags` itself. A flag named by a spec and never staged is off.
  */
@@ -203,12 +236,15 @@ export function flagsFrom(
   for (const record of records) {
     if (record.type === 'flag.staged') {
       const { flag, workItem, from, to } = record;
-      // A move clears the comparison before it: Verify compares the flag as it stands.
+      // A move clears the comparison and the check before it: Verify judges the flag as it stands.
       const spec = named[flag];
       flags[flag] = { stage: to, ...(spec && { workItem: spec }), stagedOn: workItem, last: { from, to } };
-    } else {
+    } else if (record.type === 'flag.compared') {
       const now = flags[record.flag] ?? { stage: { stage: 'off' } };
       flags[record.flag] = { ...now, compared: { share: record.share, outcome: record.outcome } };
+    } else {
+      const now = flags[record.flag] ?? { stage: { stage: 'off' } };
+      flags[record.flag] = { ...now, checked: { stage: record.stage, outcome: record.outcome } };
     }
   }
   return flags;

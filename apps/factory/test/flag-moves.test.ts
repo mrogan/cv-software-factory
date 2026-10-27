@@ -24,6 +24,9 @@ const everyone: Stage = { stage: 'everyone' };
 
 /** A flag an improvement ships behind, at a stage. */
 const at = (stage: Stage | null, more: Partial<FlagNow> = {}): FlagNow => ({ stage, workItem: '1316', ...more });
+/** A flag at Checks or Preview whose check there since Martin's move has passed. */
+const checked = (stage: typeof checks | typeof preview, more: Partial<FlagNow> = {}): FlagNow =>
+  at(stage, { checked: { stage: stage.stage as 'checks' | 'preview', outcome: 'passed' }, ...more });
 
 describe('the events’ words for the stages', () => {
   it('are policy’s', () => {
@@ -83,9 +86,9 @@ describe('a move', () => {
 
   it('widens one stage at a time, but Preview may be skipped', () => {
     expect(refused(at(off), checks)).toBeUndefined();
-    expect(refused(at(checks), preview)).toBeUndefined();
-    expect(refused(at(checks), share(50))).toBeUndefined();
-    expect(refused(at(preview), share(10))).toBeUndefined();
+    expect(refused(checked(checks), preview)).toBeUndefined();
+    expect(refused(checked(checks), share(50))).toBeUndefined();
+    expect(refused(checked(preview), share(10))).toBeUndefined();
     for (const [from, to] of [
       [off, preview],
       [off, share(50)],
@@ -151,6 +154,38 @@ describe('a move', () => {
     expect(refused(at(share(10)), share(50), { canary: { version: 'v0.9.13', weight: 50 } })).toBeUndefined();
   });
 
+  it('refuses a widening past Checks or Preview until Verify’s check there has passed', () => {
+    expect(refused(at(checks), preview)).toBe(
+      'Verify is still checking the flag at Checks: Preview can be taken once the check has passed.',
+    );
+    expect(refused(at(checks), share(50))).toBe(
+      'Verify is still checking the flag at Checks: Share can be taken once the check has passed.',
+    );
+    expect(refused(at(preview), share(50))).toMatch(/still checking the flag at Preview: Share/);
+    // A check at another stage is not of the flag as it stands: Preview's own comes after Martin's move there.
+    expect(refused(at(preview, { checked: { stage: 'checks', outcome: 'passed' } }), share(50))).toMatch(
+      /still checking/,
+    );
+    expect(refused(at(checks, { checked: { stage: 'checks', outcome: 'failed' } }), preview)).toBe(
+      "Verify's check at Checks failed: Preview can't be taken. Turn it off.",
+    );
+    expect(refused(at(checks, { checked: { stage: 'checks', outcome: 'unsure' } }), share(25))).toBe(
+      "Verify's check at Checks could not tell: Share can't be taken. Turn it off.",
+    );
+    expect(refused(at(preview, { checked: { stage: 'preview', outcome: 'failed' } }), share(50))).toBe(
+      "Verify's check at Preview failed: Share can't be taken. Narrow it to Checks to check it again, or turn it off.",
+    );
+    expect(refused(at(preview, { checked: { stage: 'preview', outcome: 'unsure' } }), share(50))).toMatch(
+      /could not tell/,
+    );
+    // Narrowing and Off are never held by it, nor a wider share, nor turning back on from Everyone.
+    const failed = { checked: { stage: 'preview', outcome: 'failed' } } as const;
+    expect(refused(at(preview, failed), checks)).toBeUndefined();
+    expect(refused(at(preview, failed), off)).toBeUndefined();
+    expect(refused(at(share(10)), share(50))).toBeUndefined();
+    expect(refused(at(off, { stagedOn: '1316', last: { from: everyone, to: off } }), everyone)).toBeUndefined();
+  });
+
   it('refuses Everyone until Verify’s comparison at the flag’s share has passed', () => {
     expect(refused(at(share(50)), everyone)).toMatch(/still comparing/);
     expect(refused(at(share(50), { compared: { share: 50, outcome: 'failed' } }), everyone)).toMatch(/failed/);
@@ -172,7 +207,7 @@ describe('a move', () => {
   });
 
   it('is judged for every stop of the slider, as the console draws them', () => {
-    const moves = movesOf('delivery-dates', at(checks), { canary: { version: 'v0.9.13', weight: 25 } });
+    const moves = movesOf('delivery-dates', checked(checks), { canary: { version: 'v0.9.13', weight: 25 } });
     expect(moves.map((m) => [stageWords(m.to), m.action, m.refused !== undefined])).toEqual([
       ['Off', 'flag.off', false],
       ['Checks', undefined, true],
@@ -211,6 +246,22 @@ describe('a flag as its events tell it', () => {
     // No spec names it now: it is staged no more, but turned off.
     expect(moveOf('old-banner', flags['old-banner'] as FlagNow, everyone).refused).toMatch(/No improvement's spec/);
     expect(moveOf('old-banner', { stage: checks, stagedOn: '1200' }, off).refused).toBeUndefined();
+  });
+
+  it('has Verify’s check at Checks or Preview since Martin’s move, and forgets it once he moves the flag again', () => {
+    const records = [
+      { type: 'flag.staged', flag: 'delivery-dates', workItem: '1316', from: off, to: checks },
+      { type: 'flag.checked', flag: 'delivery-dates', stage: 'checks', outcome: 'passed' },
+    ] as const;
+    const flags = flagsFrom(records, { 'delivery-dates': '1316' });
+    expect(flags['delivery-dates']?.checked).toEqual({ stage: 'checks', outcome: 'passed' });
+    expect(moveOf('delivery-dates', flags['delivery-dates'] as FlagNow, preview).refused).toBeUndefined();
+    const moved = flagsFrom(
+      [...records, { type: 'flag.staged', flag: 'delivery-dates', workItem: '1316', from: checks, to: preview }],
+      { 'delivery-dates': '1316' },
+    );
+    expect(moved['delivery-dates']?.checked).toBeUndefined();
+    expect(moveOf('delivery-dates', moved['delivery-dates'] as FlagNow, share(50)).refused).toMatch(/still checking/);
   });
 
   it('forgets a comparison once Martin moves the flag again', () => {

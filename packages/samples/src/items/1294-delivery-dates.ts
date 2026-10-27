@@ -5,9 +5,16 @@
  * It waits for him at Preview: Share comes next, and while a canary is in flight it can't be taken.
  */
 import { commitFor, Item } from '../build.ts';
+import { shot } from '../captures.ts';
 
 /** The flag the spec names, and the one Controls draws. */
 export const FLAG = 'delivery-dates';
+
+/**
+ * The front page, which the probes picture while a spec names no pages, with the flag off and on. The change is to the
+ * product pages, so it is the same to the pixel.
+ */
+const HOME = shot('published/home', 'v0.9.5');
 
 export default new Item('1294', '2026-10-03T07:50:00+01:00')
   .at('0:00', 'work-item.opened', 'martin', 'Martin asked for an improvement from the console', {
@@ -96,24 +103,31 @@ export default new Item('1294', '2026-10-03T07:50:00+01:00')
     { promotion: `v0.9.5 promoted to 100%, the ${FLAG} flag off` },
   )
   // Verify's baseline with the flag off, on the version it shipped in, before Martin widened it.
-  .at('1:31:00', 'flag.checked', 'factory', `${FLAG} with the flag off, on v0.9.5: 22 of 24 checks passed`, {
-    stage: 'off',
-    flag: FLAG,
-    version: 'v0.9.5',
-    revision: 'r4',
-    journeys: { passed: 22, ran: 24 },
-    notClean: [
-      {
-        sense: 'probe',
-        check: 'search-finds-products',
-        route: '/search',
-        failed: true,
-        message: 'A search for a product named on the page found nothing',
-      },
-      { sense: 'probe', check: 'contact-sends', route: '/contact', failed: false, message: 'took longer than 120 s' },
-    ],
-    pages: [],
-  })
+  .at(
+    '1:31:00',
+    'flag.checked',
+    'factory',
+    `${FLAG} with the flag off, on v0.9.5: 22 of 24 checks passed`,
+    {
+      stage: 'off',
+      flag: FLAG,
+      version: 'v0.9.5',
+      revision: 'r4',
+      journeys: { passed: 22, ran: 24 },
+      notClean: [
+        {
+          sense: 'probe',
+          check: 'search-finds-products',
+          route: '/search',
+          failed: true,
+          message: 'A search for a product named on the page found nothing',
+        },
+        { sense: 'probe', check: 'contact-sends', route: '/contact', failed: false, message: 'took longer than 120 s' },
+      ],
+      pages: [{ page: '/', route: '/', off: HOME.hash }],
+    },
+    [HOME],
+  )
   .at('2:10:00', 'flag.staged', 'martin', `Martin widened ${FLAG} from Off to Checks`, {
     flag: FLAG,
     from: { stage: 'off' },
@@ -122,17 +136,24 @@ export default new Item('1294', '2026-10-03T07:50:00+01:00')
     revision: 'r5',
     steppedUp: false,
   })
-  .at('2:16:00', 'flag.checked', 'factory', `${FLAG} at Checks: passed`, {
-    stage: 'checks',
-    flag: FLAG,
-    version: 'v0.9.5',
-    revision: 'r5',
-    against: 'v0.9.5',
-    outcome: 'passed',
-    journeys: { base: { passed: 22, ran: 24 }, change: { passed: 22, ran: 24 } },
-    regressions: [],
-    pages: [],
-  })
+  .at(
+    '2:16:00',
+    'flag.checked',
+    'factory',
+    `${FLAG} at Checks: passed`,
+    {
+      stage: 'checks',
+      flag: FLAG,
+      version: 'v0.9.5',
+      revision: 'r5',
+      against: 'v0.9.5',
+      outcome: 'passed',
+      journeys: { base: { passed: 22, ran: 24 }, change: { passed: 22, ran: 24 } },
+      regressions: [],
+      pages: [{ page: '/', route: '/', off: HOME.hash, on: HOME.hash, changed: 0 }],
+    },
+    [HOME],
+  )
   .at('5:30:00', 'flag.staged', 'martin', `Martin widened ${FLAG} from Checks to Preview`, {
     flag: FLAG,
     from: { stage: 'checks' },

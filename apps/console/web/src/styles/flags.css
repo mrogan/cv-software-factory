@@ -244,3 +244,47 @@ button.fstop:hover i {
   width: 16px;
   height: 16px;
 }
+
+/* A flag's pages at Checks, on its sheet: off and on side by side, and where they differ when they do. */
+.rel .flag-pages {
+  margin-top: 0;
+}
+.flag-pages .row.pair {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.flag-pages .row.trio {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.flag-pages .row + .row {
+  margin-top: 14px;
+}
+.flag-pages > .help {
+  margin: 10px 0 0;
+}
+
+/* And on its card in Needs you: the first page, off and on. */
+.pair-mini {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+.pair-mini figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pair-mini figcaption {
+  font: 11px / 1.3 var(--font-mono);
+  color: var(--text-muted);
+}
+
+@media (max-width: 720px) {
+  .flag-pages .row.trio {
+    grid-template-columns: 1fr 1fr;
+  }
+  .pair-mini {
+    gap: 8px;
+  }
+}

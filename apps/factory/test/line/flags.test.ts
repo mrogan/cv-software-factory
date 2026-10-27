@@ -19,6 +19,7 @@ import {
 import type { Sql } from 'postgres';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
+import { flagsFrom } from '../../../../policy/flag-moves.ts';
 import type { Stage } from '../../../../policy/flags.ts';
 import { release as RELEASE } from '../../../../policy/release.ts';
 import type { Sample } from '../../src/clients/http.ts';
@@ -1025,6 +1026,25 @@ describe('the flag pass, against the store', () => {
       await move(other, 'wraps', OFF, CHECKS);
       // Asked of one flag, the flag set is still the one the latest move of any wrote.
       expect((await flagEvents(database.as.line, 'dates')).revision).toBe(`r${seq}`);
+      // A check at Checks is a record a widening waits on, as a comparison is; the baseline is none.
+      await writer(database.as.line).append([
+        event(other, 'flag.checked', {
+          stage: 'checks',
+          flag: 'wraps',
+          version: V1,
+          revision: `r${seq}`,
+          against: null,
+          outcome: 'unsure',
+          journeys: { base: null, change: { passed: 1, ran: 1 } },
+          regressions: [],
+          pages: [],
+        }),
+      ]);
+      const { records } = await flagEvents(database.as.line);
+      expect(records.filter((r) => r.type === 'flag.checked')).toMatchObject([
+        { flag: 'wraps', stage: 'checks', outcome: 'unsure' },
+      ]);
+      expect(flagsFrom(records).wraps?.checked).toEqual({ stage: 'checks', outcome: 'unsure' });
     });
 
     it('waits without the probes', async () => {

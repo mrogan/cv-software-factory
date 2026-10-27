@@ -37,9 +37,9 @@ export interface StoredFlagCheck {
 export interface FlagEvents {
   /** Each flag an improvement's latest spec names, and that improvement's work item. */
   named: Record<string, string>;
-  /** Martin's moves and Verify's comparisons, oldest first. */
+  /** Martin's moves, and Verify's comparisons and its checks at Checks and Preview, oldest first. */
   records: StoredFlagRecord[];
-  /** Verify's checks with the probes, oldest first. */
+  /** Verify's checks with the probes, the baselines with the flag off too, oldest first. */
   checked: StoredFlagCheck[];
   /** The revision of the flag set Martin's latest move of any flag wrote, or null before his first. */
   revision: string | null;
@@ -100,8 +100,13 @@ export async function flagEvents(sql: Sql | TransactionSql, flag?: string): Prom
       and e.work_item is not null and e.appended_by is not null and ${fromMartin(sql, 'e')}
     order by e.seq desc limit 1`;
   const records = rows.flatMap(({ seq, ts: at, type, work_item, payload }): StoredFlagRecord[] => {
-    if (type === 'flag.checked') return [];
     const ts = at.toISOString();
+    if (type === 'flag.checked') {
+      // The baseline with the flag off holds nothing back; a check at Checks or Preview holds back a widening past it.
+      const check = payload as PayloadOf<'flag.checked'>;
+      if (check.stage === 'off') return [];
+      return [{ type, seq, ts, flag: check.flag, stage: check.stage, outcome: check.outcome }];
+    }
     if (type === 'flag.staged') {
       const { flag, from, to, reason } = payload as Pick<
         Extract<FlagRecord, { type: 'flag.staged' }>,
