@@ -24,6 +24,7 @@ import {
   turnedOffFromEveryone,
 } from '../../../../../policy/flag-moves.ts';
 import { type Share, STAGES, type Stage, type StageName } from '../../../../../policy/flags.ts';
+import { controlsInForce } from '../../../../../policy/line.ts';
 import { shortVersion } from '../format.ts';
 import type { ItemState } from './items.ts';
 import { waited } from './needs.ts';
@@ -95,6 +96,11 @@ export interface FlagRow {
   closed: boolean;
   /** Its work item is still open: turning the flag off closes it. */
   open: boolean;
+  /**
+   * The work item Martin's take of Just one names, when it is another: the line acts on that one alone, so it closes
+   * this one as turned off only once it takes more.
+   */
+  justOne: string | undefined;
   /** When it came to stand where it does: Martin's last move, or its release. */
   since: number;
   /** The release that shipped it, with the flag off. */
@@ -247,6 +253,8 @@ export function flagsView(
   });
   for (const { flag, number } of specs.sort((a, b) => a.seq - b.seq)) named[flag] = number;
   const all = flagsFrom(records(seen), named);
+  const chosen = seen.findLast((event) => event.type === 'controls.changed' && event.actor === 'martin');
+  const take = controlsInForce(chosen?.payload).take;
   const rows: FlagRow[] = [];
   for (const [name, now] of Object.entries(all)) {
     const workItem = now.workItem ?? now.stagedOn;
@@ -284,6 +292,7 @@ export function flagsView(
       turnedOff,
       closed: stage.stage === 'off' && item.outcome === 'turned-off' && !backOn,
       open: item.closedAt === undefined,
+      justOne: take?.kind === 'just-one' && take.workItem !== workItem ? take.workItem : undefined,
       since: staged ? Date.parse(staged.ts) : (released?.at ?? item.openedAt),
       released,
     });

@@ -166,6 +166,35 @@ describe('a flag', () => {
     );
   });
 
+  it('says which work item Just one names, when it is another, which the line closes this one only after', () => {
+    const item = improvement('2014', 'later').add(
+      70,
+      'flag.staged',
+      'martin',
+      staged('later', { stage: 'off' }, { stage: 'checks' }, 'flag.to-checks'),
+    );
+    const last = item.events.at(-1) as (typeof item.events)[number];
+    const take = (workItem: string) =>
+      ({
+        ...last,
+        id: `take-${workItem}`,
+        seq: last.seq + 1,
+        work_item: null,
+        type: 'controls.changed',
+        summary: `Martin chose Just one, #${workItem}`,
+        payload: {
+          autonomy: 'guarded',
+          newWork: true,
+          autoMerge: false,
+          take: { kind: 'just-one', workItem },
+          change: { control: 'take', before: null, after: { kind: 'just-one', workItem } },
+        },
+      }) as unknown as (typeof item.events)[number];
+    expect(viewOf(item.events).flags[0]?.justOne).toBeUndefined();
+    expect(viewOf([...item.events, take('1302')]).flags[0]?.justOne).toBe('1302');
+    expect(viewOf([...item.events, take('2014')]).flags[0]?.justOne).toBeUndefined();
+  });
+
   it('keeps a flag turned off and closed some other way among the flags, unfolded', () => {
     const item = improvement('2013', 'other')
       .add(70, 'flag.staged', 'martin', staged('other', { stage: 'off' }, { stage: 'checks' }, 'flag.to-checks'))
