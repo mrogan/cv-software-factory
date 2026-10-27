@@ -256,13 +256,9 @@ async function paged<T>(path: string, token: string): Promise<T[]> {
   }
 }
 
-/** The open pull requests in `repo` from `owner`'s branch `branch`, into any base. */
+/** Every open pull request in `repo` from `owner`'s branch `branch`, into any base: all of them, so none is missed. */
 const openFrom = (repo: string, owner: string, branch: string, token: string) =>
-  api<PullRequest[]>(
-    'GET',
-    `/repos/${repo}/pulls?state=open&per_page=100&head=${encodeURIComponent(`${owner}:${branch}`)}`,
-    token,
-  );
+  paged<PullRequest>(`/repos/${repo}/pulls?state=open&head=${encodeURIComponent(`${owner}:${branch}`)}`, token);
 
 /** Every review of a pull request, oldest first. */
 const reviewsOf = (repo: string, number: number, token: string) =>
@@ -354,7 +350,17 @@ async function main(): Promise<void> {
     }
     return;
   }
-  const pr = await api<PullRequest>('GET', `/repos/${repo}/pulls/${asked.number}`, read);
+  let pr: PullRequest;
+  try {
+    pr = await api<PullRequest>('GET', `/repos/${repo}/pulls/${asked.number}`, read);
+  } catch (error) {
+    // The queue's commit always gets a verdict: without the pull request, it fails, saying to re-run.
+    if (asked.kind !== 'queue') throw error;
+    console.log(`::warning::${error instanceof Error ? error.message : String(error)}`);
+    const title = `The gate could not read #${asked.number}, which the merge queue's branch names: re-run it`;
+    await post(repo, token, asked.commit, false, title, `No verdict without the pull request. ${RULE}`);
+    return;
+  }
   if (asked.kind === 'pull-request') {
     await judgeHead(repo, read, token, pr);
     return;
