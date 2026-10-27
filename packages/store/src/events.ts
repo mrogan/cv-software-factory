@@ -136,7 +136,9 @@ export class EventWriter {
 
   /**
    * A work item opens once, before anything else happens to it, and nothing but its summary follows its close, until
-   * it reopens. Only a closed work item reopens. The last of its closes and reopenings says whether it is closed.
+   * it reopens; nothing, that is, but Martin's moves of an improvement's flag, which outlives its work item: one turned
+   * off from Everyone closes as turned off, and may go straight back on, and off again, on the work item it was staged
+   * on. Only a closed work item reopens. The last of its closes and reopenings says whether it is closed.
    */
   async #checkSequence(tx: TransactionSql, batch: readonly NewEvent[]): Promise<string[]> {
     const items = [...new Set(batch.flatMap((event) => (event.work_item ? [event.work_item] : [])))];
@@ -165,7 +167,7 @@ export class EventWriter {
         problems.push(`${at}: work item ${event.work_item} has not been opened`);
       } else if (event.type === 'work-item.reopened') {
         if (!item.closed) problems.push(`${at}: work item ${event.work_item} is not closed`);
-      } else if (item.closed && event.type !== 'work-item.summarised') {
+      } else if (item.closed && event.type !== 'work-item.summarised' && event.type !== 'flag.staged') {
         problems.push(`${at}: work item ${event.work_item} is closed`);
       }
       if (event.type === 'work-item.closed') item.closed = true;

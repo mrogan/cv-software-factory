@@ -2533,6 +2533,48 @@ describe('the flags’ stages', () => {
     ]);
   });
 
+  it('turns back on from Everyone a flag whose work item the line closed as turned off, and widens none other', async () => {
+    const workItem = await improvement(FLAG);
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect((await move(browser, off, checks)).status).toBe(200);
+    expect((await move(browser, checks, share(50))).status).toBe(200);
+    await compared(workItem, 50, 'passed');
+    expect((await move(browser, share(50), everyone)).status).toBe(200);
+    expect((await move(browser, everyone, off, { reason: 'Wrong on Sundays' })).status).toBe(200);
+    // The line closes it as turned off, as its pass does.
+    const closed = (item: string, reason: string) =>
+      append(db.as.line, [event(item, 'work-item.closed', 'factory', { outcome: 'turned-off', reason })]);
+    await closed(workItem, 'Wrong on Sundays');
+    expect((await move(browser, off, checks)).body.message).toMatch(/closed as turned off: it stays off/);
+    // Straight back on, recorded on the closed work item; then off again.
+    expect(await move(browser, off, everyone)).toMatchObject({
+      status: 200,
+      body: { staged: { action: 'flag.back-on' } },
+    });
+    expect((await move(browser, everyone, off, { reason: 'Still wrong' })).status).toBe(200);
+    expect((await staged()).slice(-2).map((e) => [e.work_item, e.payload.action])).toEqual([
+      [workItem, 'flag.back-on'],
+      [workItem, 'flag.off'],
+    ]);
+
+    // One turned off from Preview, and closed, stays off.
+    const flag = `${FLAG}-preview`;
+    const other = await improvement(flag);
+    expect((await move(browser, off, checks, {}, flag)).status).toBe(200);
+    expect((await move(browser, checks, preview, {}, flag)).status).toBe(200);
+    expect((await move(browser, preview, off, { reason: 'Not wanted' }, flag)).status).toBe(200);
+    await closed(other, 'Not wanted');
+    expect(await move(browser, off, checks, {}, flag)).toMatchObject({
+      status: 409,
+      body: { message: expect.stringMatching(/closed as turned off: it stays off/) },
+    });
+    expect(await move(browser, off, everyone, {}, flag)).toMatchObject({
+      status: 409,
+      body: { message: expect.stringMatching(/Only a flag turned off from Everyone/) },
+    });
+  });
+
   it('has the app asked soon after each write, and a narrowing, Off or a flag dropped start the minute it has', async () => {
     /** The check of the flags the app holds, as the stages tell it of each write. */
     class Told {

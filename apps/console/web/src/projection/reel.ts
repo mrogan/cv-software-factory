@@ -247,6 +247,7 @@ export function segments(item: ItemState): Segment[] {
       case 'closed':
       case 'quarantined':
       case 'no-ticket':
+      case 'turned-off':
         return item.failure ? 'stopped' : 'closed';
       default:
         return 'now';

@@ -148,7 +148,7 @@ describe('appending', () => {
       ...opened(item),
       id: uuid(),
       type: 'work-item.closed',
-      version: 1,
+      version: 2,
       actor: 'triage',
       summary: 'Closed: not a defect',
       payload: { outcome: 'no-change', reason: 'The page says the clock is stopped' },
@@ -166,13 +166,51 @@ describe('appending', () => {
     await expect(samples().append(report(item))).rejects.toThrow(`work item ${item} is closed`);
   });
 
+  it('accepts Martin’s moves of an improvement’s flag after it closes as turned off: back on from Everyone', async () => {
+    const item = nextItem();
+    const staged = (from: string, to: string, action: string): NewEvent<'flag.staged'> =>
+      ({
+        ...opened(item),
+        id: uuid(),
+        type: 'flag.staged',
+        version: 1,
+        actor: 'martin',
+        summary: `Martin moved last-one from ${from} to ${to}`,
+        payload: {
+          flag: 'last-one',
+          from: { stage: from },
+          to: { stage: to },
+          action,
+          revision: `r${uuid().slice(0, 4)}`,
+          ...(to === 'off' && { reason: 'Wrong when there are two' }),
+          steppedUp: action === 'flag.back-on',
+        },
+      }) as NewEvent<'flag.staged'>;
+    const close: NewEvent<'work-item.closed'> = {
+      ...opened(item),
+      id: uuid(),
+      type: 'work-item.closed',
+      version: 2,
+      actor: 'factory',
+      summary: 'Closed: Martin turned last-one off, from Everyone',
+      payload: { outcome: 'turned-off', reason: 'Wrong when there are two' },
+    };
+    // Martin's moves are his commands, which only his roles may append.
+    const martin = new EventWriter(database.admin, { kind: 'sample', artifacts });
+    await samples().append(opened(item));
+    await martin.append(staged('everyone', 'off', 'flag.off'));
+    await samples().append(close);
+    await martin.append(staged('off', 'everyone', 'flag.back-on'));
+    await expect(samples().append(report(item))).rejects.toThrow(`work item ${item} is closed`);
+  });
+
   it('reopens only a closed work item, which then takes events again until it closes again', async () => {
     const item = nextItem();
     const close: NewEvent<'work-item.closed'> = {
       ...opened(item),
       id: uuid(),
       type: 'work-item.closed',
-      version: 1,
+      version: 2,
       actor: 'factory',
       summary: 'Verified, and closed',
       payload: { outcome: 'verified', reason: 'The probe passed twice in a row' },

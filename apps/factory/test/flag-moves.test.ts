@@ -118,6 +118,20 @@ describe('a move', () => {
     expect(refused(at(off), everyone)).toMatch(/Checks comes first/);
   });
 
+  it('keeps off a flag whose work item closed as turned off, but for going straight back to Everyone', () => {
+    const closed = { closed: true, stagedOn: '1316' };
+    const offFromPreview = at(off, { ...closed, last: { from: preview, to: off } });
+    expect(refused(offFromPreview, checks)).toMatch(/#1316 closed as turned off: it stays off/);
+    expect(refused(offFromPreview, everyone)).toMatch(/Only a flag turned off from Everyone/);
+    const offFromEveryone = at(off, { ...closed, last: { from: everyone, to: off } });
+    expect(refused(offFromEveryone, everyone)).toBeUndefined();
+    expect(refused(offFromEveryone, checks)).toMatch(/#1316 closed as turned off/);
+    // Back on, it narrows and turns off as any flag does.
+    const backOn = at(everyone, { ...closed, last: { from: off, to: everyone } });
+    expect(refused(backOn, share(50))).toBeUndefined();
+    expect(refused(backOn, off)).toBeUndefined();
+  });
+
   it('refuses Share while a canary is in flight, or that can’t be told, or another flag is at Share', () => {
     expect(refused(at(checks), share(50), { canary: { version: 'v0.9.13', weight: 50 } })).toBe(
       'v0.9.13 is at 50%, and its two versions would mix the two sides. Share can be taken once it ends.',
@@ -190,6 +204,15 @@ describe('a flag as its events tell it', () => {
     // No spec names it now: it is staged no more, but turned off.
     expect(moveOf('old-banner', flags['old-banner'] as FlagNow, everyone).refused).toMatch(/No improvement's spec/);
     expect(moveOf('old-banner', { stage: checks, stagedOn: '1200' }, off).refused).toBeUndefined();
+  });
+
+  it('says a flag whose work item closed as turned off is closed, on whatever move since', () => {
+    const records = [
+      { type: 'flag.staged', flag: 'last-one', workItem: '1316', from: everyone, to: off },
+      { type: 'flag.staged', flag: 'last-one', workItem: '1316', from: off, to: everyone },
+    ] as const;
+    expect(flagsFrom(records, { 'last-one': '1316' }, ['1316'])['last-one']).toMatchObject({ closed: true });
+    expect(flagsFrom(records, { 'last-one': '1316' })['last-one']?.closed).toBeUndefined();
   });
 
   it('forgets a comparison once Martin moves the flag again', () => {

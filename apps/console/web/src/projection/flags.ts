@@ -88,8 +88,13 @@ export interface FlagRow {
   backOn: boolean;
   /** Turned off by Martin, rather than never widened. */
   turnedOff: boolean;
-  /** Turned off before everyone had it, and its work item closed: folded under Turned off and closed. */
+  /**
+   * Turned off before everyone had it, and its work item closed as turned off (the line closes it once Martin turns
+   * the flag off): folded under Turned off and closed. One turned off from Everyone may go straight back, so it stays.
+   */
   closed: boolean;
+  /** Its work item is still open: turning the flag off closes it. */
+  open: boolean;
   /** When it came to stand where it does: Martin's last move, or its release. */
   since: number;
   /** The release that shipped it, with the flag off. */
@@ -160,6 +165,7 @@ export function itemFlag(item: ItemState): { name: string; now: FlagNow; built: 
   const now = flagsFrom(
     records(item.events).filter((record) => record.flag === name),
     { [name]: item.number },
+    item.outcome === 'turned-off' ? [item.number] : [],
   )[name] ?? { stage: { stage: 'off' } };
   return { name, now, built: Boolean(releasedOf(item)) || now.last !== undefined };
 }
@@ -241,7 +247,8 @@ export function flagsView(
     return flag && spec ? [{ flag, number: item.number, seq: spec.seq }] : [];
   });
   for (const { flag, number } of specs.sort((a, b) => a.seq - b.seq)) named[flag] = number;
-  const all = flagsFrom(records(seen), named);
+  const turnedOff = items.flatMap((item) => (item.outcome === 'turned-off' ? [item.number] : []));
+  const all = flagsFrom(records(seen), named, turnedOff);
   const rows: FlagRow[] = [];
   for (const [name, now] of Object.entries(all)) {
     const workItem = now.workItem ?? now.stagedOn;
@@ -277,7 +284,8 @@ export function flagsView(
       compared: compared && stage.stage === 'share' && compared.share === stage.share ? compared : undefined,
       backOn,
       turnedOff,
-      closed: stage.stage === 'off' && item.closedAt !== undefined && !backOn,
+      closed: stage.stage === 'off' && item.outcome === 'turned-off' && !backOn,
+      open: item.closedAt === undefined,
       since: staged ? Date.parse(staged.ts) : (released?.at ?? item.openedAt),
       released,
     });

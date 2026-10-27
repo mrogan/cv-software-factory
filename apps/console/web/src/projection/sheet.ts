@@ -318,6 +318,10 @@ function closing(item: ItemState): string | undefined {
     const on = version ? ` on ${shortVersion(version)}` : '';
     return `It was verified${on} by ${sense ? CHECK_OF[sense] : 'the check'} “${check}”, and closed.`;
   }
+  // Martin's reason for turning its flag off, which the close gives.
+  if (close.payload.outcome === 'turned-off') {
+    return `Martin turned its flag off: ${close.payload.reason.replace(/\.$/, '')}. It closed as turned off, its code still in the app, off, and nothing rolled back.`;
+  }
   // GitHub's word that a pull request closed unmerged, which the line records as Martin's.
   const unmerged = /^Pull request #(\d+) was closed without being merged/.exec(close.payload.reason);
   if (close.payload.outcome === 'no-change' && close.actor === 'martin' && unmerged) {
@@ -405,7 +409,9 @@ function chapterOf(event: PublicEvent, item: ItemState): Pick<Chapter, 'label' |
     case 'work-item.closed':
       // A guardrail that worked needs nobody: quarantine is told in the quiet tone, as closed work is.
       if (event.payload.outcome === 'quarantined') return { label: 'QUARANTINED', tone: 'faint' };
-      return event.payload.outcome === 'no-change' || event.payload.outcome === 'discarded'
+      return event.payload.outcome === 'no-change' ||
+        event.payload.outcome === 'discarded' ||
+        event.payload.outcome === 'turned-off'
         ? { label: 'CLOSED', tone: 'faint' }
         : undefined;
     default:

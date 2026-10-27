@@ -31,6 +31,7 @@ export type Outcome =
   | 'closed'
   | 'quarantined'
   | 'no-ticket'
+  | 'turned-off'
   | 'held'
   | 'needs-you'
   | 'waiting'
@@ -251,6 +252,7 @@ const CLOSED: Record<PayloadOf<'work-item.closed'>['outcome'], Outcome> = {
   'no-change': 'closed',
   quarantined: 'quarantined',
   discarded: 'no-ticket',
+  'turned-off': 'turned-off',
 };
 
 /** Folds one work item's events (all at or before t, in order) into its state. */
