@@ -44,7 +44,9 @@ function wordOf(block: FlagBlock): [string, Tone] {
   return block.current ? ['Checking', 'signal'] : ['Widened past', 'faint'];
 }
 
-const percentOf = (share: number) => `${(share * 100).toFixed(share && share < 0.001 ? 2 : 1)}%`;
+/** A share of pixels changed: to a tenth of a point, a hundredth below one point, and never a change shown as none. */
+const percentOf = (share: number) =>
+  share < 0.0001 ? 'under 0.01%' : `${(share * 100).toFixed(share < 0.01 ? 2 : 1)}%`;
 
 /**
  * The pages a check pictured, each side by side with the flag off and on, and where they differ when they do: for
@@ -77,7 +79,16 @@ function CheckedPages({ checked }: { checked: Checked & { stage: 'checks' } }) {
               </figcaption>
             </figure>
             <figure>
-              <div className="vis">{on && <Shot shot={on} />}</div>
+              <div className="vis">
+                {on ? (
+                  <Shot shot={on} />
+                ) : (
+                  <div className="shot-missing">
+                    <span className="label">Screenshot unavailable</span>
+                    <span>The event names a picture with the flag on that it does not carry.</span>
+                  </div>
+                )}
+              </div>
               <figcaption>
                 <span>{page.page}</span>
                 <span className={`mono change ${page.changed ? 'changed' : 'same'}`}>

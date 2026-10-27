@@ -88,7 +88,7 @@ export const shotOf = (checked: Checked, hash: string | undefined): Screenshot |
   hash === undefined ? undefined : checked.shots.find((shot) => shot.hash === hash);
 
 /** Whether an event is Verify's: the line appends it as the factory, never as Martin or a visitor. */
-const fromVerify = (event: PublicEvent) => event.actor !== 'martin' && event.actor !== 'visitor';
+export const fromVerify = (event: PublicEvent) => event.actor !== 'martin' && event.actor !== 'visitor';
 
 export interface FlagRow {
   name: string;
@@ -225,7 +225,8 @@ function latest(events: readonly PublicEvent[], flag: string) {
   let compared: Compared | undefined;
   let checked: Checked | undefined;
   for (const event of events) {
-    if (event.type === 'flag.staged' && event.actor === 'martin' && event.payload.flag === flag) {
+    // A move as `flagsFrom` counts it: Martin's, on a work item.
+    if (event.type === 'flag.staged' && event.actor === 'martin' && event.work_item && event.payload.flag === flag) {
       staged = event;
       compared = undefined;
       checked = undefined;
@@ -406,8 +407,10 @@ function needOf(row: FlagRow, t: number): FlagNeed {
           : row.compared
             ? `Flag on against off, on the traffic generator’s requests: ${comparedWords(row.compared)}. ${row.compared.outcome === 'passed' ? 'Within the canary’s thresholds.' : (row.compared.reason ?? 'It failed the canary’s thresholds.')}`
             : stageSays(stage);
-  const page = row.checked?.stage === 'checks' ? row.checked.pages[0] : undefined;
-  const on = page && row.checked && shotOf(row.checked, page.on);
+  // The first page pictured with the flag on.
+  const { checked } = row;
+  const page = checked?.stage === 'checks' ? checked.pages.find((p) => shotOf(checked, p.on) !== undefined) : undefined;
+  const on = page && checked && shotOf(checked, page.on);
   return {
     flag: row.name,
     workItem: row.workItem,

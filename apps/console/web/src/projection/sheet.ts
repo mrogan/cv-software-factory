@@ -22,6 +22,7 @@ import {
   checkedOf,
   type FlagRow,
   type Stage as FlagStage,
+  fromVerify,
   itemFlag,
   STAGE_NAME,
 } from './flags.ts';
@@ -1135,6 +1136,7 @@ function flagBlocks(item: ItemState, row: FlagRow): FlagBlock[] {
     const last = blocks.at(-1);
     if (
       event.type === 'flag.compared' &&
+      fromVerify(event) &&
       event.payload.flag === row.name &&
       last?.kind === 'staged' &&
       last.stage.stage === 'share' &&
@@ -1144,7 +1146,7 @@ function flagBlocks(item: ItemState, row: FlagRow): FlagBlock[] {
     }
     if (
       event.type === 'flag.checked' &&
-      event.actor !== 'martin' &&
+      fromVerify(event) &&
       event.payload.flag === row.name &&
       last?.kind === 'staged' &&
       last.stage.stage === event.payload.stage
