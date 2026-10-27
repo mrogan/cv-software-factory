@@ -67,7 +67,7 @@ describe('the toolchain', () => {
 
   it('is read from mise.toml and mise.lock', () => {
     expect([...wanted.keys()]).toEqual(expect.arrayContaining(['node', 'pnpm', 'kubectl', 'gh']));
-    expect(platforms()).toEqual(expect.arrayContaining(['macos-arm64', 'linux-x64']));
+    expect(platforms().sort()).toEqual(['linux-arm64', 'linux-x64', 'macos-arm64', 'macos-x64']);
     expect(read('mise.toml')).toMatch(/^lockfile = true$/m);
   });
 
