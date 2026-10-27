@@ -120,15 +120,12 @@ export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv
       ? startPruning({ sql, dir: config.cassettesDir, agentsOnly: gateway.mode !== 'record' }, log)
       : undefined;
 
-  /** Stops the ledger, the caps and the pruner, then lets go of the store, even when one of them fails to stop. */
+  /** Stops the ledger, the caps and the pruner, each whether or not another fails to, then lets go of the store. */
   const release = async () => {
-    try {
-      await spend.stop();
-      await caps.stop();
-      await pruner?.stop();
-    } finally {
-      await sql.end();
-    }
+    const stopped = await Promise.allSettled([spend.stop(), caps.stop(), pruner?.stop()]);
+    await sql.end();
+    const failed = stopped.find((result) => result.status === 'rejected');
+    if (failed) throw failed.reason;
   };
   const server = createGatewayServer({ gateway, agents, spend, log });
   try {
