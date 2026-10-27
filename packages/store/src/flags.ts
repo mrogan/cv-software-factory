@@ -8,8 +8,6 @@
  * - **Verify's comparisons:** `flag.compared`, appended by the line's role.
  * - **Which flag is whose:** the latest spec the line's role wrote for each improvement, and the flag it names; of two
  *   improvements whose latest specs name the same flag, the later spec's.
- * - **Which work items closed as turned off,** and are closed still, as the line closes one when Martin turns its flag
- *   off: its flag stays off, but for going straight back to Everyone.
  *
  * Samples are never read: a sample's flag is no flag of the app's.
  */
@@ -29,8 +27,6 @@ export interface FlagEvents {
   named: Record<string, string>;
   /** Martin's moves and Verify's comparisons, oldest first. */
   records: StoredFlagRecord[];
-  /** The work items Martin's moves were staged on that closed as turned off, and are closed still. */
-  closed: string[];
 }
 
 /** What the store says of the flags, or of one flag alone. */
@@ -72,17 +68,5 @@ export async function flagEvents(sql: Sql | TransactionSql, flag?: string): Prom
     const { flag, share, outcome } = payload as Omit<Extract<FlagRecord, { type: 'flag.compared' }>, 'type'>;
     return { type, seq, flag, share, outcome };
   });
-  const staged = [...new Set(records.flatMap((r) => (r.type === 'flag.staged' ? [r.workItem] : [])))];
-  const closed = staged.length
-    ? await sql<{ work_item: string }[]>`
-        select c.work_item from events c
-        where c.type = 'work-item.closed' and c.payload->>'outcome' = 'turned-off' and c.work_item = any(${staged})
-          and c.seq = (select max(l.seq) from events l where l.work_item = c.work_item
-                       and l.type in ('work-item.closed', 'work-item.reopened'))`
-    : [];
-  return {
-    named: Object.fromEntries(named.map((row) => [row.flag, row.work_item])),
-    records,
-    closed: closed.map((row) => row.work_item),
-  };
+  return { named: Object.fromEntries(named.map((row) => [row.flag, row.work_item])), records };
 }

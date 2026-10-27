@@ -165,7 +165,6 @@ export function itemFlag(item: ItemState): { name: string; now: FlagNow; built: 
   const now = flagsFrom(
     records(item.events).filter((record) => record.flag === name),
     { [name]: item.number },
-    item.outcome === 'turned-off' ? [item.number] : [],
   )[name] ?? { stage: { stage: 'off' } };
   return { name, now, built: Boolean(releasedOf(item)) || now.last !== undefined };
 }
@@ -247,8 +246,7 @@ export function flagsView(
     return flag && spec ? [{ flag, number: item.number, seq: spec.seq }] : [];
   });
   for (const { flag, number } of specs.sort((a, b) => a.seq - b.seq)) named[flag] = number;
-  const turnedOff = items.flatMap((item) => (item.outcome === 'turned-off' ? [item.number] : []));
-  const all = flagsFrom(records(seen), named, turnedOff);
+  const all = flagsFrom(records(seen), named);
   const rows: FlagRow[] = [];
   for (const [name, now] of Object.entries(all)) {
     const workItem = now.workItem ?? now.stagedOn;

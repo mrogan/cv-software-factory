@@ -51,7 +51,6 @@ describe('what the flag pass decides', () => {
     return {
       named: { dates: '7' },
       records: [...records, staged('dates', '7', at, OFF, 'Wrong on Sundays')],
-      closed: [],
     };
   };
 
@@ -63,7 +62,7 @@ describe('what the flag pass decides', () => {
 
   it('asks only of the work items flags were last staged on', () => {
     expect(itemsAsked(offFrom(PREVIEW))).toEqual(['7']);
-    expect(itemsAsked({ named: { dates: '7' }, records: [], closed: [] })).toEqual([]);
+    expect(itemsAsked({ named: { dates: '7' }, records: [] })).toEqual([]);
   });
 
   it('closes nothing already closed, so nothing twice: not a flag turned back on and off again', () => {
@@ -78,18 +77,25 @@ describe('what the flag pass decides', () => {
   });
 
   it('closes nothing for a flag on, or turned off and widened again', () => {
-    const on = { named: { dates: '7' }, records: [staged('dates', '7', OFF, CHECKS)], closed: [] };
+    const on = { named: { dates: '7' }, records: [staged('dates', '7', OFF, CHECKS)] };
     expect(flagsNext({ flags: on, items: { '7': open }, only: null })).toEqual([]);
     const again = offFrom(CHECKS);
     again.records.push(staged('dates', '7', OFF, CHECKS));
     expect(flagsNext({ flags: again, items: { '7': open }, only: null })).toEqual([]);
   });
 
+  it('closes a work item once, whichever of its flags was turned off', () => {
+    const flags: FlagEvents = {
+      named: { dates: '7' },
+      records: [staged('dates', '7', CHECKS, OFF, 'No'), staged('old', '7', CHECKS, OFF, 'Nor this')],
+    };
+    expect(flagsNext({ flags, items: { '7': open }, only: null })).toHaveLength(1);
+  });
+
   it('with just one, acts on that work item alone', () => {
     const flags: FlagEvents = {
       named: { dates: '7', wrap: '8' },
       records: [staged('dates', '7', CHECKS, OFF, 'No'), staged('wrap', '8', CHECKS, OFF, 'Nor this')],
-      closed: [],
     };
     const items = { '7': open, '8': open };
     expect(flagsNext({ flags, items, only: '8' }).map((next) => next.workItem)).toEqual(['8']);

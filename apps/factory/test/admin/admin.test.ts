@@ -2533,7 +2533,7 @@ describe('the flags’ stages', () => {
     ]);
   });
 
-  it('turns back on from Everyone a flag whose work item the line closed as turned off, and widens none other', async () => {
+  it('turns back on from Everyone a flag turned off and closed, and widens none other, closed or not yet', async () => {
     const workItem = await improvement(FLAG);
     const { browser, passkey } = await signedIn();
     expect((await stepUp(browser, passkey)).status).toBe(200);
@@ -2542,11 +2542,13 @@ describe('the flags’ stages', () => {
     await compared(workItem, 50, 'passed');
     expect((await move(browser, share(50), everyone)).status).toBe(200);
     expect((await move(browser, everyone, off, { reason: 'Wrong on Sundays' })).status).toBe(200);
+    // Before the line's pass closes it, it stays off already.
+    expect((await move(browser, off, checks)).body.message).toMatch(/closes as turned off: it stays off/);
     // The line closes it as turned off, as its pass does.
     const closed = (item: string, reason: string) =>
       append(db.as.line, [event(item, 'work-item.closed', 'factory', { outcome: 'turned-off', reason })]);
     await closed(workItem, 'Wrong on Sundays');
-    expect((await move(browser, off, checks)).body.message).toMatch(/closed as turned off: it stays off/);
+    expect((await move(browser, off, checks)).body.message).toMatch(/closes as turned off: it stays off/);
     // Straight back on, recorded on the closed work item; then off again.
     expect(await move(browser, off, everyone)).toMatchObject({
       status: 200,
@@ -2567,7 +2569,7 @@ describe('the flags’ stages', () => {
     await closed(other, 'Not wanted');
     expect(await move(browser, off, checks, {}, flag)).toMatchObject({
       status: 409,
-      body: { message: expect.stringMatching(/closed as turned off: it stays off/) },
+      body: { message: expect.stringMatching(/closes as turned off: it stays off/) },
     });
     expect(await move(browser, off, everyone, {}, flag)).toMatchObject({
       status: 409,
@@ -2600,9 +2602,10 @@ describe('the flags’ stages', () => {
     expect((await move(browser, share(10), everyone)).status).toBe(409);
     expect((await move(browser, share(10), share(10))).status).toBe(200);
     expect((await move(browser, share(10), off, { reason: 'Dates are wrong' })).status).toBe(200);
-    // A widening that drops a flag in no stage's shape turns that one off.
+    // A widening that drops a flag in no stage's shape turns that one off (of another flag: this one stays off).
+    await improvement(`${FLAG}-next`);
     kube.flags = { ...kube.flags, 'by-hand': { state: 'ENABLED', variants: { on: true }, defaultVariant: 'on' } };
-    expect((await move(browser, off, checks)).body).toMatchObject({ dropped: ['by-hand'] });
+    expect((await move(browser, off, checks, {}, `${FLAG}-next`)).body).toMatchObject({ dropped: ['by-hand'] });
     expect(told.narrowed).toEqual([false, false, true, true, true]);
   });
 

@@ -68,7 +68,7 @@ The figures are [`policy/access.ts`](../../policy/access.ts)'s, and the grants t
 
 Event types, their Zod schemas, public views and upcasters are `packages/events`.
 
-- **Closing.** A work item is closed by its last `work-item.closed` or `work-item.reopened`. The store takes no event on a closed work item but its reopening, its summary, and Martin's moves of an improvement's flag (`flag.staged`), which outlives its work item's close as turned off ([Off](RELEASE-AND-VERIFY.md#off)), and only a closed one reopens. `lastEnd` decides this, and every query asking whether a work item is closed uses it.
+- **Closing.** A work item is closed by its last `work-item.closed` or `work-item.reopened`. The store takes no event on a closed work item but its reopening, its summary, and, on one closed as turned off ([Off](RELEASE-AND-VERIFY.md#off)), its flag's own events (Martin's `flag.staged`, the line's `flag.compared`), as a flag outlives that close; and only a closed one reopens. `lastEnd` decides this, and every query asking whether a work item is closed uses it.
 - **Releases.** A release's events may be on a work item or on the line itself. A verification is always a work item's.
 
 ## Artifacts

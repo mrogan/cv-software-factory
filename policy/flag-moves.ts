@@ -8,8 +8,9 @@
  *   Off to Checks shows the change to nobody but the factory's own checks, and is the one widening that asks for no
  *   passkey (`flag.to-checks` in the access table); every other is `flag.widen`, with it. A larger share is a widening.
  * - **Turning back on**: a flag turned off from Everyone may go straight back to Everyone, with the passkey
- *   (`flag.back-on`). Any other flag that is off widens from Checks, but one whose work item the line closed as turned
- *   off: that stays off, its code in the app, and only a flag turned off from Everyone goes back on.
+ *   (`flag.back-on`). Any other flag that is off widens from Checks, but one Martin turned off on the work item whose
+ *   spec names it: Off closes that work item as turned off, so the flag stays off, its code in the app, and only a
+ *   flag turned off from Everyone goes back on. The same flag on a later improvement's work item widens afresh.
  * - **Narrowing** may go to any lower stage, or a smaller share, and **Off** from any stage, each with no passkey: they
  *   only tighten, so neither is refused, but for narrowing into Share, which is held as widening into it is. A flag
  *   once staged can always be turned off, on the work item it was staged on.
@@ -43,8 +44,6 @@ export interface FlagNow {
   last?: { from: Stage | null; to: Stage };
   /** Verify's latest comparison of it at the share stage since that move, if there is one. */
   compared?: { share: Share; outcome: FlagComparison };
-  /** The work item it was last staged on closed as turned off: it stays off, but for going straight back to Everyone. */
-  closed?: boolean;
 }
 
 /** What else a move into Share is judged against. */
@@ -139,8 +138,14 @@ function refusalOf(
   if (from === null) {
     return `${flag} is set in flagd outside every stage: turn it off first, then widen it a stage at a time.`;
   }
-  if (now.closed && from.stage === 'off' && action !== 'flag.back-on') {
-    return `${flag} was turned off, and #${now.stagedOn} closed as turned off: it stays off. Only a flag turned off from Everyone goes straight back on.`;
+  // Off closes the work item as turned off, decided by Martin's move, not by when the line gets to the close.
+  if (
+    from.stage === 'off' &&
+    now.last?.to.stage === 'off' &&
+    now.stagedOn === now.workItem &&
+    action !== 'flag.back-on'
+  ) {
+    return `${flag} was turned off, and #${now.stagedOn} closes as turned off: it stays off. Only a flag turned off from Everyone goes straight back on.`;
   }
   if (action === 'flag.back-on' && !turnedOffFromEveryone(now)) {
     return 'Only a flag turned off from Everyone goes straight back to it: from Off, Checks comes first.';
@@ -180,14 +185,12 @@ export type FlagRecord =
 
 /**
  * Each flag as Martin's stages and Verify's comparisons tell it, from their events oldest first (only those Martin's
- * roles appended, and Verify's, the line's), with the flags improvements' specs name and their work items, and the work
- * items closed as turned off: what the console reads where the admin service reads `flags` itself. A flag named by a
- * spec and never staged is off.
+ * roles appended, and Verify's, the line's), with the flags improvements' specs name and their work items: what the
+ * console reads where the admin service reads `flags` itself. A flag named by a spec and never staged is off.
  */
 export function flagsFrom(
   records: readonly FlagRecord[],
   named: Readonly<Record<string, string>> = {},
-  closed: readonly string[] = [],
 ): Record<string, FlagNow> {
   const flags: Record<string, FlagNow> = {};
   for (const [flag, workItem] of Object.entries(named)) flags[flag] = { stage: { stage: 'off' }, workItem };
@@ -196,13 +199,7 @@ export function flagsFrom(
       const { flag, workItem, from, to } = record;
       // A move clears the comparison before it: Verify compares the flag as it stands.
       const spec = named[flag];
-      flags[flag] = {
-        stage: to,
-        ...(spec && { workItem: spec }),
-        stagedOn: workItem,
-        last: { from, to },
-        ...(closed.includes(workItem) && { closed: true }),
-      };
+      flags[flag] = { stage: to, ...(spec && { workItem: spec }), stagedOn: workItem, last: { from, to } };
     } else {
       const now = flags[record.flag] ?? { stage: { stage: 'off' } };
       flags[record.flag] = { ...now, compared: { share: record.share, outcome: record.outcome } };

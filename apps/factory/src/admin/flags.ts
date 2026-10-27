@@ -225,18 +225,16 @@ export class FlagStages {
 
   /**
    * What the store says of a flag (`flagEvents`, which the line reads too): the improvement whose latest spec names it,
-   * Martin's last move of it, whether the work item it was staged on closed as turned off, and Verify's latest
-   * comparison since. A last move that is not the stage `flags` holds
+   * Martin's last move of it, and Verify's latest comparison since. A last move that is not the stage `flags` holds
    * (its event not recorded) says nothing of the flag as it stands, so neither it nor a comparison since counts.
    */
   async #history(flag: string, stage: Stage | null): Promise<Omit<FlagNow, 'stage'> & { stagedOn?: string }> {
-    const { named, records, closed } = await flagEvents(this.#sql, flag);
-    const told = flagsFrom(records, named, closed)[flag];
+    const { named, records } = await flagEvents(this.#sql, flag);
+    const told = flagsFrom(records, named)[flag];
     const current = told?.last !== undefined && sameStage(told.last.to, stage);
     return {
       ...(told?.workItem && { workItem: told.workItem }),
       ...(told?.stagedOn && { stagedOn: told.stagedOn }),
-      ...(told?.closed && { closed: true }),
       ...(current && { last: told.last }),
       ...(current && told.compared && { compared: told.compared }),
     };

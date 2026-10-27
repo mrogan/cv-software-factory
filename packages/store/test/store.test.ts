@@ -202,6 +202,16 @@ describe('appending', () => {
     await samples().append(close);
     await martin.append(staged('off', 'everyone', 'flag.back-on'));
     await expect(samples().append(report(item))).rejects.toThrow(`work item ${item} is closed`);
+
+    // Not on a work item closed any other way.
+    const other = nextItem();
+    await samples().append([
+      opened(other),
+      { ...close, id: uuid(), work_item: other, payload: { outcome: 'no-change', reason: 'Closed' } },
+    ]);
+    await expect(martin.append({ ...staged('off', 'checks', 'flag.to-checks'), work_item: other })).rejects.toThrow(
+      `work item ${other} is closed`,
+    );
   });
 
   it('reopens only a closed work item, which then takes events again until it closes again', async () => {

@@ -68,6 +68,8 @@ export function flagsNext({ flags, items, only }: FlagFacts): FlagNext[] {
   for (const [flag, now] of Object.entries(told)) {
     const workItem = now.stagedOn;
     if (!workItem || (only !== null && workItem !== only)) continue;
+    // A work item closes once, whichever of its flags was turned off.
+    if (next.some((n) => n.workItem === workItem)) continue;
     const item = items[workItem];
     if (!item?.improvement || item.sample || item.closed) continue;
     // Turned off, at any stage: Martin's last move went to Off, on this work item.
@@ -111,7 +113,16 @@ export class FlagPass {
           payload: { outcome: 'turned-off' as const, reason: next.reason },
         },
       ];
-      await this.#o.events.append(drafts.map((draft) => asEvent(next.workItem, draft, ts)));
+      // One the store refuses (closed meanwhile) waits for no other.
+      try {
+        await this.#o.events.append(drafts.map((draft) => asEvent(next.workItem, draft, ts)));
+      } catch (error) {
+        this.#o.log.warn(
+          { workItem: next.workItem, flag: next.flag, err: error },
+          'could not close a turned-off improvement',
+        );
+        continue;
+      }
       countRecorded(drafts);
       this.#o.log.info({ workItem: next.workItem, flag: next.flag }, 'closed an improvement whose flag was turned off');
     }

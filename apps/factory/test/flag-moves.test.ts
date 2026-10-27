@@ -118,18 +118,21 @@ describe('a move', () => {
     expect(refused(at(off), everyone)).toMatch(/Checks comes first/);
   });
 
-  it('keeps off a flag whose work item closed as turned off, but for going straight back to Everyone', () => {
-    const closed = { closed: true, stagedOn: '1316' };
-    const offFromPreview = at(off, { ...closed, last: { from: preview, to: off } });
-    expect(refused(offFromPreview, checks)).toMatch(/#1316 closed as turned off: it stays off/);
+  it('keeps off a flag Martin turned off on its improvement, but for going straight back to Everyone', () => {
+    const offFromPreview = at(off, { stagedOn: '1316', last: { from: preview, to: off } });
+    expect(refused(offFromPreview, checks)).toMatch(/#1316 closes as turned off: it stays off/);
     expect(refused(offFromPreview, everyone)).toMatch(/Only a flag turned off from Everyone/);
-    const offFromEveryone = at(off, { ...closed, last: { from: everyone, to: off } });
+    const offFromEveryone = at(off, { stagedOn: '1316', last: { from: everyone, to: off } });
     expect(refused(offFromEveryone, everyone)).toBeUndefined();
-    expect(refused(offFromEveryone, checks)).toMatch(/#1316 closed as turned off/);
+    expect(refused(offFromEveryone, checks)).toMatch(/#1316 closes as turned off/);
     // Back on, it narrows and turns off as any flag does.
-    const backOn = at(everyone, { ...closed, last: { from: off, to: everyone } });
+    const backOn = at(everyone, { stagedOn: '1316', last: { from: off, to: everyone } });
     expect(refused(backOn, share(50))).toBeUndefined();
     expect(refused(backOn, off)).toBeUndefined();
+    // The same flag, named by a later improvement's spec, widens afresh on that one.
+    expect(
+      refused(at(off, { workItem: '1400', stagedOn: '1316', last: { from: preview, to: off } }), checks),
+    ).toBeUndefined();
   });
 
   it('refuses Share while a canary is in flight, or that can’t be told, or another flag is at Share', () => {
@@ -204,15 +207,6 @@ describe('a flag as its events tell it', () => {
     // No spec names it now: it is staged no more, but turned off.
     expect(moveOf('old-banner', flags['old-banner'] as FlagNow, everyone).refused).toMatch(/No improvement's spec/);
     expect(moveOf('old-banner', { stage: checks, stagedOn: '1200' }, off).refused).toBeUndefined();
-  });
-
-  it('says a flag whose work item closed as turned off is closed, on whatever move since', () => {
-    const records = [
-      { type: 'flag.staged', flag: 'last-one', workItem: '1316', from: everyone, to: off },
-      { type: 'flag.staged', flag: 'last-one', workItem: '1316', from: off, to: everyone },
-    ] as const;
-    expect(flagsFrom(records, { 'last-one': '1316' }, ['1316'])['last-one']).toMatchObject({ closed: true });
-    expect(flagsFrom(records, { 'last-one': '1316' })['last-one']?.closed).toBeUndefined();
   });
 
   it('forgets a comparison once Martin moves the flag again', () => {
