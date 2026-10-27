@@ -53,6 +53,8 @@ interface ManifestChunk {
 export interface PageSettings {
   profile: Profile;
   allLocal: boolean;
+  /** The app's origin, which the flags' "Preview it on the app" opens: none, and the console draws no such link. */
+  app?: string;
 }
 
 /**
@@ -69,14 +71,30 @@ export function pageSettings(env: NodeJS.ProcessEnv): PageSettings {
   if (allLocal && !MODELS[profile].local) {
     throw new Error(`ALL_LOCAL sends every agent to the local model, and the ${profile} profile has none.`);
   }
-  return { profile, allLocal };
+  return { profile, allLocal, ...appOf(env.APP_URL) };
 }
 
-/** The built page with the profile and ALL_LOCAL written into its meta tags. */
-export function withSettings(html: string, { profile, allLocal }: PageSettings): string {
+/** APP_URL as the page may link to it: an http or https address with no credentials, by its origin alone. */
+function appOf(given: string | undefined): { app?: string } {
+  if (!given) return {};
+  let url: URL;
+  try {
+    url = new URL(given);
+  } catch {
+    throw new Error(`APP_URL is ${JSON.stringify(given)}; it must be the app's http or https address, or unset.`);
+  }
+  if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username || url.password) {
+    throw new Error(`APP_URL is ${JSON.stringify(given)}; it must be the app's http or https address, or unset.`);
+  }
+  return { app: url.origin };
+}
+
+/** The built page with the profile, ALL_LOCAL and the app's address written into its meta tags. */
+export function withSettings(html: string, { profile, allLocal, app }: PageSettings): string {
   return html
     .replace('<meta name="sf-profile" content="local">', `<meta name="sf-profile" content="${profile}">`)
-    .replace('<meta name="sf-all-local" content="false">', `<meta name="sf-all-local" content="${allLocal}">`);
+    .replace('<meta name="sf-all-local" content="false">', `<meta name="sf-all-local" content="${allLocal}">`)
+    .replace('<meta name="sf-app" content="">', `<meta name="sf-app" content="${app ?? ''}">`);
 }
 
 export function loadSite(dist = DIST, settings: PageSettings = { profile: 'local', allLocal: false }): Site {

@@ -14,7 +14,7 @@ Ship improvements switched off; a kill switch without a rollback. Part of the [r
 
 ## The stages
 
-Martin stages each flag from the console, and the [admin service](ADMIN-SERVICE.md#the-flags-stages) writes his stages into `flags` (milestone 7, task 16; the console's controls are not built yet). It writes typed stages, never flagd's own JSON: `policy/flags.ts` renders them, and nothing else. Each stage keeps the ones before it, and is a fixed shape of flagd's targeting over the [evaluation context](#the-evaluation-context); the share is the only parameter. A feature is `ENABLED`, with two variants, `on` (`true`) and `off` (`false`):
+Martin stages each flag from the console's Controls, a slider of the stages per flag ([console](CONSOLE.md#what-it-draws)), and the [admin service](ADMIN-SERVICE.md#the-flags-stages) writes his stages into `flags`. It writes typed stages, never flagd's own JSON: `policy/flags.ts` renders them, and nothing else. Each stage keeps the ones before it, and is a fixed shape of flagd's targeting over the [evaluation context](#the-evaluation-context); the share is the only parameter. A feature is `ENABLED`, with two variants, `on` (`true`) and `off` (`false`):
 
 | Stage | Default | On, by its targeting, for |
 |---|---|---|

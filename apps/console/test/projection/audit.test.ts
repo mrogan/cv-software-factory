@@ -365,6 +365,48 @@ describe('the detail under a row', () => {
     }
   });
 
+  it('says each move of a flag, from where it stood to where Martin set it, and his reason for turning it off', () => {
+    const off = event(
+      1,
+      'flag.staged',
+      'martin',
+      {
+        flag: 'delivery-dates',
+        from: { stage: 'share', share: 50 },
+        to: { stage: 'off' },
+        action: 'flag.off',
+        revision: 'r7',
+        reason: 'The date is wrong on Sundays',
+        steppedUp: false,
+      },
+      'Martin turned delivery-dates off, from Share 50%',
+      '1294',
+    );
+    expect(only([off])).toMatchObject({
+      what: 'Martin turned delivery-dates off, from Share 50%',
+      item: '1294',
+      martin: true,
+      detail: 'share 50% → off · “The date is wrong on Sundays”',
+    });
+    const dropping = event(
+      2,
+      'flag.staged',
+      'martin',
+      {
+        flag: 'delivery-dates',
+        from: { stage: 'checks' },
+        to: { stage: 'preview' },
+        action: 'flag.widen',
+        revision: 'r8',
+        steppedUp: true,
+        dropped: ['hand-made'],
+      },
+      'Martin widened delivery-dates from Checks to Preview, and dropped 1 set by hand',
+      '1294',
+    );
+    expect(only([dropping]).detail).toBe('checks → preview · dropped hand-made, set by hand');
+  });
+
   it('is nothing more for a sign-in than its summary', () => {
     const signedIn = event(0, 'admin.signed-in', 'martin', {}, 'Martin signed in with a passkey');
     expect(only([signedIn])).toMatchObject({ what: 'Martin signed in with a passkey', martin: true });

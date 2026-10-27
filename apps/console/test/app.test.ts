@@ -428,14 +428,28 @@ describe('the page’s settings', () => {
     const dist = fakeBuild();
     writeFileSync(
       join(dist, 'index.html'),
-      '<!doctype html><meta name="sf-profile" content="local"><meta name="sf-all-local" content="false">',
+      '<!doctype html><meta name="sf-profile" content="local"><meta name="sf-all-local" content="false"><meta name="sf-app" content="">',
     );
     const page = loadSite(dist, pageSettings({ FACTORY_PROFILE: 'local', ALL_LOCAL: 'true' })).page.body.toString();
     expect(page).toContain('<meta name="sf-profile" content="local">');
     expect(page).toContain('<meta name="sf-all-local" content="true">');
+    expect(page).toContain('<meta name="sf-app" content="">');
     expect(pageSettings({})).toEqual({ profile: 'local', allLocal: false });
     expect(pageSettings({ FACTORY_PROFILE: 'do' })).toEqual({ profile: 'do', allLocal: false });
     expect(() => pageSettings({ FACTORY_PROFILE: 'mars' })).toThrow(/FACTORY_PROFILE/);
     expect(() => pageSettings({ FACTORY_PROFILE: 'do', ALL_LOCAL: 'true' })).toThrow(/has none/);
+  });
+
+  it('writes the app’s origin alone, which a flag’s preview opens, and refuses an address a link should not take', () => {
+    const dist = fakeBuild();
+    writeFileSync(join(dist, 'index.html'), '<!doctype html><meta name="sf-app" content="">');
+    const settings = pageSettings({ APP_URL: 'http://website.localhost:8080/some/page?x="y"' });
+    expect(settings.app).toBe('http://website.localhost:8080');
+    expect(loadSite(dist, settings).page.body.toString()).toContain(
+      '<meta name="sf-app" content="http://website.localhost:8080">',
+    );
+    for (const app of ['javascript:alert(1)', 'http://martin:secret@website.localhost', 'website.localhost']) {
+      expect(() => pageSettings({ APP_URL: app }), app).toThrow(/APP_URL/);
+    }
   });
 });

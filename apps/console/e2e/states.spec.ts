@@ -50,7 +50,8 @@ test('the stations take their states as the events arrive, and keep still when m
     ['review', 'blocked', null],
     // The canary runs; #1321's deploy is not Martin's yet, its checks running.
     ['release', 'working', null],
-    ['verify', 'idle', null],
+    // #1294's flag waits for Martin to widen it.
+    ['verify', 'blocked', null],
   ];
   await expect.poll(stations).toEqual(drawn.map((station) => [...station, null]));
   await page.getByRole('group', { name: 'Motion' }).getByRole('button', { name: 'STILL' }).click();
@@ -112,7 +113,7 @@ test('events from a newer factory are left out, with a note', async ({ page, req
   });
   await page.goto(consoleUrl());
   await expect(page.getByText('One event was written by a newer version of the factory')).toBeVisible();
-  await expect(page.locator('.transport .count')).toHaveText('26 of 26');
+  await expect(page.locator('.transport .count')).toHaveText('27 of 27');
   // The stream carries on after the event left out, so it is never sent, or counted, twice.
   await expect.poll(() => after).toBe(String(last.seq + 1));
 });

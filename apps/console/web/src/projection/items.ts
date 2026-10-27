@@ -14,6 +14,7 @@ import type {
 } from '@software-factory/events';
 import { clearedOnWords, SENSES, STAGES, sameVersion, WORDS_LEAVE_HELD } from '@software-factory/events';
 import { shortVersion } from '../format.ts';
+import { flagWaits } from './flags.ts';
 import type { StoppedBy } from './release.ts';
 
 /**
@@ -555,6 +556,8 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
   if (!state.closedAt) {
     if (state.hold?.cause === 'deploy' && !deployWaitsForMartin(state)) state.outcome = 'deploying';
     else if (state.hold) state.outcome = state.hold.kind === 'held' ? 'held' : 'needs-you';
+    // An improvement out behind its flag waits for Martin to widen it, as its card in Needs you says.
+    else if (flagWaits(state)) state.outcome = 'needs-you';
     else if (state.queued)
       state.outcome = state.waitingOn ? 'waits-on-work' : state.stage === 'release' ? 'merged' : 'waiting';
     else state.outcome = 'in-progress';

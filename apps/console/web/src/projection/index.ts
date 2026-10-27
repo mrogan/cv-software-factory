@@ -7,6 +7,7 @@
 import type { PublicEvent, Stage } from '@software-factory/events';
 import { STAGES } from '@software-factory/events';
 import { type ControlsView, controlsOf } from './controls.ts';
+import { type FlagsView, flagsView } from './flags.ts';
 import { foldItems, type ItemState } from './items.ts';
 import {
   drawn,
@@ -29,6 +30,18 @@ import { type Sheet, sheet } from './sheet.ts';
 export type { ControlsView } from './controls.ts';
 export type { Attempt, DeployRecord, Finding, ThreadReview } from './fixing.ts';
 export { deployWords } from './fixing.ts';
+export type {
+  Compared,
+  FlagNeed,
+  FlagRow,
+  FlagsView,
+  Move,
+  Share,
+  Stage as FlagStage,
+  StageName as FlagStageName,
+  Stop,
+} from './flags.ts';
+export { comparedWords, moveTo, STAGE_NAME, stageAt, stageSays } from './flags.ts';
 export type { Capture, ItemState, Outcome } from './items.ts';
 export type {
   CapSpell,
@@ -55,6 +68,8 @@ export type {
   After,
   AgentRow,
   Chapter,
+  FlagBlock,
+  FlagSheet,
   GateRow,
   PageComparison,
   ScopeRow,
@@ -86,6 +101,8 @@ export interface View {
   needs: NeedsView;
   /** The line's controls in force: the autonomy level, the switches and what the line takes. */
   controls: ControlsView;
+  /** The feature flags, each at its stage, and those waiting for Martin to widen them. */
+  flags: FlagsView;
 }
 
 /** The events that had happened by t, in seq order. */
@@ -115,6 +132,7 @@ export function project(events: readonly PublicEvent[], t: number): View {
     timeline: timeline(cards, shipped),
     needs: needsView(items, t),
     controls,
+    flags: flagsView(seen, items, shipped, t),
   };
 }
 
@@ -122,5 +140,10 @@ export function project(events: readonly PublicEvent[], t: number): View {
 export function projectSheet(events: readonly PublicEvent[], item: string, t: number): Sheet | undefined {
   const seen = upTo(events, t);
   const state: ItemState | undefined = foldItems(seen.filter((event) => event.work_item === item))[0];
-  return state && sheet(state, seen, t);
+  if (!state) return undefined;
+  // An improvement's flag, as Controls draws it: judged against every other flag and the canary in flight.
+  const items = state.kind === 'improvement' ? foldItems(seen) : [];
+  const flags = state.kind === 'improvement' ? flagsView(seen, items, releases(seen, items, t), t) : undefined;
+  const flag = flags && [...flags.flags, ...flags.closed].find((row) => row.workItem === item);
+  return sheet(state, seen, t, flag);
 }

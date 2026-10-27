@@ -1,6 +1,7 @@
 /**
  * Controls, the right of the bottom row, beside Needs you (`NeedsYou.tsx`), for everyone: the line's controls
- * (Autonomy, Switches, What the line takes), then Spend, a key to the key, and links to the settings and the audit log.
+ * (Autonomy, Switches, What the line takes), the feature flags (`Flags.tsx`), then Spend, a key to the key, and links to
+ * the settings and the audit log.
  * The settings page draws the line's controls (`LineControls`) and Spend from here too.
  *
  * The line's controls are Martin's, in force as the latest `controls.changed` and policy's check say
@@ -19,7 +20,9 @@ import { type ControlChange, controlAction, TAKE, type Take } from '../../../../
 import { CONTROL_STEP_UP } from '../access.ts';
 import { type Admin, said, write } from '../admin.ts';
 import { AUTONOMY, money, shortWhen } from '../format.ts';
-import type { ControlsView, Meter, SpendView } from '../projection/index.ts';
+import type { HeldAnswer } from '../held.ts';
+import type { ControlsView, FlagsView, Meter, SpendView } from '../projection/index.ts';
+import { FlagsGroup } from './Flags.tsx';
 import { Glyph } from './Glyph.tsx';
 import { type Asked, Key, useStepUp } from './StepUp.tsx';
 
@@ -545,7 +548,23 @@ export function KeyLegend() {
   );
 }
 
-export function Controls({ spend, controls, admin }: { spend: SpendView; controls: ControlsView; admin: Admin }) {
+export interface ControlsProps {
+  spend: SpendView;
+  controls: ControlsView;
+  flags: FlagsView;
+  admin: Admin;
+  /** The app's origin, which a flag's preview opens. */
+  app: string | undefined;
+  /** Whether the app holds the flags as set. */
+  held: HeldAnswer;
+  /** The page's time. */
+  now: number;
+  onOpen: (item: string) => void;
+  /** A flag was moved: the page asks again soon whether the app holds it. */
+  onMoved: () => void;
+}
+
+export function Controls({ spend, controls, flags, admin, app, held, now, onOpen, onMoved }: ControlsProps) {
   const martin = admin.kind === 'martin';
   return (
     <article className="panel controls" aria-labelledby="controls-title">
@@ -554,6 +573,7 @@ export function Controls({ spend, controls, admin }: { spend: SpendView; control
         {!martin && <span className="label">Read only</span>}
       </div>
       <LineControls controls={controls} admin={admin} />
+      <FlagsGroup flags={flags} admin={admin} app={app} held={held} now={now} onOpen={onOpen} onMoved={onMoved} />
       <SpendGroup spend={spend} />
       <p className="help">
         Gates, image signing and the egress fence are always on: they have no switch.

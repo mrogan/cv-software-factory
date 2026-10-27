@@ -36,6 +36,7 @@ import { deployWords, scrubbed, TARGET } from '../projection/index.ts';
 import { backWords } from '../projection/release.ts';
 import { REPORT_KEPT_DAYS } from '../projection/report.ts';
 import { kindName, ONGOING, OutcomeWord, spendWords } from './Card.tsx';
+import { FlagSection } from './FlagSheet.tsx';
 import { CATEGORY_NAME, Glyph } from './Glyph.tsx';
 import { LogoMark, ToolMark, type ToolName } from './Logos.tsx';
 import { Picture, Shot } from './Pictures.tsx';
@@ -142,9 +143,11 @@ interface SheetProps {
   motion: boolean;
   onStep: (to: number) => void;
   onClose: () => void;
+  /** The app's origin, which a flag's preview opens. */
+  app?: string | undefined;
 }
 
-export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetProps) {
+export function Sheet({ sheet, index, count, motion, onStep, onClose, app }: SheetProps) {
   const dialog = useRef<HTMLElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -350,7 +353,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                   )}
                 </Section>
               )}
-              <ShippedSection sheet={sheet} />
+              {sheet.flag ? <FlagSection flag={sheet.flag} app={app} /> : <ShippedSection sheet={sheet} />}
               {sheet.spec ? (
                 <SpecSection sheet={sheet} />
               ) : (
@@ -401,6 +404,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose }: SheetPro
                   </>
                 )}
                 {!sheet.seenBy && <Fact name="Found by">{sheet.facts.foundBy}</Fact>}
+                {sheet.facts.flag && <Fact name="Flag">{sheet.facts.flag}</Fact>}
                 {!released && card.reopened ? (
                   <Fact name="Version">back on {shortVersion(card.reopened.version)}</Fact>
                 ) : !released && card.seenOn ? (

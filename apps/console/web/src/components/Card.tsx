@@ -177,6 +177,13 @@ export const Card = memo(function Card({ card, index, count, ref }: CardProps) {
       <div className="meta">
         {card.sample && <span className="pill-sample">Sample</span>}
         <b>#{card.number}</b>
+        {card.flag && (
+          <span className="flagm" title={`Its flag, ${card.flag.name}`}>
+            <Glyph name="flag" />
+            <span className="sr">its flag, {card.flag.name}, at </span>
+            {card.flag.stage}
+          </span>
+        )}
         <VersionPill versions={card.versions} seenOn={card.seenOn} from={card.from} back={card.reopened?.version} />
         {card.pullRequest && <span className="opt">PR #{card.pullRequest}</span>}
         <span>{shortWhen(card.startedAt)}</span>

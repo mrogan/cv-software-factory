@@ -33,6 +33,10 @@ const PATHS = {
   person: 'M8 2.5a2.75 2.75 0 1 0 0 5.5 2.75 2.75 0 1 0 0-5.5 M2.75 14c.7-2.9 2.8-4.5 5.25-4.5s4.55 1.6 5.25 4.5',
   /** A chip: a model call, in the audit log. */
   chip: 'M5.5 4h5A1.5 1.5 0 0 1 12 5.5v5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 10.5v-5A1.5 1.5 0 0 1 5.5 4 M6.5 1.75V4 M9.5 1.75V4 M6.5 12v2.25 M9.5 12v2.25 M1.75 6.5H4 M1.75 9.5H4 M12 6.5h2.25 M12 9.5h2.25',
+  /** A flag: an improvement's feature flag, on its card. */
+  flag: 'M3.75 14.25V2.25 M3.75 2.75h8.5l-2 3 2 3h-8.5',
+  /** An eye: preview a flag on the app. */
+  eye: 'M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8z M8 6a2 2 0 1 0 0 4 2 2 0 1 0 0-4',
   /** A laptop: a model run on Martin's own machine, where what matters is where it ran, not whose model it is. */
   local: 'M3 4h10v6.5H3z M1.5 12.5h13',
 } satisfies Record<Category | string, string>;

@@ -18,6 +18,7 @@ import {
   type PublicEvent,
   SENSES,
 } from '@software-factory/events';
+import { stageWords } from '../../../../../policy/flag-moves.ts';
 import { CAP_NAMES, type CapField, changesBetween, inForce } from '../../../../../policy/settings.ts';
 import type { Profile } from '../../../../../policy/spend.ts';
 import { CONTROL_STEP_UP, FLAG_STEP_UP, FRESH_MINUTES, GUARDRAIL_HOLDS, SETTINGS_STEP_UP, STEP_UP } from '../access.ts';
@@ -199,6 +200,17 @@ export function auditRows(events: readonly PublicEvent[], t: number, profile: Pr
       case 'settings.changed':
         parts.push(event.payload.changes.map(changeWords).join('; '));
         break;
+      case 'flag.staged': {
+        // The move, from the stage `flags` held to the one he set, and his reason for turning it off.
+        const p = event.payload;
+        parts.push(
+          `${p.from ? stageWords(p.from).toLowerCase() : 'outside every stage'} → ${stageWords(p.to).toLowerCase()}`,
+        );
+        if (p.reason) parts.push(quoted(p.reason));
+        // Flags set by hand outside every stage, which the write dropped, and so turned off.
+        if (p.dropped?.length) parts.push(`dropped ${p.dropped.join(', ')}, set by hand`);
+        break;
+      }
       case 'release.controlled': {
         const p = event.payload;
         parts.push(`release ${p.release}`, p.to === undefined ? `at ${p.weight}%` : `${p.weight}% → ${p.to}%`);

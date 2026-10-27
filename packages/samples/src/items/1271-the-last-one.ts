@@ -1,4 +1,7 @@
-/** An improvement Martin asked for: specified, approved, built behind a flag and verified in production. */
+/**
+ * An improvement Martin asked for: specified, approved, built behind a flag, shipped with it off, widened a stage at a
+ * time to everyone (Verify's comparison at Share passing first), and verified in production.
+ */
 import { commitFor, Item } from '../build.ts';
 import { shot } from '../captures.ts';
 
@@ -28,7 +31,7 @@ export default new Item('1271', '2026-10-01T10:05:00+01:00')
       ],
       scope: ['src/pages/cards.ts', 'src/flags.ts', 'public/site.css', 'test/cards.test.ts'],
       risks: [],
-      rollout: 'Ships behind the last-one flag, which goes on once the canary passes.',
+      rollout: 'Ships behind the last-one flag, off, which Martin widens a stage at a time.',
       flag: 'last-one',
     },
     [shot('published/products', 'v0.8.5')],
@@ -91,23 +94,66 @@ export default new Item('1271', '2026-10-01T10:05:00+01:00')
         journeys: { canary: [24, 24], baseline: [24, 24] },
       },
     ],
-    { promotion: 'v0.9.0 promoted to 100%, and the last-one flag switched on' },
+    { promotion: 'v0.9.0 promoted to 100%, the last-one flag off' },
   )
-  .verify('31:20', 'The acceptance criteria pass in production', {
+  .at('27:00', 'flag.staged', 'martin', 'Martin widened last-one from Off to Checks', {
+    flag: 'last-one',
+    from: { stage: 'off' },
+    to: { stage: 'checks' },
+    action: 'flag.to-checks',
+    revision: 'r1',
+    steppedUp: false,
+  })
+  .at('1:10:00', 'flag.staged', 'martin', 'Martin widened last-one from Checks to Preview', {
+    flag: 'last-one',
+    from: { stage: 'checks' },
+    to: { stage: 'preview' },
+    action: 'flag.widen',
+    revision: 'r2',
+    steppedUp: true,
+  })
+  .at('2:30:00', 'flag.staged', 'martin', 'Martin widened last-one from Preview to Share 50%', {
+    flag: 'last-one',
+    from: { stage: 'preview' },
+    to: { stage: 'share', share: 50 },
+    action: 'flag.widen',
+    revision: 'r3',
+    steppedUp: true,
+  })
+  .at('4:30:00', 'flag.compared', 'factory', 'last-one at Share 50%: flag on against off passed', {
+    flag: 'last-one',
+    share: 50,
+    window: { from: '2026-10-01T11:35:00.000Z', to: '2026-10-01T13:35:00.000Z' },
+    setAsideMinutes: 0,
+    outcome: 'passed',
+    sides: {
+      on: { requests: 412, errorRate: 0.0097, p99Ms: 41 },
+      off: { requests: 398, errorRate: 0.0101, p99Ms: 40 },
+    },
+  })
+  .at('5:00:00', 'flag.staged', 'martin', 'Martin widened last-one from Share 50% to Everyone', {
+    flag: 'last-one',
+    from: { stage: 'share', share: 50 },
+    to: { stage: 'everyone' },
+    action: 'flag.widen',
+    revision: 'r4',
+    steppedUp: true,
+  })
+  .verify('5:40:00', 'The acceptance criteria pass in production', {
     check: 'Acceptance criteria, in production',
     against: 'v0.8.5',
     version: 'v0.9.0',
     variant: 'last-one',
     marked: shot('last-one/products-marked', 'v0.9.0'),
   })
-  .at('31:21', 'work-item.closed', 'factory', 'Closed: verified', {
+  .at('5:40:01', 'work-item.closed', 'factory', 'Closed: verified', {
     outcome: 'verified',
     reason: 'The acceptance criteria pass in production',
   })
-  .at('31:22', 'work-item.summarised', 'factory', 'Summary written', {
+  .at('5:40:02', 'work-item.summarised', 'factory', 'Summary written', {
     title: 'Say when it is the last one',
     description:
-      'A product with one left now says “The last one” on its card. It shipped behind a flag, switched on once the canary passed.',
+      'A product with one left now says “The last one” on its card. It shipped behind a flag, off, which Martin widened a stage at a time to everyone.',
     story:
-      'Martin asked for products with one left to say so on their cards, so nobody has to open a product to find it is the last. The planner wrote a spec with three acceptance criteria, and Martin approved it. The coder wrote the tests first, then the change, behind the last-one flag. Every check passed, the reviewer’s one suggestion was taken, and v0.9.0 went out behind a canary. Once it was on all traffic the flag went on, and the acceptance criteria passed in production. Only the pages that list products changed.',
+      'Martin asked for products with one left to say so on their cards, so nobody has to open a product to find it is the last. The planner wrote a spec with three acceptance criteria, and Martin approved it. The coder wrote the tests first, then the change, behind the last-one flag. Every check passed, the reviewer’s one suggestion was taken, and v0.9.0 went out behind a canary with the flag off. Martin widened it a stage at a time: Checks, Preview, then half the traffic generator’s requests, where Verify compared the two sides and found them alike, and then everyone. The acceptance criteria passed in production. Only the pages that list products changed.',
   });

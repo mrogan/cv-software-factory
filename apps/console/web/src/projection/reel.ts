@@ -13,6 +13,7 @@ import type {
 } from '@software-factory/events';
 import { isSense, STAGES } from '@software-factory/events';
 import { waitPicture } from './fixing.ts';
+import { itemFlag, STAGE_NAME } from './flags.ts';
 import { type Capture, type ItemState, type Outcome, summaryOf } from './items.ts';
 import type { Release, StoppedBy } from './release.ts';
 
@@ -201,6 +202,8 @@ export interface Card {
   appVersion: string | undefined;
   /** While a verified ticket is open again: when, and what the sense saw, on which version. */
   reopened: ItemState['reopened'];
+  /** An improvement out behind its flag: the flag, and the stage it stands at, in a word ("preview"). */
+  flag: { name: string; stage: string } | undefined;
 }
 
 export interface Timeline {
@@ -493,7 +496,16 @@ export function card(item: ItemState, events: readonly PublicEvent[], t: number)
     segments: segments(item),
     appVersion: appVersion(events, end),
     reopened: item.reopened,
+    flag: flagOfCard(item),
   };
+}
+
+/** The flag a card's line of facts names, once its release is out: its name, and its stage in a word. */
+function flagOfCard(item: ItemState): Card['flag'] {
+  const flag = itemFlag(item);
+  if (!flag?.built) return undefined;
+  const { stage } = flag.now;
+  return { name: flag.name, stage: stage ? STAGE_NAME[stage.stage].toLowerCase() : 'outside every stage' };
 }
 
 /** How a release last ended: while a retry is in flight, its earlier attempt's end still stands. */

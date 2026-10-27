@@ -234,21 +234,25 @@ export const SESSION = {
  * The admin service as the page meets it, standing in for the real one (`signing-in.spec.ts` and `martin.spec.ts` use
  * that): there, with no session for this browser; or Martin's session, with the full events streamed to it.
  */
-export async function adminService(page: Page, as: 'visitor' | 'martin'): Promise<void> {
+export async function adminService(
+  page: Page,
+  as: 'visitor' | 'martin',
+  extra: readonly RawEvent[] = [],
+): Promise<void> {
   await page.route('**/admin/session', (route) =>
     as === 'martin'
       ? route.fulfill({ json: SESSION })
       : route.fulfill({ status: 401, json: { refused: 'session', message: 'Sign in first.' } }),
   );
-  if (as === 'martin') await fullStream(page);
+  if (as === 'martin') await fullStream(page, extra);
 }
 
 /**
- * The full-event stream, standing in for the admin service's: the samples, each visitor's report with its text, sent
- * once and then held open, as the service's is while nothing new happens. Every other stream is the browser's own.
+ * The full-event stream, standing in for the admin service's: the samples, each visitor's report with its text, and any
+ * events a test adds after them, sent once and then held open, as the service's is while nothing new happens. Every other stream is the browser's own.
  */
-async function fullStream(page: Page): Promise<void> {
-  const events = lines.map((line) => JSON.stringify(full(JSON.parse(line) as RawEvent)));
+async function fullStream(page: Page, extra: readonly RawEvent[]): Promise<void> {
+  const events = [...lines.map((line) => full(JSON.parse(line) as RawEvent)), ...extra].map((e) => JSON.stringify(e));
   await page.addInitScript((events: string[]) => {
     const Real = globalThis.EventSource;
     class Full extends EventTarget {

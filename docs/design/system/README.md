@@ -588,7 +588,7 @@ The facts gain **Flag**: its name and stage ("delivery-dates · preview", or "pr
 
 ### The flags in Controls
 
-A group of its own, **Flags**, between What the line takes and Spend, with how many flags the app has. One row per flag, so ten fit without the panel growing much: its name in code, its work item's number as a link that opens the sheet, from Preview up an eye on the right, 16px in `text-muted`, whose tooltip and accessible name say "Preview it on the app" (it opens the app in a new tab with `?preview=` on the page the spec names, which sets the preview cookie in that browser for a day), and the slider. Nothing else: what a stage means, and why one cannot be taken, is said when it is chosen.
+A group of its own, **Flags**, between What the line takes and Spend, with how many flags the app has. One row per flag, so ten fit without the panel growing much: its name in code, its work item's number as a link that opens the sheet, from Preview up an eye on the right, 16px in `text-muted`, whose tooltip and accessible name say "Preview it on the app" (it opens the app in a new tab with `?preview=` on its front page (a spec does not yet record the pages it changes), which sets the preview cookie in that browser for a day), and the slider. Nothing else: what a stage means, and why one cannot be taken, is said when it is chosen.
 
 **Setting a stage.** Martin clicks a stop, or drags the handle and lets go on one; the handle follows the pointer and, until the change is applied, goes back to where the flag stands. Either opens one confirmation, a dialog as the others are, whose box says the move ("PREVIEW → SHARE") and who gets it on there, in the table's words:
 
@@ -601,7 +601,7 @@ A group of its own, **Flags**, between What the line takes and Spend, with how m
 
 A flag turned off before everyone had it, and its work item closed, folds under **Turned off and closed** at the group's foot, its slider read-only.
 
-Under the flags, under a hairline, whether **the app holds the flags as set**: a tick and "The app holds every flag as set: r7, checked 40s ago"; while a change is being taken, a ring, and that his phone hears if it has not within a minute; and when the app's revision has lagged, in `attn`, which revision it holds and since when, and that his phone hears at five minutes. With no flag yet, the group says an improvement ships behind one, off, and it shows here once its release is out.
+Under the flags, under a hairline, whether **the app holds the flags as set**: a tick and "The app holds every flag as set: r7, checked 40s ago"; while a change is being taken, a ring, and that his phone hears if it has not within a minute; and when the app's revision has lagged, in `attn`, which revision it holds and since when, and when his phone hears: at five minutes, or at a minute after a narrowing or Off. With no flag yet, the group says an improvement ships behind one, off, and it shows here once its release is out.
 
 ### In Needs you
 
