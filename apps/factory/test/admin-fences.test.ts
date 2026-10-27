@@ -185,6 +185,8 @@ describe('the admin service', () => {
     expect(spec?.automountServiceAccountToken).toBe(true);
     const env = Object.fromEntries((spec?.containers?.[0]?.env ?? []).map((e) => [e.name, e.value]));
     expect(env.RELEASE_ROLLOUT).toBe('website/website');
+    // The FeatureFlag its Role in `flagd` names (deploy/base/flagd/admin-stages-flags.yaml): any other is refused.
+    expect(env.FEATURE_FLAGS).toBe('flagd/flags');
     // In `factory`, only the line and the admin service hold a token for the API: every other pod, of any workload,
     // says it holds none, and a pod that does not say counts as holding one.
     const pods = all
