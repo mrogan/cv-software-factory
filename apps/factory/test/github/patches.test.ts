@@ -159,6 +159,74 @@ describe('what a patch may not do', () => {
     expect(filesIn(header('fine.ts', 'new file mode 100644\n')).map((f) => f.path)).toEqual(['fine.ts']);
   });
 
+  it('be anything but a unified diff, refused as the module refuses, not with the parser’s own error', () => {
+    for (const patch of ['--- a/x\n+++ b/x\n@@ -1,2 +1 @@\n-a\n', '--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n?b\n']) {
+      expect(() => filesIn(patch), patch).toThrow(expect.objectContaining({ kind: 'unsupported' }));
+    }
+  });
+
+  it('change no file at all, when it is to be applied', async () => {
+    for (const patch of ['', 'no diff here\n']) {
+      expect(filesIn(patch), patch).toEqual([]);
+      await expect(applyTo(patch, read), patch).rejects.toThrow('changes no file');
+    }
+  });
+
+  it('change lines it names no file for, or name a file and change no line of it', () => {
+    expect(() => filesIn('@@ -1 +1 @@\n-a\n+b\n')).toThrow(expect.objectContaining({ kind: 'path' }));
+    expect(() => filesIn('--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n a\n b\n')).toThrow('changes nothing');
+    expect(() => filesIn('--- a/x\n+++ b/x\n@@ -0,0 +0,0 @@\n')).toThrow(PatchRefused);
+  });
+
+  it('name a file twice, so that its second change would be applied to the file without its first', () => {
+    const change = (to: string) => `diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+${to}\n`;
+    expect(() => filesIn(change('b') + change('c'))).toThrow('more than once');
+  });
+
+  it('change a line twice, with hunks that overlap or come out of order', () => {
+    const hunk = (at: number, from: string, to: string) => `@@ -${at} +${at} @@\n-${from}\n+${to}\n`;
+    const patch = (...hunks: string[]) => `diff --git a/x b/x\n--- a/x\n+++ b/x\n${hunks.join('')}`;
+    expect(() => filesIn(patch(hunk(1, 'a', 'b'), hunk(1, 'a', 'b')))).toThrow('overlap or are out of order');
+    expect(() => filesIn(patch(hunk(3, 'c', 'C'), hunk(1, 'a', 'A')))).toThrow('overlap or are out of order');
+    const insert = '@@ -1,0 +2 @@\n+b\n';
+    expect(() => filesIn(patch(insert, insert))).toThrow('overlap or are out of order');
+    expect(filesIn(patch(hunk(1, 'a', 'A'), hunk(3, 'c', 'C'))).map((f) => f.path)).toEqual(['x']);
+  });
+
+  it('say one thing in git’s header and another in the lines under it', () => {
+    const lines = '--- a/x\n+++ b/x\n@@ -1 +0,0 @@\n-a\n';
+    expect(() => filesIn(`diff --git a/x b/x\ndeleted file mode 100644\n${lines}`)).toThrow('says otherwise');
+    expect(() => filesIn(`diff --git a/evil b/evil\n${lines}`)).toThrow('says otherwise');
+    const empty = 'diff --git a/e b/e\nnew file mode 100644\nindex 0000000..e69de29\n';
+    const plain = (path: string) => `--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-a\n+b\n`;
+    expect(() => filesIn(empty + plain('x') + plain('y'))).toThrow(PatchRefused);
+  });
+
+  it('be misread where a lone carriage return in a line looks as if it began one', () => {
+    const patch = 'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\rnew mode 100755\n';
+    expect(filesIn(patch).map((f) => f.path)).toEqual(['x']);
+  });
+
+  it('delete a file that is not, at the commit, what it saw', async () => {
+    const patch = 'diff --git a/x b/x\ndeleted file mode 100644\n--- a/x\n+++ /dev/null\n@@ -1 +0,0 @@\n-gone\n';
+    expect((await applyTo(patch, async () => 'gone\n')).deletions).toEqual(['x']);
+    for (const there of ['gone\nand more since\n', 'changed since\n']) {
+      await expect(
+        applyTo(patch, async () => there),
+        there,
+      ).rejects.toMatchObject({ kind: 'does-not-apply' });
+    }
+  });
+
+  it('end a line otherwise than it says: what is committed keeps the patch’s line endings, not the file’s', async () => {
+    const windows = async () => 'a\r\n';
+    const changes = await applyTo('--- a/x\n+++ b/x\n@@ -1,0 +2 @@\n+b\n', windows);
+    expect(changes.additions.map((a) => text(a.contents))).toEqual(['a\r\nb\n']);
+    await expect(applyTo('--- a/x\n+++ b/x\n@@ -1 +1,2 @@\n a\n+b\n', windows)).rejects.toMatchObject({
+      kind: 'does-not-apply',
+    });
+  });
+
   it('change the workflows, the deployment, or a code-owned path, even in a dry run, whatever the line said', async () => {
     const files: Record<string, string> = {
       '.github/CODEOWNERS': '/Dockerfile @mrogan\n/src/money.ts @mrogan\n',
