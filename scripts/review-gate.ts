@@ -13,7 +13,7 @@
  * - for a pull request opened, pushed to, reopened, made ready or edited, and for a review of one: the check goes on the
  *   pull request's head as it is now, judged on every open pull request here whose head that commit is, since a check
  *   on a commit is each one's. It passes only when each passes, and otherwise names those that do not, so every run
- *   that judges a commit, whichever pull request asked, says the same;
+ *   that judges a commit, whichever pull request asked, says the same of it from the same reviews;
  * - for the merge queue: the check goes on the merge group's commit, judged on the pull request it was made for, which
  *   the queue names in its branch, which must be into main. A branch the gate does not know, or one that names a pull
  *   request into another branch, fails the check there, saying which.
@@ -114,7 +114,8 @@ interface Event {
 
 /**
  * The open pull requests in `repo` whose head is `commit`, from those GitHub lists for the commit, which include merged
- * ones that contain it, and from `known`, one already found there, in case the list lags behind.
+ * ones that contain it, and from `known`, one already found there, in case the list lags behind. For a commit already
+ * on the default branch, GitHub lists only the pull request that merged it, so `known` is the only open one found.
  */
 export function atHead(
   listed: readonly PullRequest[],
@@ -129,6 +130,15 @@ export function atHead(
   return [...all.values()].sort((a, b) => a.number - b.number);
 }
 
+/** Pull requests by number, the first few: a check's title is one line, however many share a head. */
+const names = (prs: readonly { number: number }[]) =>
+  prs.length > 5
+    ? `${prs
+        .slice(0, 5)
+        .map((p) => `#${p.number}`)
+        .join(', ')} and ${prs.length - 5} more`
+    : prs.map((p) => `#${p.number}`).join(', ');
+
 /**
  * The verdict on a commit that is the head of several open pull requests. A check is on a commit, so it is every one's:
  * it passes only when each passes, and otherwise names those that do not, so every run that judges the commit, from any
@@ -137,8 +147,9 @@ export function atHead(
 export function together(judged: readonly { number: number; said: Verdict }[]): Verdict {
   if (judged.length === 1 && judged[0]) return judged[0].said;
   const held = judged.filter((j) => !j.said.pass);
-  if (held.length === 0) return { pass: true, title: `Each of ${judged.map((j) => `#${j.number}`).join(', ')} passes` };
-  return { pass: false, title: held.map((j) => `#${j.number}: ${j.said.title}`).join('; ') };
+  if (held.length === 0) return { pass: true, title: `Each of ${names(judged)} passes` };
+  if (held.length === 1 && held[0]) return { pass: false, title: `#${held[0].number}: ${held[0].said.title}` };
+  return { pass: false, title: `${names(held)} do not pass: each waits for Martin` };
 }
 
 /**
@@ -187,15 +198,19 @@ async function api<T>(method: string, path: string, token: string, body?: unknow
   return (await response.json()) as T;
 }
 
-/** Every review of a pull request, oldest first. */
-async function reviewsOf(repo: string, number: number, token: string): Promise<Review[]> {
-  const all: Review[] = [];
+/** Every item of a list GitHub gives a page at a time. */
+async function paged<T>(path: string, token: string): Promise<T[]> {
+  const all: T[] = [];
   for (let page = 1; ; page++) {
-    const batch = await api<Review[]>('GET', `/repos/${repo}/pulls/${number}/reviews?per_page=100&page=${page}`, token);
+    const batch = await api<T[]>('GET', `${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`, token);
     all.push(...batch);
     if (batch.length < 100) return all;
   }
 }
+
+/** Every review of a pull request, oldest first. */
+const reviewsOf = (repo: string, number: number, token: string) =>
+  paged<Review>(`/repos/${repo}/pulls/${number}/reviews`, token);
 
 /** Posts the `review` check on a commit, as the review App, or says why it cannot. */
 async function post(repo: string, token: string, commit: string, pass: boolean, title: string, summary: string) {
@@ -216,18 +231,8 @@ async function post(repo: string, token: string, commit: string, pass: boolean, 
 const RULE = 'Passes when Martin opened the pull request, or approved its head after the last push (ADR 0014).';
 
 /** Every pull request open in `repo` that contains `commit`, merged ones too, as GitHub lists them. */
-async function containing(repo: string, commit: string, token: string): Promise<PullRequest[]> {
-  const all: PullRequest[] = [];
-  for (let page = 1; ; page++) {
-    const batch = await api<PullRequest[]>(
-      'GET',
-      `/repos/${repo}/commits/${commit}/pulls?per_page=100&page=${page}`,
-      token,
-    );
-    all.push(...batch);
-    if (batch.length < 100) return all;
-  }
-}
+const containing = (repo: string, commit: string, token: string) =>
+  paged<PullRequest>(`/repos/${repo}/commits/${commit}/pulls`, token);
 
 /**
  * Judges the head of `pr` as it is now, on every open pull request whose head it is: a check is on a commit, so each
@@ -235,7 +240,17 @@ async function containing(repo: string, commit: string, token: string): Promise<
  */
 async function judgeHead(repo: string, read: string, token: string, pr: PullRequest): Promise<void> {
   const commit = pr.head.sha;
-  const open = atHead(await containing(repo, commit, read), commit, repo, pr);
+  let listed: PullRequest[];
+  try {
+    listed = await containing(repo, commit, read);
+  } catch (error) {
+    // Without the list, a verdict could pass a commit another open pull request holds: fail it, saying why.
+    console.log(`::warning::${error instanceof Error ? error.message : String(error)}`);
+    const title = `The gate could not list the pull requests at ${short(commit)}: re-run it`;
+    if (pr.state === 'open') await post(repo, token, commit, false, title, `No verdict without the list. ${RULE}`);
+    return;
+  }
+  const open = atHead(listed, commit, repo, pr);
   // A closed pull request merges nothing, and no open one has its head: nothing to hold.
   if (open.length === 0) {
     console.log(`#${pr.number} is ${pr.state}, and no open pull request has ${short(commit)}: nothing to judge.`);

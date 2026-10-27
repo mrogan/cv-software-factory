@@ -192,6 +192,12 @@ describe('a head commit’s verdict', () => {
       pass: false,
       title: '#9: Waits for Martin to approve aaaaaaa',
     });
+    // Several held, however many: one line.
+    const many = [1, 2, 3, 4, 5, 6, 7].map((number) => ({ number, said: held }));
+    expect(together(many)).toEqual({
+      pass: false,
+      title: '#1, #2, #3, #4, #5 and 2 more do not pass: each waits for Martin',
+    });
     // Two pull requests at one commit, from different branches: both runs judge both, and agree.
     const two = [
       { number: 7, said: verdict(at(7), [review(MARTIN, 'APPROVED')]) },
