@@ -13,7 +13,8 @@
  * fails on the canary, twice), run against the two Services. The journeys have no thresholds of their own.
  *
  * After a release is promoted, Verify asks the sense that saw a ticket's defect whether it has cleared on the new
- * version (`verify`).
+ * version (`verify`). And a feature flag at the share stage is judged with the same thresholds, its two sides compared
+ * on the traffic generator's own requests (`flags`).
  */
 import { objectives } from './objectives.ts';
 
@@ -89,6 +90,14 @@ export interface Release {
    * verification's own pages stay as long as its event names them.
    */
   pictures: { keepReleases: number };
+  /**
+   * Verify by variant: a feature flag at the share stage is judged on the traffic generator's own requests, flag on
+   * against flag off, with the thresholds above, flag on as the canary and flag off as its baseline: `errors`,
+   * `latency`, and `minRequests` on each side. The window runs from the app holding Martin's move to now, less every
+   * canary's time in flight, whose two versions would mix the sides. It is judged once, when each side has enough
+   * requests and the window is at least `windowMinutes` long; until then it waits.
+   */
+  flags: { windowMinutes: number };
 }
 
 export const release = {
@@ -119,4 +128,8 @@ export const release = {
   // A release's pictures take about 12 MB, and at most about 26 MB (sixty pages, every one changed), on a volume of
   // 1 Gi the senses' screenshots share. Five cover a canary retried after a rollback, and take at most an eighth.
   pictures: { keepReleases: 5 },
+  // At least one cycle of the generator's walk: each id walks the round's pages in turn, so in a round's length times
+  // 101 requests every page meets every id once, and each side has the same mix of pages. The app's 76 pages make a
+  // round of 77, which is 7,777 requests, 26 minutes at five a second: half an hour covers a round of up to 89.
+  flags: { windowMinutes: 30 },
 } satisfies Release;

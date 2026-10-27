@@ -44,3 +44,12 @@ export const METRICS_FROM_THE_LINE = 'k8s_namespace_name="factory", k8s_pod_labe
  */
 export const METRICS_FROM_THE_ADMIN_SERVICE =
   'k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="admin"';
+
+/**
+ * Which series are the traffic generator's: those from a pod in `factory` labelled `app.kubernetes.io/name: traffic`,
+ * stamped by the collector as the line's are. Verify judges a flag at Share on its figures, and Everyone waits on that,
+ * so the app, whose code is being judged and which may send the collector metrics of any name and job, may not send
+ * them.
+ */
+export const METRICS_FROM_THE_TRAFFIC_GENERATOR =
+  'k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="traffic"';
