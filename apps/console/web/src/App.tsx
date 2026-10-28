@@ -9,6 +9,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type Admin, type Door, stillSignedIn, useAdmin } from './admin.ts';
 import { OriginContext } from './artifacts.ts';
+import { Bird } from './components/Bird.tsx';
 import { Canary } from './components/Canary.tsx';
 import { Controls } from './components/Controls.tsx';
 import { useHeld } from './components/Flags.tsx';
@@ -114,6 +115,9 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
   const latest = source.events.length ? Date.parse(source.events.at(-1)?.ts ?? '') : undefined;
   const t = useTime(latest, from.kind === 'live');
   const view = useMemo(() => project(source.events, t), [source.events, t]);
+  // Whether the canary bird is out of its cage, keeping the Canary panel company.
+  const [birdOut, setBirdOut] = useState(false);
+  const flying = view.canary.state === 'shown' && !view.canary.release.end ? view.canary.release : undefined;
   const settings = useMemo(() => settingsView(source.events, factory.profile, t), [source.events, t]);
   const n = view.cards.length;
   // The reel draws just after the line, not with it: it is most of the page's work, and the line is what a visitor
@@ -234,6 +238,16 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
             <Scoreboard score={view.score} sample={view.sample} />
           </section>
           <States source={source} view={view} />
+          {/* What the page holds once the store has answered is history; the bird reacts to what arrives after. */}
+          {settled && (
+            <Bird
+              events={source.events}
+              live={ticks(from.kind === 'live')}
+              release={flying}
+              motion={motion}
+              onOut={setBirdOut}
+            />
+          )}
           {/* The stations draw at once, idle, and take their states as the events arrive. */}
           <Line
             view={view}
@@ -241,6 +255,7 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
             onOpen={setOpen}
             admin={admin}
             pending={!source.events.length && !settled}
+            birdOut={birdOut}
           />
           {settled && (
             <Canary

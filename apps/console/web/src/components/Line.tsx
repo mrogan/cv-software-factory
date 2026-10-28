@@ -187,9 +187,11 @@ interface LineProps {
   admin: Admin;
   /** No events yet: the stations wait, idle, saying so. */
   pending?: boolean;
+  /** The canary bird is out of the Release station's cage, keeping the Canary panel company (`Bird.tsx`). */
+  birdOut?: boolean;
 }
 
-export function Line({ view, motion, onOpen, admin, pending = false }: LineProps) {
+export function Line({ view, motion, onOpen, admin, pending = false, birdOut = false }: LineProps) {
   const [open, setOpen] = useState<Stage | null>(null);
   const [improving, setImproving] = useState(false);
   const line = useRef<HTMLElement>(null);
@@ -250,6 +252,7 @@ export function Line({ view, motion, onOpen, admin, pending = false }: LineProps
                   beacon={beacon}
                   decorative
                   motion={motion ? undefined : 'off'}
+                  bird={s.stage === 'release' && birdOut ? 'out' : undefined}
                 />
                 {/* The spaces keep the caption's words apart where its text is read, laid out in a column. */}
                 <span className="cap" aria-hidden="true">

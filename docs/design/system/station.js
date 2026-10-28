@@ -16,6 +16,8 @@
  *            and for a failure the machine rattles and sparks; the tool, face, hatch and belt still say
  *            what it is doing. Only working and returning show it: blocked and failed light their own.
  *   motion   "off" draws the still pose. Motion also stops under prefers-reduced-motion.
+ *   bird     "out" empties the Release station's cage: the console draws its bird elsewhere while a
+ *            release is in flight, and the cage keeps its bars, its perch and its note.
  *   label    Accessible name; defaults to "<Stage>: <state>".
  *   decorative  Present when something else (a button, a caption) already names the station.
  *
@@ -120,6 +122,9 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .rattle { transform-origin: 84px 150px; }
 .puff-a { transform-origin: 44px 40px; }
 .puff-b { transform-origin: 51px 40px; }
+
+/* The bird out of its cage: the cage stays as it is, empty. */
+:host([bird="out"]) .bird-ok, :host([bird="out"]) .bird-down { visibility: hidden; }
 
 /* Pivots, in the SVG's user units */
 .pivot, .sense-dish, .plan-arm, .build-arm, .gate-boom, .lens, .bird-ok, .stamp, .belt-run,
@@ -283,10 +288,12 @@ const TOOLS = {
       <path class="thin" d="M66 44 V12 M74 44 V10 M82 44 V12"/>
       <path class="line" stroke-width="2" d="M56 44 H92"/>`;
     const bird = status === 'failed'
-      ? `<path class="thin" d="M71 43 v-4 M76 43 v-4"/>
-         <ellipse class="bird" cx="73" cy="38" rx="8" ry="4.5"/>
-         <circle class="bird" cx="83" cy="39" r="4.2"/>
-         <path class="thin" stroke-width="1.2" d="M81.5 37.5 l3 3 M84.5 37.5 l-3 3"/>`
+      ? `<g class="bird-down">
+           <path class="thin" d="M71 43 v-4 M76 43 v-4"/>
+           <ellipse class="bird" cx="73" cy="38" rx="8" ry="4.5"/>
+           <circle class="bird" cx="83" cy="39" r="4.2"/>
+           <path class="thin" stroke-width="1.2" d="M81.5 37.5 l3 3 M84.5 37.5 l-3 3"/>
+         </g>`
       : `<g class="bird-ok">
            <path class="bird" d="M67 30 l-6 3 6 2"/>
            <ellipse class="bird" cx="73" cy="30" rx="7" ry="6"/>

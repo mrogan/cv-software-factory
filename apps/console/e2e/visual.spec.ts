@@ -356,6 +356,26 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
       });
     }
 
+    // Out of its cage while a release is in flight: sitting still on the panel's top edge, as motion off has it, and
+    // a dashed paper bird for a dry run.
+    for (const state of ['in-flight', 'dry-run'] as const) {
+      test(`the canary bird on the panel: ${state}`, async ({ page }) => {
+        await page.goto(consoleUrl({ at: PANEL[state] }));
+        await shown(page);
+        await page.locator('.bird-fly').waitFor();
+        const card = await page.locator('section.canary').boundingBox();
+        if (!card) throw new Error('No Canary panel');
+        await page.evaluate((y) => scrollBy(0, y - 120), card.y);
+        const top = await page.locator('section.canary').boundingBox();
+        if (!top) throw new Error('No Canary panel');
+        const clip = { x: top.x, y: top.y - 60, width: top.width, height: 100 };
+        await expect(page).toHaveScreenshot(`m06-bird-${state}-${width}.png`, { clip });
+        await expect(page.locator('.stations sf-station[kind="release"]')).toHaveScreenshot(
+          `m06-bird-cage-${state}-${width}.png`,
+        );
+      });
+    }
+
     for (const [state, item] of Object.entries(SHIPPED_CARDS)) {
       test(`a card: ${state}`, async ({ page }) => {
         await page.goto(consoleUrl({ item }));

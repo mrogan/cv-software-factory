@@ -10,6 +10,7 @@ declare module 'preact' {
         status: Status;
         beacon?: Beacon | undefined;
         motion?: 'off' | undefined;
+        bird?: 'out' | undefined;
         decorative?: boolean | undefined;
         label?: string | undefined;
       };

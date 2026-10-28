@@ -1,0 +1,158 @@
+/*
+ * The canary bird out of its cage (components/Bird.tsx): the Release station's own drawing, with legs, a wing for
+ * flight, tufts for when it is ruffled and a pose lying on its back. It moves only by Web Animations; script places it
+ * at the ends of a flight, a walk or a pause.
+ */
+
+/* A layer of no height before the line: the bird, its notes and its feathers are placed from its top left. */
+.bird-layer {
+  position: relative;
+  z-index: 5;
+  height: 0;
+  pointer-events: none;
+}
+.bird-fly {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform;
+}
+.bird-fly .flip {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transition: transform 0.14s;
+}
+.bird-fly .bird {
+  fill: var(--station-canary);
+  stroke: var(--text);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+.bird-fly .ink {
+  fill: var(--text);
+}
+.bird-fly .thin {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1.25;
+  stroke-linecap: round;
+}
+.bird-fly g,
+.bird-fly path {
+  transform-box: view-box;
+}
+.bird-fly .body {
+  transform-origin: 73px 39px;
+}
+.bird-fly .head {
+  transform-origin: 78px 27px;
+}
+.bird-fly .wing {
+  transform-origin: 72px 28px;
+}
+.bird-fly .wing,
+.bird-fly .tuft,
+.bird-fly .keeled {
+  display: none;
+}
+.bird-fly.flying .wing {
+  display: inline;
+}
+.bird-fly.flying .fold,
+.bird-fly.flying .legs {
+  display: none;
+}
+.bird-fly.ruffled .tuft {
+  display: inline;
+}
+.bird-fly.down .upright {
+  display: none;
+}
+.bird-fly.down .keeled {
+  display: inline;
+}
+/* A dry run's bird is paper: nothing shipped. */
+.bird-fly.paper .bird {
+  fill: var(--raised);
+  stroke: var(--text-muted);
+  stroke-dasharray: 2.2 1.6;
+}
+.bird-fly.paper .ink {
+  fill: var(--text-muted);
+}
+@media (prefers-reduced-motion: no-preference) {
+  html[data-motion="on"] .bird-fly.flying .wing {
+    animation: flap 0.15s ease-in-out infinite alternate;
+  }
+  html[data-motion="on"] .bird-fly.walking .bob {
+    animation: bob 0.28s ease-in-out infinite alternate;
+  }
+}
+@keyframes flap {
+  from {
+    transform: scaleY(1);
+  }
+  to {
+    transform: scaleY(-0.75);
+  }
+}
+@keyframes bob {
+  to {
+    transform: translateY(-1.6px);
+  }
+}
+
+/* Its notes: green for a pass, warm and broken for a sour one, faint and dashed for a dry run's. */
+.bird-note,
+.bird-feather {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+.bird-note {
+  width: 14px;
+  height: 18px;
+}
+.bird-note.double {
+  width: 20px;
+}
+.bird-note svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.bird-note .h {
+  fill: currentColor;
+}
+.bird-note .s {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.bird-note.ok {
+  color: var(--ok);
+}
+.bird-note.attn {
+  color: var(--attn);
+}
+.bird-note.faint {
+  color: var(--text-faint);
+}
+.bird-note.faint .h {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-dasharray: 2 1.5;
+}
+.bird-feather {
+  width: 7px;
+  height: 3.5px;
+  border-radius: 50%;
+  background: var(--station-canary);
+  border: 1px solid var(--text);
+}
