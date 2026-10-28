@@ -537,7 +537,7 @@ From the account menu. A green banner across the top says: "Previewing as a visi
 
 A dialog is a `raised` card on a `scrim`, 480px wide in the middle of the screen on a laptop, and a bottom sheet with 14px top corners on a phone, its buttons side by side and full width. Escape, Cancel or the scrim close it, and focus goes to its title. Toasts are still not used: what happened shows where it happened (an answered card moves to Answered today, the canary's kicker changes).
 
-## Improvements and flags (milestone 7, Part B)
+## Improvements and flags
 
 Martin asks for an improvement with the "+" on Plan. It goes down the same line as a fix, and ships behind a feature flag of its own, off; he then widens the flag from Controls a stage at a time, and Verify checks each stage. A visitor sees all of it: the "+" and its form, every improvement's request, spec and progress, and the flags and their stages, read-only, by the rules in "Read only" above. The mockup draws each (`?dialog=improve`, `?flag=`, `?sync=behind` and the rest in its comment), with #1316, "Delivery dates on each product", part way out.
 
