@@ -10,6 +10,8 @@
 # GitHub shows who may bypass a ruleset only to a reader who may change it, the check says it cannot see them, and
 # fails, rather than read them as nobody.
 #
+# The workflow's own token may only read this repository's contents, for the checkout.
+#
 # Only `schedule` and `workflow_dispatch` start it, so it never runs for a pull request, and a dispatch from any other
 # branch is refused the environment. It checks out main's copy of the script and the toolchain's pins, and nothing
 # else.
@@ -32,6 +34,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     environment: drift-check
+    # Only to check out main's copy of the script: the reads it checks are the App's.
+    permissions:
+      contents: read
     env:
       # Whether the App's key and Client ID are here: a step's condition cannot read a secret, only this.
       HAS_APP: ${{ secrets.DRIFT_CHECK_APP_PRIVATE_KEY != '' && vars.DRIFT_CHECK_APP_CLIENT_ID != '' }}

@@ -120,7 +120,8 @@ describe('the GitHub Apps', () => {
       metadata: 'read',
       pull_requests: 'write',
     });
-    expect(APPS.review).toMatchObject({ id: REVIEW_APP, permissions: { checks: 'write', pull_requests: 'read' } });
+    expect(APPS.review).toMatchObject({ id: REVIEW_APP });
+    expect(APPS.review.permissions).toEqual({ checks: 'write', metadata: 'read', pull_requests: 'read' });
     expect(Object.values(APPS.driftCheck.permissions)).toEqual(['read', 'read', 'read', 'read']);
   });
 });

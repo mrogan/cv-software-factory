@@ -27,7 +27,7 @@ const MODEL_KEYS = ['anthropic', 'typesafe'];
 /** The factory's App's key, as the GitHub worker names its Secret (deploy/base/factory/github.yaml). */
 const GITHUB_KEY = 'github-app';
 /** An environment variable that would carry a model provider's key: its own name, or any API key. */
-const MODEL_CREDENTIAL = /^(ANTHROPIC|OPENAI|TYPESAFE|GEMINI|GOOGLE|MISTRAL|COHERE)_|API_KEY$/;
+const MODEL_CREDENTIAL = /^(?:(?:ANTHROPIC|OPENAI|TYPESAFE|GEMINI|GOOGLE|MISTRAL|COHERE)_\w*|\w*API_KEY)$/;
 /**
  * An environment variable that may carry a GitHub credential: any GitHub's tools read, but for an address, a Client ID
  * (which GitHub does not keep secret) or a dry run's settings.

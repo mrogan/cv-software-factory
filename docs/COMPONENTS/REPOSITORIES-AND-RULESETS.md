@@ -26,7 +26,7 @@ No required check is the reviewer agent's (`factory review`) or posted by the fa
 
 ## The drift check
 
-`drift-check.yml` runs `github-settings.ts --check` on Mondays and by hand, and fails if either repository's rulesets or key environments differ from the script's. A failed run reaches Martin as any failed scheduled run does, by GitHub's email.
+`drift-check.yml` runs `github-settings.ts --check` on Mondays and by hand, with a workflow token that may only read this repository's contents, for its checkout, and fails if either repository's rulesets or key environments differ from the script's. A failed run reaches Martin as any failed scheduled run does, by GitHub's email.
 
 Who may bypass a ruleset and the names of an environment's secrets are shown only to an admin's read, which no workflow token has, so it reads as the drift check App (`the-roganator-drift-check`), installed on both repositories, which may read administration, Actions and environments and nothing else. Its key is in this repository's `drift-check` environment, which only `main` may use, as `DRIFT_CHECK_APP_PRIVATE_KEY`, with its Client ID beside it as the variable `DRIFT_CHECK_APP_CLIENT_ID`; until both are there, the run fails, saying so. If GitHub shows a ruleset's bypass list only to a reader who may change it, the check says it cannot see it, and fails, rather than reading it as nobody.
 

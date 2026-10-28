@@ -172,11 +172,13 @@ describe('every workflow', () => {
     }
   });
 
-  it('gives the token nothing in the drift check, whose reads are the App’s', () => {
+  it('gives the token no more than a read of the contents in the drift check, whose reads are the App’s', () => {
     const workflow = read('drift-check.yml') as Workflow & { permissions?: unknown };
     expect(workflow.permissions).toEqual({});
     expect(Object.keys(workflow.jobs)).toEqual(['drift-check']);
-    expect(Object.values(workflow.jobs).every((job) => !('permissions' in job))).toBe(true);
+    expect(Object.values(workflow.jobs).map((job) => (job as { permissions?: unknown }).permissions)).toEqual([
+      { contents: 'read' },
+    ]);
   });
 });
 

@@ -220,7 +220,7 @@ export function matches(live: unknown, wanted: unknown): boolean {
 /** Compares a repository's live rulesets and environments with these, and says what differs. */
 function check(requiredChecks: string[]): string[] {
   const wanted = [rules(requiredChecks)];
-  const live = JSON.parse(gh('GET', '/rulesets')) as { id: number; name: string }[];
+  const live = JSON.parse(gh('GET', '/rulesets?per_page=100')) as { id: number; name: string }[];
   const problems = live
     .filter((r) => !wanted.some((w) => w.name === r.name))
     .map((r) => `ruleset "${r.name}" is not one of these`);
