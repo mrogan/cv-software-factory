@@ -199,11 +199,55 @@ p.words {
   background: var(--text-muted);
 }
 
-/* The measures at the latest step measured. */
+/*
+ * How far through its step the canary is: the step in words, the time left, and a bar the browser runs as one
+ * animation. Under the steps, over the note.
+ */
+.steptime {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 12px;
+  align-items: baseline;
+  margin-top: 4px;
+}
+.steptime .left {
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-2);
+}
+.steptime .bar {
+  grid-column: 1 / -1;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+.steptime .bar span {
+  display: block;
+  height: 100%;
+  background: var(--signal);
+  transform-origin: left;
+  transform: scaleX(0);
+}
+
+/* The measures: as each look lands while the canary is in flight, or at the latest step measured. */
 .measures {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+}
+/* With the trend column, a row is one line, in columns of their own width, each cell from the top. */
+.measures.trended {
+  table-layout: fixed;
+}
+.measures.trended col.fig {
+  width: 84px;
+}
+.measures.trended col.tr {
+  width: 166px;
+}
+.measures.trended col.vd {
+  width: 184px;
 }
 .measures caption {
   text-align: left;
@@ -214,7 +258,11 @@ p.words {
   text-align: left;
   font-weight: 400;
   padding: 0 12px 8px 0;
-  vertical-align: baseline;
+  vertical-align: top;
+}
+.measures td.mono,
+.measures .v {
+  line-height: 19px;
 }
 .measures td {
   padding-top: 9px;
@@ -239,6 +287,86 @@ p.words {
 .measures tr.failed td:first-child {
   box-shadow: inset 2px 0 0 var(--attn);
   padding-left: 10px;
+}
+/* A look landed: the figure comes up from faint to its own colour, in place. Nothing moves and no box is drawn. */
+.measures td.landed {
+  animation: fresh 0.9s ease-out;
+}
+@keyframes fresh {
+  from {
+    color: var(--text-faint);
+  }
+}
+
+/* Each measure over the release: a line each for the canary and the baseline, a bar for the requests, a dot a run. */
+.trend svg {
+  display: block;
+  width: 150px;
+  height: 30px;
+  margin-top: 2px;
+  overflow: visible;
+}
+.trend .tick {
+  stroke: var(--line-strong);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+.trend .lim {
+  fill: none;
+  stroke: var(--attn);
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+  opacity: 0.55;
+}
+.trend .bl {
+  fill: none;
+  stroke: var(--text-faint);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+.trend .cn {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1.75;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.trend .pt,
+.trend .pip {
+  fill: var(--text);
+}
+.trend .pt.over {
+  fill: var(--attn);
+}
+.trend .pip.bad {
+  fill: none;
+  stroke: var(--attn);
+  stroke-width: 1.5;
+}
+.reqbar {
+  position: relative;
+  display: block;
+  width: 150px;
+  height: 6px;
+  margin-top: 7px;
+  border-radius: 3px;
+  background: var(--line);
+}
+.reqbar .f {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--text-muted);
+}
+.reqbar.enough .f {
+  background: var(--text);
+}
+.reqbar .m {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 1.5px;
+  background: var(--text-2);
 }
 
 /* Idle: the last release in one line. */
@@ -267,6 +395,10 @@ p.words {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
     gap: 20px 28px;
   }
+  /* The trend column needs the width: the measures go under the steps. */
+  .canary-body.trended {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 @media (max-width: 720px) {
   .canary {
@@ -281,8 +413,13 @@ p.words {
   }
   /* The rules' captions go; a measure's own words, such as why it could not measure, stay. */
   .measures .base,
-  .measures .rule {
+  .measures .rule,
+  .measures .tr,
+  .measures .trend {
     display: none;
+  }
+  .measures.trended {
+    table-layout: auto;
   }
   .measures .base-inline {
     display: block;

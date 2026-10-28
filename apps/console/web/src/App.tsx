@@ -23,7 +23,7 @@ import { EmptyReel, States } from './components/States.tsx';
 import { StepUpProvider } from './components/StepUp.tsx';
 import { factoryOf } from './profile.ts';
 import { project, projectSheet, settingsView } from './projection/index.ts';
-import { type Theme, useMotion, useTheme, useTime } from './settings.ts';
+import { type Theme, ticks, useMotion, useTheme, useTime } from './settings.ts';
 import { type Origin, origin, useEvents } from './source.ts';
 
 const params = new URLSearchParams(location.search);
@@ -249,6 +249,8 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
               onOpen={setOpen}
               admin={admin}
               lineStopped={view.header.stopped !== undefined}
+              ticking={ticks(from.kind === 'live')}
+              motion={motion}
             />
           )}
           {/* An empty store waits for the server to say what kind it is, so it is described once, rightly. */}

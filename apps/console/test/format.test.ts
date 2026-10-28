@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { axis, duration, figure, isCommit, shortVersion, sinceStart } from '../web/src/format.ts';
+import { axis, countdown, duration, figure, isCommit, shortVersion, sinceStart } from '../web/src/format.ts';
 
 describe('a chart’s axis', () => {
   it.each([
@@ -72,5 +72,11 @@ describe('the time since an item opened', () => {
       'T+5d\u00a012:39:59',
       'T+5d\u00a002:00:00',
     ]);
+  });
+});
+
+describe('the time left of a canary’s step, or until its next look', () => {
+  it('counts down in minutes and seconds, a part second as a whole one, and never below nothing', () => {
+    expect([151_000, 29_400, 60_000, 0, -5000].map(countdown)).toEqual(['2:31', '0:30', '1:00', '0:00', '0:00']);
   });
 });

@@ -4,17 +4,34 @@
  * him, and for a visitor the same controls as labels beside what each does.
  */
 import type { ReleaseControl } from '@software-factory/events';
-import { useState } from 'react';
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { type Admin, said, write } from '../admin.ts';
-import { capital, clock, clockSeconds, duration, isCommit, shortVersion, shortWhen, times } from '../format.ts';
+import {
+  capital,
+  clock,
+  clockSeconds,
+  countdown,
+  duration,
+  isCommit,
+  shortVersion,
+  shortWhen,
+  times,
+} from '../format.ts';
 import type { CanaryView, Carried, Measured, Release } from '../projection/index.ts';
 import {
+  BACKGROUND,
   type Control,
   controlsOf,
   endedWords,
   failedLooks,
+  JUDGED,
+  lookOf,
+  lookVerdict,
   MEASURES,
+  measuring,
   ownWords,
+  pointsOf,
+  room,
   SIGNALLED,
   sawOf,
   stoppedBy,
@@ -39,15 +56,34 @@ export const VERDICT: Record<Phase | 'dry' | 'none', [word: string, tone: Tone, 
   none: ['not measured', 'faint', 'dash'],
 };
 
-/** A verdict, and for a measure a rollback failed, how many of its looks failed when the event counted them: "failed twice". */
-export function Verdict({ phase, looks }: { phase: keyof typeof VERDICT; looks?: number | undefined }) {
-  const [word, tone, glyph] = VERDICT[phase];
+/** A verdict in words, in its tone, with its glyph. */
+type Said = [word: string, tone: Tone, glyph: GlyphName];
+
+function Words({ said: [word, tone, glyph] }: { said: Said }) {
   return (
     <span className={`v tone-${tone}`}>
       <Glyph name={glyph} />
-      {looks === undefined ? word : `${word} ${times(looks)}`}
+      {word}
     </span>
   );
+}
+
+/**
+ * A verdict, and for a measure a rollback failed, how many of its looks failed when the event counted them, and by how
+ * much the last went over: "failed twice · 64 ms over".
+ */
+export function Verdict({
+  phase,
+  looks,
+  over,
+}: {
+  phase: keyof typeof VERDICT;
+  looks?: number | undefined;
+  over?: string | undefined;
+}) {
+  const [word, tone, glyph] = VERDICT[phase];
+  const counted = looks === undefined ? word : `${word} ${times(looks)}`;
+  return <Words said={[over ? `${counted} · ${over}` : counted, tone, glyph]} />;
 }
 
 /** How the release stands, as the kicker says it, in its tone. */
@@ -166,15 +202,270 @@ function firstMeasured(r: Release): number | undefined {
   return r.planned && !r.end && !r.dryRun && !r.measured.length && step?.analysis ? r.until : undefined;
 }
 
+/** How a figure is written, and counted up: requests, a share of 5xx answers, a p99, or words that do not count. */
+type Unit = 'requests' | 'share' | 'ms' | 'none';
+
+/** A figure as a look has it: its value, to count up from the last, and how it is written when it gets there. */
+interface Fig {
+  value: number | null;
+  text: string;
+  unit: Unit;
+}
+
+/** A figure written in its unit, on its way to `to`: requests short of the window's least say so, "63 / 100". */
+function written(unit: Unit, x: number, to: number): string {
+  if (unit === 'share') return `${(x * 100).toFixed(2)}%`;
+  if (unit === 'ms') return `${Math.round(x)} ms`;
+  const n = Math.round(x).toLocaleString('en-GB');
+  return to < BACKGROUND.minRequests ? `${n} / ${BACKGROUND.minRequests}` : n;
+}
+
+const fig = (unit: Unit, value: number | null | undefined): Fig =>
+  value == null ? { value: null, text: '—', unit: 'none' } : { value, text: written(unit, value, value), unit };
+
 /**
- * The measures at the latest step measured: the canary's figure, the baseline's, and the verdict. Before the first
- * step is measured, the same rows wait for it, with no figures, each measuring.
+ * Each version's figure for a measure, from its latest look: the canary's to count up, the baseline's as words.
+ * Errors and latency have none until the canary has the requests to judge them.
  */
-function Measures({ r, m, until }: { r: Release; m: Measured | undefined; until?: number | undefined }) {
+export function liveFigures(r: Release, name: string): { canary: Fig; baseline: Fig } {
+  const look = lookOf(r, name);
+  const taken = look?.measures.find((x) => x.name === name);
+  const f = look?.figures;
+  const none = { canary: fig('none', null), baseline: fig('none', null) };
+  if (!f) return none;
+  if (name === 'enough-requests') {
+    return { canary: fig('requests', f.canary.requests), baseline: { ...fig('requests', f.baseline.requests) } };
+  }
+  if (name === 'journeys') {
+    return {
+      canary: { value: null, text: out(f.canary.journeys), unit: 'none' },
+      baseline: { value: null, text: out(f.baseline.journeys), unit: 'none' },
+    };
+  }
+  if (taken?.value == null) return none;
+  const unit = name === 'latency' ? 'ms' : 'share';
+  const of = (side: 'canary' | 'baseline') => (name === 'latency' ? f[side].p99Ms : f[side].errorRate);
+  return { canary: fig(unit, of('canary')), baseline: fig(unit, of('baseline')) };
+}
+
+/** How long a figure counts up to its new value. */
+const COUNT_MS = 650;
+
+/**
+ * A cell whose figure a look changes. When a new look lands it counts up from the figure before, writing React's own
+ * text node through a ref each frame, so nothing renders while it counts (the console's rule for anything that runs
+ * every frame), and the cell comes up from faint to its own colour. Nothing moves. With motion off, the figure is
+ * simply written.
+ */
+function Fresh({
+  fig: { value, text, unit },
+  look,
+  motion,
+  className,
+  children,
+}: {
+  fig: Fig;
+  look: number | undefined;
+  motion: boolean;
+  className: string;
+  children?: ReactNode;
+}) {
+  const cell = useRef<HTMLTableCellElement>(null);
+  const was = useRef({ look, value });
+  useLayoutEffect(() => {
+    const before = was.current;
+    was.current = { look, value };
+    const td = cell.current;
+    if (!td || !motion || look === undefined || before.look === undefined || before.look === look) return;
+    td.classList.remove('landed');
+    // Read a layout, so the animation starts again from its beginning.
+    void td.offsetWidth;
+    td.classList.add('landed');
+    const node = td.firstChild;
+    const from = before.value;
+    if (value === null || from === null || from === value || !(node instanceof Text)) return;
+    const start = performance.now();
+    node.nodeValue = written(unit, from, value);
+    let frame = requestAnimationFrame(function step(now) {
+      const k = Math.min(1, (now - start) / COUNT_MS);
+      node.nodeValue = written(unit, from + (value - from) * (1 - (1 - k) ** 3), value);
+      if (k < 1) frame = requestAnimationFrame(step);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      node.nodeValue = text;
+    };
+  }, [look, value, unit, text, motion]);
   return (
-    <table className="measures">
+    <td ref={cell} className={className}>
+      {text}
+      {children}
+    </td>
+  );
+}
+
+/**
+ * The span the trend column draws over: from the release's start to the end of its planned steps, or to the latest
+ * thing it recorded if that is later.
+ */
+function horizon(r: Release): [from: number, to: number] {
+  const planned = r.planned
+    ? r.steps.reduce((sum, s) => sum + (s.weight < 100 ? (s.pauseSeconds ?? 0) * 1000 : 0), 0)
+    : 0;
+  const latest = [r.until ?? 0, r.end?.at ?? 0, ...r.looks.map((l) => l.at), ...r.measured.map((m) => m.at)];
+  return [r.startedAt, Math.max(r.startedAt + planned, ...latest)];
+}
+
+const [W, H] = [150, 30];
+
+/**
+ * A measure over the release, under the trend column: errors and latency as a line each for the canary (ink) and the
+ * baseline (faint), with the limit dashed and warm, and a dotted tick at each step; the requests as a bar with a mark
+ * at the least the window needs; the journeys as a dot for each run, hollow and warm for one that failed. It is drawn
+ * for the eye: the figures and the verdict beside it say the same in words.
+ */
+function Trend({ r, name }: { r: Release; name: string }) {
+  const [from, to] = horizon(r);
+  const x = (at: number) => 3 + ((at - from) / Math.max(1, to - from)) * (W - 6);
+  if (name === 'enough-requests') {
+    const n = lookOf(r, name)?.figures?.canary.requests;
+    const min = BACKGROUND.minRequests;
+    const top = Math.max(3 * min, n ?? 0);
+    return (
+      <td className="trend" aria-hidden="true">
+        {n != null && (
+          <span className={`reqbar ${n >= min ? 'enough' : ''}`}>
+            <span className="f" style={{ width: `${(n / top) * 100}%` }} />
+            <i className="m" style={{ left: `${(min / top) * 100}%` }} />
+          </span>
+        )}
+      </td>
+    );
+  }
+  if (name === 'journeys') {
+    const runs = r.looks.filter((l) => l.measures.some((m) => m.name === name));
+    return (
+      <td className="trend" aria-hidden="true">
+        {runs.length > 0 && (
+          <svg viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
+            {runs.map((l) => (
+              <circle
+                key={l.at}
+                className={l.measures.some((m) => m.name === name && m.phase === 'failed') ? 'pip bad' : 'pip'}
+                cx={x(l.at)}
+                cy={H / 2}
+                r={3.5}
+              />
+            ))}
+          </svg>
+        )}
+      </td>
+    );
+  }
+  const points = name === 'errors' || name === 'latency' ? pointsOf(r, name) : [];
+  const last = points.at(-1);
+  if (!last) return <td className="trend" aria-hidden="true" />;
+  const all = points.flatMap((p) => [p.canary, p.baseline, p.limit]);
+  const pad = (Math.max(...all) - Math.min(...all)) * 0.12 || 1;
+  const [lo, hi] = [Math.min(...all) - pad, Math.max(...all) + pad];
+  const y = (v: number) => H - 2 - ((v - lo) / (hi - lo)) * (H - 4);
+  const line = (k: 'canary' | 'baseline' | 'limit') =>
+    points.map((p, i) => `${i ? 'L' : 'M'}${x(p.at).toFixed(1)} ${y(p[k]).toFixed(1)}`).join(' ');
+  const ticks = [...r.measured.map((m) => m.at), ...(r.end ? [] : [r.until ?? 0])].filter(
+    (at) => at > from && at <= to,
+  );
+  return (
+    <td className="trend" aria-hidden="true">
+      <svg viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
+        {ticks.map((at) => (
+          <line key={at} className="tick" x1={x(at)} x2={x(at)} y1={0} y2={H} />
+        ))}
+        <path className="lim" d={line('limit')} />
+        <path className="bl" d={line('baseline')} />
+        <path className="cn" d={line('canary')} />
+        {points.map((p) =>
+          p.failed || p === last ? (
+            <circle
+              key={p.at}
+              className={p.failed ? 'pt over' : 'pt'}
+              cx={x(p.at)}
+              cy={y(p.canary)}
+              r={p === last ? 2.6 : 2.2}
+            />
+          ) : null,
+        )}
+      </svg>
+    </td>
+  );
+}
+
+/**
+ * Calls `draw` with the time now once a second while the console's clock runs, counted on from `t`. What it draws it
+ * writes through refs, so the panel never renders for it; a clock that stands still (a recording, `?t=`) draws nothing
+ * more.
+ */
+function useEachSecond(t: number, ticking: boolean, draw: (now: number) => void) {
+  const latest = useRef(draw);
+  latest.current = draw;
+  useEffect(() => {
+    if (!ticking) return;
+    const from = Date.now();
+    const timer = setInterval(() => latest.current(t + Date.now() - from), 1000);
+    return () => clearInterval(timer);
+  }, [t, ticking]);
+}
+
+/** When the next look is due, as the caption says it: "next look in 0:29", or "next look due" once it is. */
+const nextWords = (ms: number) => (ms > 0 ? `next look in ${countdown(ms)}` : 'next look due');
+
+/** The console's clock, for the parts of the panel that move with it. */
+export interface Clock {
+  t: number;
+  /** Whether it moves on by itself: live, and not pinned by `?t=`. */
+  ticking: boolean;
+  motion: boolean;
+}
+
+const STILL: Clock = { t: 0, ticking: false, motion: false };
+
+/**
+ * The measures: as each look of the background analysis lands while the release is in flight, or at the latest step
+ * measured. Before the first step is measured and before any look, the same rows wait for it, with no figures, each
+ * measuring. With looks, a column draws each measure over the release.
+ */
+function Measures({
+  r,
+  m,
+  until,
+  clock: { t, ticking, motion } = STILL,
+}: {
+  r: Release;
+  m: Measured | undefined;
+  until?: number | undefined;
+  clock?: Clock;
+}) {
+  const live = measuring(r);
+  const trend = r.looks.length > 0;
+  const next = useRef<HTMLSpanElement>(null);
+  const { nextLook } = r;
+  useEachSecond(t, ticking && live && nextLook !== undefined, (now) => {
+    if (next.current && nextLook !== undefined) next.current.textContent = nextWords(nextLook - now);
+  });
+  const failedOf = (name: string) => (r.end?.kind === 'rolled-back' ? r.end.failed.filter((f) => f.name === name) : []);
+  return (
+    <table className={`measures ${trend ? 'trended' : ''}`}>
       <caption className="label">
-        {m ? (
+        {live ? (
+          <>
+            At the {r.weight}% step · {r.until === undefined ? 'measuring' : `measuring until ${clockSeconds(r.until)}`}
+            {nextLook !== undefined && (
+              <>
+                {' · '}
+                <span ref={next}>{nextWords(nextLook - t)}</span>
+              </>
+            )}
+          </>
+        ) : m ? (
           <>
             At the {m.weight}% step ·{' '}
             {r.dryRun ? `recorded ${clockSeconds(m.at)} by the dry run` : `measured ${clockSeconds(m.at)}`}
@@ -183,21 +474,60 @@ function Measures({ r, m, until }: { r: Release; m: Measured | undefined; until?
           `At the ${r.weight}% step · measuring until ${until === undefined ? '' : clockSeconds(until)}`
         )}
       </caption>
+      <colgroup>
+        <col />
+        <col className="fig" />
+        <col className="fig base" />
+        {trend && <col className="tr" />}
+        <col className="vd" />
+      </colgroup>
       <thead>
         <tr>
           <th className="label">Measure</th>
           <th className="label">Canary</th>
           <th className="label base">Baseline</th>
+          {trend && <th className="label tr">Over the release</th>}
           <th className="label">Verdict</th>
         </tr>
       </thead>
       <tbody>
         {MEASURES.map(([name, label, rule]) => {
+          if (live) {
+            const { words, kind, ruled } = lookVerdict(r, name);
+            const [word, tone, glyph] = kind === 'warm' ? (['', 'attn', 'ring'] as const) : VERDICT[kind];
+            const { canary, baseline } = liveFigures(r, name);
+            const latest = lookOf(r, name);
+            const look = latest?.at;
+            const message = latest?.measures.find((x) => x.name === name)?.message;
+            return (
+              <tr key={name} className={ruled ? 'failed' : ''}>
+                <td>
+                  {label}
+                  <small className="rule">{rule}</small>
+                </td>
+                <Fresh className="mono" fig={canary} look={look} motion={motion}>
+                  <span className="base-inline">baseline {baseline.text}</span>
+                </Fresh>
+                <Fresh className="mono base" fig={{ ...baseline, value: null }} look={look} motion={motion} />
+                <Trend r={r} name={name} />
+                <td>
+                  <Words said={[words || word, tone, glyph]} />
+                  {kind === 'error' && message && <small>{message}</small>}
+                </td>
+              </tr>
+            );
+          }
           const measure = m?.stepped.analysis.measures.find((x) => x.name === name);
           const phase = m ? phaseOf(r, m, name) : 'running';
           const [canary, baseline] = m
             ? [figureOf(r, m, name, 'canary'), figureOf(r, m, name, 'baseline')]
             : ['—', '—'];
+          // How far over its limit the rollback's look of it went, where one run failed it and said by how much.
+          const [f, ...more] = phase === 'failed' ? failedOf(name) : [];
+          const over =
+            f && !more.length && JUDGED.has(name) && f.value !== null && f.limit !== null
+              ? `${room(name, f.value, f.limit)} over`
+              : undefined;
           return (
             <tr key={name} className={phase === 'failed' ? 'failed' : ''}>
               <td>
@@ -209,8 +539,9 @@ function Measures({ r, m, until }: { r: Release; m: Measured | undefined; until?
                 <span className="base-inline">baseline {baseline}</span>
               </td>
               <td className="mono base">{baseline}</td>
+              {trend && <Trend r={r} name={name} />}
               <td>
-                <Verdict phase={phase} looks={phase === 'failed' ? failedLooks(r.end, name) : undefined} />
+                <Verdict phase={phase} looks={phase === 'failed' ? failedLooks(r.end, name) : undefined} over={over} />
                 {phase === 'error' && measure?.message && <small>{measure.message}</small>}
               </td>
             </tr>
@@ -218,6 +549,65 @@ function Measures({ r, m, until }: { r: Release; m: Measured | undefined; until?
         })}
       </tbody>
     </table>
+  );
+}
+
+/**
+ * How far through its step the canary is, while the step's pause ends by itself: the step in words, the time left,
+ * and a bar. The bar is one Web Animation for the step, which the browser runs on its own, set to where the clock is;
+ * with the clock still, or motion off, it is drawn where the clock is, and moved on each second through a ref.
+ */
+function StepTime({ r, clock: { t, ticking, motion } }: { r: Release; clock: Clock }) {
+  const bar = useRef<HTMLSpanElement>(null);
+  const left = useRef<HTMLSpanElement>(null);
+  const run = useRef<Animation | undefined>(undefined);
+  const now = useRef(t);
+  now.current = t;
+  const { since, until } = r;
+  const on = !r.end && !r.paused && since !== undefined && until !== undefined;
+  const runs = on && ticking && motion;
+  const done = (at: number) =>
+    since === undefined || until === undefined
+      ? 0
+      : Math.min(1, Math.max(0, (at - since) / Math.max(1, until - since)));
+  useLayoutEffect(() => {
+    const el = bar.current;
+    if (!runs || !el || since === undefined || until === undefined) return;
+    const animation = el.animate([{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], {
+      duration: Math.max(1, until - since),
+      fill: 'both',
+    });
+    animation.currentTime = now.current - since;
+    run.current = animation;
+    return () => {
+      animation.cancel();
+      run.current = undefined;
+    };
+  }, [runs, since, until]);
+  // The clock moves on every ten seconds: the animation is set to it again, never restarted.
+  useLayoutEffect(() => {
+    if (run.current && since !== undefined) run.current.currentTime = t - since;
+  }, [t, since]);
+  useEachSecond(t, on && ticking, (at) => {
+    if (left.current && until !== undefined) left.current.textContent = `${countdown(until - at)} left`;
+    if (!run.current && bar.current) bar.current.style.transform = `scaleX(${done(at)})`;
+  });
+  if (!on) return null;
+  const analysed = r.steps[r.step]?.analysis;
+  return (
+    <div className="steptime">
+      <span className="label">
+        {r.dryRun
+          ? `The ${r.weight}% step, as the dry run records it`
+          : `${analysed ? 'Measuring' : 'Holding at'} the ${r.weight}% step`}
+      </span>
+      <span className="left mono" ref={left}>
+        {countdown(until - t)} left
+      </span>
+      <span className="bar" aria-hidden="true">
+        <span ref={bar} style={runs ? undefined : { transform: `scaleX(${done(t)})` }} />
+      </span>
+    </div>
   );
 }
 
@@ -344,8 +734,12 @@ function note(r: Release): string {
     if (r.weight === 100) return 'Every step has passed: the canary takes all the traffic next.';
     if (!step || r.until === undefined)
       return `The canary holds at ${r.weight}% until someone promotes it; if a measure fails, it rolls back on its own.`;
+    // The step's own words and the time left are over the bar above: this says what happens when it ends.
     const next = r.steps[r.step + 1]?.weight ?? 100;
-    return `${step.analysis ? 'Measuring' : 'Holding at'} the ${r.weight}% step until ${clockSeconds(r.until)}. If every measure passes, the canary ${next === 100 ? 'takes all the traffic' : `moves to ${next}%`} then; if one fails, it rolls back on its own.`;
+    const moves = `${next === 100 ? 'takes all the traffic' : `moves to ${next}%`} at ${clockSeconds(r.until)}`;
+    return step.analysis
+      ? `If every measure passes, the canary ${moves}; if one fails, it rolls back on its own.`
+      : `The canary ${moves}; if a measure fails first, it rolls back on its own.`;
   }
   const took = duration(end.at - r.startedAt);
   if (end.kind === 'promoted')
@@ -522,6 +916,9 @@ interface CanaryProps {
   admin: Admin;
   /** Whether the line is stopped: a stopped line starts no canary, so Retry waits for it to start. */
   lineStopped: boolean;
+  /** Whether the console's clock moves on by itself, for the step's time left and the next look. */
+  ticking: boolean;
+  motion: boolean;
 }
 
 /**
@@ -530,7 +927,7 @@ interface CanaryProps {
  */
 export const rollouts = (r: Release) => !r.dryRun && r.image?.admitted === true;
 
-export function Canary({ view, t, onOpen, admin, lineStopped }: CanaryProps) {
+export function Canary({ view, t, onOpen, admin, lineStopped, ticking, motion }: CanaryProps) {
   if (view.state !== 'shown') {
     const r = view.state === 'idle' ? view.release : undefined;
     const [word, tone, when] = r ? ended(r, t) : [];
@@ -566,13 +963,14 @@ export function Canary({ view, t, onOpen, admin, lineStopped }: CanaryProps) {
     : 'Carries no work item';
   const m = r.measured.at(-1);
   const first = firstMeasured(r);
+  const clock = { t, ticking, motion };
   const right =
     r.end?.kind === 'rolled-back' ? (
       <Rollback r={r} onOpen={onOpen} />
     ) : r.end?.kind === 'errored' ? (
       <ErrorEnd r={r} />
     ) : (
-      (m || first !== undefined) && <Measures r={r} m={m} until={first} />
+      (measuring(r) || m || first !== undefined) && <Measures r={r} m={m} until={first} clock={clock} />
     );
   return (
     <section className="canary" aria-labelledby="canary-title">
@@ -612,9 +1010,10 @@ export function Canary({ view, t, onOpen, admin, lineStopped }: CanaryProps) {
             : 'no image: nothing shipped'}
         </p>
       </div>
-      <div className="canary-body">
+      <div className={`canary-body ${r.looks.length ? 'trended' : ''}`}>
         <div>
           <Steps r={r} tone={tone} />
+          <StepTime r={r} clock={clock} />
           <p className="canary-note">{note(r)}</p>
         </div>
         {right && <div>{right}</div>}
