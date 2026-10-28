@@ -147,6 +147,7 @@ flowchart TD
   - after the gates or a review sent the work back, the work item holds where it came from, under that cause (`gates` or `review`), with the coder's reason;
   - a first round that finds nothing to fix holds as `nothing-to-fix`.
 - **A patch the scope fence refuses** is recorded as `action.refused` (`scope-fence`, with the fence's output and its verdict on each file). It goes back to the coder once, which resumes its session from a fresh checkout. The second refusal holds the work item.
+- **A coder that needs a file outside the scope** (an existing test its change rightly makes wrong) changes nothing there, and names each such file and why. The work item holds as `scope` at once, whatever else the round did, with the files and reasons on the hold (`needs`), and nothing of the round is pushed: the planner's next spec starts the coder again from the pull request's head, or from a fresh checkout before there is one. The reason says which of them no scope may name; the planner never widens a scope to those, and rejects the work item if it needs them. The fence's refusals count as before.
 
 ## Build, gates and review
 
@@ -171,7 +172,7 @@ Each hold names its cause, and Martin's answer does what `ANSWERS` says for that
 | `question` | The planner asks what only Martin can say | Carries on | Carries on; his answer reaches every later plan |
 | `ticket-rejected` | The planner rejects the ticket | Agrees, and closes the work item | Carries on; his answer reaches every later plan |
 | `spec` | A spec is tagged `out-of-scope` | Carries on to Build | Sends it back to the planner |
-| `scope` | The scope fence refused the coder's patch twice | Sends it back to the planner, told the coder needed those files | Sends it back to the planner with what the fence printed |
+| `scope` | The scope fence refused the coder's patch twice, or the coder named files outside the scope it needs | Sends it back to the planner, told the coder needed those files | Sends it back to the planner with what the fence printed, or the files the coder named |
 | `nothing-to-fix` | The coder's first round finds nothing to fix | Agrees, and closes the work item | Sends it back to the planner with the coder's reason |
 | `failures` | A step failed twice, or its effects failed six times | Runs the step again | Runs the step again, with his words |
 | `gates` | Gates failed after two returns, or the coder changed nothing after gates | Sends the work back to the coder | Sends the work back to the coder, with his words |

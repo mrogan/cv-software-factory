@@ -619,6 +619,14 @@ describe('a hold’s picture, by its cause', () => {
     });
   });
 
+  it('draws no fence for a scope hold the coder asked for, after a refusal in its round', () => {
+    const needs = [{ path: 'src/server.ts', reason: 'Its test assumes a search asks nothing.' }];
+    const events = fix()
+      .add(2, 'action.refused', 'factory', refused('src/server.ts'))
+      .add(5, 'hold.started', 'coder', { ...held('build', 'scope'), needs });
+    expect(pictureOf(events)?.type).not.toBe('scope');
+  });
+
   it('draws no fence for a step that failed after a refusal', () => {
     const events = fix()
       .add(2, 'action.refused', 'factory', refused('src/server.ts'))

@@ -11,7 +11,7 @@ An agent: writes a spec for each ticket, and for each improvement Martin asks fo
 - **The ticket's public view**, and each sense's signal by its typed fields (`line/agents/evidence.ts`): one for each version of the app a sense saw the problem in, so every version rolled back on it.
 - **Never a report, and no log message,** since an app may log what a visitor typed, quoted or not. A log signal is told by its route, its requests and its lines at each level, and every route is cut at its query.
 - **On a fresh pass after Verify,** each time a released fix's signal persisted, and each time the ticket reopened after a fix that shipped, so it finds out why the last fix did not hold before it plans another.
-- **Martin's answers** to its earlier questions and rejections, with what he was asked.
+- **Martin's answers** to its earlier questions and rejections, with what he was asked, and to the holds that send the work back to it: a `scope` hold's says what the fence printed or which files the coder needs and why, and approving it asks it to take them into the scope, never a protected path ([holds](ORCHESTRATOR.md#holds-and-martins-answers)).
 
 For an improvement, instead of a ticket and its signals:
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { protectedWords } from '../../src/github/paths.ts';
 import { type CoderInput, coder, coderInputAfterRefusal, fenceFor } from '../../src/line/agents/coder.ts';
 import { FIXTURES } from '../../src/line/bench/fixtures.ts';
 
@@ -14,6 +15,11 @@ const unmetFinding = {
   blocking: true,
   criterion: 2,
   comment: 'Seven pence shows as 7.',
+};
+
+const CODED = {
+  title: 'fix(money): show two digits of pence',
+  note: 'pounds wrote the pence without padding. A test for 705 pence shows it; it pads them now.',
 };
 
 const FENCED = 'scope: src/money.ts, test/money.test.ts\nallowed src/money.ts +1 −1\nrefused src/pages/cards.ts +3 −1';
@@ -119,6 +125,42 @@ describe('the coder', () => {
     const fresh = coderInputAfterRefusal(input, FENCED, null);
     expect(coder.resume?.(fresh)).toBeUndefined();
     expect(coder.prompt(fresh)).toContain('Read AGENTS.md first');
+  });
+
+  it('names the files outside its scope it needs, each with why, instead of changing them, and never a protected one', () => {
+    const needs = [{ path: 'test/flags-preview.test.ts', reason: 'It assumes / asks no flag; every page now does.' }];
+    const fits = (result: object) => coder.schema(input).safeParse(result).success;
+    expect(fits({ needs })).toBe(true);
+    // With a change or with none, the line holds all the same, and pushes nothing.
+    expect(fits({ ...CODED, needs })).toBe(true);
+    expect(fits({ unchanged: 'The change is in; one test is outside the scope.', needs })).toBe(true);
+    expect(fits({ ...CODED, needs: [] })).toBe(true);
+    for (const wrong of [
+      { needs: [] },
+      { needs: [{ path: '../secrets', reason: 'x' }] },
+      { needs: [{ path: '/etc/passwd', reason: 'x' }] },
+      { needs: [{ path: 'test/a.ts', reason: '' }] },
+      { needs: [{ path: 'test/a.ts', reason: 'x'.repeat(201) }] },
+      { needs: Array.from({ length: 21 }, (_, i) => ({ path: `test/${i}.ts`, reason: 'x' })) },
+      { needs: [{ path: 'test/a.ts' }] },
+    ]) {
+      expect(fits(wrong), JSON.stringify(wrong).slice(0, 60)).toBe(false);
+    }
+    const rule = 'If a criterion cannot be met without changing a file outside the scope';
+    const never = `Never name a path no scope may name: ${protectedWords(input.protectedPaths).join(', ')}.`;
+    // A first step is told it, and so is a later one, with its session or without.
+    const returned = { from: 'gates' as const, reason: 'The gates failed: tests' };
+    for (const step of [
+      input,
+      { ...input, round: 2, returned, session: 's' },
+      { ...input, round: 2, returned, session: null },
+      coderInputAfterRefusal(input, FENCED, 's'),
+    ]) {
+      const prompt = coder.prompt(step);
+      expect(prompt).toContain(rule);
+      expect(prompt.split(rule)).toHaveLength(2);
+      expect(prompt).toContain(never);
+    }
   });
 
   it('is sent back by the gates or review to the pull request’s head, told everything again without its session', () => {
@@ -257,6 +299,10 @@ describe('the coder', () => {
       expect(prompt).toContain('Never change the flag context, src/flags/');
       expect(prompt).toContain('Keep nothing on a visitor’s device');
       expect(prompt).toContain('Do not define the flag anywhere');
+    });
+
+    it('names the files outside its scope it needs, as a fix does', () => {
+      expect(prompt).toContain('If a criterion cannot be met without changing a file outside the scope');
     });
 
     it('is told again, in a later round without its session, how the change goes behind its flag', () => {

@@ -239,6 +239,11 @@ function evidenceOf(item: ItemState, cause: HoldCause): Evidence {
       return { kind: 'output', heading: `${failed.payload.check} · PR #${failed.payload.pullRequest}`, text };
     }
   }
+  // The coder said which files it needs, and why: the fence refused nothing.
+  if (cause === 'scope' && hold?.needs) {
+    const text = firstLines(hold.needs.map(({ path, reason }) => `${path}: ${reason}`).join('\n'));
+    return { kind: 'output', heading: 'the coder needs', text };
+  }
   if (cause === 'scope') {
     const refused = item.events.findLast(
       (event): event is PublicEvent<'action.refused'> =>
@@ -324,7 +329,9 @@ export function needsView(items: readonly ItemState[], t: number): NeedsView {
           kicker:
             hold.cause === 'deploy' && !deployWaitsForMartin(item)
               ? deployWords(item.deploy).kicker
-              : kickerOf(hold.cause, hold.stage, opener?.sense, improvement),
+              : hold.needs
+                ? 'The coder needs files'
+                : kickerOf(hold.cause, hold.stage, opener?.sense, improvement),
           stage: hold.stage,
           waited: waited(t - since),
           since,

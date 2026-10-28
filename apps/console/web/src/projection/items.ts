@@ -52,6 +52,8 @@ export interface Hold {
   limitUsd: number | undefined;
   spentUsd: number | undefined;
   question: string | undefined;
+  /** A scope hold the coder asked for: each file outside the spec's scope it needs, and why. */
+  needs: { path: string; reason: string }[] | undefined;
   since: number;
 }
 
@@ -511,6 +513,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
           limitUsd: event.payload.limitUsd,
           spentUsd: event.payload.spentUsd,
           question: event.payload.question,
+          needs: event.payload.needs,
           since: time,
         };
         break;

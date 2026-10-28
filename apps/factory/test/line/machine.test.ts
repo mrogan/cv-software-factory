@@ -8,6 +8,7 @@ import {
   fold,
   LIMITS,
   type LineEvent,
+  needsHold,
   unchangedHold,
 } from '../../src/line/machine.ts';
 
@@ -265,6 +266,39 @@ describe('what the line does next', () => {
       payload: { mechanism: 'ruleset', action: 'Push to main', output: 'Protected branch' },
     };
     expect(fold([ticket, spec, ruleset, ruleset]).fenceRefusals).toBe(0);
+  });
+
+  it('holds as scope the files a coder needs, says those no scope may name, and tells the planner them, not the fence', () => {
+    const needs = [
+      { path: 'test/flags-preview.test.ts', reason: 'It assumes / asks no flag; every page now does.' },
+      { path: '.github/workflows/ci.yml', reason: 'It runs the old command' },
+    ];
+    const hold = needsHold(needs, ['.github/', 'deploy/']);
+    expect(hold).toEqual({
+      stage: 'build',
+      kind: 'held',
+      cause: 'scope',
+      reason:
+        'The coder needs 2 files outside the spec’s scope to meet its criteria: test/flags-preview.test.ts, .github/workflows/ci.yml; no scope may name .github/workflows/ci.yml',
+      needs,
+    });
+    // However many it names, the reason fits the hold.
+    const many = Array.from({ length: 20 }, (_, i) => ({ path: `test/${'a'.repeat(40)}-${i}.test.ts`, reason: 'x' }));
+    expect(needsHold(many, []).reason).toHaveLength(300);
+    // The fence refused a patch earlier in the round; what the coder said is what Martin approved.
+    const refused: LineEvent = {
+      type: 'action.refused',
+      payload: { mechanism: 'scope-fence', action: 'Push', output: 'scope: test/\nrefused src/server.ts +1 −1' },
+    };
+    const approved = fold([ticket, spec, refused, { type: 'hold.started', payload: hold }, answer('approved')]);
+    expect(approved.spec).toBeUndefined();
+    expect(approved.answers).toEqual([
+      {
+        asked: `${hold.reason}. The coder said of test/flags-preview.test.ts: It assumes / asks no flag; every page now does. The coder said of .github/workflows/ci.yml: It runs the old command.`,
+        answer: 'Yes: the coder needed those files, so let the scope take them in.',
+      },
+    ]);
+    expect(closesWhenCleared(fold([ticket, spec, { type: 'hold.started', payload: hold }]))).toBe(true);
   });
 
   it('judges the gates on the latest push only, and a later run once it ends: passed gates stand while it runs', () => {
@@ -1590,6 +1624,18 @@ describe('an improvement Martin asked for', () => {
     expect(specHold([...answered, spec]).hold.cause).toBe('spec');
     // A spec written again after his approval is held again.
     expect(specHold([...holding, approve, pushed(), spec]).hold.cause).toBe('spec');
+  });
+
+  it('holds the spec the planner widens for the files its coder needs, so he sees the wider scope before any code', () => {
+    const needs = [{ path: 'test/flags-preview.test.ts', reason: 'It assumes / asks no flag; every page now does.' }];
+    const needing: LineEvent = { type: 'hold.started', payload: needsHold(needs, []) };
+    const back = [requested, spec, held('spec', 'plan'), approve, needing, approve];
+    expect(decide(back, facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });
+    const wider: LineEvent = {
+      type: 'spec.written',
+      payload: { ...(spec.payload as PayloadOf<'spec.written'>), scope: ['src/', 'test/flags-preview.test.ts'] },
+    };
+    expect(specHold([...back, wider]).hold.cause).toBe('spec');
   });
 
   it('holds a spec written while the last was held afresh: his answer to the old card approves nothing', () => {

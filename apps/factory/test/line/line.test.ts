@@ -1607,6 +1607,91 @@ describe('the line', () => {
     expect(replan?.prompt).toContain('He said: The server is fine to change');
   });
 
+  it('holds as scope at once, not gates, a coder that needs a file outside its scope, and pushes nothing of the round', async () => {
+    const workItem = await ticket();
+    const needs = [{ path: 'src/server.ts', reason: 'It assumes a search asks nothing; every search now does.' }];
+    const coder: Agent = (request) =>
+      // Its second round names the file, and leaves a change inside the scope in the checkout as well.
+      request.round === 2 ? handback({ ...CODED, needs }, PATCH) : handback(CODED, PATCH);
+    let planned = 0;
+    const { pass, steps, github } = line({
+      ...AGENTS,
+      coder,
+      planner: () =>
+        handback({ verdict: 'spec', spec: planned++ ? { ...SPEC, scope: [...SPEC.scope, 'src/server.ts'] } : SPEC }),
+    });
+    await pass();
+    await pass();
+    expect(steps.requests.at(-1)?.prompt).toContain('write {"needs":[{"path","reason"}]} instead');
+    github.pass(12, 'failure');
+    await pass(); // the gates fail, the work goes back, and the coder's second round names the file it needs
+    expect(await stage(workItem)).toBe('held');
+    expect(await payloads(workItem, 'hold.started')).toEqual([
+      {
+        stage: 'build',
+        kind: 'held',
+        cause: 'scope',
+        reason: 'The coder needs a file outside the spec’s scope to meet its criteria: src/server.ts',
+        needs,
+      },
+    ]);
+    // Nothing of the round reached GitHub, and the fence refused nothing: the coder changed no file outside it.
+    expect(github.acts.filter((a) => a.action === 'applyPatch')).toHaveLength(1);
+    expect(await payloads(workItem, 'action.refused')).toEqual([]);
+    // His approval sends it back to the planner, told the files and why, which may widen the scope to them.
+    await martin.append(event(workItem, 'hold.answered', { decision: 'approved' }, 'martin'));
+    await pass();
+    const replan = steps.requests.find((r, i) => i > 0 && r.agent === 'planner');
+    expect(replan?.prompt).toContain(
+      'The coder needs a file outside the spec’s scope to meet its criteria: src/server.ts. The coder said of src/server.ts: It assumes a search asks nothing; every search now does.',
+    );
+    expect(replan?.prompt).toContain('He said: Yes: the coder needed those files, so let the scope take them in.');
+    expect((await payloads(workItem, 'spec.written')).at(-1)?.scope).toEqual([...SPEC.scope, 'src/server.ts']);
+    // The coder carries on with the round the gates sent back, held to the wider spec.
+    await pass();
+    expect(steps.requests.at(-1)).toMatchObject({ agent: 'coder', round: 2 });
+    expect(steps.requests.at(-1)?.prompt).toContain('src/search.ts, test/, src/server.ts');
+  });
+
+  it('says a file no scope may name is so, and the planner widens no scope to it', async () => {
+    const workItem = await ticket();
+    const needs = [{ path: '.github/workflows/ci.yml', reason: 'The check runs the old test command.' }];
+    let coded = 0;
+    const { pass, steps } = line({
+      ...AGENTS,
+      coder: () => (coded++ ? handback(CODED, PATCH) : handback({ needs })),
+      planner: () =>
+        handback({
+          verdict: 'spec',
+          spec: steps.requests.length > 2 ? { ...SPEC, scope: [...SPEC.scope, needs[0]?.path] } : SPEC,
+        }),
+    });
+    await pass();
+    await pass();
+    expect((await payloads(workItem, 'hold.started'))[0]?.reason).toBe(
+      'The coder needs a file outside the spec’s scope to meet its criteria: .github/workflows/ci.yml; no scope may name .github/workflows/ci.yml',
+    );
+    await martin.append(event(workItem, 'hold.answered', { decision: 'approved' }, 'martin'));
+    await pass();
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'planner']);
+    expect((await payloads(workItem, 'spec.written')).map((p) => p.scope)).toEqual([SPEC.scope]);
+    const [row] = await database.as.line<{ failure: string }[]>`select failure from line where work_item = ${workItem}`;
+    expect(row?.failure).toMatch(/\.github\/workflows\/ci\.yml names a path no patch may change/);
+  });
+
+  it('fails a coder that names only files its scope already takes in, and holds nothing for them', async () => {
+    const workItem = await ticket();
+    const { pass } = line({
+      ...AGENTS,
+      coder: () => handback({ needs: [{ path: 'test/search.test.ts', reason: 'A test.' }] }),
+    });
+    await pass();
+    await pass();
+    expect(await payloads(workItem, 'hold.started')).toEqual([]);
+    const [row] = await database.as.line<{ failure: string }[]>`select failure from line where work_item = ${workItem}`;
+    expect(row?.failure).toMatch(/needs only files its scope already allows/);
+  });
+
   it('refuses a patch that changes a path the app’s CODEOWNERS gives Martin at the commit, though the scope takes it in', async () => {
     const workItem = await ticket();
     const { pass, github } = line({ ...AGENTS, coder: () => handback(CODED, PATCH) });

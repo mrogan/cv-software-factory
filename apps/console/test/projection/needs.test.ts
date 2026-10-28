@@ -193,6 +193,50 @@ describe('Needs you', () => {
     expect(needsView(foldItems(deploy.events), START + 3_600_000).holds).toEqual([]);
   });
 
+  it('shows the files a coder needs and why, not an old refusal of the fence, on a scope hold the coder asked for', () => {
+    const needs = [
+      { path: 'test/flags-preview.test.ts', reason: 'It assumes / asks no flag; every page now does.' },
+      { path: 'test/home.test.ts', reason: 'It expects the old heading.' },
+    ];
+    const reason =
+      'The coder needs 2 files outside the spec’s scope to meet its criteria: test/flags-preview.test.ts, test/home.test.ts';
+    const item = work('2010', START)
+      .open()
+      .add(5, 'action.refused', 'factory', {
+        mechanism: 'scope-fence',
+        action: 'Push the coder’s round 1 to a new pull request',
+        output: 'scope: src/pages/\nrefused src/server.ts +1 −1',
+      })
+      .add(30, 'hold.started', 'coder', hold('scope', { reason, needs }));
+    const [need] = needsView(foldItems(item.events), START + 60 * 60_000).holds;
+    expect(need).toMatchObject({
+      kicker: 'The coder needs files',
+      stage: 'build',
+      evidence: {
+        kind: 'output',
+        heading: 'the coder needs',
+        text: 'test/flags-preview.test.ts: It assumes / asks no flag; every page now does.\ntest/home.test.ts: It expects the old heading.',
+      },
+    });
+    expect(need?.answers.find((a) => a.answer === 'approved')).toMatchObject({
+      does: 'The planner writes the spec again, told the coder needed those files.',
+      stepUp: true,
+    });
+    // The fence's own hold still shows what it printed.
+    const fenced = work('2011', START)
+      .open()
+      .add(5, 'action.refused', 'factory', {
+        mechanism: 'scope-fence',
+        action: 'Push the coder’s round 1 to a new pull request',
+        output: 'scope: src/pages/\nrefused src/server.ts +1 −1',
+      })
+      .add(30, 'hold.started', 'factory', hold('scope'));
+    expect(needsView(foldItems(fenced.events), START + 60 * 60_000).holds[0]).toMatchObject({
+      kicker: 'Held by the fence',
+      evidence: { kind: 'output', heading: 'scope fence' },
+    });
+  });
+
   it('says what a deploy waits for in each state, links its pull request, and says it waits for Martin once its checks pass', () => {
     const merged = work('2042', START)
       .open()

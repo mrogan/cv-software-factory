@@ -904,10 +904,23 @@ export const PAYLOADS = {
        * with the same fingerprint closes it, and Martin's approval opens its ticket.
        */
       defect: z.strictObject({ fingerprint, symptom: z.enum(V.SYMPTOM_CLASSES) }).optional(),
+      /**
+       * A `scope` hold the coder asked for, rather than the fence: each file outside the spec's scope that it needs to
+       * change and may not, with why. Approving sends them to the planner, which may widen the scope to them.
+       */
+      needs: z
+        .array(z.strictObject({ path: text(PATH_CHARS), reason: text(V.NEED_REASON_CHARS) }))
+        .min(1)
+        .max(V.MAX_NEEDS)
+        .optional(),
     })
     .refine((hold) => (hold.cause === 'finding') === (hold.defect !== undefined), {
       message: 'a finding’s hold, and only one, names the defect',
       path: ['defect'],
+    })
+    .refine((hold) => hold.needs === undefined || hold.cause === 'scope', {
+      message: 'only a scope hold names the files the coder needs',
+      path: ['needs'],
     }),
   'hold.answered': z.strictObject({
     decision: z.enum(V.HOLD_ANSWERS),
