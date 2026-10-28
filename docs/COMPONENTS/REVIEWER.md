@@ -10,7 +10,7 @@ An agent: reviews the fix, or the improvement, once the gates pass. Part of the 
 
 - **The rules as they are at the base,** so a change cannot loosen them.
 - **The diff,** against the coder's claims.
-- **The spec, against the ticket,** with Martin's answers as part of the ticket, as well as the diff against the spec. Each criterion comes with the words the planner quoted for it, which the line found where it said; the reviewer judges whether they ask for it.
+- **The spec, against the ticket,** with Martin's answers as part of the ticket (his own words; what the line reads into an approval is told as the line's), as well as the diff against the spec. Each criterion comes with the words the planner quoted for it, which the line found where it said; the reviewer judges whether they ask for it.
 
 | It finds | Finding | Goes to |
 |---|---|---|

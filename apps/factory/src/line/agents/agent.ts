@@ -11,11 +11,12 @@
  * after GitHub or the store failed part-way, without running the agent again and without doing a write twice.
  */
 import type { HoldCause, InboxSignal, NewEvent, PayloadOf } from '@software-factory/events';
+import type { Logger } from 'pino';
 import { z } from 'zod';
 import type { ActionArgs, ActionName, ActionResult, ReadArgs, ReadName, ReadResult } from '../../github/server.ts';
 import type { Handback, Step } from '../../runners/steps.ts';
 import type { Draft } from '../gates.ts';
-import type { LineAgent, WorkItemState } from '../machine.ts';
+import type { Answer, LineAgent, WorkItemState } from '../machine.ts';
 import { outsideCode } from './code.ts';
 import type { Asked, Request, Signal } from './evidence.ts';
 
@@ -40,7 +41,10 @@ export interface StepContext {
   /** The agent's round: 1, and one more each time work returns to Build. */
   round: number;
   state: WorkItemState;
-  /** The commit the step starts from: main's head before a pull request, and its head after. */
+  /**
+   * The commit the step starts from: main's head before a pull request, and its head after; for a step that plans
+   * the change (`plansFromBase`), where the pull request's branch left main.
+   */
   commit: string;
   /**
    * The commit a pull request's diff is taken against: where its branch left main for a step that reads the change
@@ -51,6 +55,11 @@ export interface StepContext {
   session: string | null;
   /** Why the step's last attempt failed, if it did, so the agent can be told what not to hand back again. */
   failure: string | null;
+  /**
+   * For a step that plans the change, once the work item has a pull request: its number, and the files it changes
+   * since its branch left main, which are this work item's own work so far and not in the step's checkout.
+   */
+  change?: { pullRequest: number; files: string[] } | undefined;
   /** The work item's ticket, as its public view has it. Throws `StepFailed` when there is none. */
   ticket(): Promise<PayloadOf<'ticket.opened'>>;
   /** Martin's request for the improvement, as its public views have it. Throws `StepFailed` when there is none. */
@@ -79,6 +88,8 @@ export interface EffectsContext extends StepContext {
   leaveSignal(key: string, signal: Omit<InboxSignal, 'observedAt'>): Promise<void>;
   /** Keeps the agent's session, for its next round to resume. */
   keepSession(session: string | null): Promise<void>;
+  /** The line's log, for what a result does that its events do not say in full. */
+  log: Pick<Logger, 'warn'>;
 }
 
 export interface AgentDefinition<Input, Result> {
@@ -97,6 +108,12 @@ export interface AgentDefinition<Input, Result> {
    * `git diff base` is the change and `git log base..HEAD` what the coder said of it in each round.
    */
   readsChange?: boolean;
+  /**
+   * Whether the step plans the change rather than making or reading one. Once the work item has a pull request, it
+   * starts where the pull request's branch left main, as the change's tests are judged, and not from the work so far
+   * on it, which it is told of (`StepContext.change`): planned again, the change is planned against what it changes.
+   */
+  plansFromBase?: boolean;
   /** What the step is given, from its work item. Throws `StepFailed` when the work item lacks something it needs. */
   input(context: StepContext): Input | Promise<Input>;
   /**
@@ -126,6 +143,7 @@ export interface Agent {
   maxTurns: number;
   deadlineSeconds: number;
   readsChange?: boolean;
+  plansFromBase?: boolean;
   resultFiles?: Record<string, `${string}.md`>;
   /** Begins a step: what the agent is asked, and what to make of what it hands back. */
   start(context: StepContext): Promise<Started>;
@@ -249,6 +267,15 @@ export function need<T>(value: T | undefined, what: string): T {
 
 /** Martin's answer to the hold before this step, for its prompt, if he wrote one. */
 export const answerOf = (state: WorkItemState) => state.answer?.text;
+
+/**
+ * Martin's answer as an agent is told it, after what he was asked: his own words, and what the line reads into it,
+ * marked as the line's, so no agent takes the line's words for his.
+ */
+export function heAnswered(a: Answer): string {
+  const his = a.answer ? `He said: ${a.answer}` : 'He approved, and wrote nothing.';
+  return a.line ? `${his} The line reads his answer as: ${a.line}` : his;
+}
 
 /** What the work item asks for: Martin's request, for an improvement he asked for, or else its ticket. */
 export async function askedOf({

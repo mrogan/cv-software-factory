@@ -350,7 +350,7 @@ describe('the line', () => {
     expect(await types(workItem)).not.toContain('hold.started');
   });
 
-  it('tells an improvement’s planner the flags other improvements named, and not its own', async () => {
+  it('keeps an improvement’s own flag when it is planned again, whatever other improvements named', async () => {
     const other = await improvement();
     const closed = await improvement();
     const workItem = await improvement();
@@ -366,9 +366,22 @@ describe('the line', () => {
     await database.owner`insert into line (work_item, stage, issue) values (${workItem}, 'plan', 41)`;
     const { pass, steps } = line({ planner: () => 'fails' });
     await pass();
+    expect(await flagsTaken(database.as.line, workItem)).toEqual(['gift-note', 'sort-by-price']);
+    // Planned again, it keeps its own flag, and is told so rather than which it may not take.
     const prompt = steps.requests.find((r) => r.workItem === workItem)?.prompt;
-    expect(prompt).toContain('which other improvements have named: `gift-note`, `sort-by-price`.');
-    expect(prompt).not.toContain('`delivery-dates`');
+    expect(prompt).toContain('Planned again, it is `delivery-dates`, as your last spec named it, and stays so');
+    expect(prompt).not.toContain('`gift-note`');
+  });
+
+  it('tells a new improvement’s planner the flags other improvements named', async () => {
+    const other = await improvement();
+    const workItem = await improvement();
+    await events.append([event(other, 'spec.written', { ...SPEC, flag: 'gift-note' }, 'planner')]);
+    await database.owner`insert into line (work_item, stage, issue) values (${workItem}, 'plan', 41)`;
+    const { pass, steps } = line({ planner: () => 'fails' });
+    await pass();
+    const prompt = steps.requests.find((r) => r.workItem === workItem)?.prompt;
+    expect(prompt).toContain('which other improvements have named: `gift-note`.');
   });
 
   it('counts a flag as taken when another improvement named it, though this one’s later spec names it too', async () => {
@@ -1646,7 +1659,18 @@ describe('the line', () => {
     expect(replan?.prompt).toContain(
       'The coder needs a file outside the spec’s scope to meet its criteria: src/server.ts. The coder said of src/server.ts: It assumes a search asks nothing; every search now does.',
     );
-    expect(replan?.prompt).toContain('He said: Yes: the coder needed those files, so let the scope take them in.');
+    expect(replan?.prompt).toContain(
+      'He approved, and wrote nothing. The line reads his answer as: The coder needed those files: let the scope take them in.',
+    );
+    // It plans again from where the pull request's branch left main, not from the work so far, which it is told of.
+    const pr = github.pulls.get(12);
+    expect(pr?.head.sha).not.toBe(MAIN);
+    expect(replan?.commit).toBe(MAIN);
+    expect(replan?.prompt).toContain('This is a replan: you planned this ticket before');
+    expect(replan?.prompt).toContain(
+      `Pull request #12 holds the work so far, which is this ticket’s own: no other change’s. It changes ${github.diff.map((f) => f.path).join(', ')}. Your checkout is not that work: it is ${MAIN}`,
+    );
+    expect(replan?.prompt).toContain('- src/server.ts: It assumes a search asks nothing; every search now does.');
     expect((await payloads(workItem, 'spec.written')).at(-1)?.scope).toEqual([...SPEC.scope, 'src/server.ts']);
     // The coder carries on with the round the gates sent back, held to the wider spec.
     await pass();

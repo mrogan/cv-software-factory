@@ -1369,21 +1369,25 @@ export class Line {
       const attempt = await this.#queue.startStep(workItem);
       // Before a pull request, a step starts from main; after, from the pull request's head, and its diff is taken
       // against the pull request's base. A step that reads the change measures it from where the pull request's
-      // branch left its base, as GitHub's diff does: main may have moved on since.
+      // branch left its base, as GitHub's diff does: main may have moved on since. A step that plans the change
+      // starts from there, which the change's tests are judged against, and is told of the work so far.
       const { github, repo } = this.#o;
       const number = state.pullRequest?.number;
       const pr = number ? await github.read('pullRequest', repo, { number }) : undefined;
-      const commit = pr ? pr.head.sha : await github.read('head', repo, { branch: 'main' });
+      const head = pr ? pr.head.sha : await github.read('head', repo, { branch: 'main' });
       const reads = pr && definition.readsChange;
-      const base = reads
-        ? (await github.read('comparison', repo, { base: pr.base.ref, head: commit })).mergeBase
-        : (pr?.base.sha ?? commit);
+      const plans = pr && definition.plansFromBase;
+      const compared = reads || plans ? await github.read('comparison', repo, { base: pr.base.ref, head }) : undefined;
+      const commit = plans && compared ? compared.mergeBase : head;
+      const base = compared ? compared.mergeBase : (pr?.base.sha ?? commit);
+      const change =
+        plans && compared ? { pullRequest: pr.number, files: compared.files.map((f) => f.path) } : undefined;
       // A pull request's head is checked out as GitHub has it; a dry run's, which GitHub never had, as the real
       // commit under it with the dry run's commits made on it in the runner.
       const checkout = pr ? await github.read('checkout', repo, { sha: commit }) : { commit, commits: [] };
       let started: Awaited<ReturnType<typeof definition.start>>;
       try {
-        started = await definition.start(this.#context(item, round, state, commit, base));
+        started = await definition.start({ ...this.#context(item, round, state, commit, base), change });
       } catch (error) {
         if (!(error instanceof StepFailed)) throw error;
         return await this.#failed(workItem, agent, null, [], error.message);
@@ -1592,6 +1596,7 @@ export class Line {
         await sendSignal(this.#o.sql, { ...signal, observedAt }, signalId(workItem, key));
       },
       keepSession: (session) => this.#queue.setSession(workItem, session),
+      log: this.#o.log,
     };
   }
 
@@ -1904,7 +1909,9 @@ export class Line {
       rows.map(async (row) => ({ workItem: row.workItem, s: fold((await this.#events(row.workItem)).events) })),
     );
     return folded.flatMap(({ workItem, s }) =>
-      s.closed ? [] : [{ workItem, scope: s.latestScope, waitsOn: s.waiting && !s.waiting.ended ? s.waiting.on : [] }],
+      s.closed
+        ? []
+        : [{ workItem, scope: s.lastSpec?.scope, waitsOn: s.waiting && !s.waiting.ended ? s.waiting.on : [] }],
     );
   }
 
