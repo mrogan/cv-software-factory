@@ -103,10 +103,10 @@ describe('what leaves the cluster of a report', () => {
 
   it('takes no longer than a pass over a hostile text', () => {
     // An address scanned for afresh from each character of a run with one `@` in it takes seconds over this text; one
-    // pass takes a few milliseconds. Timed in processor time, the least of three, so a busy runner that takes the test
-    // off the processor part way, or a garbage collection, cannot come near the limit.
+    // pass takes a few milliseconds. Timed in processor time, so a busy runner that takes the test off the processor
+    // part way cannot come near the limit.
     const hostile = `${'!'.repeat(50_000)}@${'!'.repeat(50_000)}`;
-    expect(processorTime(() => scrub(hostile), 3)).toBeLessThan(200);
+    expect(processorTime(() => scrub(hostile))).toBeLessThan(200);
   });
 
   it('keeps short numbers and prices, which describe the page', () => {

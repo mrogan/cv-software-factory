@@ -20,11 +20,4 @@ describe('processorTime', () => {
   it('leaves out the time the process waits', () => {
     expect(processorTime(() => sleep(50))).toBeLessThan(25);
   });
-
-  it('gives the least of its tries', () => {
-    const lengths = [40, 5, 40];
-    let call = 0;
-    expect(processorTime(() => busy(lengths[call++] ?? 0), 3)).toBeLessThan(30);
-    expect(call).toBe(3);
-  });
 });

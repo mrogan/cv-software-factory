@@ -270,7 +270,7 @@ describe("a scope entry's test of a path", () => {
 
   it('answers quickly however many `*` an entry has, a near miss too', () => {
     // A regular expression tries every way of splitting a near miss between the `*`s: `a*a*…b` against a run of `a`,
-    // which never ends in `b`, took seconds at 6 `*` over 120 characters, and twenty at 12 over 40. The entries here
+    // which never ends in `b`, took seconds at 6 `*` over 120 characters, and twenty seconds at 12 over 40. The entries here
     // have 30 to 66, and each answers in well under a millisecond. Each is timed in processor time, so a busy runner
     // that takes the test off the processor part way cannot come near the limit, which is still far short of what
     // backtracking would take. The first is small enough that backtracking fails it in seconds; on the larger ones it
