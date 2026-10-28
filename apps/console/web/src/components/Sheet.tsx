@@ -779,9 +779,13 @@ function Rounds({ rounds, now, after }: { rounds: Attempt[]; now: RoundsNow; aft
       <span className="colh">Review</span>
       {rounds.map((a, i) => (
         <RoundRow
-          key={a.attempt}
+          key={`${a.pass}-${a.attempt}`}
           attempt={a}
-          followed={i < rounds.length - 1 ? rounds[i + 1]?.attempt === a.attempt + 1 : Boolean(now.next)}
+          followed={
+            i < rounds.length - 1
+              ? rounds[i + 1]?.pass === a.pass && rounds[i + 1]?.attempt === a.attempt + 1
+              : Boolean(now.next)
+          }
           reviewing={i === rounds.length - 1 && now.reviewing}
         />
       ))}

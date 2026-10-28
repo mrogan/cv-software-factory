@@ -166,6 +166,37 @@ describe('a fix whose branch was brought up to date while it waited for the merg
   });
 });
 
+describe('a fix whose branch was brought up to date while the reviewer had it', () => {
+  const updated = 'e'.repeat(40);
+  const story = work('1')
+    .open()
+    .add(0, 'pull-request.pushed', 'coder', {
+      number: 7,
+      title: 'fix(products): load them all',
+      branch: 'factory/1-products',
+      attempt: 1,
+      testsFirst: true,
+      files: [{ path: 'src/products.ts', added: 1, removed: 1 }],
+      whole: [{ path: 'src/products.ts', added: 1, removed: 1 }],
+    })
+    .add(1, 'gates.started', 'actions', payloads.gatesStarted)
+    .add(3, 'gates.finished', 'actions', payloads.gatesPassed)
+    .add(4, 'gates.started', 'actions', { ...payloads.gatesStarted, commit: updated })
+    .add(7, 'gates.finished', 'actions', { ...payloads.gatesFailed, commit: updated });
+
+  it('shows the gates running again and the review still in hand, as the gates that passed stand until they end', () => {
+    const running = projectSheet(story.events, '1', story.at(5));
+    expect(running?.rounds.map((a) => a.gates?.state)).toEqual(['running']);
+    expect(running?.roundsNow.reviewing).toBe(true);
+  });
+
+  it('takes the review out of hand once the newer run fails', () => {
+    const failed = projectSheet(story.events, '1', story.at(8));
+    expect(failed?.rounds.map((a) => a.gates?.state)).toEqual(['failed']);
+    expect(failed?.roundsNow.reviewing).toBe(false);
+  });
+});
+
 describe('a fix whose gates fail on a branch brought up to date while it waited for the merge', () => {
   const updated = 'd'.repeat(40);
   const story = work('1')
@@ -524,6 +555,16 @@ describe('a fix sent back by the gates and then by the reviewer', () => {
     const later = Date.parse('2026-10-06T14:25:00Z');
     expect(projectSheet(rebuilding, '1325', later)?.card.segments[3]).toBe('now');
     expect(projectSheet(rebuilding, '1325', later)?.roundsNow.next).toBeUndefined();
+  });
+
+  it('knows each round by its pass and its number, as each pass starts again at round 1', () => {
+    // #1306 went round twice: Verify sent it back to Plan, and its second pass began again at round 1.
+    const rounds = sheet('1306')?.rounds ?? [];
+    expect(rounds.map((a) => [a.pass, a.attempt])).toEqual([
+      [1, 1],
+      [2, 1],
+    ]);
+    expect(new Set(rounds.map((a) => `${a.pass}-${a.attempt}`)).size).toBe(rounds.length);
   });
 
   it('says which step of the last round is in hand: its gates, then its review', () => {
