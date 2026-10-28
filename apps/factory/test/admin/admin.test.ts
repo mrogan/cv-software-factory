@@ -1870,6 +1870,26 @@ describe('the line’s controls', () => {
       status: 200,
       body: { change: { control: 'take', after: { kind: 'just-one', workItem: asked } } },
     });
+    // Once its release is promoted the line has handed it over to its flag: it is the flag pass's, not the line's.
+    const released = await nextWorkItem(db.as.triage);
+    await append(db.admin, [
+      event(released, 'work-item.opened', 'martin', { kind: 'improvement', title: 'Gift notes', sample: false }),
+      event(released, 'improvement.requested', 'martin', { words: 'Gift notes.', steppedUp: true }),
+    ]);
+    const release = { release: '6d8f9c7b54', version: 'v0.9.4', previous: 'v0.9.3', watched: true, dryRun: false };
+    await append(db.as.line, [
+      event(released, 'pull-request.merged', 'martin', { number: 12, commit: 'c'.repeat(40), by: 'martin' }),
+      event(released, 'release.promoted', 'rollouts', release),
+    ]);
+    expect(
+      await browser.post('/admin/line/controls', { take: { kind: 'just-one', workItem: released } }),
+    ).toMatchObject({
+      status: 422,
+      body: {
+        refused: 'policy',
+        message: `#${released} is released behind its flag: the flag pass looks after it now, not the line.`,
+      },
+    });
   });
 
   it('refuses a change outside policy, passkey or no, and records nothing for one already in force', async () => {

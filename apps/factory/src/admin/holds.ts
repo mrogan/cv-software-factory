@@ -33,7 +33,7 @@ import {
   VERSIONS,
   WORDS_LEAVE_HELD,
 } from '@software-factory/events';
-import { fromMartin, LINE_ROLE, lockAppends } from '@software-factory/store';
+import { fromMartin, LINE_ROLE, lockAppends, openedAsImprovement } from '@software-factory/store';
 import type { TransactionSql } from 'postgres';
 import { z } from 'zod';
 import { ACCESS, GUARDRAIL_HOLDS } from '../../../../policy/access.ts';
@@ -166,10 +166,9 @@ async function openHold(tx: TransactionSql, workItem: string): Promise<Holds> {
  * (0035_improvement-requests.sql), and one a worker opened before then asks for the passkey all the same.
  */
 async function isImprovement(tx: TransactionSql, workItem: string): Promise<boolean> {
-  const [row] = await tx`
-    select 1 from events
-    where work_item = ${workItem} and type = 'work-item.opened' and payload->>'kind' = 'improvement' limit 1`;
-  return row !== undefined;
+  const [row] = await tx<{ improvement: boolean }[]>`
+    select ${openedAsImprovement(tx, 'w.work_item')} as improvement from (select ${workItem}::text as work_item) w`;
+  return row?.improvement === true;
 }
 
 /** Whether a visitor's report opened the work item: its first signal is a report. */

@@ -272,12 +272,13 @@ export class Queue {
   /**
    * Holds a work item for this worker for a while, so no other acts on it meanwhile. Undefined if another holds it,
    * it has ended, or it reopened and waits to come back into Plan. A step's lease outlasts the step's deadline; a crash
-   * leaves it to run out.
+   * leaves it to run out. With `ended`, one that has ended too: an improvement handed over, whose dry run a line going
+   * live ends, so that two lines never both end it.
    */
-  async claim(workItem: string, seconds: number): Promise<QueueItem | undefined> {
+  async claim(workItem: string, seconds: number, { ended = false } = {}): Promise<QueueItem | undefined> {
     const [row] = await this.#sql<Row[]>`
       update line l set held_by = ${this.#me}, held_until = clock_timestamp() + make_interval(secs => ${seconds})
-      where l.work_item = ${workItem} and l.stage <> 'ended' and not ${reopenedSince(this.#sql)}
+      where l.work_item = ${workItem} and (${ended} or l.stage <> 'ended') and not ${reopenedSince(this.#sql)}
         and (l.held_until is null or l.held_until < clock_timestamp() or l.held_by = ${this.#me})
       returning ${this.#sql(COLUMNS)}`;
     return row && item(row);

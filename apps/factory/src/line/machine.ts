@@ -877,6 +877,9 @@ function afterMerge(s: WorkItemState): Decision {
     };
   }
   if (!release.promoted) return { stage: 'release', next: { do: 'wait', for: 'release' } };
+  // Handed over at its promotion, for good: a promoted release is over, and the release watch records nothing more of
+  // it (`forTarget` in `release/watch.ts`), so it never rolls back, errs or is aborted after this. A later release that
+  // takes the change back out is another release; until then the flag is Martin's to turn off.
   if (s.request) return { stage: 'ended', next: { do: 'hand-over', release: release.promoted } };
   const { verification } = s;
   if (!verification) return { stage: 'verify', next: { do: 'verify', release: release.promoted } };

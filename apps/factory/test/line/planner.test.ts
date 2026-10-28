@@ -99,6 +99,24 @@ const INPUT: PlannerInput = {
 /** What the planner was told of `INPUT`, which its criteria quote. */
 const SOURCES = sourcesOf(INPUT);
 
+describe('an improvement’s spec', () => {
+  const asked = (spec: object) =>
+    plannerResult(PROTECTED, SOURCES, { improvement: true }).safeParse({ verdict: 'spec', spec });
+  it('names the flag its change goes behind and the pages it shows on', () => {
+    expect(asked({ ...SPEC, flag: 'delivery-dates', pages: ['/products/blue-mug'] }).success).toBe(true);
+    const problems = (spec: object) => asked(spec).error?.issues.map((issue) => issue.message);
+    expect(problems(SPEC)).toEqual([
+      'an improvement’s spec names the flag its change goes behind',
+      'an improvement’s spec names the pages its change shows on',
+    ]);
+    expect(problems({ ...SPEC, flag: 'delivery-dates' })).toEqual([
+      'an improvement’s spec names the pages its change shows on',
+    ]);
+    // A ticket's spec is not held to it.
+    expect(plannerResult(PROTECTED, SOURCES).safeParse({ verdict: 'spec', spec: SPEC }).success).toBe(true);
+  });
+});
+
 describe('the planner’s scope', () => {
   it('may name the app’s own files, folders and patterns', () => {
     expect(scoped('src/money.ts', 'test/', 'src/pages/*.ts', 'src/**/*.ts').success).toBe(true);

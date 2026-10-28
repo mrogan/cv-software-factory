@@ -1467,8 +1467,14 @@ describe('Verify on the line', () => {
         ),
       ]);
       await promote(workItem, 'dry-run-dddddddddddd', 'd'.repeat(40), true);
-      await database.owner`insert into line (work_item, stage, issue) values (${workItem}, 'ended', 1000000000)`;
+      // Another line, going live at the same time, holds it: this one leaves it to that.
+      await database.owner`
+        insert into line (work_item, stage, issue, held_by, held_until)
+        values (${workItem}, 'ended', 1000000000, 'other', clock_timestamp() + interval '1 hour')`;
       const { line: it, github } = line({ release: null });
+      await pass(it);
+      expect(await payloads(workItem, 'work-item.closed')).toEqual([]);
+      await database.owner`update line set held_until = clock_timestamp() - interval '1 second'`;
       await pass(it);
       expect(await payloads(workItem, 'work-item.closed')).toEqual([
         {

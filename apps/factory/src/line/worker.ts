@@ -536,16 +536,19 @@ export class Line {
       return;
     }
     if (this.#inFlight.has(workItem)) throw new Error('a step is in hand');
-    // An improvement the dry run handed over has ended on the line, and no worker holds it.
-    const claimed = item.stage === 'ended' ? item : await this.#queue.claim(workItem, ACTION_LEASE_SECONDS);
+    // An improvement the dry run handed over has ended on the line: it is held all the same, so no other line ends it.
+    const claimed = await this.#queue.claim(workItem, ACTION_LEASE_SECONDS, { ended: item.stage === 'ended' });
     if (!claimed) throw new Error('another worker holds it');
     const improvement = fold(events).request !== undefined;
     try {
+      // Read again under the lease: another line may have ended it before this one held it.
+      const still = dryRunLeft((await this.#events(workItem)).events, claimed.issue);
+      if (still?.end !== 'close') return;
       const reason = {
         merge: `A dry run merged its ${improvement ? 'improvement' : 'fix'}, which never shipped: the line, running live, closed it`,
         'pull-request': 'Its pull request was a dry run’s, which GitHub never had: the line, running live, closed it',
         issue: 'Its issue was a dry run’s, which GitHub never had: the line, running live, closed it',
-      }[left.why];
+      }[still.why];
       // A dry run's issue is one GitHub never had, as its pull request is.
       if (claimed.issue && claimed.issue < DRY_RUN_NUMBERS_FROM) {
         // An issue that is gone, or that the App may not change, has nothing to close.

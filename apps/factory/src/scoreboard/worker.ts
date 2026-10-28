@@ -7,7 +7,7 @@
  * would be refused.
  */
 import { type NewEvent, type PayloadOf, upcast, VERSIONS } from '@software-factory/events';
-import { type EventWriter, storeKind } from '@software-factory/store';
+import { type EventWriter, openedAsImprovement, storeKind } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import type { KeyEntry } from '../../../../policy/scoreboard.ts';
 import { figures, lastBoundary, SCORE_TYPES, type ScoreEvent, tickets } from './figures.ts';
@@ -78,9 +78,7 @@ export async function readScoreEvents(sql: Sql): Promise<ScoreEvent[]> {
            case when type = 'signal.received' then '{}'::jsonb else payload end as payload
     from events e where type in ${sql(SCORE_TYPES)} and work_item is not null
       -- A work item opened as an improvement has no ticket, whatever is appended to it.
-      and not (e.type = 'ticket.opened'
-               and exists (select 1 from events o where o.work_item = e.work_item and o.type = 'work-item.opened'
-                           and o.payload->>'kind' = 'improvement'))
+      and not (e.type = 'ticket.opened' and ${openedAsImprovement(sql, 'e.work_item')})
     order by seq`;
   return rows.map((row) => {
     if (row.type === 'signal.received') return { ts: row.ts.toISOString(), work_item: row.work_item, type: row.type };

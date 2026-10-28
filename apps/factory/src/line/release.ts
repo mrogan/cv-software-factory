@@ -537,8 +537,12 @@ export async function carried(
   }
   const rows = await sql<{ work_item: string; number: number; title: string | null; issue: number | null }[]>`
     select latest.work_item, latest.number, l.issue,
-           (select t.public->'payload'->>'title' from events t
-             where t.work_item = latest.work_item and t.type = 'ticket.opened' order by t.seq limit 1) as title
+           -- Its ticket's title, or, for an improvement, which has none, its opening's.
+           coalesce((select t.public->'payload'->>'title' from events t
+                      where t.work_item = latest.work_item and t.type = 'ticket.opened' order by t.seq limit 1),
+                    (select o.public->'payload'->>'title' from events o
+                      where o.work_item = latest.work_item and o.type = 'work-item.opened' order by o.seq limit 1))
+             as title
     from (
       select distinct on (m.work_item) m.work_item, m.seq, m.payload->>'commit' as commit,
              (m.payload->>'number')::int as number

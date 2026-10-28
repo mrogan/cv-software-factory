@@ -238,7 +238,12 @@ describe('the line', () => {
       ),
       event(workItem, 'improvement.requested', { words, steppedUp: true }, 'martin'),
     ]);
-    const spec = { ...SPEC, criteria: [{ ...SPEC.criteria[0], quote: 'delivery date' }], flag: 'delivery-dates' };
+    const spec = {
+      ...SPEC,
+      criteria: [{ ...SPEC.criteria[0], quote: 'delivery date' }],
+      flag: 'delivery-dates',
+      pages: ['/products/blue-mug'],
+    };
     const agents = { ...AGENTS, planner: () => handback({ verdict: 'spec', spec }) };
     const probes = new FakeProbes({ outcome: 'cleared', version: 'v0.9.4', runs: ['passed', 'passed'] });
     const { pass, steps, github } = line(agents, events, { verify: { probes } });
@@ -2353,6 +2358,23 @@ describe('the deploy pull request', () => {
     await pass();
     const [said] = described(github) as { carries: { workItem: string }[] }[];
     expect(said?.carries.map((c) => c.workItem)).toEqual([held, after]);
+  });
+
+  it('names an improvement by its own title, as it has no ticket', async () => {
+    const workItem = await nextWorkItem(database.admin);
+    await martin.append([
+      event(workItem, 'work-item.opened', { kind: 'improvement', title: 'Delivery dates', sample: false }, 'martin'),
+      event(workItem, 'improvement.requested', { words: 'Delivery dates.', steppedUp: true }, 'martin'),
+    ]);
+    await merged(workItem, 17, sha('2'));
+    await database.owner`insert into line (work_item, stage, issue) values (${workItem}, 'held', 16)`;
+    const { pass, github } = line(AGENTS, events, { deployEveryMs: 0 });
+    github.deploy = { number: 30, commit: sha('3'), pinned: sha('1'), digests: [] };
+    github.deployCommits = [sha('2'), sha('3')];
+    await pass();
+    expect(described(github)).toMatchObject([
+      { carries: [{ workItem, pullRequest: 17, title: 'Delivery dates', issue: 16 }] },
+    ]);
   });
 
   it('is told it carries none when no fix of the line’s is in its range, and nothing when the pin is not known', async () => {

@@ -1274,6 +1274,9 @@ describe('the title of Martin’s request', () => {
     expect(requestTitle('Sort by price')).toBe('Sort by price');
     // A full stop inside a word ends nothing.
     expect(requestTitle('Say v1.2 in the footer. Small.')).toBe('Say v1.2 in the footer');
+    // Nor does one before a word that starts small, as in an abbreviation.
+    expect(requestTitle('Add a U.S. flag beside the prices. Only there.')).toBe('Add a U.S. flag beside the prices');
+    expect(requestTitle('Show it, e.g. on the basket. And nowhere else.')).toBe('Show it, e.g. on the basket');
   });
 
   it('is cut at the last word within 60 characters, and marked as cut', () => {
@@ -1281,7 +1284,9 @@ describe('the title of Martin’s request', () => {
       'Show on each product page when an order placed today would arrive, counting only the days we dispatch on.';
     const title = requestTitle(words);
     expect(title).toBe('Show on each product page when an order placed today would…');
-    expect(title.length).toBeLessThanOrEqual(REQUEST_TITLE + 1);
+    expect(title.length).toBeLessThanOrEqual(REQUEST_TITLE);
+    // A word that ends at the 60th character still leaves no room for the mark.
+    expect(requestTitle(`${'abcd '.repeat(11)}abcde more after that`)).toBe(`${'abcd '.repeat(10)}abcd…`);
     // A comma at the cut goes too, and one word longer than a title is cut where it must be.
     expect(requestTitle(`${'a '.repeat(28)}bb, and then some more words after it`)).toBe(`${'a '.repeat(28)}bb…`);
     expect(requestTitle('x'.repeat(80))).toBe(`${'x'.repeat(59)}…`);

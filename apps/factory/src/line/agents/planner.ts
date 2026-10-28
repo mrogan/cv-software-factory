@@ -141,8 +141,24 @@ export function quoteProblem(from: string, quote: string, sources: Sources): str
  * The spec, with a scope of plain paths that keeps out of the protected paths, and every criterion naming what in the
  * ticket's evidence it comes from, and quoting the words there that ask for it.
  */
-const specWithin = (protectedPaths: readonly string[], sources: Sources) =>
+const specWithin = (protectedPaths: readonly string[], sources: Sources, improvement: boolean) =>
   PAYLOADS['spec.written'].superRefine((spec, ctx) => {
+    // An improvement ships behind its flag, off, and Verify pictures the pages it changes: its spec names both, or the
+    // line would hand over a change with nothing to widen or turn off.
+    if (improvement && spec.flag === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['flag'],
+        message: 'an improvement’s spec names the flag its change goes behind',
+      });
+    }
+    if (improvement && spec.pages === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['pages'],
+        message: 'an improvement’s spec names the pages its change shows on',
+      });
+    }
     spec.scope.forEach((entry, i) => {
       const problem = scopeProblem(entry, protectedPaths);
       if (problem) ctx.addIssue({ code: 'custom', path: ['scope', i], message: problem });
@@ -202,9 +218,13 @@ const findings = z.array(finding).max(MAX_PLANNER_FINDINGS).default([]);
  * hold whatever the repository's CODEOWNERS says. Its criteria quote the sources given (`sourcesOf`); with none, no
  * spec fits.
  */
-export const plannerResult = (protectedPaths: readonly string[] = NEVER, sources: Sources = NOTHING) =>
+export const plannerResult = (
+  protectedPaths: readonly string[] = NEVER,
+  sources: Sources = NOTHING,
+  { improvement = false }: { improvement?: boolean } = {},
+) =>
   z.discriminatedUnion('verdict', [
-    z.strictObject({ verdict: z.literal('spec'), spec: specWithin(protectedPaths, sources), findings }),
+    z.strictObject({ verdict: z.literal('spec'), spec: specWithin(protectedPaths, sources, improvement), findings }),
     /** The ticket cannot be made testable, is not a defect in the app, or needs a fix the line may not make. */
     z.strictObject({ verdict: z.literal('reject'), reason: words(300), findings }),
     /** Something about what the app should do that only Martin can say. */
@@ -264,7 +284,8 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
     reopened: state.reopened.filter((r) => !r.dryRun),
     failure,
   }),
-  schema: (input) => plannerResult(input.protectedPaths, sourcesOf(input)),
+  schema: (input) =>
+    plannerResult(input.protectedPaths, sourcesOf(input), { improvement: input.asked.kind === 'request' }),
   prompt: ({ workItem, asked, signals, protectedPaths, answers, persisted = [], reopened = [], failure }) =>
     [
       `Plan the ${asked.kind === 'ticket' ? 'fix' : 'change'} for ${askedName(asked, workItem)}: ${askedTitle(asked)}.`,
