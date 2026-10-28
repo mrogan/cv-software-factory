@@ -7,23 +7,28 @@
 /** The most characters his words may run to, as the form counts them and the event keeps them. */
 export const REQUEST_WORDS = 600;
 
-/** About how long a title made from his words runs, before it is cut at a word. */
+/** The most characters a title made from his words runs to, its `…` included when it is cut. */
 export const REQUEST_TITLE = 60;
 
 /**
- * The title of the work item his words open: their first sentence, ending at `.`, `!` or `?` before a space or the
- * end, or at a line's end, with its spaces collapsed and a closing full stop left off; cut at the last word within
- * `REQUEST_TITLE` characters, and marked with `…`, when it is longer. A first sentence with nothing in it gives way to
- * the whole of his words.
+ * The title of the work item his words open: their first sentence, or their first line, with its spaces collapsed and a
+ * closing full stop left off; cut at the last word, and marked with `…`, to `REQUEST_TITLE` characters with the mark
+ * when it is longer. A sentence ends at `.`, `!` or `?` before a space and a capital letter, or before the end: so
+ * "Add a U.S. flag" is one sentence, as is "Say v1.2 in the footer", though "the U.S. Map" ends at "U.S", as a rule
+ * cannot tell an abbreviation, and the planner names the title in the spec. A first sentence with nothing in it gives
+ * way to the whole of his words. Cut by characters as a reader counts them, so an emoji is never split.
  */
 export function requestTitle(words: string): string {
   const collapse = (text: string) => text.replace(/\s+/g, ' ').trim();
-  const first = /^(.*?[.!?])(?=\s|$)|^[^\n]*/s.exec(words.trim())?.[0] ?? '';
-  const sentence = collapse(first.split('\n')[0] ?? '').replace(/\.$/, '');
+  const text = words.trim();
+  const end = /[.!?](?=\s+\p{Lu}|\s*$)|\n/u.exec(text);
+  const first = end ? text.slice(0, end.index + (end[0] === '\n' ? 0 : 1)) : text;
+  const sentence = collapse(first).replace(/\.$/, '');
   const title = sentence || collapse(words);
   if (title.length <= REQUEST_TITLE) return title;
-  const within = title.slice(0, REQUEST_TITLE + 1);
+  // Room for the mark: the cut is at most one character short of the whole.
+  const within = title.slice(0, REQUEST_TITLE);
   const space = within.lastIndexOf(' ');
-  const cut = space > 0 ? within.slice(0, space) : title.slice(0, REQUEST_TITLE - 1);
+  const cut = space > 0 ? within.slice(0, space) : [...title].slice(0, REQUEST_TITLE - 1).join('');
   return `${cut.replace(/[\s,;:–—-]+$/, '')}…`;
 }

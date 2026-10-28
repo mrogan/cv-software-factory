@@ -31,7 +31,8 @@ Workers ask for actions over HTTP, `POST /v1/actions/<action>`, each body checke
 - issues and comments:
   - opening one;
   - closing one, as completed, with a comment once (which a fix verified in production gets);
-  - reopening one with a comment (`reopenIssue`, only while it is closed, saying it once since it closed).
+  - reopening one with a comment (`reopenIssue`, only while it is closed, saying it once since it closed);
+  - a comment on its own (`comment`), as the line's hand-over of an improvement makes, made only when the issue does not say it already, word for word, so asking again after a failure or a crash says it once.
 
 The line names the work item an action is for in `x-factory-work-item`, and the agent whose step it carries out in `x-factory-agent`, and the worker's log of the action, or of its failure, carries both, so a fix's commit or pull request is found by its work item. A deploy pull request's description, which carries many work items, names none. Neither header changes what is done.
 

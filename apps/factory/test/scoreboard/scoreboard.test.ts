@@ -129,6 +129,31 @@ describe('the scoreboard', () => {
     ]);
   });
 
+  it('counts an improvement for nothing, though a ticket is appended to it', async () => {
+    const workItem = await nextWorkItem(database.admin);
+    const martin = new EventWriter(database.admin, { kind: 'real', artifacts: new DiskArtifacts('/nonexistent') });
+    await martin.append([
+      {
+        ...event(workItem, 'work-item.opened', { kind: 'improvement', title: 'Dates', sample: false }),
+        actor: 'martin',
+      },
+      { ...event(workItem, 'improvement.requested', { words: 'Dates.', steppedUp: true }), actor: 'martin' },
+    ]);
+    await factory.append(
+      event(workItem, 'ticket.opened', {
+        title: 'A defect on /a',
+        category: 'errors',
+        severity: 'broken',
+        fingerprint: { route: '/a', class: 'server-error' },
+        traces: [],
+      }),
+    );
+    await verify(workItem);
+    now = Date.parse('2026-10-11T12:00:00Z');
+    expect((await scoreboard().pass()).pass).toBe('published');
+    expect(await published()).toEqual([{ keyed: true, entries: 2, found: 0, verified: 0, medianMs: null }]);
+  });
+
   it('counts a hold Martin approved with no verification, and drops a ticket that reopens', async () => {
     const a = await ticket('/a');
     now += 20 * 60_000;

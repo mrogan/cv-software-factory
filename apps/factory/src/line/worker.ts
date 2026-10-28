@@ -1,8 +1,9 @@
 /**
- * The line after triage: takes tickets into Plan and carries each work item through its agents' steps, the gates
- * and review, to Martin's merge, and on to Release and Verify. What to do next is decided from the work item's events
- * (`machine.ts`); this module does it, and appends what happened. A merged work item is held at Release until a
- * release carries it, and waits there while the release runs; a promoted one waits at Verify.
+ * The line after triage: takes tickets, and the improvements Martin asks for, into Plan and carries each work item
+ * through its agents' steps, the gates and review, to Martin's merge, and on to Release and Verify. What to do next is
+ * decided from the work item's events (`machine.ts`); this module does it, and appends what happened. A merged work
+ * item is held at Release until a release carries it, and waits there while the release runs; a promoted one waits at
+ * Verify.
  *
  * - A step runs in a runner (`Steps`), and its handback becomes events: the agent's result read through its schema,
  *   what the result does in GitHub (both in the agent's module, `agents/`), and one `model.called` with the step's
@@ -23,10 +24,14 @@
  *   item says nothing of the others. And it records, on each work item held for a deploy that the pull request
  *   carries, where that pull request stands: its checks running, passed or failed, merged, or closed (`deploy.ts`),
  *   with `only` too, for that work item.
+ * - An improvement, once a release that carries it is promoted, is handed over: one comment on its issue says it is in
+ *   the app behind its flag, off, and that Martin widens it from the console, and its row on the line ends. No sense
+ *   looks at it: it has no signal. The work item stays open, for the flag pass below.
  * - About every thirty seconds, while the line runs, it judges each improvement's work item at the stage Martin set its
  *   flag at, from the flags' events, not the ticket machine (`flags.ts`): a flag turned off closes its improvement as
- *   turned off, and a flag at Share has its two sides compared on the traffic generator's requests, through Verify's
- *   Prometheus (`compare.ts`). Live and in a dry run, and with `only`, for that work item alone.
+ *   turned off, and its issue as not planned, and a flag at Share has its two sides compared on the traffic
+ *   generator's requests, through Verify's Prometheus (`compare.ts`). Live and in a dry run, and with `only`, for that
+ *   work item alone.
  * - About every thirty seconds, it reads the app's Rollout and its AnalysisRuns, and records each release on the work
  *   items it carries, or on the line when it carries none (`release.ts`). It changes nothing in Kubernetes. In a dry
  *   run, it answers for the releases of the dry run's merges, which never shipped.
@@ -85,9 +90,13 @@ import type {
 } from '@software-factory/events';
 import { returnWords, SENSES, scopesOverlap, upcast, WORDS_LEAVE_HELD, workItemsWords } from '@software-factory/events';
 import {
+  askedByMartin,
+  byMartin,
   type EventWriter,
   fromMartin,
   IgnoredCommands,
+  LINE_ROLE,
+  lastEnd,
   latestControls,
   lineStopped,
   sendSignal,
@@ -109,7 +118,7 @@ import type {
   ReadName,
   ReadResult,
 } from '../github/server.ts';
-import { GitHubWorkerError } from '../github/worker-client.ts';
+import { issueGone } from '../github/worker-client.ts';
 import type { PictureIndex } from '../pictures/index.ts';
 import type { StepOutcome, StepRequest } from '../runners/steps.ts';
 import { ATTRIBUTES as A, inSpan } from '../spans.ts';
@@ -125,12 +134,13 @@ import {
   StepStale,
   stepFrom,
 } from './agents/agent.ts';
-import type { Signal } from './agents/evidence.ts';
+import type { Request, Signal } from './agents/evidence.ts';
 import { AGENTS, type Agents } from './agents/index.ts';
 import { capOn, capsInForce, lastSeq } from './caps.ts';
 import { type HeldForDeploy, latestDeploy, recordDeploys } from './deploy.ts';
 import { FlagPass } from './flags.ts';
 import { asEvent, type Draft, gateEvents, gateRecord } from './gates.ts';
+import { closeIssue } from './issues.ts';
 import {
   closesWhenCleared,
   decide,
@@ -270,9 +280,6 @@ export interface LineSettings {
 
 export const APP_REPOSITORY = 'the-roganator/cv-worlds-worst-website';
 
-/** What GitHub says of an issue that is gone (deleted or moved) or that the App may not change: asking again won't help. */
-const ISSUE_GONE = [403, 404, 410];
-
 /** How long a work item stays leased for an action that is not a step. */
 const ACTION_LEASE_SECONDS = 300;
 /** A step's lease: its deadline, ten minutes to prepare, and some to spare. */
@@ -379,6 +386,8 @@ export class Line {
       prometheus: this.#o.verify.prometheus ?? null,
       releaseEveryMs: this.#o.releaseEveryMs,
       probes: this.#o.flagChecks,
+      github: this.#o.github,
+      repo: this.#o.repo,
     });
     this.#dryRunsEnded = this.#o.dryRun;
     this.#only = this.#o.only;
@@ -434,7 +443,7 @@ export class Line {
     await this.#reopen();
     // With agents taking no new work, no ticket comes onto the line.
     const taken = this.#newWork ? await this.#queue.admit() : undefined;
-    if (taken) this.#o.log.info({ workItem: taken }, 'a ticket came onto the line');
+    if (taken) this.#o.log.info({ workItem: taken }, 'a work item came onto the line');
     for (const item of await this.#queue.free()) {
       if (this.#inFlight.has(item.workItem) || this.#dryRunLeft.has(item.workItem)) continue;
       await this.#advance(item).catch((error: unknown) =>
@@ -500,7 +509,8 @@ export class Line {
 
   async #endDryRun(item: QueueItem): Promise<void> {
     const { workItem } = item;
-    const left = dryRunLeft((await this.#events(workItem)).events, item.issue);
+    const { events } = await this.#events(workItem);
+    const left = dryRunLeft(events, item.issue);
     if (!left) return;
     if (left.end === 'reopen') {
       // As triage reopens a ticket whose signal came back: the line takes it back into Plan on this pass (`#reopen`).
@@ -528,36 +538,39 @@ export class Line {
       return;
     }
     if (this.#inFlight.has(workItem)) throw new Error('a step is in hand');
-    const claimed = await this.#queue.claim(workItem, ACTION_LEASE_SECONDS);
+    // An improvement the dry run handed over has ended on the line: it is held all the same, so no other line ends it.
+    const claimed = await this.#queue.claim(workItem, ACTION_LEASE_SECONDS, { ended: item.stage === 'ended' });
     if (!claimed) throw new Error('another worker holds it');
+    const improvement = fold(events).request !== undefined;
     try {
+      // Read again under the lease: another line may have ended it before this one held it.
+      const still = dryRunLeft((await this.#events(workItem)).events, claimed.issue);
+      if (still?.end !== 'close') return;
       const reason = {
-        merge: 'A dry run merged its fix, which never shipped: the line, running live, closed it',
+        merge: `A dry run merged its ${improvement ? 'improvement' : 'fix'}, which never shipped: the line, running live, closed it`,
         'pull-request': 'Its pull request was a dry run’s, which GitHub never had: the line, running live, closed it',
         issue: 'Its issue was a dry run’s, which GitHub never had: the line, running live, closed it',
-      }[left.why];
+      }[still.why];
       // A dry run's issue is one GitHub never had, as its pull request is.
       if (claimed.issue && claimed.issue < DRY_RUN_NUMBERS_FROM) {
         // An issue that is gone, or that the App may not change, has nothing to close.
-        await this.#o.github
-          .act(
-            'closeIssue',
-            this.#o.repo,
-            {
-              number: claimed.issue,
-              reason: 'not_planned',
-              comment: [
-                `${reason}.`,
-                '',
-                `The factory’s work item #${workItem} is closed with no change: the next signal of this defect opens a fresh ticket.`,
-              ].join('\n'),
-            },
-            { workItem },
-          )
-          .catch((error) => {
-            if (!(error instanceof GitHubWorkerError && ISSUE_GONE.includes(error.status))) throw error;
-            this.#o.log.warn({ workItem, issue: claimed.issue, err: error }, 'the issue cannot be closed');
-          });
+        await closeIssue(
+          this.#o.github,
+          this.#o.repo,
+          {
+            number: claimed.issue,
+            reason: 'not_planned',
+            comment: [
+              `${reason}.`,
+              '',
+              improvement
+                ? `The factory’s work item #${workItem} is closed with no change: Martin asks for it again if he still wants it.`
+                : `The factory’s work item #${workItem} is closed with no change: the next signal of this defect opens a fresh ticket.`,
+            ].join('\n'),
+          },
+          workItem,
+          this.#o.log,
+        );
       }
       await this.#append(workItem, [
         {
@@ -567,7 +580,7 @@ export class Line {
           payload: { outcome: 'no-change', reason },
         },
       ]);
-      this.#o.log.info({ workItem, why: left.why }, 'closed a work item a dry run left');
+      this.#o.log.info({ workItem, why: still.why }, 'closed a work item a dry run left');
     } finally {
       await this.#release(workItem);
     }
@@ -592,7 +605,7 @@ export class Line {
           await this.#o.github
             .act('reopenIssue', this.#o.repo, { number: item.issue, comment }, { workItem })
             .catch((error) => {
-              if (!(error instanceof GitHubWorkerError && ISSUE_GONE.includes(error.status))) throw error;
+              if (!issueGone(error)) throw error;
               this.#o.log.warn({ workItem, issue: item.issue, err: error }, 'the issue cannot be reopened');
               forgetIssue = true;
             });
@@ -793,7 +806,7 @@ export class Line {
         await this.#release(item.workItem);
         return;
       }
-      if (next.do === 'finish') {
+      if (next.do === 'finish' || next.do === 'hand-over') {
         await this.#queue.release(item.workItem, 'ended');
         return;
       }
@@ -840,9 +853,36 @@ export class Line {
     const { workItem } = item;
     switch (next.do) {
       case 'open-issue': {
-        const issue = await this.#openIssue(workItem, state);
+        const issue = state.request
+          ? await this.#openImprovementIssue(workItem)
+          : await this.#openIssue(workItem, state);
         await this.#queue.setIssue(workItem, issue);
-        this.#o.log.info({ workItem, issue }, 'opened the ticket’s issue');
+        this.#o.log.info({ workItem, issue }, 'opened the work item’s issue');
+        return;
+      }
+      case 'hand-over': {
+        // Its volume first, gone at its merge as a rule: an ended row is never taken up again, so one that cannot be
+        // deleted now keeps the row where it is, to try again on a later pass, before anything is said.
+        await this.#dropVolume(workItem);
+        if (!this.#volumeGone.has(workItem)) return false;
+        // The row ends just after, so a crash, or a store that fails, in between asks again: the GitHub worker says
+        // nothing an issue says already, word for word. An issue that is gone, or that the App may not change, leaves
+        // nothing to say, and the hand-over goes on.
+        if (item.issue) {
+          const flag = state.spec?.flag;
+          await this.#o.github
+            .act(
+              'comment',
+              this.#o.repo,
+              { number: item.issue, body: handOverComment(workItem, flag, next.release.version) },
+              { workItem },
+            )
+            .catch((error) => {
+              if (!issueGone(error)) throw error;
+              this.#o.log.warn({ workItem, issue: item.issue, err: error }, 'the issue cannot be commented on');
+            });
+        }
+        this.#o.log.info({ workItem, release: next.release.release }, 'handed a released improvement to its flag');
         return;
       }
       case 'return': {
@@ -1514,6 +1554,7 @@ export class Line {
       session: item.session,
       failure: item.failure,
       ticket: () => this.#publicTicket(workItem, state),
+      request: () => this.#publicRequest(workItem),
       signals: () => this.#signals(workItem),
       read: (read, args) => this.#o.github.read(read, this.#o.repo, args),
     };
@@ -1565,6 +1606,26 @@ export class Line {
       'The factory is working on it: its fix will come as a pull request that refers here. The issue closes when the fix is verified in production.',
     ].join('\n');
     return this.#o.github.act('openIssue', this.#o.repo, { title: ticket.title, body }, { workItem });
+  }
+
+  /**
+   * Opens an improvement's issue in the app's repository, from the public views of its opening and Martin's request:
+   * the title, and his words as anyone may read them.
+   */
+  async #openImprovementIssue(workItem: string): Promise<number> {
+    const request = await this.#publicRequest(workItem);
+    const quoted = request.words
+      .split('\n')
+      .map((line) => `> ${line}`.trimEnd())
+      .join('\n');
+    const body = [
+      `The factory’s improvement #${workItem}. Martin asked for this improvement:`,
+      '',
+      quoted,
+      '',
+      'The factory is planning it: Martin approves its spec before any code is written, and its change comes as a pull request that refers here, behind a feature flag that stays off until he turns it on.',
+    ].join('\n');
+    return this.#o.github.act('openIssue', this.#o.repo, { title: request.title, body }, { workItem });
   }
 
   /**
@@ -1706,6 +1767,22 @@ export class Line {
     return row?.public.payload ?? need(state.ticket, 'a ticket');
   }
 
+  /**
+   * Martin's request for an improvement, as the public views of its opening and his request have it: what anyone may
+   * read, and so what may reach GitHub or an agent. Only from his roles, as the queue took it.
+   */
+  async #publicRequest(workItem: string): Promise<Request> {
+    const { sql } = this.#o;
+    const [row] = await sql<{ title: string; words: string }[]>`
+      select o.public->'payload'->>'title' as title, r.public->'payload'->>'words' as words
+      from events r join events o on o.work_item = r.work_item and o.type = 'work-item.opened'
+      where r.work_item = ${workItem} and r.type = 'improvement.requested' and ${byMartin(sql, 'r')}
+        and o.payload->>'kind' = 'improvement' and ${byMartin(sql, 'o')}
+      order by r.seq limit 1`;
+    if (!row) throw new StepFailed('The work item has no request of Martin’s');
+    return row;
+  }
+
   /** What each sense saw, from their public views. A visitor's report is left out whole, not only its text. */
   async #signals(workItem: string): Promise<Signal[]> {
     const rows = await this.#o.sql<{ public: { payload: PayloadOf<'signal.received'> } }[]>`
@@ -1717,13 +1794,17 @@ export class Line {
   }
 
   /**
-   * A work item's events, upcast, and the last of them by its place in the store: Martin's answers only from his roles.
+   * A work item's events, upcast, and the last of them by its place in the store: Martin's answers only from his roles,
+   * and the planner's specs only as the line recorded them (or from before the store recorded who appended each), so
+   * no other worker can put a spec in front of Martin's approval, or the coder.
    */
   async #raw(workItem: string): Promise<{ raw: { type: string; payload: unknown }[]; last: number }> {
     const { sql } = this.#o;
     const rows = await sql<RawEvent[]>`
       select e.seq, e.type, e.version, e.payload from events e
-      where e.work_item = ${workItem} and ${fromMartin(sql, 'e')} order by e.seq`;
+      where e.work_item = ${workItem} and ${fromMartin(sql, 'e')}
+        and (e.type <> 'spec.written' or e.appended_by is null or e.appended_by = ${LINE_ROLE})
+      order by e.seq`;
     const raw = rows.flatMap((row) => {
       const read = upcast({ ...row, seq: Number(row.seq) });
       return read.ok ? [{ type: read.event.type, payload: read.event.payload }] : [];
@@ -1768,7 +1849,8 @@ export class Line {
 
   /** For each work item, when it last closed, or null while it is open, or reopened since. */
   async #closedAt(workItems: readonly string[]): Promise<Record<string, { closedAt: string } | null>> {
-    const rows = await this.#o.sql<{ work_item: string; type: string; ts: Date }[]>`
+    const sql = this.#o.sql;
+    const rows = await sql<{ work_item: string; type: string; ts: Date }[]>`
       select distinct on (work_item) work_item, type, ts from events
       where work_item = any(${workItems as string[]}) and type in ('work-item.closed', 'work-item.reopened')
       order by work_item, seq desc`;
@@ -1776,6 +1858,14 @@ export class Line {
     for (const row of rows) {
       if (row.type === 'work-item.closed') closed[row.work_item] = { closedAt: new Date(row.ts).toISOString() };
     }
+    // An improvement handed over to its flag stays open, for the flag pass, while its row on the line has ended: its
+    // change is released, so a wait on it is over then. Not a reopened ticket's ended row, which comes back.
+    const handedOver = await sql<{ work_item: string; moved_at: Date }[]>`
+      select l.work_item, l.moved_at from line l
+      where l.work_item = any(${workItems as string[]}) and l.stage = 'ended'
+        and ${lastEnd(sql, 'l.work_item')} is distinct from 'work-item.reopened'
+        and ${askedByMartin(sql, 'l.work_item')}`;
+    for (const row of handedOver) closed[row.work_item] ??= { closedAt: new Date(row.moved_at).toISOString() };
     return closed;
   }
 
@@ -1846,6 +1936,19 @@ export function waitReason(on: readonly string[], files: readonly string[]): str
   const who = workItemsWords(on, '').replace(/^work items? /, '');
   const what = files.length > 2 ? `${files.slice(0, 2).join(', ')} and ${files.length - 2} more` : files.join(' and ');
   return `Waits for ${who}, whose spec${on.length > 1 ? 's also change' : ' also changes'} ${what}`.slice(0, 300);
+}
+
+/**
+ * What the line says on an improvement's issue as it hands it over: where its change is, and what is Martin's from
+ * here. The flag is the spec's, which the planner names in every improvement's spec.
+ */
+export function handOverComment(workItem: string, flag: string | undefined, version: string): string {
+  const behind = flag ? `behind its flag, \`${flag}\`` : 'behind its flag';
+  return [
+    `Released in ${version}, ${behind}, which is off: nobody sees the change yet.`,
+    '',
+    `Martin widens the flag a stage at a time from the factory’s console, and the factory checks each stage before the next. The factory’s improvement #${workItem} stays open while he does.`,
+  ].join('\n');
 }
 
 /** A look again, in a line, as its event's summary says it. */

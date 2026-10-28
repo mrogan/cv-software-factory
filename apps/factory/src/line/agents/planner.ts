@@ -32,13 +32,13 @@ import { PATH_CHARS, RISKS, touches } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
 import { z } from 'zod';
 import { NEVER, plainPath, protectedWords } from '../../github/paths.ts';
-import { count, defineAgent, holdDraft, words } from './agent.ts';
-import { numbered, routeOf, type Signal, seen, ticketLines } from './evidence.ts';
+import { askedOf, count, defineAgent, holdDraft, words } from './agent.ts';
+import { type Asked, askedLines, askedName, askedTitle, numbered, routeOf, type Signal, seen } from './evidence.ts';
 
 export interface PlannerInput {
   workItem: string;
-  /** The ticket, as its public view has it. */
-  ticket: PayloadOf<'ticket.opened'>;
+  /** The ticket, or Martin's request for an improvement, as its public view has it. */
+  asked: Asked;
   /** What each sense saw, in the order they saw it. A report's signal is not here. */
   signals: Signal[];
   /** The paths no scope may name at the commit: the workflows, the deployment and what CODEOWNERS gives a person. */
@@ -66,10 +66,11 @@ function scopeProblem(entry: string, protectedPaths: readonly string[]): string 
 }
 
 /**
- * What a criterion may come from, in the words the prompt gives each: the ticket, each signal by its number from 1,
- * and Martin's answers with what he was asked. A criterion's quote is looked for here.
+ * What a criterion may come from, in the words the prompt gives each: the ticket, or Martin's request, each signal by
+ * its number from 1, and Martin's answers with what he was asked. A criterion's quote is looked for here.
  */
 export interface Sources {
+  /** The ticket, or Martin's request. */
   ticket: string;
   signals: string[];
   answers: string;
@@ -80,11 +81,11 @@ const answered = (a: PlannerInput['answers'][number]) => `${a.asked} He said: ${
 
 /** The sources of a plan's input, as its prompt tells them. */
 export const sourcesOf = ({
-  ticket,
+  asked,
   signals,
   answers,
-}: Pick<PlannerInput, 'ticket' | 'signals' | 'answers'>): Sources => ({
-  ticket: [ticket.title, ...ticketLines(ticket, signals)].join('\n'),
+}: Pick<PlannerInput, 'asked' | 'signals' | 'answers'>): Sources => ({
+  ticket: [askedTitle(asked), ...askedLines(asked, signals)].join('\n'),
   signals: signals.map((signal) => seen(signal).join('\n')),
   answers: answers.map(answered).join('\n'),
 });
@@ -115,7 +116,7 @@ const within = (words: string, source: string) => {
  */
 export function quoteProblem(from: string, quote: string, sources: Sources): string | undefined {
   const named: string[] = [];
-  if (/\bticket\b/i.test(from)) named.push(sources.ticket);
+  if (/\b(ticket|request)\b/i.test(from)) named.push(sources.ticket);
   // `signal 2`, `signals 1 and 2`, `signals 1, 3`, `signal #2`
   for (const [, list = ''] of from.matchAll(/\bsignals?\s*((?:#?\d+(?:\s*(?:,|and|&|\+|-|–)\s*)?)+)/gi)) {
     for (const [n] of list.matchAll(/\d+/g)) {
@@ -140,8 +141,24 @@ export function quoteProblem(from: string, quote: string, sources: Sources): str
  * The spec, with a scope of plain paths that keeps out of the protected paths, and every criterion naming what in the
  * ticket's evidence it comes from, and quoting the words there that ask for it.
  */
-const specWithin = (protectedPaths: readonly string[], sources: Sources) =>
+const specWithin = (protectedPaths: readonly string[], sources: Sources, improvement: boolean) =>
   PAYLOADS['spec.written'].superRefine((spec, ctx) => {
+    // An improvement ships behind its flag, off, and Verify pictures the pages it changes: its spec names both, or the
+    // line would hand over a change with nothing to widen or turn off.
+    if (improvement && spec.flag === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['flag'],
+        message: 'an improvement’s spec names the flag its change goes behind',
+      });
+    }
+    if (improvement && spec.pages === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['pages'],
+        message: 'an improvement’s spec names the pages its change shows on',
+      });
+    }
     spec.scope.forEach((entry, i) => {
       const problem = scopeProblem(entry, protectedPaths);
       if (problem) ctx.addIssue({ code: 'custom', path: ['scope', i], message: problem });
@@ -201,9 +218,13 @@ const findings = z.array(finding).max(MAX_PLANNER_FINDINGS).default([]);
  * hold whatever the repository's CODEOWNERS says. Its criteria quote the sources given (`sourcesOf`); with none, no
  * spec fits.
  */
-export const plannerResult = (protectedPaths: readonly string[] = NEVER, sources: Sources = NOTHING) =>
+export const plannerResult = (
+  protectedPaths: readonly string[] = NEVER,
+  sources: Sources = NOTHING,
+  { improvement = false }: { improvement?: boolean } = {},
+) =>
   z.discriminatedUnion('verdict', [
-    z.strictObject({ verdict: z.literal('spec'), spec: specWithin(protectedPaths, sources), findings }),
+    z.strictObject({ verdict: z.literal('spec'), spec: specWithin(protectedPaths, sources, improvement), findings }),
     /** The ticket cannot be made testable, is not a defect in the app, or needs a fix the line may not make. */
     z.strictObject({ verdict: z.literal('reject'), reason: words(300), findings }),
     /** Something about what the app should do that only Martin can say. */
@@ -253,9 +274,9 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
   agent: 'planner',
   maxTurns: 30,
   deadlineSeconds: 15 * 60,
-  input: async ({ workItem, state, commit, failure, ticket, signals, read }) => ({
+  input: async ({ workItem, state, commit, failure, ticket, request, signals, read }) => ({
     workItem,
-    ticket: await ticket(),
+    asked: await askedOf({ state, ticket, request }),
     signals: await signals(),
     protectedPaths: await read('protectedPaths', { ref: commit }),
     answers: state.answers,
@@ -263,11 +284,12 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
     reopened: state.reopened.filter((r) => !r.dryRun),
     failure,
   }),
-  schema: (input) => plannerResult(input.protectedPaths, sourcesOf(input)),
-  prompt: ({ workItem, ticket, signals, protectedPaths, answers, persisted = [], reopened = [], failure }) =>
+  schema: (input) =>
+    plannerResult(input.protectedPaths, sourcesOf(input), { improvement: input.asked.kind === 'request' }),
+  prompt: ({ workItem, asked, signals, protectedPaths, answers, persisted = [], reopened = [], failure }) =>
     [
-      `Plan the fix for ticket #${workItem}: ${ticket.title}.`,
-      ...ticketLines(ticket, signals),
+      `Plan the ${asked.kind === 'ticket' ? 'fix' : 'change'} for ${askedName(asked, workItem)}: ${askedTitle(asked)}.`,
+      ...askedLines(asked, signals),
       ...(signals.length ? ['', 'What the senses saw, by number:', ...numbered(signals)] : []),
       ...(answers.length ? ['', 'Martin was asked, and answered:', ...answers.map((a) => `- ${answered(a)}`)] : []),
       ...(persisted.length

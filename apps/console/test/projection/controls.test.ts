@@ -66,6 +66,11 @@ describe('the line’s controls', () => {
       changed(10, { take: { kind: 'next-few', count: 3, since } }),
       ...taken('2', 12),
       ...taken('3', 20),
+      // An improvement Martin asked for counts as a ticket does.
+      ...work('5', start)
+        .open()
+        .add(23, 'improvement.requested', 'martin', {} as never)
+        .add(24, 'model.called', 'planner', {} as never).events,
       // A change that keeps when they started counts on from then: the count follows the event's own start.
       changed(22, { take: { kind: 'next-few', count: 4, since } }),
       // Triage's ticket alone is not taken, nor one the line only recorded something on: no agent has worked on it.
@@ -78,7 +83,7 @@ describe('the line’s controls', () => {
     expect(controlsView(events, at(15)).nextFew).toEqual({ since: at(10), taken: 1 });
     expect(controlsView(events, at(30))).toMatchObject({
       take: { kind: 'next-few', count: 4, since },
-      nextFew: { since: at(10), taken: 2 },
+      nextFew: { since: at(10), taken: 3 },
     });
     // Only the next few count.
     expect(controlsView([...events, changed(31, { take: { kind: 'every' } })], at(32)).nextFew).toBeUndefined();

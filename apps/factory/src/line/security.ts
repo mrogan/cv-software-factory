@@ -37,6 +37,7 @@
 import { type BatchObservableResult, metrics } from '@opentelemetry/api';
 import { HOLD_CAUSES, type HoldCause, type ReleaseControl, upcast } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
+import { openedAsImprovement } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { GUARDRAIL_HOLDS } from '../../../../policy/access.ts';
@@ -235,10 +236,7 @@ export async function readOn(sql: Sql, tally: Tally): Promise<Tally> {
            e.payload->'change' as change,
            case when e.type = 'flag.staged' then jsonb_build_object('from', e.payload->'from', 'to', e.payload->'to')
            end as staged,
-           case when e.type = 'hold.answered' then exists (
-             select 1 from events o
-             where o.work_item = e.work_item and o.type = 'work-item.opened' and o.payload->>'kind' = 'improvement')
-           end as improvement,
+           case when e.type = 'hold.answered' then ${openedAsImprovement(sql, 'e.work_item')} end as improvement,
            h.version as hold_version, h.payload as hold_payload
     from upto
     left join events e

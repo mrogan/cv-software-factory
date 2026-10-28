@@ -1,6 +1,7 @@
 /**
  * What the senses saw, as an agent's prompt tells it: each signal by its typed fields, one line per piece of
- * evidence. An agent reads a ticket's evidence through this module, so every agent sees it alike.
+ * evidence. An agent reads a ticket's evidence, or Martin's request for an improvement, through this module, so every
+ * agent sees it alike.
  *
  * Never a visitor's words. A visitor's report is left out whole, by the type and by the line, which never reads a
  * report's signal. A log line is the one piece of evidence that can carry what a visitor typed: an app may log the
@@ -20,6 +21,30 @@ type Evidence = NonNullable<Signal['evidence']>[number];
 
 /** A route without its query or fragment, which a route never needs and a visitor may have typed. */
 export const routeOf = (route: string) => route.split(/[?#]/)[0] || '/';
+
+/** Martin's request for an improvement, as the public views of its opening and his request have it. */
+export interface Request {
+  /** The work item's title, made from his first sentence. */
+  title: string;
+  /** His words, through the redactor. */
+  words: string;
+}
+
+/** What a work item asks for: the ticket triage opened, or the improvement Martin asked for in his own words. */
+export type Asked = { kind: 'ticket'; ticket: PayloadOf<'ticket.opened'> } | { kind: 'request'; request: Request };
+
+/** What a prompt calls the work item: `ticket #1207`, or `improvement #1300`. */
+export const askedName = (asked: Asked, workItem: string) =>
+  `${asked.kind === 'ticket' ? 'ticket' : 'improvement'} #${workItem}`;
+
+/** The work item's title, as its ticket or its request has it. */
+export const askedTitle = (asked: Asked) => (asked.kind === 'ticket' ? asked.ticket.title : asked.request.title);
+
+/** What the work item asks, as lines of a prompt: where the ticket is, or Martin's words. */
+export function askedLines(asked: Asked, signals: readonly Signal[] = []): string[] {
+  if (asked.kind === 'ticket') return ticketLines(asked.ticket, signals);
+  return [`Martin asked for it in his own words: “${asked.request.words}”`];
+}
 
 /**
  * Where the ticket is, as triage fingerprinted it, and how it was classed, with its traces if it has any. A ticket on

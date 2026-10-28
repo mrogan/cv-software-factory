@@ -26,17 +26,17 @@ import type { PayloadOf, Stage } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
 import { z } from 'zod';
 import { cites } from '../review.ts';
-import { answerOf, closesAnIssue, commitTitle, defineAgent, mentions, need, words } from './agent.ts';
+import { answerOf, askedOf, closesAnIssue, commitTitle, defineAgent, mentions, need, words } from './agent.ts';
 import { refersTo } from './coder.ts';
-import { type Signal, seen, ticketLines } from './evidence.ts';
+import { type Asked, askedLines, askedName, askedTitle, type Signal, seen } from './evidence.ts';
 import { unrenderedFolds } from './folds.ts';
 
 export type Review = PayloadOf<'review.submitted'>;
 
 export interface DescriberInput {
   workItem: string;
-  /** The ticket, as its public view has it. */
-  ticket: PayloadOf<'ticket.opened'>;
+  /** The ticket, or Martin's request for an improvement, as its public view has it. */
+  asked: Asked;
   /** What each sense saw, in the order they saw it. A report's signal is not here. */
   signals: Signal[];
   spec: PayloadOf<'spec.written'>;
@@ -86,17 +86,17 @@ function thread(reviews: Review[]): string[] {
 }
 
 function prompt(input: DescriberInput): string {
-  const { workItem, ticket, signals, spec, pullRequest, title, reviews, returns, answer, failure } = input;
+  const { workItem, asked, signals, spec, pullRequest, title, reviews, returns, answer, failure } = input;
   const rounds = returns.length + 1;
   // A return from review is in the thread already, with its findings.
   const otherReturns = returns.filter((r) => r.from !== 'review');
   return [
-    `Describe pull request #${pullRequest}, the factory’s fix for ticket #${workItem}: “${title}”. Its gates and its review have passed it.`,
+    `Describe pull request #${pullRequest}, the factory’s ${asked.kind === 'ticket' ? 'fix' : 'change'} for ${askedName(asked, workItem)}: “${title}”. Its gates and its review have passed it.`,
     '',
     'The checkout is the pull request’s head. Its base is the branch `base`: `git diff base` is the change, and `git log base..HEAD` holds the coder’s commit messages, its own note of what was wrong and what it changed.',
     '',
-    `The ticket: ${ticket.title}.`,
-    ...ticketLines(ticket, signals),
+    `The ${asked.kind === 'ticket' ? 'ticket' : 'request'}: ${askedTitle(asked)}.`,
+    ...askedLines(asked, signals),
     ...(signals.length ? ['', 'What the senses saw:', ...signals.flatMap(seen)] : []),
     '',
     'The spec the change is held to:',
@@ -140,11 +140,11 @@ export const describer = defineAgent<DescriberInput, DescriberResult>({
   deadlineSeconds: 15 * 60,
   readsChange: true,
   resultFiles: { body: 'description.md' },
-  input: async ({ workItem, state, failure, ticket, signals }) => {
+  input: async ({ workItem, state, failure, ticket, request, signals }) => {
     const pushed = need(state.pullRequest, 'a pull request');
     return {
       workItem,
-      ticket: await ticket(),
+      asked: await askedOf({ state, ticket, request }),
       signals: await signals(),
       spec: need(state.spec, 'a spec'),
       pullRequest: pushed.number,

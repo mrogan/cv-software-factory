@@ -1451,6 +1451,42 @@ describe('Verify on the line', () => {
       expect(await payloads(atRelease, 'work-item.closed')).toHaveLength(1);
     });
 
+    it('closes an improvement the dry run handed over, whose row has ended, saying so on no issue GitHub had', async () => {
+      const workItem = await nextWorkItem(database.admin);
+      await martin.append([
+        event(workItem, 'work-item.opened', { kind: 'improvement', title: 'Delivery dates', sample: false }, 'martin'),
+        event(workItem, 'improvement.requested', { words: 'Delivery dates.', steppedUp: true }, 'martin'),
+      ]);
+      await events.append([
+        pushed(workItem, 1_000_000_001),
+        event(
+          workItem,
+          'pull-request.merged',
+          { number: 1_000_000_001, commit: 'd'.repeat(40), by: 'martin' },
+          'martin',
+        ),
+      ]);
+      await promote(workItem, 'dry-run-dddddddddddd', 'd'.repeat(40), true);
+      // Another line, going live at the same time, holds it: this one leaves it to that.
+      await database.owner`
+        insert into line (work_item, stage, issue, held_by, held_until)
+        values (${workItem}, 'ended', 1000000000, 'other', clock_timestamp() + interval '1 hour')`;
+      const { line: it, github } = line({ release: null });
+      await pass(it);
+      expect(await payloads(workItem, 'work-item.closed')).toEqual([]);
+      await database.owner`update line set held_until = clock_timestamp() - interval '1 second'`;
+      await pass(it);
+      expect(await payloads(workItem, 'work-item.closed')).toEqual([
+        {
+          outcome: 'no-change',
+          reason: 'A dry run merged its improvement, which never shipped: the line, running live, closed it',
+        },
+      ]);
+      expect(github.acts.filter((a) => a.action !== 'describeDeploy')).toEqual([]);
+      await pass(it);
+      expect(await payloads(workItem, 'work-item.closed')).toHaveLength(1);
+    });
+
     it('reopens a ticket the dry run verified, and takes it back into Plan with a new issue', async () => {
       const workItem = await merged(1_000_000_001, 'd'.repeat(40));
       await promote(workItem, 'dry-run-dddddddddddd', 'd'.repeat(40), true);

@@ -16,6 +16,7 @@ import {
   type StoredFlagCheck,
   type StoredFlagRecord,
 } from '@software-factory/store';
+import pino from 'pino';
 import type { Sql } from 'postgres';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
@@ -183,6 +184,30 @@ describe('which checks of a flag the pass asks the probes for', () => {
   });
   const baseline = (version = 'a'.repeat(40)) =>
     check('7', { stage: 'off', version, journeys: { passed: 3, ran: 4 }, notClean: [], pages: [] });
+
+  it('pictures the pages its spec names, the first six, or the front page when it names none', () => {
+    const pages = ['/products/blue-mug', '/basket', '/a', '/b', '/c', '/d', '/e'];
+    const flags = told({ dates: '7' }, [], { revision: 'r3' });
+    expect(flagsNext({ flags: { ...flags, pages: { dates: pages } }, items: { '7': open }, only: null })).toMatchObject(
+      [{ do: 'check', stage: 'off', pages: pages.slice(0, 6) }],
+    );
+    const staged = told({ dates: '7' }, [
+      {
+        type: 'flag.staged',
+        seq: '5',
+        ts: '2026-10-27T10:00:00.000Z',
+        flag: 'dates',
+        workItem: '7',
+        from: OFF,
+        to: CHECKS,
+        revision: 'r5',
+      },
+    ]);
+    expect(
+      flagsNext({ flags: { ...staged, pages: { dates: ['/basket'] } }, items: { '7': open }, only: null }),
+    ).toMatchObject([{ do: 'check', stage: 'checks', pages: ['/basket'] }]);
+    expect(flagsNext({ flags: staged, items: { '7': open }, only: null })).toMatchObject([{ pages: ['/'] }]);
+  });
 
   it('takes a baseline at Off, on an open improvement, of each version the probes have not seen it on', () => {
     const flags = told({ dates: '7' }, [], { revision: 'r3' });
@@ -587,6 +612,50 @@ describe('the flag pass, against the store', () => {
     expect(await closes(workItem)).toHaveLength(1);
   });
 
+  it('closes the issue of an improvement turned off as not planned, saying why, before the work item', async () => {
+    const workItem = await improvement('dates');
+    await database.owner`insert into line (work_item, stage, issue) values (${workItem}, 'ended', 41)`;
+    await move(workItem, 'dates', CHECKS, OFF, 'Not on Sundays, ghp_abcdefghijklmnopqrstuvwxyz0123456789');
+    const github = new FakeGitHub();
+    github.failing.set('closeIssue', 1);
+    const { pass } = line({ github });
+    await pass();
+    // GitHub failed: nothing is closed, and the next pass tries again.
+    expect(await closes(workItem)).toEqual([]);
+    now += 30_000;
+    await pass();
+    const closing = github.acts.filter((a) => a.action === 'closeIssue');
+    expect(closing).toEqual([
+      {
+        action: 'closeIssue',
+        args: {
+          number: 41,
+          reason: 'not_planned',
+          comment: expect.stringMatching(/^Martin turned `dates` off, from Checks: Not on Sundays, (?!ghp_)/),
+        },
+      },
+    ]);
+    expect(String(closing[0]?.args.comment)).toContain(
+      `The change stays in the app, behind its flag, off. The factory’s improvement #${workItem} is closed.`,
+    );
+    expect((await closes(workItem)).map((c) => c.payload.outcome)).toEqual(['turned-off']);
+  });
+
+  it('leaves out, and logs once, an improvement Martin did not ask for that a flag was staged on', async () => {
+    const workItem = await improvement('unasked', 'improvement', { request: false });
+    await move(workItem, 'unasked', CHECKS, OFF, 'Off');
+    const logged: string[] = [];
+    const log = pino({ level: 'warn' }, { write: (line: string) => logged.push(line) });
+    const { pass } = line({ log });
+    await pass();
+    now += 30_000;
+    await pass();
+    expect(await closes(workItem)).toEqual([]);
+    const left = logged.filter((line) => line.includes('Martin did not ask for'));
+    expect(left).toHaveLength(1);
+    expect(JSON.parse(left[0] ?? '{}')).toMatchObject({ workItem });
+  });
+
   it('closes one turned off from Everyone too, which may still go straight back on, and closes nothing more', async () => {
     const workItem = await improvement('wrap');
     await move(workItem, 'wrap', SHARE, EVERYONE);
@@ -627,6 +696,14 @@ describe('the flag pass, against the store', () => {
     await line().pass();
     expect(await closes(workItem)).toEqual([]);
     expect((await flagEvents(database.as.line)).records).toEqual([]);
+  });
+
+  it('takes a flag’s pages from the spec that names it last, which may name none', async () => {
+    await improvement('dates', 'improvement', { pages: ['/products/blue-mug'] });
+    const later = await improvement('dates');
+    const { named, pages } = await flagEvents(database.as.line);
+    expect(named.dates).toBe(later);
+    expect(pages).toEqual({});
   });
 
   it('names a flag only for an improvement Martin asked for, with the pages its spec names', async () => {

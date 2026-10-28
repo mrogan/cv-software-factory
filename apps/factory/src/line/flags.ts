@@ -1,17 +1,21 @@
 /**
  * Verify by variant (milestone 7, task 17): the line's pass over the feature flags, judging each improvement's work
  * item at the stage Martin set its flag at. It is driven by the flags' state, as the admin service records Martin's
- * moves (`flag.staged`) and the line's own judgements of them, never by the ticket machine (`machine.ts`): the line's
- * queue takes tickets, and an improvement is not on it. So it runs as a pass of its own, beside the release watch,
- * about every thirty seconds while the line runs, live and in a dry run (a flag is real there too), and takes no lease:
- * it appends only what the flags' events call for, which the next pass reads.
+ * moves (`flag.staged`) and the line's own judgements of them, never by the ticket machine (`machine.ts`): the machine
+ * carries an improvement to its release, and hands it over (`hand-over`), and its flag is judged here from its spec
+ * on. So it runs as a pass of its own, beside the release watch, about every thirty seconds while the line runs, live
+ * and in a dry run (a flag is real there too), and takes no lease: it appends only what the flags' events call for,
+ * which the next pass reads.
  *
  * - **Read from the store** (`flagEvents`, the reader the admin service judges a move by): Martin's moves from his
- *   roles alone, the line's comparisons, and which improvement's spec names each flag; and, for each work item a flag
- *   was last staged on, whether it is an improvement of the factory's own (not a sample) and still open.
+ *   roles alone, the line's comparisons, and which improvement's spec names each flag, and the pages it names; and,
+ *   for each work item a flag was last staged on, whether it is an improvement Martin asked for (its opening and his
+ *   request both appended by one of his roles, as `flagEvents` and the queue judge one), not a sample, and still
+ *   open. Any other work item a flag was staged on is left out, and logged once.
  * - **Decided here, purely** (`flagsNext`): given that, what the pass does for each flag.
  *   - **Turned off**: a flag Martin turned off, at any stage, closes the improvement it was staged on as turned off,
- *     with his reason. It is no rollback: the code stays in the app, off. Closed once, as the work item is then closed;
+ *     with his reason, and its issue as not planned, saying so (in a dry run, as the GitHub worker records one). It is
+ *     no rollback: the code stays in the app, off. Closed once, as the work item is then closed;
  *     a flag turned back on from Everyone after it closed stays on, on a closed work item, and turning it off again
  *     closes nothing more.
  *   - **At Share**: a flag Martin set at the share stage has its two sides compared on the traffic generator's own
@@ -30,8 +34,9 @@
  *     (`PROBES_URL`, Verify's), it waits.
  * - **With just one** (`only`), it acts on that work item alone.
  */
+import { redactSecrets } from '@software-factory/events/public';
 import type { EventWriter, FlagEvents, StoredFlagCheck } from '@software-factory/store';
-import { flagEvents, lastEnd } from '@software-factory/store';
+import { askedByMartin, flagEvents, lastEnd } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
 import { flagsFrom, stageWords } from '../../../../policy/flag-moves.ts';
@@ -41,11 +46,14 @@ import type { Prometheus } from '../clients/prometheus.ts';
 import { figuresOf, figuresQuery, judge, type Sides, type Span, sidesOf, windowOf } from './compare.ts';
 import { type CheckAsked, checkedDraft, FRONT_PAGE, requestOf } from './flag-checks.ts';
 import { asEvent } from './gates.ts';
+import { closeIssue } from './issues.ts';
 import { countRecorded } from './metrics.ts';
 import type { FlagChecksPort } from './verify.ts';
+import type { GitHubPort } from './worker.ts';
 
 /** A work item a flag was last staged on, as the pass needs it. */
 export interface FlagItem {
+  /** Whether it is an improvement Martin asked for: its opening and his request both appended by one of his roles. */
   improvement: boolean;
   sample: boolean;
   closed: boolean;
@@ -139,7 +147,7 @@ export function flagsNext({ flags, items, only }: FlagFacts): FlagNext[] {
         // Taken again for a new flag set too: another flag moved meanwhile changes what the probes see.
         ...(taken?.check.revision === revision && { have: taken.check.version }),
         base: null,
-        pages: FRONT_PAGE,
+        pages: pagesOf(flags, flag),
       });
     }
     const workItem = now.stagedOn;
@@ -181,12 +189,21 @@ export function flagsNext({ flags, items, only }: FlagFacts): FlagNext[] {
         move: move.seq,
         moveRevision,
         base,
-        pages: FRONT_PAGE,
+        pages: pagesOf(flags, flag),
       });
     }
   }
   return next;
 }
+
+/**
+ * The pages the probes picture for a flag: those its improvement's latest spec names, the first six as `flag.checked`
+ * keeps them, or the front page when it names none.
+ */
+const pagesOf = (flags: FlagEvents, flag: string): readonly string[] => {
+  const named = flags.pages[flag];
+  return named?.length ? named.slice(0, 6) : FRONT_PAGE;
+};
 
 /** Whether a flag was checked at a stage since a move, of that move: one started for an earlier move is none of its. */
 const checkedSince = (
@@ -207,12 +224,18 @@ export interface FlagPassOptions {
   releaseEveryMs: number;
   /** Verify's probes, which check a flag at Off, Checks and Preview: without them, those checks wait. */
   probes?: FlagChecksPort | null;
+  /** The GitHub worker, which closes a turned-off improvement's issue: without it, the issue is left as it is. */
+  github?: Pick<GitHubPort, 'act'> | null;
+  /** The app's repository, as `owner/name`, where the issue is. */
+  repo?: string;
 }
 
 /** The pass: reads the flags' state, decides, and appends what it decided. */
 export class FlagPass {
   readonly #o: FlagPassOptions;
   readonly #sides = new Map<string, Sides>();
+  /** The work items a flag was staged on that the pass left out, as Martin did not ask for them: each logged once. */
+  readonly #leftOut = new Set<string>();
 
   constructor(options: FlagPassOptions) {
     this.#o = options;
@@ -245,6 +268,17 @@ export class FlagPass {
   }
 
   async #close(next: Extract<FlagNext, { do: 'close' }>): Promise<void> {
+    // The issue first, saying why: closing one already closed says nothing again, so a close the store then refuses is
+    // tried again on the next pass with no second comment.
+    try {
+      await this.#closeIssue(next);
+    } catch (error) {
+      this.#o.log.warn(
+        { workItem: next.workItem, flag: next.flag, err: error },
+        'could not close a turned-off improvement’s issue',
+      );
+      return;
+    }
     const ts = this.#o.now().toISOString();
     const drafts = [
       {
@@ -266,6 +300,25 @@ export class FlagPass {
     }
     countRecorded(drafts);
     this.#o.log.info({ workItem: next.workItem, flag: next.flag }, 'closed an improvement whose flag was turned off');
+  }
+
+  /**
+   * Closes a turned-off improvement's issue as not planned, with Martin's reason as its public view has it. One with no
+   * issue (the line never opened one), or one that is gone, or that the App may not change, is left.
+   */
+  async #closeIssue(next: Extract<FlagNext, { do: 'close' }>): Promise<void> {
+    const { github, repo } = this.#o;
+    if (!github || !repo) return;
+    const [row] = await this.#o.sql<{ issue: number | null }[]>`
+      select issue from line where work_item = ${next.workItem}`;
+    const issue = row?.issue;
+    if (!issue) return;
+    const comment = [
+      `Martin turned \`${next.flag}\` off, from ${stageWords(next.from)}: ${redactSecrets(next.reason)}`,
+      '',
+      `The change stays in the app, behind its flag, off. The factory’s improvement #${next.workItem} is closed.`,
+    ].join('\n');
+    await closeIssue(github, repo, { number: issue, reason: 'not_planned', comment }, next.workItem, this.#o.log);
   }
 
   /**
@@ -387,17 +440,32 @@ export class FlagPass {
         and (e.ended is null or e.ended >= ${since})`;
   }
 
+  /**
+   * Each work item asked about, from its opening: an improvement only if Martin asked for it, as `flagEvents` judges
+   * one. One opened as an improvement that he did not ask for is logged once, so it does not drop out unseen.
+   */
   async #items(workItems: string[]): Promise<Record<string, FlagItem>> {
     const sql = this.#o.sql;
-    const rows = await sql<{ work_item: string; kind: string; sample: boolean; closed: boolean }[]>`
+    const rows = await sql<{ work_item: string; kind: string; sample: boolean; closed: boolean; asked: boolean }[]>`
       select o.work_item, o.payload->>'kind' as kind, o.sample,
-             ${lastEnd(sql, 'o.work_item')} is not distinct from 'work-item.closed' as closed
+             ${lastEnd(sql, 'o.work_item')} is not distinct from 'work-item.closed' as closed,
+             ${askedByMartin(sql, 'o.work_item')} as asked
       from events o where o.type = 'work-item.opened' and o.work_item = any(${workItems})`;
     return Object.fromEntries(
-      rows.map((row) => [
-        row.work_item,
-        { improvement: row.kind === 'improvement', sample: row.sample, closed: row.closed },
-      ]),
+      rows.map((row) => {
+        const { asked } = row;
+        if (row.kind === 'improvement' && !asked && !row.sample && !this.#leftOut.has(row.work_item)) {
+          this.#leftOut.add(row.work_item);
+          this.#o.log.warn(
+            { workItem: row.work_item },
+            'a flag was staged on an improvement Martin did not ask for: the flag pass leaves it out',
+          );
+        }
+        return [
+          row.work_item,
+          { improvement: row.kind === 'improvement' && asked, sample: row.sample, closed: row.closed },
+        ];
+      }),
     );
   }
 }

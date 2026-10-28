@@ -19,6 +19,34 @@ export const fromMartin = (sql: Sql | TransactionSql, alias: string) =>
        or ${sql(`${alias}.appended_by`)} = any(${MARTINS_ROLES}))`;
 
 /**
+ * SQL, true for an event (`alias`) one of Martin's roles appended, and not a sample: the rule for each of the two
+ * events that make an improvement his (`askedByMartin`).
+ */
+export const byMartin = (sql: Sql | TransactionSql, alias: string) =>
+  sql`(not ${sql(`${alias}.sample`)} and coalesce(${sql(`${alias}.appended_by`)} = any(${MARTINS_ROLES}), false))`;
+
+/**
+ * SQL, true for a work item (`workItem`, a column such as `t.work_item`) that is an improvement Martin asked for: its
+ * opening, of kind improvement, and his request (`improvement.requested`) both appended by one of his roles, and
+ * neither a sample, since a sample's improvement is no work of the app's. Row security lets no other role append either
+ * (0035_improvement-requests.sql); every reader that acts on an improvement asks this, the line's queue, its flag pass
+ * and its worker, the admin service's Just one and `flagEvents`, so none can be told one by a worker.
+ */
+export const askedByMartin = (sql: Sql | TransactionSql, workItem: string) =>
+  sql`(exists (select 1 from events mo where mo.work_item = ${sql(workItem)} and mo.type = 'work-item.opened'
+               and mo.payload->>'kind' = 'improvement' and ${byMartin(sql, 'mo')})
+       and exists (select 1 from events mr where mr.work_item = ${sql(workItem)} and mr.type = 'improvement.requested'
+                   and ${byMartin(sql, 'mr')}))`;
+
+/**
+ * SQL, true for a work item (`workItem`, a column) opened as an improvement, by whomever: one that is never a ticket,
+ * whatever is appended to it.
+ */
+export const openedAsImprovement = (sql: Sql | TransactionSql, workItem: string) =>
+  sql`exists (select 1 from events io where io.work_item = ${sql(workItem)} and io.type = 'work-item.opened'
+              and io.payload->>'kind' = 'improvement')`;
+
+/**
  * Whether the line is stopped: the last of `line.started` and `line.stopped` that one of Martin's roles appended
  * decides. Every worker asks before it takes work.
  */

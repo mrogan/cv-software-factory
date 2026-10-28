@@ -429,7 +429,7 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       seed: PRICE_SEED,
       input: {
         workItem: FIXTURE_WORK_ITEM,
-        ticket: PRICE_TICKET,
+        asked: { kind: 'ticket', ticket: PRICE_TICKET },
         signals: PRICE_SIGNALS,
         protectedPaths: APP_PROTECTED,
         answers: [],
@@ -440,12 +440,15 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       commit: APP_MAIN,
       input: {
         workItem: FIXTURE_WORK_ITEM,
-        ticket: {
-          title: 'A visitor reports wrong words on /about',
-          category: 'content',
-          severity: 'cosmetic',
-          fingerprint: { page: '/about', text: 'Every order ships free the next working day, wrapped in tissue.' },
-          traces: [],
+        asked: {
+          kind: 'ticket',
+          ticket: {
+            title: 'A visitor reports wrong words on /about',
+            category: 'content',
+            severity: 'cosmetic',
+            fingerprint: { page: '/about', text: 'Every order ships free the next working day, wrapped in tissue.' },
+            traces: [],
+          },
         },
         // A report's signal never reaches the planner.
         signals: [],
@@ -459,12 +462,15 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       seed: ASSETS_SEED,
       input: {
         workItem: FIXTURE_WORK_ITEM,
-        ticket: {
-          title: 'An image does not load on every page',
-          category: 'navigation',
-          severity: 'cosmetic',
-          fingerprint: { route: '*', class: 'broken-image' },
-          traces: [],
+        asked: {
+          kind: 'ticket',
+          ticket: {
+            title: 'An image does not load on every page',
+            category: 'navigation',
+            severity: 'cosmetic',
+            fingerprint: { route: '*', class: 'broken-image' },
+            traces: [],
+          },
         },
         signals: [
           {
@@ -519,12 +525,15 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       seed: SMOKE_SEED,
       input: {
         workItem: FIXTURE_WORK_ITEM,
-        ticket: {
-          title: 'A wrong result from lastIndex',
-          category: 'functional',
-          severity: 'degraded',
-          fingerprint: { route: '/', class: 'wrong-result' },
-          traces: [],
+        asked: {
+          kind: 'ticket',
+          ticket: {
+            title: 'A wrong result from lastIndex',
+            category: 'functional',
+            severity: 'degraded',
+            fingerprint: { route: '/', class: 'wrong-result' },
+            traces: [],
+          },
         },
         signals: [],
         round: 1,
@@ -546,7 +555,7 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       seed: PRICE_SEED,
       input: {
         workItem: FIXTURE_WORK_ITEM,
-        ticket: PRICE_TICKET,
+        asked: { kind: 'ticket', ticket: PRICE_TICKET },
         signals: PRICE_SIGNALS,
         spec: PRICE_SPEC,
         round: 1,
@@ -561,7 +570,7 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       change: { patch: PRICE_FIX, message: PRICE_FIX_MESSAGE },
       input: {
         workItem: FIXTURE_WORK_ITEM,
-        ticket: PRICE_TICKET,
+        asked: { kind: 'ticket', ticket: PRICE_TICKET },
         signals: PRICE_SIGNALS,
         spec: PRICE_SPEC,
         round: 2,
@@ -578,7 +587,7 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       seed: CARDS_SEED,
       input: {
         workItem: FIXTURE_WORK_ITEM,
-        ticket: PRICE_TICKET,
+        asked: { kind: 'ticket', ticket: PRICE_TICKET },
         signals: PRICE_SIGNALS,
         spec: CARDS_SPEC,
         round: 1,
@@ -597,7 +606,7 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       },
       input: {
         workItem: FIXTURE_WORK_ITEM,
-        ticket: PRICE_TICKET,
+        asked: { kind: 'ticket', ticket: PRICE_TICKET },
         signals: PRICE_SIGNALS,
         answers: [],
         spec: PRICE_SPEC,
@@ -617,7 +626,7 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       },
       input: {
         workItem: FIXTURE_WORK_ITEM,
-        ticket: PRICE_TICKET,
+        asked: { kind: 'ticket', ticket: PRICE_TICKET },
         signals: PRICE_SIGNALS,
         answers: [],
         spec: PRICE_SPEC,
@@ -659,7 +668,7 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       },
       input: {
         workItem: FIXTURE_WORK_ITEM,
-        ticket: PRICE_TICKET,
+        asked: { kind: 'ticket', ticket: PRICE_TICKET },
         signals: PRICE_SIGNALS,
         answers: [],
         spec: PRICE_SPEC,
@@ -690,7 +699,7 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       },
       input: {
         workItem: FIXTURE_WORK_ITEM,
-        ticket: PRICE_TICKET,
+        asked: { kind: 'ticket', ticket: PRICE_TICKET },
         signals: PRICE_SIGNALS,
         answers: [],
         spec: WIDENED_SPEC,
@@ -714,7 +723,7 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       },
       input: {
         workItem: FIXTURE_WORK_ITEM,
-        ticket: PRICE_TICKET,
+        asked: { kind: 'ticket', ticket: PRICE_TICKET },
         signals: PRICE_SIGNALS,
         answers: [],
         spec: CARDS_SPEC,
@@ -732,7 +741,7 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       change: { patch: PRICE_FIX, message: PRICE_FIX_MESSAGE },
       input: {
         workItem: '999999999',
-        ticket: PRICE_TICKET,
+        asked: { kind: 'ticket', ticket: PRICE_TICKET },
         signals: PRICE_SIGNALS,
         spec: PRICE_SPEC,
         pullRequest: 101,
@@ -771,12 +780,15 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
       },
       input: {
         workItem: '999999999',
-        ticket: {
-          title: 'A wrong result from lastIndex',
-          category: 'functional',
-          severity: 'degraded',
-          fingerprint: { route: '/', class: 'wrong-result' },
-          traces: [],
+        asked: {
+          kind: 'ticket',
+          ticket: {
+            title: 'A wrong result from lastIndex',
+            category: 'functional',
+            severity: 'degraded',
+            fingerprint: { route: '/', class: 'wrong-result' },
+            traces: [],
+          },
         },
         signals: [],
         spec: {

@@ -1848,6 +1848,16 @@ describe('the line’s controls', () => {
     await append(db.operator, [
       event(unasked, 'work-item.opened', 'martin', { kind: 'improvement', title: 'Gift notes', sample: false }),
     ]);
+    // A worker's ticket on it does not make it a ticket either: the line's queue judges it by its opening too.
+    await append(db.as.triage, [
+      event(unasked, 'ticket.opened', 'triage', {
+        title: 'A ticket on an improvement',
+        category: 'errors',
+        severity: 'broken',
+        fingerprint: { route: '/', class: 'server-error' },
+        traces: [],
+      }),
+    ]);
     const { browser, passkey } = await signedIn();
     expect((await stepUp(browser, passkey)).status).toBe(200);
     expect(await browser.post('/admin/line/controls', { take: { kind: 'just-one', workItem: unasked } })).toMatchObject(
@@ -1860,6 +1870,20 @@ describe('the line’s controls', () => {
       status: 200,
       body: { change: { control: 'take', after: { kind: 'just-one', workItem: asked } } },
     });
+    // Released and handed over, it is still his to choose: the flag pass then judges its flag alone.
+    const released = await nextWorkItem(db.as.triage);
+    await append(db.admin, [
+      event(released, 'work-item.opened', 'martin', { kind: 'improvement', title: 'Gift notes', sample: false }),
+      event(released, 'improvement.requested', 'martin', { words: 'Gift notes.', steppedUp: true }),
+    ]);
+    const release = { release: '6d8f9c7b54', version: 'v0.9.4', previous: 'v0.9.3', watched: true, dryRun: false };
+    await append(db.as.line, [
+      event(released, 'pull-request.merged', 'martin', { number: 12, commit: 'c'.repeat(40), by: 'martin' }),
+      event(released, 'release.promoted', 'rollouts', release),
+    ]);
+    expect(
+      (await browser.post('/admin/line/controls', { take: { kind: 'just-one', workItem: released } })).status,
+    ).toBe(200);
   });
 
   it('refuses a change outside policy, passkey or no, and records nothing for one already in force', async () => {
@@ -2156,6 +2180,44 @@ describe('Needs you', () => {
     expect((await stepUp(browser, passkey)).status).toBe(200);
     expect((await browser.post(`/admin/holds/${approved.workItem}/approve`, { hold: approved.hold })).status).toBe(200);
     expect(await answers(approved.workItem)).toMatchObject([{ actor: 'martin', payload: { decision: 'approved' } }]);
+  });
+
+  it('refuses an answer to a spec’s card once the line has written the spec again, saying so', async () => {
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    const spec = (outcome: string) => ({
+      outcome,
+      criteria: [{ given: 'a product', when: 'its page is shown', expect: 'it shows a date' }],
+      scope: ['src/pages/product.ts'],
+      risks: [],
+      rollout: 'Behind its flag',
+    });
+    const { workItem, hold } = await held('spec', { stage: 'plan' });
+    // Another worker's spec is none the line reads: the card still stands.
+    await append(db.as.triage, [event(workItem, 'spec.written', 'planner', spec('Not the line’s'))]);
+    expect((await browser.post(`/admin/holds/${workItem}/answer`, { hold, words: 'Fewer days' })).status).toBe(200);
+    const again = await held('spec', { stage: 'plan' });
+    await append(db.as.line, [event(again.workItem, 'spec.written', 'planner', spec('Dates, written again'))]);
+    for (const path of ['approve', 'reject'] as const) {
+      expect(await browser.post(`/admin/holds/${again.workItem}/${path}`, { hold: again.hold })).toMatchObject({
+        status: 409,
+        body: {
+          refused: 'hold',
+          message: `The spec of #${again.workItem} was written again since that card, so this answer would answer nothing: the line holds the new one for you when it needs you.`,
+        },
+      });
+    }
+    expect(await answers(again.workItem)).toEqual([]);
+    // The line holds the new one, under a hold of its own, which is answered as any other.
+    const next = event(again.workItem, 'hold.started', 'factory', {
+      stage: 'plan',
+      kind: 'approval',
+      cause: 'spec',
+      reason: 'Held again',
+    });
+    await append(db.as.line, [next]);
+    expect((await browser.post(`/admin/holds/${again.workItem}/approve`, { hold: again.hold })).status).toBe(409);
+    expect((await browser.post(`/admin/holds/${again.workItem}/approve`, { hold: next.id })).status).toBe(200);
   });
 
   it('refuses an answer that would do nothing: approving a merge, a deploy or a suggestion, or words on a deploy', async () => {

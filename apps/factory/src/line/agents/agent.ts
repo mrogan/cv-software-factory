@@ -17,7 +17,7 @@ import type { Handback, Step } from '../../runners/steps.ts';
 import type { Draft } from '../gates.ts';
 import type { LineAgent, WorkItemState } from '../machine.ts';
 import { outsideCode } from './code.ts';
-import type { Signal } from './evidence.ts';
+import type { Asked, Request, Signal } from './evidence.ts';
 
 /** A step that went wrong in a way the line counts against it: no handback, a result refused, an action refused. */
 export class StepFailed extends Error {
@@ -53,6 +53,8 @@ export interface StepContext {
   failure: string | null;
   /** The work item's ticket, as its public view has it. Throws `StepFailed` when there is none. */
   ticket(): Promise<PayloadOf<'ticket.opened'>>;
+  /** Martin's request for the improvement, as its public views have it. Throws `StepFailed` when there is none. */
+  request(): Promise<Request>;
   /** What each sense saw of the work item, from their public views, without a report's signal (`evidence.ts`). */
   signals(): Promise<Signal[]>;
   /** Reads GitHub through the worker. Reading is harmless, so a step may read as it starts. */
@@ -245,6 +247,15 @@ export function need<T>(value: T | undefined, what: string): T {
 
 /** Martin's answer to the hold before this step, for its prompt, if he wrote one. */
 export const answerOf = (state: WorkItemState) => state.answer?.text;
+
+/** What the work item asks for: Martin's request, for an improvement he asked for, or else its ticket. */
+export async function askedOf({
+  state,
+  ticket,
+  request,
+}: Pick<StepContext, 'state' | 'ticket' | 'request'>): Promise<Asked> {
+  return state.request ? { kind: 'request', request: await request() } : { kind: 'ticket', ticket: await ticket() };
+}
 
 export const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 

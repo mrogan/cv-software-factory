@@ -56,13 +56,14 @@ export function controlsOf(seen: readonly PublicEvent[]): ControlsView {
       if (was?.kind !== 'next-few' || was.since !== take.since) break;
       since = Date.parse(event.ts);
     }
-    // Each work item with a ticket, and when an agent of the line first did anything with it after the ticket opened.
+    // Each work item with a ticket or Martin's request for an improvement, as the line's queue takes either, and when
+    // an agent of the line first did anything with it after that.
     const ticketed = new Set<string>();
     const first = new Map<string, number>();
     for (const event of seen) {
       const item = event.work_item;
       if (!item) continue;
-      if (event.type === 'ticket.opened') ticketed.add(item);
+      if (event.type === 'ticket.opened' || event.type === 'improvement.requested') ticketed.add(item);
       else if (ticketed.has(item) && LINE_ACTORS.has(event.actor) && !first.has(item)) {
         first.set(item, Date.parse(event.ts));
       }

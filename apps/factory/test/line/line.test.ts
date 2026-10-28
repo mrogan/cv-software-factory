@@ -226,6 +226,139 @@ describe('the line', () => {
     ]);
   });
 
+  it('carries an improvement Martin asked for to his approval of its spec, his merge, its release, and hands it over', async () => {
+    const workItem = await nextWorkItem(database.admin);
+    const words = 'Show each product’s delivery date on its page. It helps people plan.';
+    await martin.append([
+      event(
+        workItem,
+        'work-item.opened',
+        { kind: 'improvement', title: 'Show each product’s delivery date on its page', sample: false },
+        'martin',
+      ),
+      event(workItem, 'improvement.requested', { words, steppedUp: true }, 'martin'),
+    ]);
+    const spec = {
+      ...SPEC,
+      criteria: [{ ...SPEC.criteria[0], quote: 'delivery date' }],
+      flag: 'delivery-dates',
+      pages: ['/products/blue-mug'],
+    };
+    const agents = { ...AGENTS, planner: () => handback({ verdict: 'spec', spec }) };
+    const probes = new FakeProbes({ outcome: 'cleared', version: 'v0.9.4', runs: ['passed', 'passed'] });
+    const { pass, steps, github } = line(agents, events, { verify: { probes } });
+
+    await pass(); // the issue, and the planner, told Martin's words
+    expect(github.acts[0]).toMatchObject({
+      action: 'openIssue',
+      args: { title: 'Show each product’s delivery date on its page' },
+    });
+    expect(String(github.acts[0]?.args.body)).toContain(`Martin asked for this improvement:\n\n> ${words}`);
+    expect(steps.requests[0]?.prompt).toContain(`Plan the change for improvement #${workItem}`);
+    expect(steps.requests[0]?.prompt).toContain(`Martin asked for it in his own words: “${words}”`);
+
+    await pass(); // its spec, held for Martin before any code
+    expect(steps.requests).toHaveLength(1);
+    expect(await stage(workItem)).toBe('held');
+    expect((await payloads(workItem, 'hold.started')).at(-1)).toMatchObject({ cause: 'spec', kind: 'approval' });
+    await martin.append(event(workItem, 'hold.answered', { decision: 'approved' }, 'martin'));
+
+    await pass(); // the coder, on a branch named from the request's title
+    expect(github.acts[1]?.args).toMatchObject({ branch: `factory/${workItem}-show-each-product-s-delivery` });
+    expect(steps.requests[1]?.prompt).toContain(`Make improvement #${workItem}`);
+    github.pass();
+    await pass(); // the gates pass, and the reviewer
+    await pass(); // the describer
+    await pass(); // the hold for Martin's merge
+    expect((await payloads(workItem, 'hold.started')).at(-1)).toMatchObject({
+      cause: 'merge',
+      reason: expect.stringContaining('as an improvement does in every mode'),
+    });
+    github.merge();
+    await pass(); // held for a deploy
+    const release = { release: '6d8f9c7b54', version: 'v0.9.4', previous: 'v0.9.3', watched: true, dryRun: false };
+    const image = { digest: `sha256:${'c'.repeat(64)}`, signed: true, admitted: true };
+    await events.append(event(workItem, 'release.started', { ...release, image, steps: null }, 'rollouts'));
+    await pass();
+    expect(await stage(workItem)).toBe('release');
+    const before = github.acts.length;
+    await events.append(event(workItem, 'release.promoted', release, 'rollouts'));
+    await pass(); // handed over: one comment, and its row ends, with no sense asked to look
+    expect(github.acts.slice(before)).toEqual([
+      {
+        action: 'comment',
+        args: {
+          number: 41,
+          body: expect.stringContaining('Released in v0.9.4, behind its flag, `delivery-dates`, which is off'),
+        },
+      },
+    ]);
+    expect(await stage(workItem)).toBe('ended');
+    expect(probes.asked).toEqual([]);
+    await pass();
+    expect(github.acts).toHaveLength(before + 1);
+    // The work item stays open, for the flag pass.
+    expect(await types(workItem)).not.toContain('work-item.closed');
+    expect(await types(workItem)).not.toContain('verification.finished');
+  });
+
+  /** An improvement Martin asked for, as the admin service opens it. */
+  async function improvement(): Promise<string> {
+    const workItem = await nextWorkItem(database.admin);
+    await martin.append([
+      event(workItem, 'work-item.opened', { kind: 'improvement', title: 'Delivery dates', sample: false }, 'martin'),
+      event(workItem, 'improvement.requested', { words: 'Delivery dates.', steppedUp: true }, 'martin'),
+    ]);
+    return workItem;
+  }
+
+  it('takes an improvement’s spec only as the line recorded it', async () => {
+    const workItem = await improvement();
+    await database.owner`insert into line (work_item, stage, issue) values (${workItem}, 'plan', 41)`;
+    // A spec another worker appended: the line plans it as if there were none.
+    await new EventWriter(database.as.triage, {
+      kind: 'real',
+      artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))),
+    }).append(event(workItem, 'spec.written', SPEC, 'planner'));
+    const { pass, steps } = line({ planner: () => 'fails' });
+    await pass();
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner']);
+    expect(await types(workItem)).not.toContain('hold.started');
+  });
+
+  it('hands an improvement over once its volume is gone, when its issue is gone too, and ends a wait on it', async () => {
+    const workItem = await improvement();
+    const release = { release: '6d8f9c7b54', version: 'v0.9.4', previous: 'v0.9.3', watched: true, dryRun: false };
+    const image = { digest: `sha256:${'c'.repeat(64)}`, signed: true, admitted: true };
+    await events.append([
+      event(workItem, 'spec.written', { ...SPEC, flag: 'delivery-dates' }, 'planner'),
+      event(workItem, 'pull-request.merged', { number: 12, commit: 'c'.repeat(40), by: 'martin' }, 'martin'),
+      event(workItem, 'release.started', { ...release, image, steps: null }, 'rollouts'),
+      event(workItem, 'release.promoted', release, 'rollouts'),
+    ]);
+    await database.owner`insert into line (work_item, stage, issue) values (${workItem}, 'release', 41)`;
+    // Another improvement, waiting on this one's files.
+    const waiting = await improvement();
+    await events.append([
+      event(waiting, 'spec.written', SPEC, 'planner'),
+      event(waiting, 'wait.started', { on: [workItem], files: ['src/search.ts'], reason: 'Waits' }),
+    ]);
+    await database.owner`insert into line (work_item, stage, issue) values (${waiting}, 'waiting', 42)`;
+    const { pass, github, steps } = line();
+    // Its volume cannot be deleted yet, as the pass reads the merge and as it hands over: it stays, and says nothing.
+    steps.finishFails = 2;
+    await pass();
+    expect(await stage(workItem)).not.toBe('ended');
+    expect(github.acts.filter((a) => a.action === 'comment')).toEqual([]);
+    github.refusing.set('comment', new GitHubWorkerError(404, 'not-found', 'Not Found'));
+    await pass();
+    expect(await stage(workItem)).toBe('ended');
+    expect(await types(workItem)).not.toContain('work-item.closed');
+    await pass();
+    // The improvement it waited on is released, and open: the wait is over, and its spec is held for Martin.
+    expect((await payloads(waiting, 'hold.started')).at(-1)).toMatchObject({ cause: 'spec' });
+  });
+
   it('carries a ticket through plan, build, gates, review and description to Martin’s merge', async () => {
     const workItem = await ticket();
     const probes = new FakeProbes({ outcome: 'cleared', version: 'v0.9.4', runs: ['passed', 'passed'] });
@@ -2225,6 +2358,51 @@ describe('the deploy pull request', () => {
     await pass();
     const [said] = described(github) as { carries: { workItem: string }[] }[];
     expect(said?.carries.map((c) => c.workItem)).toEqual([held, after]);
+  });
+
+  it('names an improvement by its own title, as it has no ticket', async () => {
+    const workItem = await nextWorkItem(database.admin);
+    await martin.append([
+      event(workItem, 'work-item.opened', { kind: 'improvement', title: 'Delivery dates', sample: false }, 'martin'),
+      event(workItem, 'improvement.requested', { words: 'Delivery dates.', steppedUp: true }, 'martin'),
+    ]);
+    await merged(workItem, 17, sha('2'));
+    await database.owner`insert into line (work_item, stage, issue) values (${workItem}, 'held', 16)`;
+    const { pass, github } = line(AGENTS, events, { deployEveryMs: 0 });
+    github.deploy = { number: 30, commit: sha('3'), pinned: sha('1'), digests: [] };
+    github.deployCommits = [sha('2'), sha('3')];
+    await pass();
+    expect(described(github)).toMatchObject([
+      { carries: [{ workItem, pullRequest: 17, title: 'Delivery dates', issue: 16 }] },
+    ]);
+    // The title its spec names, as the line recorded it, replaces the one made from his words; a ticket a worker appends
+    // to it names it nothing.
+    await events.append(
+      event(workItem, 'spec.written', { ...SPEC, title: 'Delivery dates on product pages' }, 'planner'),
+    );
+    await new EventWriter(database.as.triage, {
+      kind: 'real',
+      artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))),
+    }).append(
+      event(
+        workItem,
+        'ticket.opened',
+        {
+          title: 'Not its title',
+          category: 'errors',
+          severity: 'broken',
+          fingerprint: { route: '/', class: 'server-error' },
+          traces: [],
+        },
+        'triage',
+      ),
+    );
+    github.deploy = { ...github.deploy, commit: sha('4') };
+    github.deployCommits = [sha('2'), sha('3'), sha('4')];
+    await pass();
+    expect(described(github).at(-1)).toMatchObject({
+      carries: [{ workItem, title: 'Delivery dates on product pages' }],
+    });
   });
 
   it('is told it carries none when no fix of the line’s is in its range, and nothing when the pin is not known', async () => {

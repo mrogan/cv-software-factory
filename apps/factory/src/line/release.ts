@@ -42,7 +42,7 @@
 
 import { type Attributes, trace } from '@opentelemetry/api';
 import { type RawEvent, upcast } from '@software-factory/events';
-import { fromMartin, lastEnd, sendSignal } from '@software-factory/store';
+import { fromMartin, LINE_ROLE, lastEnd, openedAsImprovement, sendSignal } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
 import type { Prometheus } from '../clients/prometheus.ts';
@@ -537,8 +537,17 @@ export async function carried(
   }
   const rows = await sql<{ work_item: string; number: number; title: string | null; issue: number | null }[]>`
     select latest.work_item, latest.number, l.issue,
-           (select t.public->'payload'->>'title' from events t
-             where t.work_item = latest.work_item and t.type = 'ticket.opened' order by t.seq limit 1) as title
+           -- Its ticket's title; or, for an improvement, which has none whatever is appended to it, the title its latest
+           -- spec names, as the line recorded it, or else its opening's, made from Martin's words.
+           case when ${openedAsImprovement(sql, 'latest.work_item')} then
+             coalesce((select s.public->'payload'->>'title' from events s
+                        where s.work_item = latest.work_item and s.type = 'spec.written' and s.appended_by = ${LINE_ROLE}
+                          and s.payload->>'title' is not null order by s.seq desc limit 1),
+                      (select o.public->'payload'->>'title' from events o
+                        where o.work_item = latest.work_item and o.type = 'work-item.opened' order by o.seq limit 1))
+           else (select t.public->'payload'->>'title' from events t
+                  where t.work_item = latest.work_item and t.type = 'ticket.opened' order by t.seq limit 1)
+           end as title
     from (
       select distinct on (m.work_item) m.work_item, m.seq, m.payload->>'commit' as commit,
              (m.payload->>'number')::int as number

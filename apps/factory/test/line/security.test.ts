@@ -223,11 +223,15 @@ describe('the count of Martin’s security events', () => {
     const warnings: string[] = [];
     const log = pino({ level: 'warn' }, { write: (line: string) => warnings.push(line) });
     await append(database.admin, 'admin.signed-in', {});
-    // A store that refuses every query: a tagged call rejects, and the helper that makes its list makes nothing.
+    // A store that refuses every query: a tagged call rejects, and the helper that makes its list makes nothing. A
+    // fragment inside another query is never awaited itself, so its rejection is marked handled, as postgres.js's is.
+    const refused = () => {
+      const query = Promise.reject(new Error('the store is down'));
+      query.catch(() => {});
+      return query;
+    };
     const broken = ((strings: unknown) =>
-      Array.isArray(strings) && 'raw' in strings
-        ? Promise.reject(new Error('the store is down'))
-        : {}) as unknown as Sql;
+      Array.isArray(strings) && 'raw' in strings ? refused() : {}) as unknown as Sql;
     const stop = observeSecurity(broken, log);
     try {
       expect(await gauge()).toBe(0);

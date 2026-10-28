@@ -203,6 +203,10 @@ export interface Actions {
    * not, is left as it is. Only one from a branch the factory owns.
    */
   closePullRequest(repo: string, number: number, comment: string): Promise<void>;
+  /**
+   * Says something on an issue or pull request, unless it says it already, word for word: trying again after a failure,
+   * or after a crash before the caller recorded it, says nothing twice.
+   */
   comment(repo: string, number: number, body: string): Promise<void>;
 }
 
@@ -490,7 +494,7 @@ export class LiveActions implements Actions {
         z.array(z.object({ event: z.string(), created_at: z.string() })),
       );
       const reopened = events.findLast((event) => event.event === 'reopened')?.created_at ?? null;
-      if (!(await this.#said(repo, number, comment, reopened))) await this.comment(repo, number, comment);
+      if (!(await this.#said(repo, number, comment, reopened))) await this.#post(repo, number, comment);
     }
     await this.#github.write(repo, 'PATCH', `/repos/${repo}/issues/${number}`, {
       state: 'closed',
@@ -502,7 +506,7 @@ export class LiveActions implements Actions {
     const issue = await this.#github.read(repo, `/repos/${repo}/issues/${number}`, ISSUE);
     if (issue.state !== 'closed') return;
     // Only what was said since it closed counts: an earlier reopening may have said the same.
-    if (!(await this.#said(repo, number, comment, issue.closed_at))) await this.comment(repo, number, comment);
+    if (!(await this.#said(repo, number, comment, issue.closed_at))) await this.#post(repo, number, comment);
     await this.#github.write(repo, 'PATCH', `/repos/${repo}/issues/${number}`, {
       state: 'open',
       state_reason: 'reopened',
@@ -518,7 +522,7 @@ export class LiveActions implements Actions {
     if (pull.state !== 'open') return;
     // Only a pull request from a branch of the factory's own, as for every change it makes to a branch.
     guardBranch(pull.head.ref);
-    if (!(await this.#said(repo, number, comment, null))) await this.comment(repo, number, comment);
+    if (!(await this.#said(repo, number, comment, null))) await this.#post(repo, number, comment);
     await this.#github.write(repo, 'PATCH', `/repos/${repo}/pulls/${number}`, { state: 'closed' });
   }
 
@@ -530,10 +534,15 @@ export class LiveActions implements Actions {
       `/repos/${repo}/issues/${number}/comments?per_page=100${after}`,
       z.array(z.object({ body: z.string().nullable() })),
     );
-    return comments.some((made) => made.body === body);
+    // As GitHub keeps it: its line endings may be \r\n, and its ends trimmed.
+    return comments.some((made) => same(made.body ?? '', body));
   }
 
   async comment(repo: string, number: number, body: string): Promise<void> {
+    if (!(await this.#said(repo, number, body, null))) await this.#post(repo, number, body);
+  }
+
+  async #post(repo: string, number: number, body: string): Promise<void> {
     await this.#github.write(repo, 'POST', `/repos/${repo}/issues/${number}/comments`, { body });
   }
 }
@@ -602,6 +611,8 @@ export class DryRunActions implements Actions {
   readonly #branches = new Map<string, string>();
   /** The pull requests it would have opened, by number. */
   readonly #pulls = new Map<number, DryRunPull>();
+  /** What it would have said on each issue or pull request, by repository and number, so it records each once. */
+  readonly #said = new Map<string, Set<string>>();
   /**
    * Numbers for what would have been made, from a billion up: positive, as every action that takes one requires,
    * and far beyond any this repository will reach, so none can be taken for a real one.
@@ -801,6 +812,14 @@ export class DryRunActions implements Actions {
   }
 
   async comment(repo: string, number: number, body: string): Promise<void> {
-    await this.#record('comment', repo, { number, body });
+    const on = `${repo}#${number}`;
+    const said = this.#said.get(on) ?? new Set<string>();
+    if (said.has(body)) return;
+    // Taken before it is recorded, so two asked at once record it once; given back if the record fails.
+    this.#said.set(on, said.add(body));
+    await this.#record('comment', repo, { number, body }).catch((error: unknown) => {
+      said.delete(body);
+      throw error;
+    });
   }
 }

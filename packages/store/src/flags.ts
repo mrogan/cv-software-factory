@@ -18,8 +18,7 @@
 import { type PayloadOf, VERSIONS } from '@software-factory/events';
 import type { Sql, TransactionSql } from 'postgres';
 import type { FlagRecord } from '../../../policy/flag-moves.ts';
-import { MARTINS_ROLES } from '../../../policy/store-grants.ts';
-import { fromMartin } from './commands.ts';
+import { askedByMartin, fromMartin } from './commands.ts';
 
 /** The role whose events of Verify's, and records of the planner's specs, are believed: the line's. */
 export const LINE_ROLE = 'factory_line';
@@ -68,10 +67,7 @@ export async function flagEvents(sql: Sql | TransactionSql, flag?: string): Prom
     )
     select p.work_item, p.flag, p.pages from specs p
     where p.flag is not null ${flag === undefined ? sql`` : sql`and p.flag = ${flag}`}
-      and exists (select 1 from events o where o.type = 'work-item.opened' and o.work_item = p.work_item
-                  and o.payload->>'kind' = 'improvement' and not o.sample and o.appended_by = any(${MARTINS_ROLES}))
-      and exists (select 1 from events r where r.type = 'improvement.requested' and r.work_item = p.work_item
-                  and not r.sample and r.appended_by = any(${MARTINS_ROLES}))
+      and ${askedByMartin(sql, 'p.work_item')}
     order by p.seq`;
   const rows = await sql<
     {
@@ -127,7 +123,12 @@ export async function flagEvents(sql: Sql | TransactionSql, flag?: string): Prom
   });
   return {
     named: Object.fromEntries(named.map((row) => [row.flag, row.work_item])),
-    pages: Object.fromEntries(named.flatMap((row) => (Array.isArray(row.pages) ? [[row.flag, row.pages]] : []))),
+    // From the same spec as `named`, the latest to name each flag: one that names no pages leaves none of an earlier's.
+    pages: Object.fromEntries(
+      Object.entries(Object.fromEntries(named.map((row) => [row.flag, row.pages]))).flatMap(([flag, pages]) =>
+        Array.isArray(pages) && pages.length ? [[flag, pages]] : [],
+      ),
+    ),
     records,
     checked,
     revision: latest?.revision ?? null,

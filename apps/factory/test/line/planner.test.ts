@@ -36,15 +36,17 @@ const SPEC = {
 const scoped = (...scope: string[]) =>
   plannerResult(PROTECTED, SOURCES).safeParse({ verdict: 'spec', spec: { ...SPEC, scope } });
 
+const TICKET: PayloadOf<'ticket.opened'> = {
+  title: 'Server errors on /search',
+  category: 'errors',
+  severity: 'broken',
+  fingerprint: { route: '/search', class: 'server-error' },
+  traces: ['0af7651916cd43dd8448eb211c80319c'],
+};
+
 const INPUT: PlannerInput = {
   workItem: '1301',
-  ticket: {
-    title: 'Server errors on /search',
-    category: 'errors',
-    severity: 'broken',
-    fingerprint: { route: '/search', class: 'server-error' },
-    traces: ['0af7651916cd43dd8448eb211c80319c'],
-  },
+  asked: { kind: 'ticket', ticket: TICKET },
   signals: [
     {
       sense: 'logs',
@@ -96,6 +98,24 @@ const INPUT: PlannerInput = {
 
 /** What the planner was told of `INPUT`, which its criteria quote. */
 const SOURCES = sourcesOf(INPUT);
+
+describe('an improvement’s spec', () => {
+  const asked = (spec: object) =>
+    plannerResult(PROTECTED, SOURCES, { improvement: true }).safeParse({ verdict: 'spec', spec });
+  it('names the flag its change goes behind and the pages it shows on', () => {
+    expect(asked({ ...SPEC, flag: 'delivery-dates', pages: ['/products/blue-mug'] }).success).toBe(true);
+    const problems = (spec: object) => asked(spec).error?.issues.map((issue) => issue.message);
+    expect(problems(SPEC)).toEqual([
+      'an improvement’s spec names the flag its change goes behind',
+      'an improvement’s spec names the pages its change shows on',
+    ]);
+    expect(problems({ ...SPEC, flag: 'delivery-dates' })).toEqual([
+      'an improvement’s spec names the pages its change shows on',
+    ]);
+    // A ticket's spec is not held to it.
+    expect(plannerResult(PROTECTED, SOURCES).safeParse({ verdict: 'spec', spec: SPEC }).success).toBe(true);
+  });
+});
 
 describe('the planner’s scope', () => {
   it('may name the app’s own files, folders and patterns', () => {
@@ -206,11 +226,14 @@ describe('the planner’s prompt', () => {
   it('says what a content ticket is about, and carries Martin’s answers to its questions', () => {
     const prompt = planner.prompt({
       ...INPUT,
-      ticket: {
-        ...INPUT.ticket,
-        title: 'A visitor reports wrong words on /about',
-        category: 'content',
-        fingerprint: { page: '/about', text: 'Open every day but Tuesday.' },
+      asked: {
+        kind: 'ticket',
+        ticket: {
+          ...TICKET,
+          title: 'A visitor reports wrong words on /about',
+          category: 'content',
+          fingerprint: { page: '/about', text: 'Open every day but Tuesday.' },
+        },
       },
       signals: [],
       answers: [{ asked: 'Is the shop open on Tuesdays?', answer: 'Yes, all day.' }],

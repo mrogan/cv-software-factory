@@ -32,7 +32,16 @@
  */
 import { AUTONOMY } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
-import { lastEnd, latestControls, lineStopped, lockAppends, storeClock } from '@software-factory/store';
+import {
+  askedByMartin,
+  byMartin,
+  lastEnd,
+  latestControls,
+  lineStopped,
+  lockAppends,
+  openedAsImprovement,
+  storeClock,
+} from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { TransactionSql } from 'postgres';
 import { z } from 'zod';
@@ -45,7 +54,6 @@ import {
   TAKE,
   type Take,
 } from '../../../../policy/line.ts';
-import { MARTINS_ROLES } from '../../../../policy/store-grants.ts';
 import type { ReleaseControls } from './rollout.ts';
 import { type AdminStore, adminEvent, Refused, type Session, steppedUpNow } from './store.ts';
 
@@ -216,11 +224,8 @@ async function openWork(tx: TransactionSql, workItem: string): Promise<boolean> 
   const [row] = await tx`
     select 1 from events t
     where t.work_item = ${workItem} and not t.sample
-      and (t.type = 'ticket.opened'
-           or (t.type = 'improvement.requested' and t.appended_by = any(${MARTINS_ROLES})
-               and exists (select 1 from events o
-                           where o.work_item = t.work_item and o.type = 'work-item.opened'
-                             and o.payload->>'kind' = 'improvement' and o.appended_by = any(${MARTINS_ROLES}))))
+      and ((t.type = 'ticket.opened' and not ${openedAsImprovement(tx, 't.work_item')})
+           or (t.type = 'improvement.requested' and ${byMartin(tx, 't')} and ${askedByMartin(tx, 't.work_item')}))
       and ${lastEnd(tx, 't.work_item')} is distinct from 'work-item.closed'
     limit 1`;
   return row !== undefined;
