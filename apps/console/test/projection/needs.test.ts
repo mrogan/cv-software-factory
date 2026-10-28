@@ -222,6 +222,16 @@ describe('Needs you', () => {
       does: 'The planner writes the spec again, told the coder needed those files.',
       stepUp: true,
     });
+    // Every file Martin's approval sends the planner is on the card, never cut.
+    const many = Array.from({ length: 20 }, (_, i) => ({
+      path: `test/${i}.test.ts`,
+      reason: 'It expects the old page.',
+    }));
+    const long = work('2012', START)
+      .open()
+      .add(30, 'hold.started', 'coder', hold('scope', { reason, needs: many }));
+    const shown = needsView(foldItems(long.events), START + 60 * 60_000).holds[0]?.evidence;
+    expect(shown?.kind === 'output' && shown.text.split('\n')).toHaveLength(20);
     // The fence's own hold still shows what it printed.
     const fenced = work('2011', START)
       .open()

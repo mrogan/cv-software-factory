@@ -61,8 +61,11 @@ export interface PlannerInput {
   signals: Signal[];
   /** The paths no scope may name at the commit: the workflows, the deployment and what CODEOWNERS gives a person. */
   protectedPaths: readonly string[];
-  /** Martin's answers to the holds at Plan, each with what he was asked. */
-  answers: { asked: string; answer: string }[];
+  /**
+   * Martin's answers to the holds at Plan, each with what he was asked, and what an agent said that he read with it
+   * (`said`: the files the coder needs, and why), which the prompt tells and no quote may come from.
+   */
+  answers: { asked: string; answer: string; said?: string | undefined }[];
   /** Each verification that found the signal persisting after a fix for this ticket was released. */
   persisted?: PayloadOf<'verification.finished'>[];
   /**
@@ -101,8 +104,12 @@ export interface Sources {
   answers: string;
 }
 
-/** One of Martin's answers, with what he was asked, as the prompt tells it and a quote is looked for in it. */
+/** One of Martin's answers, with what he was asked, as a quote is looked for in it: never an agent's words. */
 const answered = (a: PlannerInput['answers'][number]) => `${a.asked} He said: ${a.answer}`;
+
+/** One of Martin's answers as the prompt tells it: with what an agent said that he read with it. */
+const told = (a: PlannerInput['answers'][number]) =>
+  a.said ? `${a.asked} ${a.said} He said: ${a.answer}` : answered(a);
 
 /** The sources of a plan's input, as its prompt tells them. */
 export const sourcesOf = ({
@@ -329,7 +336,7 @@ function ticketPrompt(input: PlannerInput, ticket: PayloadOf<'ticket.opened'>): 
     `Plan the fix for ticket #${workItem}: ${ticket.title}.`,
     ...ticketLines(ticket, signals),
     ...(signals.length ? ['', 'What the senses saw, by number:', ...numbered(signals)] : []),
-    ...(answers.length ? ['', 'Martin was asked, and answered:', ...answers.map((a) => `- ${answered(a)}`)] : []),
+    ...(answers.length ? ['', 'Martin was asked, and answered:', ...answers.map((a) => `- ${told(a)}`)] : []),
     ...(persisted.length
       ? [
           '',
@@ -392,7 +399,7 @@ function requestPrompt(input: PlannerInput, request: Request): string {
   return [
     `Plan improvement #${workItem}: ${request.title}.`,
     `Martin asked for it in his own words: “${request.words}”`,
-    ...(answers.length ? ['', 'Martin was asked, and answered:', ...answers.map((a) => `- ${answered(a)}`)] : []),
+    ...(answers.length ? ['', 'Martin was asked, and answered:', ...answers.map((a) => `- ${told(a)}`)] : []),
     ...(failure ? ['', `Your last attempt at this plan failed: ${failure}. Do not hand back the same again.`] : []),
     '',
     'Nothing is broken: this is a change Martin wants. Find where it goes in the repository: start from the pages it shows on, and read the code that serves them and its tests. Stop as soon as you can say which code changes and what a visitor will see: that is all the plan needs, and most plans need a dozen tool calls or fewer.',

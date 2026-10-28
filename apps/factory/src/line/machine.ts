@@ -222,7 +222,7 @@ export interface WorkItemState {
    * asked (the planner's question, why it was held, or what the scope fence printed), for every later step of the
    * planner's: a second question should not forget the first answer.
    */
-  answers: { asked: string; answer: string }[];
+  answers: { asked: string; answer: string; said?: string }[];
   merged: boolean;
   /**
    * The latest release that carried the change since its merge: how it started, its promotion once it has one, and
@@ -437,7 +437,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         // Words settle nothing for triage's holds: the hold stands, and the work item waits as it did.
         if (event.payload.decision === 'answered' && WORDS_LEAVE_HELD.includes(cause)) break;
         if ((stage === 'plan' || resolution === 'replan') && said) {
-          state.answers.push({ asked: askedOf(state.hold, state.fenced), answer: said });
+          state.answers.push({ ...askedOf(state.hold, state.fenced), answer: said });
         }
         state.hold = undefined;
         forgetLook(state);
@@ -537,15 +537,18 @@ function startAgain(state: WorkItemState): void {
 /** What approving a hold of the scope fence's says, for the planner. */
 const FENCE_APPROVED = 'Yes: the coder needed those files, so let the scope take them in.';
 
-/** What Martin was asked by a hold, as the planner is told it. */
-function askedOf(hold: PayloadOf<'hold.started'>, fenced: string | undefined): string {
+/**
+ * What Martin was asked by a hold, as the planner is told it, and what the coder said of each file it needs, which
+ * the planner is told beside it, but may quote no criterion from: an agent's words are not what he asked for.
+ */
+function askedOf(hold: PayloadOf<'hold.started'>, fenced: string | undefined): { asked: string; said?: string } {
   if (hold.needs) {
     const said = hold.needs.map(({ path, reason }) => `The coder said of ${path}: ${reason.replace(/[.\s]+$/, '')}.`);
-    return [`${hold.reason}.`, ...said].join(' ');
+    return { asked: `${hold.reason}.`, said: said.join(' ') };
   }
   if (hold.cause === 'scope' && fenced)
-    return `${hold.reason}. The scope fence printed: ${fenced.split('\n').join('; ')}.`;
-  return hold.question ?? hold.reason;
+    return { asked: `${hold.reason}. The scope fence printed: ${fenced.split('\n').join('; ')}.` };
+  return { asked: hold.question ?? hold.reason };
 }
 
 const MOVES_ON = new Set<LineEvent['type']>([

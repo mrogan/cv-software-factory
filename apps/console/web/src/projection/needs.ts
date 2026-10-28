@@ -241,7 +241,8 @@ function evidenceOf(item: ItemState, cause: HoldCause): Evidence {
   }
   // The coder said which files it needs, and why: the fence refused nothing.
   if (cause === 'scope' && hold?.needs) {
-    const text = firstLines(hold.needs.map(({ path, reason }) => `${path}: ${reason}`).join('\n'));
+    // Every one, never cut: approving sends them all to the planner.
+    const text = hold.needs.map(({ path, reason }) => `${path}: ${reason}`).join('\n');
     return { kind: 'output', heading: 'the coder needs', text };
   }
   if (cause === 'scope') {

@@ -143,8 +143,6 @@ export function coderResult(suggestions = 0, alone = false, title: z.ZodType<str
       z.strictObject({ needs: needed.min(1) }),
     ])
     .superRefine((result, ctx) => {
-      // A round that needs files outside its scope holds, and answers nothing: the planner's next spec starts it again.
-      if ('needs' in result && result.needs?.length) return;
       // The change is approved: the round is for its suggestions, and declining every one is how it changes nothing.
       if (alone && 'unchanged' in result) {
         const message = 'a round for suggestions alone changes nothing by declining every one';

@@ -294,7 +294,8 @@ describe('what the line does next', () => {
     expect(approved.spec).toBeUndefined();
     expect(approved.answers).toEqual([
       {
-        asked: `${hold.reason}. The coder said of test/flags-preview.test.ts: It assumes / asks no flag; every page now does. The coder said of .github/workflows/ci.yml: It runs the old command.`,
+        asked: `${hold.reason}.`,
+        said: 'The coder said of test/flags-preview.test.ts: It assumes / asks no flag; every page now does. The coder said of .github/workflows/ci.yml: It runs the old command.',
         answer: 'Yes: the coder needed those files, so let the scope take them in.',
       },
     ]);
