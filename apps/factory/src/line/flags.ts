@@ -42,13 +42,14 @@
  */
 import { redactSecrets } from '@software-factory/events/public';
 import type { EventWriter, FlagEvents, StoredFlagCheck } from '@software-factory/store';
-import { askedByMartin, flagEvents, lastEnd } from '@software-factory/store';
+import { askedByMartin, flagEvents, fromMartin, lastEnd } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
 import { flagsFrom, stageWords } from '../../../../policy/flag-moves.ts';
 import { FLAGS_HELD, type Share, type Stage } from '../../../../policy/flags.ts';
 import { release as RELEASE } from '../../../../policy/release.ts';
 import type { Prometheus } from '../clients/prometheus.ts';
+import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
 import { figuresOf, figuresQuery, judge, type Sides, type Span, sidesOf, windowOf } from './compare.ts';
 import { type CheckAsked, checkedDraft, FRONT_PAGE, requestOf } from './flag-checks.ts';
 import { asEvent } from './gates.ts';
@@ -63,6 +64,11 @@ export interface FlagItem {
   improvement: boolean;
   sample: boolean;
   closed: boolean;
+  /**
+   * Whether its latest pull request is a dry run's, whose change never reached the app: at Everyone it is not
+   * verified, and the line closes it with no change once it runs live (`dryRunLeft`).
+   */
+  dryRun: boolean;
 }
 
 /** What the pass decides from. */
@@ -182,6 +188,7 @@ export function flagsNext({ flags, items, only, now: at }: FlagFacts): FlagNext[
     if (
       now.last?.to.stage === 'everyone' &&
       !item.closed &&
+      !item.dryRun &&
       move?.type === 'flag.staged' &&
       at - Date.parse(move.ts) >= FLAGS_HELD.takeSeconds * 1000 &&
       !closing
@@ -346,12 +353,12 @@ export class FlagPass {
 
   /**
    * Closes an improvement Martin widened to Everyone as verified, and its issue as completed, saying so: the issue
-   * first, as for a turned-off one. Martin may have moved the flag since the pass read it: then it waits for the next.
+   * first, as for a turned-off one. Martin may have moved the flag since the pass read it, or while GitHub answered:
+   * then it closes nothing, and the next pass decides afresh.
    */
   async #verified(next: Extract<FlagNext, { do: 'verified' }>): Promise<void> {
     const { flag, workItem } = next;
-    const latest = (await flagEvents(this.#o.sql, flag)).records.findLast((r) => r.type === 'flag.staged');
-    if (latest?.seq !== next.move.seq) return;
+    if (!(await this.#latest(next))) return;
     try {
       const issue = await this.#issueOf(workItem);
       const { github, repo } = this.#o;
@@ -367,6 +374,8 @@ export class FlagPass {
       this.#o.log.warn({ workItem, flag, err: error }, 'could not close a verified improvement’s issue');
       return;
     }
+    // Martin may have turned it off while GitHub answered: then the next pass closes it as turned off instead.
+    if (!(await this.#latest(next))) return;
     const ts = this.#o.now().toISOString();
     const drafts = [
       {
@@ -387,6 +396,16 @@ export class FlagPass {
     }
     countRecorded(drafts);
     this.#o.log.info({ workItem, flag }, 'closed an improvement whose flag is on for everyone');
+  }
+
+  /** Whether Martin's move to Everyone is still his latest of the flag. */
+  async #latest(next: Extract<FlagNext, { do: 'verified' }>): Promise<boolean> {
+    const [row] = await this.#o.sql<{ seq: string }[]>`
+      select e.seq::text as seq from events e
+      where e.type = 'flag.staged' and e.payload->>'flag' = ${next.flag} and not e.sample and e.work_item is not null
+        and e.appended_by is not null and ${fromMartin(this.#o.sql, 'e')}
+      order by e.seq desc limit 1`;
+    return row?.seq === next.move.seq;
   }
 
   /** The issue the line opened for a work item, if it did. */
@@ -521,10 +540,15 @@ export class FlagPass {
    */
   async #items(workItems: string[]): Promise<Record<string, FlagItem>> {
     const sql = this.#o.sql;
-    const rows = await sql<{ work_item: string; kind: string; sample: boolean; closed: boolean; asked: boolean }[]>`
+    const rows = await sql<
+      { work_item: string; kind: string; sample: boolean; closed: boolean; asked: boolean; dry_run: boolean }[]
+    >`
       select o.work_item, o.payload->>'kind' as kind, o.sample,
              ${lastEnd(sql, 'o.work_item')} is not distinct from 'work-item.closed' as closed,
-             ${askedByMartin(sql, 'o.work_item')} as asked
+             ${askedByMartin(sql, 'o.work_item')} as asked,
+             coalesce((select (p.payload->>'number')::bigint >= ${DRY_RUN_NUMBERS_FROM} from events p
+                       where p.work_item = o.work_item and p.type = 'pull-request.pushed'
+                       order by p.seq desc limit 1), false) as dry_run
       from events o where o.type = 'work-item.opened' and o.work_item = any(${workItems})`;
     return Object.fromEntries(
       rows.map((row) => {
@@ -538,7 +562,12 @@ export class FlagPass {
         }
         return [
           row.work_item,
-          { improvement: row.kind === 'improvement' && asked, sample: row.sample, closed: row.closed },
+          {
+            improvement: row.kind === 'improvement' && asked,
+            sample: row.sample,
+            closed: row.closed,
+            dryRun: row.dry_run,
+          },
         ];
       }),
     );

@@ -15,7 +15,7 @@ import { publicView } from '@software-factory/events/public';
 import { validate } from '@software-factory/events/schemas';
 import type { JSONValue, Sql, TransactionSql } from 'postgres';
 import type { ArtifactStore } from './artifacts.ts';
-import { fromMartin } from './commands.ts';
+import { fromMartin, openedAsImprovement } from './commands.ts';
 
 /**
  * A flag's own events, which an improvement closed as turned off or as verified still takes: the flag outlives the
@@ -154,16 +154,15 @@ export class EventWriter {
       ? await tx<
           { work_item: string; opened: boolean; improvement: boolean; closed: boolean; outcome: string | null }[]
         >`
-          select work_item,
-                 bool_or(type = 'work-item.opened') as opened,
-                 coalesce(bool_or(type = 'work-item.opened' and payload->>'kind' = 'improvement'), false)
-                   as improvement,
-                 coalesce((array_agg(type order by seq desc)
-                   filter (where type in ('work-item.closed', 'work-item.reopened')))[1] = 'work-item.closed', false)
+          select ev.work_item,
+                 bool_or(ev.type = 'work-item.opened') as opened,
+                 ${openedAsImprovement(tx, 'ev.work_item')} as improvement,
+                 coalesce((array_agg(ev.type order by ev.seq desc)
+                   filter (where ev.type in ('work-item.closed', 'work-item.reopened')))[1] = 'work-item.closed', false)
                    as closed,
-                 (array_agg(payload->>'outcome' order by seq desc)
-                   filter (where type in ('work-item.closed', 'work-item.reopened')))[1] as outcome
-          from events where work_item in ${tx(items)} group by work_item`
+                 (array_agg(ev.payload->>'outcome' order by ev.seq desc)
+                   filter (where ev.type in ('work-item.closed', 'work-item.reopened')))[1] as outcome
+          from events ev where ev.work_item in ${tx(items)} group by ev.work_item`
       : [];
     const state = new Map(
       known.map((row) => [

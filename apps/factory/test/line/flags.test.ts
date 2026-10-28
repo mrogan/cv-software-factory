@@ -60,7 +60,7 @@ const staged = (
   ...(reason && { reason }),
 });
 
-const open: FlagItem = { improvement: true, sample: false, closed: false };
+const open: FlagItem = { improvement: true, sample: false, closed: false, dryRun: false };
 /** A day after the first move, by when the app has long held every move. */
 const LATER = Date.parse('2026-10-28T09:00:00Z');
 
@@ -199,6 +199,11 @@ describe('what the flag pass decides', () => {
       expect(flagsNext({ flags, items: { '7': { ...open, improvement: false } }, only: null, now: LATER })).toEqual([]);
       expect(flagsNext({ flags, items: { '7': open }, only: '8', now: LATER })).toEqual([]);
       expect(flagsNext({ flags, items: { '7': open }, only: '7', now: LATER })).toMatchObject([{ do: 'verified' }]);
+    });
+
+    it('closes nothing whose change only a dry run made: the line closes that one with no change once it runs live', () => {
+      const { flags } = atEveryone();
+      expect(flagsNext({ flags, items: { '7': { ...open, dryRun: true } }, only: null, now: LATER })).toEqual([]);
     });
 
     it('closes a work item once, whether another of its flags is at Everyone or turned off', () => {
@@ -768,6 +773,30 @@ describe('the flag pass, against the store', () => {
     await pass();
     expect((await closes(workItem)).map((c) => c.payload.outcome)).toEqual(['verified']);
     expect(github.acts.filter((a) => a.action === 'closeIssue')).toHaveLength(1);
+  });
+
+  it('closes nothing at Everyone whose latest pull request is a dry run’s', async () => {
+    const workItem = await improvement('dry');
+    await events.append([
+      event(
+        workItem,
+        'pull-request.pushed',
+        {
+          number: 1_000_000_001,
+          title: 'feat: dates',
+          branch: 'factory/dry',
+          attempt: 1,
+          testsFirst: true,
+          files: [{ path: 'src/dates.ts', added: 1, removed: 0 }],
+          whole: [],
+        },
+        'coder',
+      ),
+    ]);
+    await move(workItem, 'dry', SHARE, EVERYONE);
+    now += 60_000;
+    await line().pass();
+    expect(await closes(workItem)).toEqual([]);
   });
 
   it('closes nothing at Everyone for a move a role not Martin’s appended', async () => {

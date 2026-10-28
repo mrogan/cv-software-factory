@@ -119,9 +119,9 @@ export interface FlagRow {
   /** Turned off by Martin, rather than never widened. */
   turnedOff: boolean;
   /**
-   * Turned off before everyone had it, and its work item closed, as turned off (the line closes it once Martin turns
-   * the flag off) or as verified (once it was on for everyone, and narrowed since): folded under Turned off and
-   * closed. One turned off from Everyone may go straight back, so it stays.
+   * Turned off, but not from Everyone, and its work item closed, as turned off (the line closes it once Martin turns
+   * the flag off) or as verified (it was on for everyone, then narrowed): folded under Turned off and closed. One
+   * turned off from Everyone may go straight back, so it stays.
    */
   closed: boolean;
   /** Its work item is still open: turning the flag off closes it. */
