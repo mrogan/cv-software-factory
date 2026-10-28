@@ -38,5 +38,15 @@ function appOrigin(given: string): string | undefined {
   }
 }
 
-/** Where "Preview it on the app" goes: the app's front page, asking for the flag's preview, which sets its cookie. */
-export const previewHref = (app: string, flag: string) => `${app}/?${new URLSearchParams({ preview: flag })}`;
+/**
+ * A page of the app by its path alone, as `spec.written` holds one: a slash and no second, and no query, fragment,
+ * scheme, backslash or space, so a link made of it stays on the app's own origin (`//` would name another host).
+ */
+const PAGE = /^\/(?!\/)[^\s?#:\\]*$/;
+
+/**
+ * Where "Preview it on the app" goes: the page the flag's spec changes first, or the front page when it names none (or
+ * names one that is not a path alone), asking for the flag's preview, which sets its cookie.
+ */
+export const previewHref = (app: string, flag: string, page = '/') =>
+  `${app}${PAGE.test(page) ? page : '/'}?${new URLSearchParams({ preview: flag })}`;

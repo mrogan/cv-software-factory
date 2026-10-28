@@ -15,7 +15,7 @@
 import { type ReactNode, Suspense, useEffect, useId, useRef, useState } from 'react';
 import { FLAG_STEP_UP } from '../access.ts';
 import { type Admin, said, write } from '../admin.ts';
-import { clock } from '../format.ts';
+import { clock, inWords } from '../format.ts';
 import { previewHref } from '../profile.ts';
 import {
   type FlagNeed,
@@ -50,6 +50,8 @@ function Evidence({ need }: { need: Need }) {
         <p className="ev">
           {evidence.before} <q>{evidence.question}</q>
         </p>
+      ) : evidence.kind === 'spec' ? (
+        <SpecEvidence evidence={evidence} />
       ) : (
         <p className="ev">{evidence.text}</p>
       )}
@@ -59,6 +61,23 @@ function Evidence({ need }: { need: Need }) {
         </p>
       )}
     </>
+  );
+}
+
+/** An improvement's spec, as its card says it: the flag it names, the pages it changes, and its criteria. */
+function SpecEvidence({ evidence }: { evidence: Extract<Need['evidence'], { kind: 'spec' }> }) {
+  const { flag, pages, criteria } = evidence;
+  return (
+    <p className="ev">
+      The spec names {flag ? 'its flag, ' : 'no flag'}
+      {flag && <code className="flagname">{flag}</code>}
+      {pages.length > 0 && (
+        <>
+          , the {pages.length === 1 ? 'page' : 'pages'} it changes, <span className="mono">{pages.join(', ')}</span>
+        </>
+      )}
+      , and {inWords(criteria, 'acceptance criterion', 'acceptance criteria')}, each tested with the flag on or off.
+    </p>
   );
 }
 
@@ -124,7 +143,10 @@ function MartinsCard({ need, token, onOpen }: { need: Need; token: string; onOpe
         cancelled = !(await stepUp.ask({
           title: `Approve #${need.workItem}`,
           what: answer.does,
-          why: 'Approving overrides a guardrail',
+          why:
+            need.cause === 'spec'
+              ? 'Approving an improvement’s spec sets the line building something new'
+              : 'Approving overrides a guardrail',
         }));
         return !cancelled;
       });
@@ -287,7 +309,7 @@ function FlagCard({
     need.stage.stage === 'preview' && app ? (
       <>
         {need.evidence}{' '}
-        <a className="inline" href={previewHref(app, need.flag)} target="_blank" rel="noopener">
+        <a className="inline" href={previewHref(app, need.flag, row?.page)} target="_blank" rel="noopener">
           Preview it<span aria-hidden="true"> ↗</span>
           <span className="sr"> (opens the app in a new tab)</span>
         </a>

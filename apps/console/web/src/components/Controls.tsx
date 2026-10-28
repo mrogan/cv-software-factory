@@ -110,7 +110,7 @@ function takeWords(take: Take | null, nextFew: ControlsView['nextFew'], viewer: 
   }
   switch (take.kind) {
     case 'every':
-      return 'The oldest open ticket of the highest severity, one after another, for as long as the line runs.';
+      return 'The oldest open ticket of the highest severity, one after another, then each improvement Martin asked for, oldest first, for as long as the line runs.';
     case 'next-few': {
       const many = take.count === 1 ? 'The next work item' : `The next ${take.count} work items`;
       const since = nextFew?.since ?? Date.parse(take.since);
@@ -130,7 +130,7 @@ type Change = { autonomy: Autonomy } | { newWork: boolean } | { autoMerge: boole
 /** A wider take, as the passkey's dialog says it. */
 const takeAsked = (take: Take) =>
   take.kind === 'every'
-    ? 'The line takes every ticket.'
+    ? 'The line takes every ticket, and each improvement after them.'
     : take.kind === 'next-few'
       ? `The line takes the next ${take.count === 1 ? 'work item' : `${take.count} work items`}, counted from now.`
       : `The line takes only #${take.workItem}.`;
@@ -508,7 +508,7 @@ function TakeGroup({ controls, viewer, changer }: { controls: ControlsView; view
               </button>
               {!after && (
                 <span className="help">
-                  {draft.kind === 'next-few' ? `From 1 to ${TAKE.most}.` : 'A work item’s number.'}
+                  {draft.kind === 'next-few' ? `From 1 to ${TAKE.most}.` : 'A ticket’s or an improvement’s number.'}
                 </span>
               )}
             </>

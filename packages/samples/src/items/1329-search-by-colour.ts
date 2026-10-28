@@ -1,8 +1,8 @@
 /**
  * A visitor's suggestion, parked for Martin: Jev judged it a request for something new, and only Martin asks for an
- * improvement. He answered it in words, which leave it waiting until he rejects it (or, from Part B, turns it into an
- * improvement). The work item was opened by a visitor's report, so his words stay his: visitors see that he answered,
- * and not what he said.
+ * improvement. He answered it in words, which leave it waiting until he rejects it: a suggestion never starts work, and
+ * he asks for the improvement himself, with the "+", in his own words. The work item was opened by a visitor's report,
+ * so his words stay his: visitors see that he answered, and not what he said.
  */
 import { Item, JEV, jevCassette, triageAnswers } from '../build.ts';
 import { shot } from '../captures.ts';

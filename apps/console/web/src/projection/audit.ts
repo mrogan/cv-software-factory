@@ -4,9 +4,10 @@
  * Martin on a hold about a visitor's report, is never in what it is given.
  *
  * What happened is the event's own public summary, so a type added later shows with no change here. A few types get a
- * line of detail under it: a model call's model, effort, tokens and cost; the reason Martin gave; his words on a hold;
- * each setting he changed; the release he controlled; and, on an action that asks for his passkey again, when he gave
- * it. Where the public view left something out, a row says what and why, in place of the detail.
+ * line of detail under it: a model call's model, effort, tokens and cost; the reason Martin gave; his words on a hold
+ * or in a request for an improvement; each setting he changed; the release he controlled; and, on an action that asks
+ * for his passkey again, when he gave it. Where the public view left something out, a row says what and why, in place
+ * of the detail.
  */
 import {
   ACTORS,
@@ -223,6 +224,10 @@ export function auditRows(events: readonly PublicEvent[], t: number, profile: Pr
         if (p.dropped?.length) parts.push(`dropped ${p.dropped.join(', ')}, set by hand`);
         break;
       }
+      // Martin's request for an improvement, in his words, as everyone may read them.
+      case 'improvement.requested':
+        parts.push(quoted(event.payload.words));
+        break;
       case 'release.controlled': {
         const p = event.payload;
         parts.push(`release ${p.release}`, p.to === undefined ? `at ${p.weight}%` : `${p.weight}% → ${p.to}%`);

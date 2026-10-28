@@ -12,7 +12,8 @@
  * with a change unsaved and for a visitor, and the bottom row: Needs you (Waiting on Martin for a visitor, his words
  * being written for him, the passkey asked for on a guardrail's Approve, and nothing waiting) beside Controls; and the
  * audit log, whole and narrowed to a visitor's report; and the privacy page. Part B's flags from the samples, with the
- * admin service's check of the app stood in for: Controls' Flags, each confirmation, a flag's card, and the sheet.
+ * admin service's check of the app stood in for: Controls' Flags, each confirmation, a flag's card, and the sheet; and
+ * the "+" on Plan, for Martin and a visitor, an improvement's spec in Needs you and its sheet's request.
  */
 import type { Page } from '@playwright/test';
 import { STAGES as KINDS } from '@software-factory/events';
@@ -744,6 +745,85 @@ test.describe('the flags in Ink', () => {
     await section.waitFor();
     await page.evaluate(() => document.fonts.ready);
     await expect(section).toHaveScreenshot('m07-sheet-flag-1271-ink.png');
+  });
+});
+
+/**
+ * Milestone 7, Part B: the "+" on Plan. Martin's form with his words being written, a visitor's read-only form, an
+ * improvement's spec in Needs you with the key on its Approve, and its sheet's request and spec, at all three widths;
+ * Plan's panel ending with the "+" on a laptop, and Martin's form in Ink.
+ */
+async function improve(page: Page, as: 'martin' | 'visitor', theme: 'paper' | 'ink' = 'paper') {
+  await adminService(page, as);
+  await page.goto(consoleUrl({ theme }));
+  await ready(page);
+  await page
+    .getByRole('button', { name: as === 'martin' ? 'Request an improvement' : 'How Martin asks for an improvement' })
+    .click();
+  await page.getByRole('dialog').waitFor();
+  if (as === 'martin') {
+    const words = page.getByLabel('What you want');
+    await words.fill(
+      'Say on the basket page how many items are in it. Count each product once, however many of it are in the basket.',
+    );
+    await words.blur();
+  }
+  await page.evaluate(() => document.fonts.ready);
+}
+
+for (const [width, viewport] of Object.entries(WIDTHS)) {
+  test.describe(`${width}, the "+"`, () => {
+    test.use({ viewport });
+
+    test('Martin asks for an improvement', async ({ page }) => {
+      await improve(page, 'martin');
+      await expect(page).toHaveScreenshot(`m07-improve-${width}.png`);
+    });
+
+    test('a visitor reads how Martin asks', async ({ page }) => {
+      await improve(page, 'visitor');
+      await expect(page).toHaveScreenshot(`m07-improve-visitor-${width}.png`);
+    });
+
+    test('an improvement’s spec in Needs you, Approve with the key', async ({ page }) => {
+      await adminService(page, 'martin');
+      await page.goto(consoleUrl());
+      await ready(page);
+      const card = page.locator('article.needs .need').filter({ hasText: '#1334 ·' });
+      await expect(card).toHaveScreenshot(`m07-improvement-spec-card-${width}.png`);
+    });
+
+    test('#1334’s sheet: the request, and the spec', async ({ page }) => {
+      await page.goto(consoleUrl({ item: '1334', sheet: true }));
+      const request = page.locator('.sheet figure.martins-request');
+      await request.waitFor();
+      await page.evaluate(() => document.fonts.ready);
+      await expect(request).toHaveScreenshot(`m07-sheet-request-${width}.png`);
+      const spec = page.locator('.sheet section.sec', { has: page.getByRole('heading', { name: 'The spec' }) });
+      await expect(spec).toHaveScreenshot(`m07-sheet-improvement-spec-${width}.png`);
+    });
+  });
+}
+
+test.describe('the "+" on a laptop', () => {
+  test.use({ viewport: WIDTHS.laptop });
+
+  test('Plan’s panel ends with the "+"', async ({ page }) => {
+    await adminService(page, 'martin');
+    await page.goto(consoleUrl());
+    await ready(page);
+    await page.getByRole('button', { name: /^Plan:/ }).click();
+    const panel = page.getByRole('dialog', { name: 'Plan' });
+    await expect(panel).toHaveScreenshot('m07-plan-panel.png');
+  });
+});
+
+test.describe('the "+" in Ink', () => {
+  test.use({ viewport: WIDTHS.desktop });
+
+  test('Martin asks for an improvement', async ({ page }) => {
+    await improve(page, 'martin', 'ink');
+    await expect(page).toHaveScreenshot('m07-improve-ink.png');
   });
 });
 

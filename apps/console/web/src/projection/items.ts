@@ -18,12 +18,12 @@ import { flagWaits } from './flags.ts';
 import type { StoppedBy } from './release.ts';
 
 /**
- * How a work item stands. Besides the line's own: `waiting`, a ticket queued for the planner, with nothing being
- * done to it yet; `waits-on-work`, a spec queued before Build while work in flight whose spec shares its files is
- * verified or closed; `merged`, a fix Martin merged, queued at Release for a release to take it; `deploying`, a fix
- * Martin merged, held for a deploy whose pull request is not his to merge yet (not open, its checks running or
- * failed, or already merged); `quarantined`, a report that gave orders to the system; `no-ticket`, a report that
- * described nothing wrong.
+ * How a work item stands. Besides the line's own: `waiting`, a ticket or an improvement Martin asked for, queued for
+ * the planner, with nothing being done to it yet; `waits-on-work`, a spec queued before Build while work in flight
+ * whose spec shares its files is verified or closed; `merged`, a fix Martin merged, queued at Release for a release to
+ * take it; `deploying`, a fix Martin merged, held for a deploy whose pull request is not his to merge yet (not open,
+ * its checks running or failed, or already merged); `quarantined`, a report that gave orders to the system;
+ * `no-ticket`, a report that described nothing wrong.
  */
 export type Outcome =
   | 'verified'
@@ -124,9 +124,11 @@ export interface ItemState {
   calls: number;
   /** The ticket triage opened, if it has. */
   ticket: PayloadOf<'ticket.opened'> | undefined;
+  /** Martin's request, for an improvement he asked for with the "+": his words, when, and whether with his passkey. */
+  request: (PayloadOf<'improvement.requested'> & { at: number }) | undefined;
   /**
-   * Work queued at a stage that has not taken it: a ticket waiting for the planner, its last step the ticket; or a
-   * merged fix waiting for a release, its last step the merge.
+   * Work queued at a stage that has not taken it: a ticket waiting for the planner, its last step the ticket, or an
+   * improvement, its last step Martin's request; or a merged fix waiting for a release, its last step the merge.
    */
   queued: boolean;
   /** The app's version when a sense first saw the problem. */
@@ -289,6 +291,7 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
     spend: 0,
     calls: 0,
     ticket: undefined,
+    request: undefined,
     queued: false,
     seenOn: undefined,
     reportPage: undefined,
@@ -380,6 +383,20 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.story = story;
         break;
       }
+      case 'improvement.requested':
+        // Martin's request waits at Plan, behind every open ticket, until the planner takes it.
+        state.request = { ...event.payload, at: time };
+        enter('plan', time);
+        state.latest.plan = event;
+        state.queued = true;
+        break;
+      case 'spec.written':
+        // An improvement's spec names its title, in place of the one made from Martin's words.
+        if (event.payload.title && state.kind === 'improvement') state.title = event.payload.title;
+        // A spec written again replaces the one held for Martin: his answer to the old card would answer nothing, as
+        // the admin service refuses it, and the line holds the new one afresh if it needs him.
+        if (state.hold?.cause === 'spec') state.hold = undefined;
+        break;
       case 'ticket.opened':
         state.category = event.payload.category;
         state.ticket = event.payload;

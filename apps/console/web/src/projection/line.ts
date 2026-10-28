@@ -350,11 +350,18 @@ function returnOf(item: string, returned: PayloadOf<'work.returned'>, summary: s
  * CD as a merged fix waits for a release.
  */
 const waitsHere = (item: ItemState) => item.queued || deploying(item);
+
+/** An open ticket waiting at Plan for the planner, which an improvement Martin asked for waits behind. */
+export const ticketWaits = (item: ItemState) =>
+  item.queued && item.ticket !== undefined && item.stage === 'plan' && item.closedAt === undefined;
 const deploying = (item: ItemState) => item.outcome === 'deploying';
 
-/** A row's note for an item in a stage now: what it waits for, or the last thing that happened to it there. */
-function noteOf(item: ItemState, stage: Stage): string {
-  const note = holdNote(item, stage);
+/**
+ * A row's note for an item in a stage now: what it waits for, or the last thing that happened to it there. `behind`
+ * is whether open tickets wait at Plan, which an improvement Martin asked for waits behind.
+ */
+function noteOf(item: ItemState, stage: Stage, behind = false): string {
+  const note = holdNote(item, stage, behind);
   const cleared = clearanceWords(item);
   return cleared ? `${note}. ${cleared}` : note;
 }
@@ -362,8 +369,12 @@ function noteOf(item: ItemState, stage: Stage): string {
 /** Whether a work item waits on Martin where it is: a hold, or an improvement's flag waiting for him to widen it. */
 const waitsOnMartin = (item: ItemState) => item.hold !== undefined || item.outcome === 'needs-you';
 
-function holdNote(item: ItemState, stage: Stage): string {
+function holdNote(item: ItemState, stage: Stage, behind: boolean): string {
   if (item.waitingOn) return item.waitingOn.reason;
+  // Martin's request, until the planner takes it: the line takes it once no open ticket waits.
+  if (item.queued && item.request && stage === 'plan') {
+    return `Asked by Martin · ${behind ? 'waiting behind the open tickets' : 'waiting for the planner'}`;
+  }
   // Held for a deploy that is not Martin's yet: what it waits for, and the deploy pull request by number.
   if (item.outcome === 'deploying') {
     return `${endedSinceMerge(item) ? 'Rolled back' : 'Merged'} · ${deployWords(item.deploy).short}`;
@@ -434,11 +445,12 @@ export function panel(
   shipped: readonly Release[] = [],
 ): StagePanel {
   const present = inStage(items, stage);
+  const behind = present.some(ticketWaits);
   const now = present.map(
     (item): PanelRow => ({
       item: item.number,
       title: item.title,
-      note: noteOf(item, stage),
+      note: noteOf(item, stage, behind),
       earlier: [],
       tone: deploying(item) ? 'faint' : waitsOnMartin(item) || item.failure ? 'attn' : item.queued ? 'faint' : 'signal',
       state: deploying(item)

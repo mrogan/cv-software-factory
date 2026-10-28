@@ -99,6 +99,8 @@ export interface FlagRow {
   /** The work item it ships on: the improvement whose spec names it, or the one it was staged on. */
   workItem: string;
   title: string;
+  /** The first page its spec changes, which a preview opens: the front page when the spec names none. */
+  page: string;
   /** Where it stands: off until Martin stages it. */
   stage: Stage;
   /** The share its Share stop shows: the one it is at, or was last at, or half and half. */
@@ -165,9 +167,14 @@ export interface FlagsView {
 
 /** The flag an improvement's latest spec names, if it is one. */
 export function specFlag(item: ItemState): string | undefined {
+  return improvementSpec(item)?.flag;
+}
+
+/** An improvement's latest spec, if it has one. */
+function improvementSpec(item: ItemState): PayloadOf<'spec.written'> | undefined {
   if (item.kind !== 'improvement') return undefined;
   const spec = item.events.findLast((event) => event.type === 'spec.written');
-  return spec?.type === 'spec.written' ? spec.payload.flag : undefined;
+  return spec?.type === 'spec.written' ? spec.payload : undefined;
 }
 
 /**
@@ -322,6 +329,7 @@ export function flagsView(
       name,
       workItem,
       title: item.title,
+      page: improvementSpec(item)?.pages?.[0] ?? '/',
       stage,
       share,
       stops: STAGES.map((s, i): Stop => {
