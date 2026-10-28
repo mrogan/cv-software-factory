@@ -752,6 +752,27 @@ export const PAYLOADS = {
     figures: versus(figures).optional(),
     dryRun: z.boolean(),
   }),
+  /**
+   * A look of the canary's background analysis, as it lands: errors and latency about every minute, and the journeys
+   * every three, throughout the release. It carries the measures the analysis took at that moment, each in the
+   * analysis's own terms, and each version's own figures then. A look judges no step: a step's analysis ending is a
+   * `canary.stepped`, and a measure that fails as many looks as its limit fails the release, which its
+   * `release.rolled-back` records. The line records the looks of a release in flight only; a dry run's measures
+   * nothing, so it has none.
+   */
+  'canary.measuring': z.strictObject({
+    release: releaseId,
+    version: appVersion,
+    /** The canary's share of the traffic when the line read the look, as the Rollout's step then has it. */
+    weight: z.number().int().min(1).max(100),
+    /** When the analysis took the look: the latest of its measurements' ends, as Argo Rollouts keeps them. */
+    at: timestamp,
+    /** Each measure the look took, with that measurement's phase, value and words, in the analysis's order. */
+    measures: z.array(measure).min(1).max(8),
+    /** Each version's own figures over the window that ended with the look, from the telemetry, when they were read. */
+    figures: versus(figures).optional(),
+    dryRun: z.boolean(),
+  }),
   /** The canary took all of the traffic: the release is the stable version now. */
   'release.promoted': z.strictObject({
     release: releaseId,

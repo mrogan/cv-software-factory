@@ -7,8 +7,9 @@
  *   GHCR), and the work items it carries (`carried`): those whose fixes merged between the commit the last promoted
  *   release runs and the new image's, as the deploy pull request lists them. For a version found live, each merged
  *   work item no release has carried whose fix is already in it. A commit GitHub never had (a dry run's) is in neither.
- * - for each step, each version's figures from Prometheus, and how many of the journeys' checks passed of how many ran,
- *   from the Job's termination message; for a rollback, the series of each failed measure.
+ * - for each step, and each look of the background analysis, each version's figures from Prometheus at its time, and
+ *   how many of the journeys' checks passed of how many ran, from the Job's termination message, where it ran them;
+ *   for a rollback, the series of each failed measure.
  * - for an abort, who made it, from the control the admin service records once its patch is made
  *   (`release.controlled`, appended by one of Martin's roles), within the minute before the abort: Stop the line, when
  *   the control says it came with the console's stop; Martin, when he aborted this release from the Canary panel.
@@ -59,7 +60,14 @@ import {
   seriesOf,
 } from '../release/read.ts';
 import { lastPromoted, type Recorded, recordedFrom, releaseRecords, type Target } from '../release/recorded.ts';
-import { namedReleases, type Observed, observe, podHashes } from '../release/rollout.ts';
+import {
+  type AnalysisRun,
+  type Measurement,
+  namedReleases,
+  type Observed,
+  observe,
+  podHashes,
+} from '../release/rollout.ts';
 import type { RolloutRef } from '../release/rollout-ref.ts';
 import { canarySignal, type FailedMeasure, failedMeasures, keyOf, type Read } from '../release/signals.ts';
 import {
@@ -67,6 +75,7 @@ import {
   dryRunRelease,
   type Facts,
   type Figures,
+  lookKey,
   measuresOf,
   type Needs,
   releaseEvents,
@@ -164,7 +173,12 @@ export class Releases {
     // only something to record has a span for the recording (`#append`), and an idle pass none.
     const unsent = failedMeasures(o, recorded).some((failed) => !this.#signalled.has(keyOf(failed)));
     const reads =
-      Boolean(needs.start) || needs.steps.length > 0 || needs.failures.length > 0 || needs.aborted || unsent;
+      Boolean(needs.start) ||
+      needs.steps.length > 0 ||
+      needs.looks.length > 0 ||
+      needs.failures.length > 0 ||
+      needs.aborted ||
+      unsent;
     if (!reads) return this.#record(o, recorded, last, needs, watch, false);
     const release = namedReleases(o, recorded, lastRelease).current;
     await inSpan('release', releaseAttributes(release), () => this.#record(o, recorded, last, needs, watch, true));
@@ -186,28 +200,39 @@ export class Releases {
     const aborting = needs.aborted ? namedReleases(o, recorded, lastRelease).current : undefined;
     const abortedBy = aborting && o.abortedAt ? await this.#abortedBy(o.abortedAt, aborting) : undefined;
     const figures = new Map<string, Figures>();
-    for (const run of needs.steps) {
+    // Each version's figures at a step's end or a look, and the journeys' counts where it ran them. The counts are
+    // Kubernetes's, not Prometheus's: one that cannot be read leaves the other its figures.
+    const readFigures = async (key: string, run: AnalysisRun, at: string | undefined, journeys?: Measurement) => {
       const hashes = hashesOf(run);
-      const at = run.status.completedAt;
-      if (!hashes || !at) continue;
-      // The counts are Kubernetes's, not Prometheus's: one that cannot be read leaves the other its figures.
-      const [read, journeys] = await Promise.all([
+      if (!hashes || !at) return;
+      const about = { run: run.metadata.name, at };
+      const [read, counted] = await Promise.all([
         figuresAt(prometheus, hashes, new Date(at)).catch((error: unknown) => {
-          log.warn({ run: run.metadata.name, err: error }, 'could not read a step’s figures');
+          log.warn({ ...about, err: error }, 'could not read the canary’s figures');
           return undefined;
         }),
-        journeysCounted(kube, rollout.namespace, run).catch((error: unknown) => {
-          log.warn({ run: run.metadata.name, err: error }, 'could not read the journeys’ counts at a step');
-          return undefined;
-        }),
+        journeys
+          ? journeysCounted(kube, rollout.namespace, run, journeys).catch((error: unknown) => {
+              log.warn({ ...about, err: error }, 'could not read the journeys’ counts');
+              return undefined;
+            })
+          : undefined,
       ]);
-      if (read || journeys) {
+      if (read || counted) {
         const none = { requests: null, errorRate: null, p99Ms: null };
-        figures.set(run.metadata.name, {
-          canary: { ...(read?.canary ?? none), journeys: journeys?.canary ?? null },
-          baseline: { ...(read?.baseline ?? none), journeys: journeys?.baseline ?? null },
+        figures.set(key, {
+          canary: { ...(read?.canary ?? none), journeys: counted?.canary ?? null },
+          baseline: { ...(read?.baseline ?? none), journeys: counted?.baseline ?? null },
         });
       }
+    };
+    for (const run of needs.steps) {
+      const journeys = run.status.metricResults.find((m) => m.name === 'journeys')?.measurements.at(-1);
+      await readFigures(run.metadata.name, run, run.status.completedAt, journeys);
+    }
+    for (const look of needs.looks) {
+      const journeys = look.taken.find((t) => t.name === 'journeys')?.measurement;
+      await readFigures(lookKey(look), look.run, look.at, journeys);
     }
     const series = new Map<string, Series>();
     for (const run of needs.failures) {

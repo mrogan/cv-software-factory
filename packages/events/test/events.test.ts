@@ -98,6 +98,32 @@ describe('validation', () => {
       },
     };
     expect(validate({ ...stepped, work_item: null })).toEqual({ ok: true });
+    // A look of the background analysis, as it lands: the measures it took, each version's figures, and when.
+    const look = {
+      ...started,
+      type: 'canary.measuring',
+      version: 1,
+      payload: {
+        release: '6d8f9c7b54',
+        version: 'v0.9.4',
+        weight: 25,
+        at: '2026-10-06T06:31:02Z',
+        measures: [
+          { name: 'errors', phase: 'successful', value: -0.0003, limit: 0.01 },
+          { name: 'latency', phase: 'failed', value: 0.025, limit: 0 },
+        ],
+        figures: {
+          canary: { requests: 63, errorRate: 0.004, p99Ms: 145, journeys: null },
+          baseline: { requests: 190, errorRate: 0.006, p99Ms: 118, journeys: null },
+        },
+        dryRun: false,
+      },
+    };
+    expect(validate(look)).toEqual({ ok: true });
+    expect(validate({ ...look, work_item: null })).toEqual({ ok: true });
+    // A look took at least one measure, at a time.
+    expect(validate({ ...look, payload: { ...look.payload, measures: [] } }).ok).toBe(false);
+    expect(validate({ ...look, payload: { ...look.payload, at: 'a minute ago' } }).ok).toBe(false);
     // Martin's abort says when Argo Rollouts acted on it, and whether Stop the line made it.
     const aborted = {
       ...started,

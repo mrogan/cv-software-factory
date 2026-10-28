@@ -56,7 +56,7 @@ Throughout:
 - errors and latency every minute, once the split has sent the canary enough requests;
 - the journeys every three minutes.
 
-Each fails the release at its second failed look.
+Each fails the release at its second failed look. The line records each look as it lands ([`canary.measuring`](RELEASE-AND-VERIFY.md#its-events)), for the console to show while the canary holds its step.
 
 ### The journeys
 

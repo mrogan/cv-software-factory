@@ -27,7 +27,21 @@ export interface TargetRecord {
   ended: 'promoted' | 'rolled-back' | 'errored' | 'aborted' | undefined;
   /** When Argo Rollouts acted on its latest abort, if it was aborted or its analysis erred. */
   abortedAt?: string;
+  /**
+   * The time up to which its background analysis's looks are accounted for: the latest look it recorded
+   * (`canary.measuring`), or the latest end of an attempt, when later, as the looks before an end are an attempt's
+   * that is over. A release retried keeps it.
+   */
+  lookedUntil?: string;
 }
+
+/** The events that end a release's attempt. */
+const ENDS = new Set(['release.promoted', 'release.rolled-back', 'release.aborted', 'release.errored']);
+
+/** Moves the time a record's looks are accounted for up to `at`, if it is later. */
+const looked = (record: TargetRecord, at: string) => {
+  if (!record.lookedUntil || Date.parse(at) > Date.parse(record.lookedUntil)) record.lookedUntil = at;
+};
 
 /** What is recorded of each release, by its name, and on each target. */
 export type Recorded = Map<string, Map<Target, TargetRecord>>;
@@ -51,11 +65,14 @@ export function recordedFrom(
         steps: record?.steps ?? 0,
         stepsBefore: record?.steps ?? 0,
         ended: undefined,
+        ...(record?.lookedUntil ? { lookedUntil: record.lookedUntil } : {}),
       });
       continue;
     }
     if (!record) continue;
     if (type === 'canary.stepped') record.steps += 1;
+    if (type === 'canary.measuring') looked(record, (payload as PayloadOf<'canary.measuring'>).at);
+    if (ENDS.has(type)) looked(record, ts);
     if (type === 'release.promoted') record.ended = 'promoted';
     if (type === 'release.rolled-back') record.ended = 'rolled-back';
     if (type === 'release.aborted' || type === 'release.errored') {

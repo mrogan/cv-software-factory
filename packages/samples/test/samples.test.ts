@@ -128,6 +128,26 @@ describe('the samples', () => {
     expect(waiting.map((hold) => hold.work_item)).toEqual(['1321']);
   });
 
+  it('look at the canary in flight about once a minute, the journeys on their own, each recorded after it ended', () => {
+    const last = of('release.started').at(-1);
+    const looks = of('canary.measuring').filter((event) => event.payload.release === last?.payload.release);
+    const times = looks.map((event) => Date.parse(event.payload.at));
+    expect(times).toEqual([...times].sort((a, b) => a - b));
+    const minutely = looks.filter((event) => event.payload.measures.some((m) => m.name === 'errors'));
+    expect(minutely.length).toBeGreaterThanOrEqual(5);
+    for (const [i, event] of minutely.entries()) {
+      if (i > 0) expect(Date.parse(event.payload.at) - Date.parse(minutely[i - 1]?.payload.at ?? '')).toBe(60_000);
+    }
+    expect(looks.filter((event) => event.payload.measures.some((m) => m.name === 'journeys'))).toHaveLength(1);
+    // A look is recorded a pass after it ended, and before the next step or look the line read.
+    for (const event of looks) expect(Date.parse(event.ts)).toBeGreaterThan(Date.parse(event.payload.at));
+    // Looks only at a release in flight: a dry run measures nothing, and one that ended has no more.
+    expect(of('canary.measuring').every((event) => event.payload.release === last?.payload.release)).toBe(true);
+    // Errors and latency wait for the canary's first 100 requests.
+    expect(minutely[0]?.payload.measures.map((m) => m.value)).toEqual([null, null]);
+    expect(minutely.at(-1)?.payload.weight).toBe(50);
+  });
+
   it('keep the score from off to the figures the line’s own tickets earn', () => {
     const scores = of('score.updated').map((event) => event.payload);
     expect(scores[0]).toEqual({ keyed: false });
