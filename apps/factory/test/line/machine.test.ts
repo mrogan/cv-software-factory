@@ -1538,3 +1538,147 @@ describe('a spec that overlaps work in flight', () => {
     expect(decide(events, { ...facts, overlaps }).next).toMatchObject({ do: 'wait-on' });
   });
 });
+
+describe('an improvement Martin asked for', () => {
+  const requested: LineEvent = {
+    type: 'improvement.requested',
+    payload: { words: 'Show each product’s delivery date on its page.', steppedUp: true },
+  };
+  const specHold = (events: readonly LineEvent[]) => {
+    const decision = decide(events, facts);
+    if (decision.next.do !== 'hold') throw new Error(`no hold: ${JSON.stringify(decision)}`);
+    return { stage: decision.stage, hold: decision.next.hold };
+  };
+  const approve = answer('approved');
+  const built = [requested, spec, held('spec', 'plan'), approve, pushed(), started(), finished('passed')];
+  const approvedAndDescribed = [...built, review('approved'), summarised];
+  const mergedImprovement = [...approvedAndDescribed, held('merge', 'review'), merged];
+
+  it('opens its issue and plans it, as a ticket', () => {
+    expect(decide([requested], { ...facts, issue: null })).toEqual({ stage: 'plan', next: { do: 'open-issue' } });
+    expect(decide([requested], facts)).toEqual({ stage: 'plan', next: { do: 'step', agent: 'planner', round: 1 } });
+  });
+
+  it('holds every spec for Martin before any code, whatever its risks', () => {
+    expect(specHold([requested, spec])).toEqual({
+      stage: 'held',
+      hold: {
+        stage: 'plan',
+        kind: 'approval',
+        cause: 'spec',
+        reason:
+          'The spec of an improvement Martin asked for: it waits for his approval before any code is written, in every autonomy mode',
+      },
+    });
+    // A spec from before the planner named where each criterion is from is held too: no ticket's rule lets it by.
+    const old: LineEvent = {
+      type: 'spec.written',
+      payload: { ...(spec.payload as PayloadOf<'spec.written'>), criteria: [{ given: 'a', when: 'b', expect: 'c' }] },
+    };
+    expect(specHold([requested, old]).hold.cause).toBe('spec');
+    // A ticket whose request a worker appended would never be read: the line reads Martin's commands from his roles.
+    expect(decide([ticket, spec], facts).next).toEqual({ do: 'step', agent: 'coder', round: 1 });
+  });
+
+  it('builds once he approves, closes when he rejects, and plans again, held again, when he answers', () => {
+    const holding = [requested, spec, held('spec', 'plan')];
+    expect(decide(holding, facts)).toEqual({ stage: 'held', next: { do: 'wait', for: 'martin' } });
+    expect(decide([...holding, approve], facts).next).toEqual({ do: 'step', agent: 'coder', round: 1 });
+    expect(decide([...holding, answer('rejected')], facts).next).toMatchObject({ do: 'close', merged: false });
+    const answered = [...holding, answer('answered', 'Only on the product page')];
+    expect(decide(answered, facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });
+    expect(specHold([...answered, spec]).hold.cause).toBe('spec');
+    // A spec written again after his approval is held again.
+    expect(specHold([...holding, approve, pushed(), spec]).hold.cause).toBe('spec');
+  });
+
+  it('waits on overlapping work until it closes, with no look again, and goes on to the hold', () => {
+    const overlaps = [{ workItem: '1028', files: ['src/search.ts'] }];
+    expect(decide([requested, spec], { ...facts, overlaps }).next).toMatchObject({ do: 'wait-on' });
+    const waits: LineEvent = {
+      type: 'wait.started',
+      payload: { on: ['1028'], files: ['src/search.ts'], reason: 'Waits for #1028' },
+    };
+    const events = [requested, spec, waits];
+    expect(decide(events, { ...facts, waitedOn: { '1028': null }, stable }).next).toEqual({
+      do: 'wait',
+      for: 'overlap',
+    });
+    const closed = { '1028': { closedAt: '2026-10-17T13:30:00Z' } };
+    const over = decide(events, { ...facts, waitedOn: closed });
+    expect(over.next).toMatchObject({ do: 'hold', hold: { cause: 'spec' } });
+    // Once it has moved on, the wait is over for good, whatever the work it waited on does next.
+    const moved = [...events, held('spec', 'plan'), approve];
+    expect(fold(moved).waiting?.ended).toBe(true);
+    expect(decide(moved, { ...facts, waitedOn: { '1028': null } }).next).toEqual({
+      do: 'step',
+      agent: 'coder',
+      round: 1,
+    });
+  });
+
+  it('never looks again at a held improvement: it has no signal', () => {
+    const holding = [requested, signal(), spec, held('spec', 'plan'), approve, pushed(), held('gates', 'gates')];
+    expect(decide(holding, { ...facts, stable }).next).toEqual({ do: 'wait', for: 'martin' });
+    expect(closesWhenCleared(fold(holding))).toBe(false);
+  });
+
+  it('waits for Martin’s merge in every mode, saying so', () => {
+    expect(specHold(approvedAndDescribed)).toEqual({
+      stage: 'held',
+      hold: {
+        stage: 'review',
+        kind: 'approval',
+        cause: 'merge',
+        reason:
+          'The improvement in pull request #12 has passed its gates and review, and waits for Martin to merge it, as an improvement does in every mode',
+      },
+    });
+  });
+
+  it('is handed over once a release that carries it is promoted, never verified by a sense', () => {
+    expect(specHold(mergedImprovement)).toMatchObject({
+      hold: {
+        cause: 'deploy',
+        reason:
+          'The improvement in pull request #12 is merged, and waits for a deploy pull request to carry it to the app',
+      },
+    });
+    const live = [...mergedImprovement, held('deploy', 'release'), release()];
+    expect(decide(live, facts)).toEqual({ stage: 'release', next: { do: 'wait', for: 'release' } });
+    expect(decide([...live, promoted()], facts)).toEqual({
+      stage: 'ended',
+      next: { do: 'hand-over', release: promoted().payload },
+    });
+  });
+
+  it('holds for the next deploy when the release that carried it rolled back', () => {
+    const rolled = [...mergedImprovement, release(), rolledBack()];
+    expect(specHold(rolled)).toMatchObject({
+      stage: 'held',
+      hold: {
+        stage: 'release',
+        cause: 'deploy',
+        reason:
+          'The release that carried the improvement, v0.9.4, rolled back: it waits for the next deploy pull request to carry it',
+      },
+    });
+    expect(decide([...rolled, held('deploy', 'release'), release('r9'), promoted('r9')], facts).next).toMatchObject({
+      do: 'hand-over',
+    });
+  });
+
+  it('waits for a dry run’s release, then is handed over; a live line closes what the dry run left', () => {
+    const dryNumber = (event: LineEvent): LineEvent =>
+      event.type === 'pull-request.pushed' || event.type === 'pull-request.merged'
+        ? ({ ...event, payload: { ...event.payload, number: 1_000_000_012 } } as LineEvent)
+        : event;
+    const dryRun = (event: LineEvent): LineEvent =>
+      ({ ...event, payload: { ...event.payload, dryRun: true } }) as LineEvent;
+    const dry = mergedImprovement.map(dryNumber);
+    expect(decide(dry, facts)).toEqual({ stage: 'release', next: { do: 'wait', for: 'release' } });
+    const handed = [...dry, dryRun(release()), dryRun(promoted())];
+    expect(decide(handed, facts).next).toMatchObject({ do: 'hand-over', release: { dryRun: true } });
+    expect(dryRunLeft(handed, 1_000_000_011)).toEqual({ end: 'close', why: 'merge' });
+  });
+});

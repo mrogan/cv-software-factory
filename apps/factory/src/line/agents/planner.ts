@@ -32,13 +32,13 @@ import { PATH_CHARS, RISKS, touches } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
 import { z } from 'zod';
 import { NEVER, plainPath, protectedWords } from '../../github/paths.ts';
-import { count, defineAgent, holdDraft, words } from './agent.ts';
-import { numbered, routeOf, type Signal, seen, ticketLines } from './evidence.ts';
+import { askedOf, count, defineAgent, holdDraft, words } from './agent.ts';
+import { type Asked, askedLines, askedName, askedTitle, numbered, routeOf, type Signal, seen } from './evidence.ts';
 
 export interface PlannerInput {
   workItem: string;
-  /** The ticket, as its public view has it. */
-  ticket: PayloadOf<'ticket.opened'>;
+  /** The ticket, or Martin's request for an improvement, as its public view has it. */
+  asked: Asked;
   /** What each sense saw, in the order they saw it. A report's signal is not here. */
   signals: Signal[];
   /** The paths no scope may name at the commit: the workflows, the deployment and what CODEOWNERS gives a person. */
@@ -66,10 +66,11 @@ function scopeProblem(entry: string, protectedPaths: readonly string[]): string 
 }
 
 /**
- * What a criterion may come from, in the words the prompt gives each: the ticket, each signal by its number from 1,
- * and Martin's answers with what he was asked. A criterion's quote is looked for here.
+ * What a criterion may come from, in the words the prompt gives each: the ticket, or Martin's request, each signal by
+ * its number from 1, and Martin's answers with what he was asked. A criterion's quote is looked for here.
  */
 export interface Sources {
+  /** The ticket, or Martin's request. */
   ticket: string;
   signals: string[];
   answers: string;
@@ -80,11 +81,11 @@ const answered = (a: PlannerInput['answers'][number]) => `${a.asked} He said: ${
 
 /** The sources of a plan's input, as its prompt tells them. */
 export const sourcesOf = ({
-  ticket,
+  asked,
   signals,
   answers,
-}: Pick<PlannerInput, 'ticket' | 'signals' | 'answers'>): Sources => ({
-  ticket: [ticket.title, ...ticketLines(ticket, signals)].join('\n'),
+}: Pick<PlannerInput, 'asked' | 'signals' | 'answers'>): Sources => ({
+  ticket: [askedTitle(asked), ...askedLines(asked, signals)].join('\n'),
   signals: signals.map((signal) => seen(signal).join('\n')),
   answers: answers.map(answered).join('\n'),
 });
@@ -115,7 +116,7 @@ const within = (words: string, source: string) => {
  */
 export function quoteProblem(from: string, quote: string, sources: Sources): string | undefined {
   const named: string[] = [];
-  if (/\bticket\b/i.test(from)) named.push(sources.ticket);
+  if (/\b(ticket|request)\b/i.test(from)) named.push(sources.ticket);
   // `signal 2`, `signals 1 and 2`, `signals 1, 3`, `signal #2`
   for (const [, list = ''] of from.matchAll(/\bsignals?\s*((?:#?\d+(?:\s*(?:,|and|&|\+|-|–)\s*)?)+)/gi)) {
     for (const [n] of list.matchAll(/\d+/g)) {
@@ -253,9 +254,9 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
   agent: 'planner',
   maxTurns: 30,
   deadlineSeconds: 15 * 60,
-  input: async ({ workItem, state, commit, failure, ticket, signals, read }) => ({
+  input: async ({ workItem, state, commit, failure, ticket, request, signals, read }) => ({
     workItem,
-    ticket: await ticket(),
+    asked: await askedOf({ state, ticket, request }),
     signals: await signals(),
     protectedPaths: await read('protectedPaths', { ref: commit }),
     answers: state.answers,
@@ -264,10 +265,10 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
     failure,
   }),
   schema: (input) => plannerResult(input.protectedPaths, sourcesOf(input)),
-  prompt: ({ workItem, ticket, signals, protectedPaths, answers, persisted = [], reopened = [], failure }) =>
+  prompt: ({ workItem, asked, signals, protectedPaths, answers, persisted = [], reopened = [], failure }) =>
     [
-      `Plan the fix for ticket #${workItem}: ${ticket.title}.`,
-      ...ticketLines(ticket, signals),
+      `Plan the ${asked.kind === 'ticket' ? 'fix' : 'change'} for ${askedName(asked, workItem)}: ${askedTitle(asked)}.`,
+      ...askedLines(asked, signals),
       ...(signals.length ? ['', 'What the senses saw, by number:', ...numbered(signals)] : []),
       ...(answers.length ? ['', 'Martin was asked, and answered:', ...answers.map((a) => `- ${answered(a)}`)] : []),
       ...(persisted.length

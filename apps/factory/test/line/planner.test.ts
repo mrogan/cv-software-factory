@@ -36,15 +36,17 @@ const SPEC = {
 const scoped = (...scope: string[]) =>
   plannerResult(PROTECTED, SOURCES).safeParse({ verdict: 'spec', spec: { ...SPEC, scope } });
 
+const TICKET: PayloadOf<'ticket.opened'> = {
+  title: 'Server errors on /search',
+  category: 'errors',
+  severity: 'broken',
+  fingerprint: { route: '/search', class: 'server-error' },
+  traces: ['0af7651916cd43dd8448eb211c80319c'],
+};
+
 const INPUT: PlannerInput = {
   workItem: '1301',
-  ticket: {
-    title: 'Server errors on /search',
-    category: 'errors',
-    severity: 'broken',
-    fingerprint: { route: '/search', class: 'server-error' },
-    traces: ['0af7651916cd43dd8448eb211c80319c'],
-  },
+  asked: { kind: 'ticket', ticket: TICKET },
   signals: [
     {
       sense: 'logs',
@@ -206,11 +208,14 @@ describe('the planner’s prompt', () => {
   it('says what a content ticket is about, and carries Martin’s answers to its questions', () => {
     const prompt = planner.prompt({
       ...INPUT,
-      ticket: {
-        ...INPUT.ticket,
-        title: 'A visitor reports wrong words on /about',
-        category: 'content',
-        fingerprint: { page: '/about', text: 'Open every day but Tuesday.' },
+      asked: {
+        kind: 'ticket',
+        ticket: {
+          ...TICKET,
+          title: 'A visitor reports wrong words on /about',
+          category: 'content',
+          fingerprint: { page: '/about', text: 'Open every day but Tuesday.' },
+        },
       },
       signals: [],
       answers: [{ asked: 'Is the shop open on Tuesdays?', answer: 'Yes, all day.' }],

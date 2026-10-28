@@ -6,14 +6,23 @@
  * A ticket comes onto the line only when nothing is in Plan or waiting for Build, so the line pulls work at the
  * pace of its slowest step rather than piling up specs: the oldest open ticket of the highest severity, from the
  * real events only. A spec that waits for overlapping work in flight is at a stage of its own (`waiting`, 0016), which
- * may last until that work is verified, so it holds up no ticket. One decision at a time takes it (an advisory lock), so two workers cannot take the same ticket.
+ * may last until that work is verified, so it holds up no ticket. One decision at a time takes it (an advisory lock),
+ * so two workers cannot take the same ticket.
+ *
+ * An improvement Martin asked for (the console's "+") comes onto the line as a ticket does, behind every open ticket
+ * not yet taken, the oldest first: a defect in the app goes before something new. Only one he asked for: its opening
+ * (`work-item.opened`, kind improvement) and his request (`improvement.requested`) both appended by one of his roles
+ * (`MARTINS_ROLES`), as row security lets no other (0035_improvement-requests.sql). A work item is judged by that
+ * opening, so a ticket appended to an improvement does not make it one, and a ticket's work item is never taken as an
+ * improvement.
  *
  * What the queue takes (`Takes`) is Martin's take from the console's Controls, read each pass, or else the line's own
  * default (LINE_ONLY, LINE_TAKE):
  *
  * - A queue for one work item only (`only`: Just one, or LINE_ONLY) sees nothing else on the line, and takes that
- *   ticket onto it whatever else is in Plan or Build: every other work item is left as it is, so it holds up nothing.
- * - A queue with a limit (`take`: The next few, or LINE_TAKE) takes tickets by the same rule until that many work items
+ *   ticket or improvement onto it whatever else is in Plan or Build: every other work item is left as it is, so it
+ *   holds up nothing.
+ * - A queue with a limit (`take`: The next few, or LINE_TAKE) takes work by the same rule until that many work items
  *   have come onto the line since the limit was set (`since`; LINE_TAKE counts every one there has ever been), and
  *   then no more, while those on it go on to their end. It counts the line's own rows, which are never deleted, by
  *   when each was taken, under the same lock: a restart, or a second worker, takes none beyond the limit.
@@ -26,6 +35,7 @@
 import { lastEnd } from '@software-factory/store';
 import type { JSONValue, Sql } from 'postgres';
 import type { Take } from '../../../../policy/line.ts';
+import { MARTINS_ROLES } from '../../../../policy/store-grants.ts';
 import type { Handback } from '../runners/steps.ts';
 import type { Draft } from './gates.ts';
 import type { LineAgent, QueueStage } from './machine.ts';
@@ -163,10 +173,11 @@ export class Queue {
   }
 
   /**
-   * Takes the next ticket into Plan, if nothing is in Plan or waiting for Build: the oldest open ticket of the
-   * highest severity that has never been on the line. Returns its work item, or undefined. A queue of one takes its
-   * own ticket, if it is open and not yet on the line, and no other. A queue with a limit takes none once the line
-   * has taken that many work items since it was set, whichever they were.
+   * Takes the next work item into Plan, if nothing is in Plan or waiting for Build: the oldest open ticket of the
+   * highest severity that has never been on the line, or, with none, the oldest improvement Martin asked for that has
+   * never been on it. Returns its work item, or undefined. A queue of one takes its own ticket or improvement, if it
+   * is open and not yet on the line, and no other. A queue with a limit takes none once the line has taken that many
+   * work items since it was set, whichever they were.
    */
   async admit(): Promise<string | undefined> {
     const only = this.#only;
@@ -183,13 +194,22 @@ export class Queue {
       }
       const [busy] = only ? [] : await tx`select 1 from line where stage in ('plan', 'build') limit 1`;
       if (busy) return undefined;
+      // Tickets first (0), by severity; then improvements (1). Within each, the oldest first.
       const [taken] = await tx<{ work_item: string }[]>`
         insert into line (work_item, stage)
         select t.work_item, 'plan' from events t
-        where t.type = 'ticket.opened' and not t.sample ${only ? tx`and t.work_item = ${only}` : tx``}
+        where not t.sample ${only ? tx`and t.work_item = ${only}` : tx``}
+          and ((t.type = 'ticket.opened'
+                and not exists (select 1 from events o where o.work_item = t.work_item and o.type = 'work-item.opened'
+                                and o.payload->>'kind' = 'improvement'))
+               or (t.type = 'improvement.requested' and t.appended_by = any(${MARTINS_ROLES})
+                   and exists (select 1 from events o where o.work_item = t.work_item and o.type = 'work-item.opened'
+                               and o.payload->>'kind' = 'improvement' and not o.sample
+                               and o.appended_by = any(${MARTINS_ROLES}))))
           and ${lastEnd(tx, 't.work_item')} is distinct from 'work-item.closed'
           and not exists (select 1 from line l where l.work_item = t.work_item)
-        order by case t.payload->>'severity' when 'broken' then 3 when 'degraded' then 2 else 1 end desc, t.seq
+        order by case t.type when 'ticket.opened' then 0 else 1 end,
+                 case t.payload->>'severity' when 'broken' then 3 when 'degraded' then 2 else 1 end desc, t.seq
         limit 1
         returning work_item`;
       return taken?.work_item;

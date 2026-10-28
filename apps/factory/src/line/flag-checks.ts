@@ -10,7 +10,8 @@
  *   for, as kept to its contract. So it passes only with the preview cookie allowed and nothing kept that the run with
  *   the flag off did not keep.
  *
- * The pages are the front page, whatever pages the spec names (`spec.written`'s `pages`).
+ * The pages are those the improvement's latest spec names (`spec.written`'s `pages`), up to six, or the front page when
+ * it names none (`flags.ts`).
  */
 import type { ArtifactRef, PayloadOf, Screenshot } from '@software-factory/events';
 import type { StoredFlagCheck } from '@software-factory/store';

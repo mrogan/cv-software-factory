@@ -171,6 +171,121 @@ describe('a queue set to take what Martin chose', () => {
   });
 });
 
+/**
+ * An improvement, as the admin service opens it with Martin's request: or, with `by`, one a worker opened before row
+ * security refused it, or one with no request.
+ */
+async function improvement({ by = 'admin' }: { by?: 'admin' | 'triage' | 'no-request' } = {}): Promise<string> {
+  const opener = by === 'triage' ? database.as.triage : database.admin;
+  const workItem = await nextWorkItem(opener);
+  const event = (type: 'work-item.opened' | 'improvement.requested', payload: object) =>
+    ({
+      id: crypto.randomUUID(),
+      ts: new Date().toISOString(),
+      work_item: workItem,
+      type,
+      version: VERSIONS[type],
+      actor: 'martin',
+      summary: `${type} for the test`,
+      payload,
+      artifacts: [],
+    }) as NewEvent;
+  const events = [
+    event('work-item.opened', { kind: 'improvement', title: 'Delivery dates', sample: false }),
+    ...(by === 'no-request' ? [] : [event('improvement.requested', { words: 'Delivery dates.', steppedUp: true })]),
+  ];
+  const kind = { kind: 'real', artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))) } as const;
+  if (by !== 'triage') await new EventWriter(opener, kind).append(events);
+  else {
+    await database.owner`alter table events disable row level security`;
+    try {
+      await new EventWriter(opener, kind).append(events);
+    } finally {
+      await database.owner`alter table events enable row level security`;
+    }
+  }
+  return workItem;
+}
+
+describe('an improvement Martin asked for', () => {
+  it('waits behind every open ticket not yet taken, whatever their ages, and goes oldest first', async () => {
+    const older = await improvement();
+    const newer = await improvement();
+    const cosmetic = await ticket('cosmetic', '/');
+    const queue = new Queue(database.as.line, 'test');
+    expect(await queue.admit()).toBe(cosmetic);
+    await end(cosmetic);
+    expect(await queue.admit()).toBe(older);
+    await end(older);
+    // A ticket opened since goes before the improvement still waiting.
+    const broken = await ticket('broken', '/search');
+    expect(await queue.admit()).toBe(broken);
+    await end(broken);
+    expect(await queue.admit()).toBe(newer);
+  });
+
+  it('is taken at once with just one, and counted like a ticket in the next few', async () => {
+    await ticket('broken', '/search');
+    const asked = await improvement();
+    const one = new Queue(database.as.line, 'test', { only: asked });
+    expect(await one.admit()).toBe(asked);
+    const queue = new Queue(database.as.line, 'other', { take: 1 });
+    expect(await queue.admit()).toBeUndefined();
+  });
+
+  it('is never taken unless Martin both opened it and asked for it, nor made one by a ticket', async () => {
+    const forged = await improvement({ by: 'triage' });
+    const unasked = await improvement({ by: 'no-request' });
+    const queue = new Queue(database.as.line, 'test');
+    expect(await queue.admit()).toBeUndefined();
+    expect(await new Queue(database.as.line, 'one', { only: forged }).admit()).toBeUndefined();
+    expect(await new Queue(database.as.line, 'one', { only: unasked }).admit()).toBeUndefined();
+    // A worker's ticket on his improvement does not make it a ticket: it waits as an improvement.
+    const asked = await improvement();
+    const later = await ticket('cosmetic', '/');
+    await writer().append([
+      {
+        id: crypto.randomUUID(),
+        ts: new Date().toISOString(),
+        work_item: asked,
+        type: 'ticket.opened',
+        version: VERSIONS['ticket.opened'],
+        actor: 'triage',
+        summary: 'A ticket on an improvement',
+        payload: {
+          title: 'Broken',
+          category: 'errors',
+          severity: 'broken',
+          fingerprint: { route: '/', class: 'server-error' },
+          traces: [],
+        },
+        artifacts: [],
+      } as NewEvent,
+    ]);
+    expect(await queue.admit()).toBe(later);
+    await end(later);
+    expect(await queue.admit()).toBe(asked);
+  });
+
+  it('is never taken once it has closed', async () => {
+    const asked = await improvement();
+    await writer().append([
+      {
+        id: crypto.randomUUID(),
+        ts: new Date().toISOString(),
+        work_item: asked,
+        type: 'work-item.closed',
+        version: VERSIONS['work-item.closed'],
+        actor: 'factory',
+        summary: 'Closed',
+        payload: { outcome: 'turned-off', reason: 'Not now' },
+        artifacts: [],
+      } as NewEvent,
+    ]);
+    expect(await new Queue(database.as.line, 'test').admit()).toBeUndefined();
+  });
+});
+
 describe('a spec waiting for overlapping work', () => {
   it('waits at a stage of its own, which leaves room for the next ticket', async () => {
     const first = await ticket('broken', '/search');

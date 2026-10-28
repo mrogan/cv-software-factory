@@ -73,6 +73,14 @@
  * rule for each cause and each answer. An answer in words to one of triage's holds leaves it standing
  * (`WORDS_LEAVE_HELD`): only his approval or his rejection settles those.
  *
+ * An improvement Martin asked for (`improvement.requested`, the console's "+") comes onto the line as a ticket does, and
+ * goes the same way to his merge, with three differences. Its spec is held for his approval before any code, every
+ * spec of it, rewritten or not, whatever its risks: an improvement widens what the app does. It has no signal, so no
+ * sense looks at it again, and a wait on overlapping work ends when that work closes. And once a release that carries
+ * it is promoted, the line hands it over (`hand-over`): its change is in the app behind its flag, off, and the flag
+ * pass (`flags.ts`) judges it from there, at each stage Martin widens the flag to. A rollback, or a release that erred
+ * or was aborted, holds it for the next deploy as a fix is held.
+ *
  * A held work item's defect may go some other way: another work item's fix, Martin's own commit, a dependency update.
  * So after each real release is promoted, and once as a hold starts, the sense that saw it looks again at the version
  * the stable Service runs (`lookDue`), unless a signal on that version already says the defect is there. A hold the
@@ -115,6 +123,7 @@ export type LineEvent = { [K in keyof Payloads]: { type: K; payload: Payloads[K]
 type Payloads = {
   [K in
     | 'ticket.opened'
+    | 'improvement.requested'
     | 'spec.written'
     | 'pull-request.pushed'
     | 'suggestions.answered'
@@ -143,6 +152,11 @@ type Payloads = {
 /** Where a work item is, from its events. */
 export interface WorkItemState {
   ticket: PayloadOf<'ticket.opened'> | undefined;
+  /**
+   * Martin's request, when the work item is an improvement he asked for: the line reads it only from his roles, and
+   * takes the work item only when he opened it too (`queue.ts`). A request makes it an improvement, whatever else it has.
+   */
+  request: PayloadOf<'improvement.requested'> | undefined;
   spec: PayloadOf<'spec.written'> | undefined;
   /** The latest pull request pushed, and whether the coder must build again since. */
   pullRequest: PayloadOf<'pull-request.pushed'> | undefined;
@@ -170,7 +184,10 @@ export interface WorkItemState {
    * reason, which the next reviewer is told. A suggestion answered is not sent to the coder again.
    */
   suggestionsAnswered: PayloadOf<'suggestions.answered'> | undefined;
-  /** Whether Martin approved the spec in force, when it carries a risk that always holds it (`ALWAYS_HELD`). */
+  /**
+   * Whether Martin approved the spec in force, when it carries a risk that always holds it (`ALWAYS_HELD`), or is an
+   * improvement's.
+   */
   specApproved: boolean;
   /** Whether the spec was written again after the latest push, which the coder has not yet been sent back to meet. */
   respecified: boolean;
@@ -247,6 +264,7 @@ export interface WorkItemState {
 /** A work item with no events yet. */
 const initial = (): WorkItemState => ({
   ticket: undefined,
+  request: undefined,
   spec: undefined,
   pullRequest: undefined,
   rebuild: undefined,
@@ -290,9 +308,17 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
   for (const event of events) {
     // Anything that moves the work item on is past the answer that moved it.
     if (MOVES_ON.has(event.type)) state.answer = undefined;
+    // An improvement's wait on overlapping work has no look to end it: whatever the line does next ends it, as the
+    // work it waited on has closed (`decide`).
+    if (state.request && state.waiting && !state.waiting.ended && MOVES_ON.has(event.type)) {
+      state.waiting = { ...state.waiting, ended: true };
+    }
     switch (event.type) {
       case 'ticket.opened':
         state.ticket = event.payload;
+        break;
+      case 'improvement.requested':
+        state.request = event.payload;
         break;
       case 'spec.written':
         state.spec = event.payload;
@@ -488,15 +514,15 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
 
 /**
  * Work sent back to Plan starts a fresh pass: the planner writes a new spec, and the coder's first round opens a new
- * pull request, with its own gates, review, merge and release. Only the ticket, the hold, Martin's answers, the
- * verifications that persisted and the reopenings carry over: the planner should not forget an answer, nor a fix that
- * did not work or did not last. So do the ticket's signals, and the last scope, which still says what it is about.
+ * pull request, with its own gates, review, merge and release. Only the ticket or the request, the hold, Martin's
+ * answers, the verifications that persisted and the reopenings carry over: the planner should not forget an answer,
+ * nor a fix that did not work or did not last. So do the ticket's signals, and the last scope, which still says what it is about.
  */
 function startAgain(state: WorkItemState): void {
-  const { ticket, hold, answer, answers, persisted, reopened, persistedBefore, closed } = state;
+  const { ticket, request, hold, answer, answers, persisted, reopened, persistedBefore, closed } = state;
   const { firstSense, seenOn, latestScope } = state;
-  Object.assign(state, initial(), { ticket, hold, answer, answers, persisted, reopened, persistedBefore, closed });
-  Object.assign(state, { firstSense, seenOn, latestScope });
+  Object.assign(state, initial(), { ticket, request, hold, answer, answers, persisted, reopened, persistedBefore });
+  Object.assign(state, { closed, firstSense, seenOn, latestScope });
 }
 
 /** What approving a hold of the scope fence's says, for the planner. */
@@ -550,6 +576,11 @@ export type Next =
   | { do: 'wait-on'; on: string[]; files: string[] }
   /** Verify the promoted release that carries the change, by the sense that saw the defect. */
   | { do: 'verify'; release: PayloadOf<'release.promoted'> }
+  /**
+   * Hand a released improvement over to the flag pass: its change is in the app behind its flag, off, and Martin
+   * widens it from the console. Its row on the line ends; the work item stays open, for the flag pass to judge.
+   */
+  | { do: 'hand-over'; release: PayloadOf<'release.promoted'> }
   /**
    * Look again at a held or waiting work item's signal, by the sense that saw it, at the version the stable Service
    * runs: after a release (`release`), or as the work it waited on ended (`wait`).
@@ -674,16 +705,24 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
     if (s.cleared) return { stage: 'waiting', next: { do: 'verified', verification: undefined, rechecked: s.cleared } };
     if (!s.waiting.ended) {
       const { waitedOn } = facts;
-      if (waitedOn && s.waiting.on.every((workItem) => waitedOn[workItem])) {
-        return { stage: 'waiting', next: { do: 'recheck', for: 'wait' } };
+      const over = waitedOn !== undefined && s.waiting.on.every((workItem) => waitedOn[workItem]);
+      // An improvement has no signal to look at again: the work it waited on closed, and it goes on.
+      if (over && !s.request) return { stage: 'waiting', next: { do: 'recheck', for: 'wait' } };
+      if (!over) {
+        if (lookDue(s, facts.stable)) return { stage: 'waiting', next: { do: 'recheck', for: 'release' } };
+        return { stage: 'waiting', next: { do: 'wait', for: 'overlap' } };
       }
-      if (lookDue(s, facts.stable)) return { stage: 'waiting', next: { do: 'recheck', for: 'release' } };
-      return { stage: 'waiting', next: { do: 'wait', for: 'overlap' } };
     }
   } else if (!s.pullRequest && !s.rebuild && facts.overlaps?.length) {
     const on = facts.overlaps.map((o) => o.workItem).slice(0, 40);
     const files = [...new Set(facts.overlaps.flatMap((o) => o.files))].slice(0, 40);
     return { stage: 'waiting', next: { do: 'wait-on', on, files } };
+  }
+  // Every spec of an improvement waits for Martin before any code: it widens what the app does, whatever its risks.
+  if (s.request && !s.specApproved) {
+    const reason =
+      'The spec of an improvement Martin asked for: it waits for his approval before any code is written, in every autonomy mode';
+    return { stage: 'held', next: { do: 'hold', hold: { stage: 'plan', kind: 'approval', cause: 'spec', reason } } };
   }
   // The rule holds the specs written under it: the planner's since its criteria named where each comes from. One in
   // the store from before carries on as it was.
@@ -752,7 +791,9 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
             stage: 'review',
             kind: 'approval',
             cause: 'merge',
-            reason: `The fix in pull request #${s.pullRequest.number} has passed its gates and review, and waits for Martin to merge it`,
+            reason: s.request
+              ? `The improvement in pull request #${s.pullRequest.number} has passed its gates and review, and waits for Martin to merge it, as an improvement does in every mode`
+              : `The fix in pull request #${s.pullRequest.number} has passed its gates and review, and waits for Martin to merge it`,
           },
         },
       };
@@ -767,6 +808,8 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
  * asks for changes). Any other hold waits on Martin's judgement, and only says the signal cleared.
  */
 export function closesWhenCleared(state: WorkItemState): boolean {
+  // An improvement has no defect to clear.
+  if (state.request) return false;
   const cause = state.hold?.cause;
   if (cause === 'review') return state.reviews.at(-1)?.verdict === 'changes-requested';
   return cause === 'scope' || cause === 'gates' || cause === 'failures' || cause === 'spend';
@@ -779,7 +822,7 @@ export function closesWhenCleared(state: WorkItemState): boolean {
  * already says the defect is there.
  */
 export function lookDue(state: WorkItemState, stable: Stable | undefined): boolean {
-  if (!stable?.due || !state.ticket) return false;
+  if (!stable?.due || !state.ticket || state.request) return false;
   // A release of its own fix is in the stable version, or on its way: Verify's to look at, not this.
   if (state.release && !state.release.ended) return false;
   if (!state.firstSense || state.firstSense === 'report' || state.firstSense === 'planner') return false;
@@ -788,13 +831,17 @@ export function lookDue(state: WorkItemState, stable: Stable | undefined): boole
 }
 
 /** Why a change whose release ended without its promotion waits for Martin again. */
-function endedReason(version: string, ended: NonNullable<NonNullable<WorkItemState['release']>['ended']>): string {
+function endedReason(
+  change: 'fix' | 'improvement',
+  version: string,
+  ended: NonNullable<NonNullable<WorkItemState['release']>['ended']>,
+): string {
   if (ended.how === 'rolled-back')
-    return `The release that carried the fix, ${version}, rolled back: it waits for the next deploy pull request to carry it`;
+    return `The release that carried the ${change}, ${version}, rolled back: it waits for the next deploy pull request to carry it`;
   if (ended.how === 'errored')
-    return `The release that carried the fix, ${version}, stopped when its analysis could not judge it: it waits for Martin to retry it, or for the next deploy pull request to carry it`;
+    return `The release that carried the ${change}, ${version}, stopped when its analysis could not judge it: it waits for Martin to retry it, or for the next deploy pull request to carry it`;
   const who = ended.by === 'martin' ? 'him' : 'Martin';
-  return `${whoAborted(ended.by)} the release that carried the fix, ${version}: it waits for ${who} to retry it, or for the next deploy pull request to carry it`;
+  return `${whoAborted(ended.by)} the release that carried the ${change}, ${version}: it waits for ${who} to retry it, or for the next deploy pull request to carry it`;
 }
 
 /**
@@ -805,23 +852,26 @@ export const suggestionsGoBack = (s: WorkItemState) => s.suggestionReturns < LIM
 
 /**
  * Where a merged change is: waiting for a release to carry it, in one, or verified by the sense that saw the defect.
- * A dry run's merge, which no deploy pull request can carry, waits at Release for the dry run's release instead.
+ * A dry run's merge, which no deploy pull request can carry, waits at Release for the dry run's release instead. An
+ * improvement, once a release that carries it is promoted, is handed over to the flag pass: no sense saw it.
  */
 function afterMerge(s: WorkItemState): Decision {
   const { release } = s;
+  const change = s.request ? 'improvement' : 'fix';
   if (!release && (s.pullRequest?.number ?? 0) >= DRY_RUN_NUMBERS_FROM) {
     return { stage: 'release', next: { do: 'wait', for: 'release' } };
   }
   if (!release || release.ended) {
     const reason = release?.ended
-      ? endedReason(release.started.version, release.ended)
-      : `The fix${s.pullRequest ? ` in pull request #${s.pullRequest.number}` : ''} is merged, and waits for a deploy pull request to carry it to the app`;
+      ? endedReason(change, release.started.version, release.ended)
+      : `The ${change}${s.pullRequest ? ` in pull request #${s.pullRequest.number}` : ''} is merged, and waits for a deploy pull request to carry it to the app`;
     return {
       stage: 'held',
       next: { do: 'hold', hold: { stage: 'release', kind: 'approval', cause: 'deploy', reason } },
     };
   }
   if (!release.promoted) return { stage: 'release', next: { do: 'wait', for: 'release' } };
+  if (s.request) return { stage: 'ended', next: { do: 'hand-over', release: release.promoted } };
   const { verification } = s;
   if (!verification) return { stage: 'verify', next: { do: 'verify', release: release.promoted } };
   if (verification.outcome === 'cleared') return { stage: 'verify', next: { do: 'verified', verification } };

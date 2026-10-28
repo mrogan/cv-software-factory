@@ -226,6 +226,77 @@ describe('the line', () => {
     ]);
   });
 
+  it('carries an improvement Martin asked for to his approval of its spec, his merge, its release, and hands it over', async () => {
+    const workItem = await nextWorkItem(database.admin);
+    const words = 'Show each product’s delivery date on its page. It helps people plan.';
+    await martin.append([
+      event(
+        workItem,
+        'work-item.opened',
+        { kind: 'improvement', title: 'Show each product’s delivery date on its page', sample: false },
+        'martin',
+      ),
+      event(workItem, 'improvement.requested', { words, steppedUp: true }, 'martin'),
+    ]);
+    const spec = { ...SPEC, criteria: [{ ...SPEC.criteria[0], quote: 'delivery date' }], flag: 'delivery-dates' };
+    const agents = { ...AGENTS, planner: () => handback({ verdict: 'spec', spec }) };
+    const probes = new FakeProbes({ outcome: 'cleared', version: 'v0.9.4', runs: ['passed', 'passed'] });
+    const { pass, steps, github } = line(agents, events, { verify: { probes } });
+
+    await pass(); // the issue, and the planner, told Martin's words
+    expect(github.acts[0]).toMatchObject({
+      action: 'openIssue',
+      args: { title: 'Show each product’s delivery date on its page' },
+    });
+    expect(String(github.acts[0]?.args.body)).toContain(`Martin asked for this improvement:\n\n> ${words}`);
+    expect(steps.requests[0]?.prompt).toContain(`Plan the change for improvement #${workItem}`);
+    expect(steps.requests[0]?.prompt).toContain(`Martin asked for it in his own words: “${words}”`);
+
+    await pass(); // its spec, held for Martin before any code
+    expect(steps.requests).toHaveLength(1);
+    expect(await stage(workItem)).toBe('held');
+    expect((await payloads(workItem, 'hold.started')).at(-1)).toMatchObject({ cause: 'spec', kind: 'approval' });
+    await martin.append(event(workItem, 'hold.answered', { decision: 'approved' }, 'martin'));
+
+    await pass(); // the coder, on a branch named from the request's title
+    expect(github.acts[1]?.args).toMatchObject({ branch: `factory/${workItem}-show-each-product-s-delivery` });
+    expect(steps.requests[1]?.prompt).toContain(`Make improvement #${workItem}`);
+    github.pass();
+    await pass(); // the gates pass, and the reviewer
+    await pass(); // the describer
+    await pass(); // the hold for Martin's merge
+    expect((await payloads(workItem, 'hold.started')).at(-1)).toMatchObject({
+      cause: 'merge',
+      reason: expect.stringContaining('as an improvement does in every mode'),
+    });
+    github.merge();
+    await pass(); // held for a deploy
+    const release = { release: '6d8f9c7b54', version: 'v0.9.4', previous: 'v0.9.3', watched: true, dryRun: false };
+    const image = { digest: `sha256:${'c'.repeat(64)}`, signed: true, admitted: true };
+    await events.append(event(workItem, 'release.started', { ...release, image, steps: null }, 'rollouts'));
+    await pass();
+    expect(await stage(workItem)).toBe('release');
+    const before = github.acts.length;
+    await events.append(event(workItem, 'release.promoted', release, 'rollouts'));
+    await pass(); // handed over: one comment, and its row ends, with no sense asked to look
+    expect(github.acts.slice(before)).toEqual([
+      {
+        action: 'comment',
+        args: {
+          number: 41,
+          body: expect.stringContaining('Released in v0.9.4, behind its flag, `delivery-dates`, which is off'),
+        },
+      },
+    ]);
+    expect(await stage(workItem)).toBe('ended');
+    expect(probes.asked).toEqual([]);
+    await pass();
+    expect(github.acts).toHaveLength(before + 1);
+    // The work item stays open, for the flag pass.
+    expect(await types(workItem)).not.toContain('work-item.closed');
+    expect(await types(workItem)).not.toContain('verification.finished');
+  });
+
   it('carries a ticket through plan, build, gates, review and description to Martin’s merge', async () => {
     const workItem = await ticket();
     const probes = new FakeProbes({ outcome: 'cleared', version: 'v0.9.4', runs: ['passed', 'passed'] });

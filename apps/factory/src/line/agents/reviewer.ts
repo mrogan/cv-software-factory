@@ -34,13 +34,13 @@ import { MAX_FINDINGS, PATH_CHARS, type PayloadOf } from '@software-factory/even
 import { z } from 'zod';
 import { LIMITS, suggestionsGoBack, type WorkItemState } from '../machine.ts';
 import { answerThreads, cites, type Finding, lineage, reviewInGitHub, threadAnswers } from '../review.ts';
-import { defineAgent, need, words } from './agent.ts';
-import { numbered, type Signal, ticketLines } from './evidence.ts';
+import { askedOf, defineAgent, need, words } from './agent.ts';
+import { type Asked, askedLines, askedName, askedTitle, numbered, type Signal } from './evidence.ts';
 
 export interface ReviewerInput {
   workItem: string;
-  /** The ticket, as its public view has it. */
-  ticket: PayloadOf<'ticket.opened'>;
+  /** The ticket, or Martin's request for an improvement, as its public view has it. */
+  asked: Asked;
   /** What each sense saw, in the order they saw it. A report's signal is not here. */
   signals: Signal[];
   /** Martin's answers to the holds at Plan, each with what he was asked: part of what the ticket asks. */
@@ -165,7 +165,7 @@ const source = ({ from, quote }: PayloadOf<'spec.written'>['criteria'][number]) 
 
 function prompt({
   workItem,
-  ticket,
+  asked,
   signals,
   answers,
   spec,
@@ -178,12 +178,12 @@ function prompt({
 }: ReviewerInput): string {
   const earlier = blocked.length + suggested.length;
   return [
-    `Review pull request #${pullRequest}, the factory’s fix for ticket #${workItem}: “${title}”${round > 1 ? `, in its round ${round}` : ''}.`,
+    `Review pull request #${pullRequest}, the factory’s ${asked.kind === 'ticket' ? 'fix' : 'change'} for ${askedName(asked, workItem)}: “${title}”${round > 1 ? `, in its round ${round}` : ''}.`,
     '',
     'The checkout is the pull request’s head. Its base is the branch `base`: `git diff base` is the change, and `git log base..HEAD` holds the coder’s commit messages, which say what it claims to have done. Hold those claims to the diff, not the other way round.',
     '',
-    `The ticket: ${ticket.title}.`,
-    ...ticketLines(ticket, signals),
+    `The ${asked.kind === 'ticket' ? 'ticket' : 'request'}: ${askedTitle(asked)}.`,
+    ...askedLines(asked, signals),
     ...(signals.length ? ['', 'What the senses saw, by number:', ...numbered(signals)] : []),
     ...(answers.length
       ? [
@@ -300,11 +300,11 @@ export const reviewer = defineAgent<ReviewerInput, ReviewerResult>({
   maxTurns: 30,
   deadlineSeconds: 15 * 60,
   readsChange: true,
-  input: async ({ workItem, state, round, ticket, signals }) => {
+  input: async ({ workItem, state, round, ticket, request, signals }) => {
     const pushed = need(state.pullRequest, 'a pull request');
     return {
       workItem,
-      ticket: await ticket(),
+      asked: await askedOf({ state, ticket, request }),
       signals: await signals(),
       answers: state.answers,
       spec: need(state.spec, 'a spec'),

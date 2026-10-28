@@ -38,6 +38,7 @@ import { unchangedHold, type WorkItemState } from '../machine.ts';
 import { answerThreads, cites, type Finding, lineage, threadAnswers } from '../review.ts';
 import {
   answerOf,
+  askedOf,
   commitTitle,
   defineAgent,
   type EffectsContext,
@@ -47,12 +48,12 @@ import {
   StepStale,
   words,
 } from './agent.ts';
-import { type Signal, seen, ticketLines } from './evidence.ts';
+import { type Asked, askedLines, askedName, askedTitle, type Signal, seen } from './evidence.ts';
 
 export interface CoderInput {
   workItem: string;
-  /** The ticket, as its public view has it. */
-  ticket: PayloadOf<'ticket.opened'>;
+  /** The ticket, or Martin's request for an improvement, as its public view has it. */
+  asked: Asked;
   /** What each sense saw, in the order they saw it. A report's signal is not here. */
   signals: Signal[];
   spec: PayloadOf<'spec.written'>;
@@ -210,10 +211,10 @@ function specLines({ spec }: CoderInput): string[] {
 
 /** The ticket, what the senses saw, the spec and Martin's answer: what a step without its session is told first. */
 function briefing(input: CoderInput): string[] {
-  const { workItem, ticket, signals, answer } = input;
+  const { workItem, asked, signals, answer } = input;
   return [
-    `Fix ticket #${workItem}: ${ticket.title}.`,
-    ...ticketLines(ticket, signals),
+    `${asked.kind === 'ticket' ? 'Fix' : 'Make'} ${askedName(asked, workItem)}: ${askedTitle(asked)}.`,
+    ...askedLines(asked, signals),
     ...(signals.length ? ['', 'What the senses saw:', ...signals.flatMap(seen)] : []),
     '',
     'The spec you are held to:',
@@ -319,9 +320,9 @@ export const coder = defineAgent<CoderInput, CoderResult>({
   agent: 'coder',
   maxTurns: 50,
   deadlineSeconds: 30 * 60,
-  input: async ({ workItem, state, round, commit, session, ticket, signals, read }) => ({
+  input: async ({ workItem, state, round, commit, session, ticket, request, signals, read }) => ({
     workItem,
-    ticket: await ticket(),
+    asked: await askedOf({ state, ticket, request }),
     signals: await signals(),
     spec: need(state.spec, 'a spec'),
     protectedPaths: await read('protectedPaths', { ref: commit }),
@@ -385,7 +386,9 @@ export const coder = defineAgent<CoderInput, CoderResult>({
         },
       ];
     }
-    const branch = state.pullRequest?.branch ?? branchFor(workItem, need(state.ticket, 'a ticket').title);
+    // An improvement's branch is named from its request's title, as its public view has it: a branch is public.
+    const named = state.request ? (await context.request()).title : need(state.ticket, 'a ticket').title;
+    const branch = state.pullRequest?.branch ?? branchFor(workItem, named);
     const message = `${title}\n\n${note}`.slice(0, 9_000);
     const head = await context.once('push', async (again) => {
       // A first round starts the branch at the commit; so does a push that was begun and may have been made, so

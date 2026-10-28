@@ -49,19 +49,20 @@ Each stage can also hold for Martin (see [Holds](#holds-and-martins-answers)).
 ### Taking work
 
 - It takes the oldest open ticket of the highest severity into Plan when nothing is in Plan or waiting for Build. A work item that waits for overlapping work (below) is at a stage of its own, `waiting`, so the line still takes the next ticket.
+- An [improvement Martin asked for](#an-improvement) waits behind every open ticket not yet taken, and the oldest goes first.
 - It runs one step at a time in each of Plan, Build and Review.
 - It runs one step at a time on the local model, whatever its stage, since LM Studio answers one prediction at a time. A step whose agent the settings in force send there ([below](#settings); every agent, under `ALL_LOCAL`) waits while another such step runs, and the line tries again on its next pass. A step on Claude never waits for one on the local model, so a mixed profile keeps its pace.
-- As a ticket enters Plan, it opens the ticket's issue through the App, from the ticket's public view. The fix's pull request refers to that issue.
+- As a ticket enters Plan, it opens the ticket's issue through the App, from the ticket's public view. The fix's pull request refers to that issue. An improvement's issue has its title and Martin's words, from their public views.
 - After Martin's merge, it carries the work item through Release and Verify until it closes.
 
-What it takes is Martin's to set in the console's Controls ([admin service](ADMIN-SERVICE.md#the-lines-controls)), read at each pass as `controls.changed`'s latest from his roles, held to policy by `policy/line.ts` as it is read: Every ticket, The next few (counted from when he last chose a number, at most 20), or Just one. With none in force, before he sets one or when the latest is outside policy, two settings are the line's own default:
+What it takes is Martin's to set in the console's Controls ([admin service](ADMIN-SERVICE.md#the-lines-controls)), read at each pass as `controls.changed`'s latest from his roles, held to policy by `policy/line.ts` as it is read: Every ticket, The next few (counted from when he last chose a number, at most 20), or Just one. The next few count improvements as they count tickets, and Just one takes an improvement at once, as it takes a ticket. With none in force, before he sets one or when the latest is outside policy, two settings are the line's own default:
 
 - **`LINE_ONLY`**, set to a work item, makes the line act on that one alone, as Just one does.
-  - It takes that ticket onto the line whatever else is in Plan or Build.
+  - It takes that ticket or improvement onto the line whatever else is in Plan or Build.
   - It starts no step for any other work item, reads nothing for it and appends nothing.
   - It says nothing of what the deploy pull request carries, but still records where that pull request stands for this work item ([its state](RELEASE-AND-VERIFY.md#the-deploy-pull-requests-state)).
   - It still watches the app's releases, and records one that carries that work item or none (those go on the line). A release that also carries another work item is left for the whole line. The work item stays held at Release (cause `deploy`, so Needs you lists it) until the line records that release, or finds it live.
-- **`LINE_TAKE`**, set to a number, has the line take tickets by its own rule until it has taken that many work items in all, as The next few do from when Martin chose them. The count comes from the `line` table, by when each work item came onto it, so a restart takes none more. It then takes no more, and carries those it has to their end.
+- **`LINE_TAKE`**, set to a number, has the line take work by its own rule until it has taken that many work items in all, as The next few do from when Martin chose them. The count comes from the `line` table, by when each work item came onto it, so a restart takes none more. It then takes no more, and carries those it has to their end.
 
 A take Martin sets applies from the line's next pass, which his change wakes.
 
@@ -84,6 +85,17 @@ Two tickets can be one defect, seen by two checks on two pages, and that shows o
 - A spec written again before any push is checked again; one written once there is a pull request is not.
 - **With just one work item** (Martin's take, or `LINE_ONLY`) there is no wait: a line of one work item sees nothing else.
 
+### An improvement
+
+Martin asks for an improvement with the console's "+" ([admin service](ADMIN-SERVICE.md)), which opens a work item of kind `improvement` with his words (`improvement.requested`). The line carries it as it carries a ticket, with these differences:
+
+- **Only one he asked for.** The line takes an improvement only when its opening and his request were both appended by one of his roles. Row security lets no other role append either. A work item's kind comes from that opening, so a ticket appended to his improvement does not make it a ticket. An improvement a worker opened, or one with no request, never comes onto the line.
+- **Its order.** It waits behind every open ticket not yet taken, whatever their ages: a defect in the app goes before something new. Improvements go oldest first.
+- **Its spec waits for Martin.** Every spec of an improvement is held for his approval before any code (cause `spec`, kind `approval`), whatever its risks and in every autonomy mode. A spec written again is held again. Approving it takes the passkey again ([admin service](ADMIN-SERVICE.md)). Rejecting closes the work item, and answering sends his words to the planner.
+- **No sense looks at it.** It has no signal, so a hold never looks again, and a wait on overlapping work ends when that work closes.
+- **Its merge waits for Martin** in every mode, and its hold says so.
+- **It is handed over after its release.** Once a release that carries it is promoted, the line hands it over to the [flag pass](RELEASE-AND-VERIFY.md#verify-by-variant). It leaves one comment on its issue, saying the change is in the app behind its flag, off, and that Martin widens the flag a stage at a time from the console. Its row on the line ends, but the work item stays open. A rollback, or a release that erred or was aborted, holds it for the next deploy, as for a fix. A dry run's improvement waits for the dry run's release, then is handed over.
+
 ### A ticket that reopens
 
 When a verified ticket reopens ([triage](TRIAGE.md) reopens it), its work item comes back into Plan for a fresh pass, whatever else is on the line and however many it may take, since the line took it already. Each pass of the line, before it takes a ticket:
@@ -96,7 +108,7 @@ When a verified ticket reopens ([triage](TRIAGE.md) reopens it), its work item c
 
 A dry run works on real tickets, so a line that starts `live` on the same store finds what the dry run left. It could not carry on from it: GitHub never had the dry run's pull requests, merges or issues, and a dry run's fix never shipped. As it starts, before anything else, it ends each (`dryRunLeft` in `line/machine.ts`):
 
-- **A work item whose pull request or issue was the dry run's**, the pull request merged or not, closes with no change, saying so. Its issue closes too, as not planned, when GitHub has it. The next signal of its defect opens a fresh ticket.
+- **A work item whose pull request or issue was the dry run's**, the pull request merged or not, closes with no change, saying so. Its issue closes too, as not planned, when GitHub has it. The next signal of its defect opens a fresh ticket. An improvement the dry run handed over closes the same way, and Martin asks for it again if he still wants it.
 - **A ticket the dry run verified** still has its defect, and reopens (`work-item.reopened`, with `dryRun: true` and the line as its actor). It comes back into Plan as any reopened ticket does, with a new issue, since its own was the dry run's. The planner is told of no fix that came back: none shipped.
 
 What it cannot end on one pass, because GitHub or the store failed, it tries again on the next, and until then it reads no gates and starts nothing for that work item. A reopened work item waiting to come back into Plan is left to that, which forgets a dry run's issue. With `LINE_ONLY`, it ends only that work item's.

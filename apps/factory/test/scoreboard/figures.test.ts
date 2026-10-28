@@ -1,6 +1,7 @@
 /**
  * The scoreboard's rule and figures, on an invented answer key: none of its entries is a defect the app has.
  */
+import type { PayloadOf } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { type Fingerprint, type KeyEntry, matches } from '../../../../policy/scoreboard.ts';
 import { figures, lastBoundary, median, type ScoreEvent, type Ticket, tickets } from '../../src/scoreboard/figures.ts';
@@ -70,7 +71,11 @@ function life(item: string, start: number, fingerprint: Ticket['fingerprint'], .
     ...after,
   ];
 }
-const closed = (item: string, minutes: number, outcome: 'verified' | 'no-change' = 'verified'): ScoreEvent => ({
+const closed = (
+  item: string,
+  minutes: number,
+  outcome: PayloadOf<'work-item.closed'>['outcome'] = 'verified',
+): ScoreEvent => ({
   ts: at(minutes),
   work_item: item,
   type: 'work-item.closed',
@@ -117,6 +122,13 @@ describe('a ticket’s life', () => {
       null,
       90,
     ]);
+  });
+
+  it('counts an improvement Martin asked for as nothing: it has no ticket, whichever way it closes', () => {
+    // Of an improvement, the figures read only its closes: its opening, request and flag's events are no ticket's.
+    const events: ScoreEvent[] = [closed('7', 30, 'turned-off'), closed('8', 30, 'verified')];
+    expect(tickets(events)).toEqual([]);
+    expect(figures(tickets(events), KEY, T0 + 60 * 60_000)).toMatchObject({ found: 0, verified: 0, falsePositives: 0 });
   });
 
   it('counts a ticket a dry run verified as verified once a look again cleared it on a real release', () => {
