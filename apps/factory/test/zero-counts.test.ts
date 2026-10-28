@@ -8,7 +8,7 @@ import { metrics as api } from '@opentelemetry/api';
 import * as metrics from '@opentelemetry/sdk-metrics';
 import { HOLD_CAUSES, SENSES, SIGNAL_SOURCES } from '@software-factory/events';
 import type { Sql } from 'postgres';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 
 const exporter = new metrics.InMemoryMetricExporter(metrics.AggregationTemporality.CUMULATIVE);
 const reader = new metrics.PeriodicExportingMetricReader({ exporter, exportIntervalMillis: 3_600_000 });
@@ -176,13 +176,26 @@ describe('the counts', () => {
     expect(exported).toEqual([0, 1]);
   });
 
+  /**
+   * Waiting for nothing is shown by order, not by the clock: with the timers held, so that no timeout can ever fire,
+   * the send has settled by the next turn of the event loop. A send that waited on its timeout, or on a flush that
+   * goes out to a collector, would still be pending then.
+   */
   it('send nothing, and wait for nothing, with no SDK started', async () => {
+    exporter.reset();
     api.disable();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
-      const started = performance.now();
-      await sendCounts();
-      expect(performance.now() - started).toBeLessThan(100);
+      let settled = false;
+      const sent = sendCounts().then(() => {
+        settled = true;
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(settled).toBe(true);
+      await sent;
+      expect(exporter.getMetrics()).toEqual([]);
     } finally {
+      vi.useRealTimers();
       api.setGlobalMeterProvider(meterProvider);
     }
   });
