@@ -6,6 +6,8 @@
  * looking back over its local part and on over its domain, and neither can hold an `@`, so each scan stops at the
  * next one and no character is looked at more than a few times; and the number pattern cannot backtrack.
  */
+import { cutTo } from '@software-factory/events';
+
 /** Six digits or more, allowing the spaces and dashes people type in phone and card numbers. */
 const LONG_NUMBER = /\+?\d(?:[\s-]?\d){5,}/g;
 /** A date is a fact about the page, which a content report may be about, not a visitor's detail. */
@@ -159,4 +161,4 @@ function readable(segment: string): string {
 const UTF8 = new TextDecoder();
 
 /** A page or route short enough for a title or a summary: a long one keeps its start, and says it was cut. */
-export const shortPath = (path: string, max = 60) => (path.length <= max ? path : `${path.slice(0, max - 1)}…`);
+export const shortPath = (path: string, max = 60) => cutTo(path, max);

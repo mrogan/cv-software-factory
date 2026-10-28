@@ -193,6 +193,81 @@ describe('Needs you', () => {
     expect(needsView(foldItems(deploy.events), START + 3_600_000).holds).toEqual([]);
   });
 
+  it('shows the files a coder needs and why, not an old refusal of the fence, on a scope hold the coder asked for', () => {
+    const needs = [
+      { path: 'test/flags-preview.test.ts', reason: 'It assumes / asks no flag; every page now does.' },
+      { path: 'test/home.test.ts', reason: 'It expects the old heading.' },
+    ];
+    const reason =
+      'The coder needs 2 files outside the spec’s scope to meet its criteria: test/flags-preview.test.ts, test/home.test.ts';
+    const item = work('2010', START)
+      .open()
+      .add(5, 'action.refused', 'factory', {
+        mechanism: 'scope-fence',
+        action: 'Push the coder’s round 1 to a new pull request',
+        output: 'scope: src/pages/\nrefused src/server.ts +1 −1',
+      })
+      .add(30, 'hold.started', 'coder', hold('scope', { reason, needs }));
+    const [need] = needsView(foldItems(item.events), START + 60 * 60_000).holds;
+    expect(need).toMatchObject({
+      kicker: 'Held to its scope',
+      stage: 'build',
+      evidence: {
+        kind: 'output',
+        heading: reason,
+        text: 'test/flags-preview.test.ts: It assumes / asks no flag; every page now does.\ntest/home.test.ts: It expects the old heading.',
+      },
+    });
+    expect(need?.answers.find((a) => a.answer === 'approved')).toMatchObject({
+      does: 'The planner writes the spec again, told the coder needed those files.',
+      stepUp: true,
+    });
+    // Every file Martin's approval sends the planner is on the card, never cut.
+    const many = Array.from({ length: 20 }, (_, i) => ({
+      path: `test/${i}.test.ts`,
+      reason: 'It expects the old page.',
+    }));
+    const long = work('2012', START)
+      .open()
+      .add(30, 'hold.started', 'coder', hold('scope', { reason, needs: many }));
+    const shown = needsView(foldItems(long.events), START + 60 * 60_000).holds[0]?.evidence;
+    expect(shown?.kind === 'output' && shown.text.split('\n')).toHaveLength(20);
+    // A file no scope may name is said first in the reason that heads them, so he can reject rather than approve.
+    const never =
+      'The coder needs a file outside the spec’s scope to meet its criteria, and no scope may name deploy/app.yaml: deploy/app.yaml';
+    const barred = work('2013', START)
+      .open()
+      .add(
+        30,
+        'hold.started',
+        'coder',
+        hold('scope', { reason: never, needs: [{ path: 'deploy/app.yaml', reason: 'x', barred: true }] }),
+      );
+    const [barredNeed] = needsView(foldItems(barred.events), START + 60 * 60_000).holds;
+    // Approve says the planner takes in only what a scope may name.
+    expect(barredNeed?.answers.find((a) => a.answer === 'approved')?.does).toBe(
+      'The planner writes the spec again, told to take in the files a scope may name, or reject it.',
+    );
+    expect(needsView(foldItems(barred.events), START + 60 * 60_000).holds[0]?.evidence).toEqual({
+      kind: 'output',
+      heading: never,
+      text: 'deploy/app.yaml: x',
+    });
+    // The fence's own hold still shows what it printed.
+    const fenced = work('2011', START)
+      .open()
+      .add(5, 'action.refused', 'factory', {
+        mechanism: 'scope-fence',
+        action: 'Push the coder’s round 1 to a new pull request',
+        output: 'scope: src/pages/\nrefused src/server.ts +1 −1',
+      })
+      .add(30, 'hold.started', 'factory', hold('scope'));
+    expect(needsView(foldItems(fenced.events), START + 60 * 60_000).holds[0]).toMatchObject({
+      kicker: 'Held to its scope',
+      evidence: { kind: 'output', heading: 'scope fence' },
+    });
+  });
+
   it('says what a deploy waits for in each state, links its pull request, and says it waits for Martin once its checks pass', () => {
     const merged = work('2042', START)
       .open()

@@ -32,14 +32,30 @@
  * finding the change already meets, or code that already does what the spec asks. The coder then says so, and why,
  * instead of handing back a change (`{"unchanged"}`), and the work item holds for Martin with its reason
  * (`unchangedHold`). A step that hands back no change and says nothing of why has failed.
+ *
+ * So can a change the criteria need in a file outside the scope: an existing test the change rightly makes wrong, say.
+ * The coder never changes one, and its prompt never tells it to try: it names each such file, and why (`needs`), and
+ * the line holds the work item as `scope` at once, whatever else the round did, pushing nothing of it (`needsHold`).
+ * Martin's approval sends the files to the planner, which may widen the scope to them, but never to a path no scope
+ * may name. A file the scope already takes in is not one it needs.
  */
-import { MAX_FINDINGS, type PayloadOf, recordedPath, type Stage } from '@software-factory/events';
+import {
+  cutTo,
+  inScope,
+  MAX_FINDINGS,
+  MAX_NEEDS,
+  NEED_REASON_CHARS,
+  type PayloadOf,
+  recordedPath,
+  type Stage,
+} from '@software-factory/events';
 import { z } from 'zod';
 import { filesIn, PatchRefused } from '../../github/patches.ts';
+import { plainPath, protectedWords } from '../../github/paths.ts';
 import { GitHubWorkerError } from '../../github/worker-client.ts';
 import { type Fenced, fence } from '../../runners/scope.ts';
 import type { Draft } from '../gates.ts';
-import { unchangedHold, type WorkItemState } from '../machine.ts';
+import { needsHold, unchangedHold, type WorkItemState } from '../machine.ts';
 import { answerThreads, cites, type Finding, lineage, threadAnswers } from '../review.ts';
 import {
   answerOf,
@@ -88,6 +104,20 @@ const declined = z
   .array(z.strictObject({ suggestion: z.number().int().min(1).max(MAX_FINDINGS), reason: words(300) }))
   .max(MAX_FINDINGS);
 
+/** The files outside the scope the coder needs to change and may not, each with why. */
+const needed = z
+  .array(
+    z.strictObject({
+      path: z
+        .string()
+        .trim()
+        .refine(plainPath, 'a plain path in the repository')
+        .refine((path) => !path.endsWith('/') && !path.includes('*'), 'a file, not a folder or a pattern'),
+      reason: words(NEED_REASON_CHARS),
+    }),
+  )
+  .max(MAX_NEEDS);
+
 /**
  * The result, for a round given `suggestions` suggestions: a declined one must be one of them. A round sent back for
  * suggestions alone (`alone`) may change nothing by declining every one.
@@ -102,15 +132,20 @@ export function coderResult(suggestions = 0, alone = false, title: z.ZodType<str
         note: words(1000),
         /** The suggestions it declined, with why; every other it took. */
         declined: declined.optional(),
+        /** The files outside the scope it needs, which hold the work item and push nothing. */
+        needs: needed.optional(),
       }),
       z.strictObject({
         /** Why the coder changed nothing, for Martin. */
         unchanged: words(UNCHANGED_MAX),
         /** Changing nothing, it declines every suggestion it was given, with why. */
         declined: declined.optional(),
+        needs: needed.optional(),
       }),
       /** Every suggestion declined, and nothing changed. */
       z.strictObject({ declined }),
+      /** The files outside the scope it needs, and nothing else. */
+      z.strictObject({ needs: needed.min(1) }),
     ])
     .superRefine((result, ctx) => {
       // The change is approved: the round is for its suggestions, and declining every one is how it changes nothing.
@@ -185,6 +220,13 @@ const IMPROVEMENT_RESULT = [
   '- `note`: the commit’s body, at most 1000 characters, in plain sentences for the reviewer: what the change adds, behind which flag, which tests show it with the flag on and which with it off, and what you changed. Add anything else you noticed and left alone.',
   `If the code already does what every criterion asks with the flag on, so there is nothing to build, change nothing and write {"unchanged"} instead: at most ${UNCHANGED_MAX} characters, in plain sentences for Martin, on what you found. He decides what happens next.`,
 ];
+
+/**
+ * When the criteria need a file outside the scope, and how the coder says so: never by changing it, and never for a
+ * path no scope may name.
+ */
+const needsLine = ({ protectedPaths }: CoderInput) =>
+  `If a criterion cannot be met without changing a file outside the scope (an existing test your change rightly makes wrong, say), leave that file as it is and write {"needs":[{"path","reason"}]} instead: each such file, and why, in at most ${NEED_REASON_CHARS} characters, for Martin. Nothing of your round is pushed: the work item holds for him, and the planner may widen the scope to them. Never name a path no scope may name: ${protectedWords(protectedPaths).join(', ')}.`;
 
 /** What the work item's result is asked for: an improvement's, or a fix's. */
 const resultFor = ({ asked }: CoderInput) => (asked.kind === 'request' ? IMPROVEMENT_RESULT : RESULT);
@@ -275,6 +317,7 @@ function first(input: CoderInput): string[] {
     'Change only what the criteria need. The app is bad on purpose, so you may see other things wrong: leave them, even in a file the scope allows, and mention them in your note. The line refuses a patch that changes any file outside the scope, whole. Leave your changes in the checkout: the line takes them from there.',
     '',
     ...RESULT,
+    needsLine(input),
   ];
 }
 
@@ -304,6 +347,7 @@ function firstImprovement(input: CoderInput): string[] {
     'Build only what the criteria need. You may see other things wrong with the app: leave them, even in a file the scope allows, and mention them in your note. The line refuses a patch that changes any file outside the scope, whole. Leave your changes in the checkout: the line takes them from there.',
     '',
     ...IMPROVEMENT_RESULT,
+    needsLine(input),
   ];
 }
 
@@ -335,18 +379,22 @@ function again(input: CoderInput): string[] {
   const declineAll = !fenced && suggestionsAlone(input);
   // A step without its session is told the checks in full below; one with it is reminded of them.
   const recheck = resumed(input) ? [CHECKS_AGAIN] : [];
+  // So is how to say the criteria need a file outside the scope.
+  const needing = resumed(input) ? [needsLine(input)] : [];
   const refused = fenced
     ? [
         `The line refused your patch${round > 1 ? ' for this round' : ''}: it changed files outside the spec’s scope. The scope fence printed:`,
         ...fenced.split('\n').map((line) => `    ${line}`),
         `Nothing of that patch was kept: the checkout is back where ${round > 1 ? 'this round' : 'you'} started. Make the ${asked.kind === 'ticket' ? 'fix' : 'change'} again, changing only files the scope allows. A test that will not fit in a test file the scope allows is one to leave out; say so in your note.`,
         ...recheck,
+        ...needing,
       ]
     : declineAll
       ? ['Take what you take inside the same scope.', ...recheck]
       : [
           'Put it right inside the same scope.',
           ...recheck,
+          ...needing,
           ...(round > 1 ? [UNCHANGED] : []),
           ...(round > 1 && suggestions?.length ? [UNCHANGED_DECLINES] : []),
         ];
@@ -410,6 +458,29 @@ export const coder = defineAgent<CoderInput, CoderResult>({
     const { spec, round, suggestions = [] } = input;
     const { workItem, issue, state, commit } = context;
     const { patch } = handback;
+    // Files it needs outside the scope hold the work item before anything else: nothing of the round is pushed. Its
+    // session is not kept, since it holds work that was not: a later step resumes the last one kept.
+    const needs = outsideScope(result, spec.scope, input.protectedPaths);
+    if (needs.length) {
+      const hold = holdDraft('coder', needsHold(needs, input.protectedPaths));
+      const declined = 'declined' in result ? (result.declined ?? []) : [];
+      if (!suggestions.length || !declined.length) return [hold];
+      // The suggestions it declined are answered with its reasons, so they are not lost, and recorded as answered; one
+      // it would have taken is the next reviewer's to find, as after any round.
+      const pullRequest = need(state.pullRequest, 'a pull request').number;
+      await answerDeclined(context, pullRequest, suggestions, declined);
+      return [answeredDraft(pullRequest, suggestions, declined, true), hold];
+    }
+    // A file it needs that the scope already takes in is one it could have changed: a change without it is not the
+    // change it said it needed, so it is not pushed.
+    const allowed = 'needs' in result ? (result.needs ?? []) : [];
+    if (allowed.length) {
+      const paths = allowed.map(({ path }) => path).join(', ');
+      throw new StepFailed(cutTo(`The coder said it needs ${paths}, which its scope already allows`, 300));
+    }
+    if (!('title' in result || 'unchanged' in result || 'declined' in result)) {
+      throw new StepFailed('The coder handed back neither a change nor why it made none');
+    }
     if ('unchanged' in result) {
       if (patch) throw new StepFailed('The coder said it changed nothing, but handed back a change');
       // Its next round, after Martin's answer, resumes the session that found nothing to change.
@@ -511,6 +582,18 @@ export const coder = defineAgent<CoderInput, CoderResult>({
   },
 });
 
+/** The files the coder needs outside the spec's scope, each once: one the scope takes in is not one it needs. */
+function outsideScope(
+  result: CoderResult,
+  scope: readonly string[],
+  protectedPaths: readonly string[],
+): NonNullable<PayloadOf<'hold.started'>['needs']> {
+  const named = 'needs' in result ? (result.needs ?? []) : [];
+  // As the fence reads it: a protected path is outside every scope, even under a folder the scope takes in.
+  const outside = named.filter(({ path }) => !inScope(path, scope) || inScope(path, protectedPaths));
+  return outside.filter(({ path }, i) => outside.findIndex((n) => n.path === path) === i);
+}
+
 /**
  * The suggestions a round answers: the review's that sent the work back, which do not block, until the coder has
  * answered them once. One declined is not asked again; one taken is the next review's to find.
@@ -539,12 +622,15 @@ async function answerDeclined(
 }
 
 /** The coder's answer to its round's suggestions, as the line records it. */
-function answeredDraft(pullRequest: number, suggestions: Finding[], declined: Declined): Draft {
+function answeredDraft(pullRequest: number, suggestions: Finding[], declined: Declined, held = false): Draft {
   const taken = suggestions.length - declined.length;
   return {
     type: 'suggestions.answered',
     actor: 'coder',
-    summary: `The coder took ${taken} of ${suggestions.length} suggestions on PR #${pullRequest}, and declined ${declined.length}`,
+    // A round held for the files it needs pushes nothing, so it took none: it only declined.
+    summary: held
+      ? `The coder declined ${declined.length} of ${suggestions.length} suggestions on PR #${pullRequest}, and needs files outside its scope`
+      : `The coder took ${taken} of ${suggestions.length} suggestions on PR #${pullRequest}, and declined ${declined.length}`,
     payload: { pullRequest, suggestions: suggestions.length, declined },
   };
 }

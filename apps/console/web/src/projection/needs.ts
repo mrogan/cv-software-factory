@@ -112,7 +112,7 @@ function kickerOf(cause: HoldCause, stage: Stage, opener: string | undefined, im
     case 'ticket-rejected':
       return 'The planner turned it down';
     case 'scope':
-      return 'Held by the fence';
+      return 'Held to its scope';
     case 'nothing-to-fix':
       return 'The coder found nothing';
     case 'failures':
@@ -239,6 +239,11 @@ function evidenceOf(item: ItemState, cause: HoldCause): Evidence {
       return { kind: 'output', heading: `${failed.payload.check} · PR #${failed.payload.pullRequest}`, text };
     }
   }
+  // The coder said which files it needs, and why: the fence refused nothing. The hold's reason heads them, saying
+  // first any no scope may name. Every one is shown, never cut: approving sends them all to the planner.
+  if (cause === 'scope' && hold?.needs) {
+    return { kind: 'output', heading: reason, text: hold.needs.map((n) => `${n.path}: ${n.reason}`).join('\n') };
+  }
   if (cause === 'scope') {
     const refused = item.events.findLast(
       (event): event is PublicEvent<'action.refused'> =>
@@ -334,7 +339,10 @@ export function needsView(items: readonly ItemState[], t: number): NeedsView {
           answers: answersTo(hold.cause).map((answer) => ({
             answer,
             label: LABEL[answer],
-            does: doesOf(hold.cause, answer, item.number, improvement),
+            does:
+              answer === 'approved' && hold.needs?.some((n) => n.barred)
+                ? 'The planner writes the spec again, told to take in the files a scope may name, or reject it.'
+                : doesOf(hold.cause, answer, item.number, improvement),
             stepUp: answer === 'approved' && keyed,
           })),
           aboutReport: opener?.sense === 'report',

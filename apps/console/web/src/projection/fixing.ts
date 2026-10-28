@@ -266,7 +266,8 @@ export function waitPicture(item: ItemState): Picture | undefined {
     case 'merge':
       return mergePicture(item);
     case 'scope':
-      return scopePicture(item);
+      // The coder named the files it needs: the fence refused nothing, and the card's evidence names them.
+      return hold.needs ? undefined : scopePicture(item);
     case 'tests-first':
       return testsPassPicture(item);
     case 'spend':

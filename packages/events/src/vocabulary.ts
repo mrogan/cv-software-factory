@@ -280,3 +280,9 @@ export const MAX_CANARY_STEPS = 20;
 
 /** The most findings one review carries, so each reaches the events whole. */
 export const MAX_FINDINGS = 20;
+
+/** The most files outside its scope a coder may say it needs, so each reaches its hold whole. */
+export const MAX_NEEDS = 20;
+
+/** The most a coder may say of why it needs one of them. */
+export const NEED_REASON_CHARS = 200;

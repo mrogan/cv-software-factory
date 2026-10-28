@@ -10,7 +10,9 @@
  * The coder's patch passes the scope fence before it reaches GitHub. One the fence refuses goes back to the coder
  * once, with the fence's output, and stays in Build; a second refusal holds the work item for Martin. A scope the
  * coder keeps straying from is the planner's to fix, so his answer sends the work item back to Plan, and the planner
- * is told what the fence printed and what he said.
+ * is told what the fence printed and what he said. A coder that cannot meet the criteria without a file outside the
+ * scope (an existing test the change rightly makes wrong) says so instead, naming each file and why, and the work
+ * item holds the same way at once, with nothing of its round pushed (`needsHold`): the planner is told the files.
  *
  * A review that blocks sends the work back to the coder, whose next round resumes its session with the blocking
  * findings and the suggestions, and the gates and a fresh reviewer run again on what it pushes. A review that still
@@ -97,6 +99,7 @@
 import {
   ALWAYS_HELD,
   ANSWERS,
+  cutTo,
   type HoldAnswer,
   type HoldCause,
   LIMITS,
@@ -106,6 +109,7 @@ import {
   STAGES,
   type Stage,
   sameVersion,
+  touches,
   WORDS_LEAVE_HELD,
 } from '@software-factory/events';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
@@ -219,7 +223,7 @@ export interface WorkItemState {
    * asked (the planner's question, why it was held, or what the scope fence printed), for every later step of the
    * planner's: a second question should not forget the first answer.
    */
-  answers: { asked: string; answer: string }[];
+  answers: { asked: string; answer: string; said?: string }[];
   merged: boolean;
   /**
    * The latest release that carried the change since its merge: how it started, its promotion once it has one, and
@@ -430,11 +434,13 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         // since what an agent writes is public and a paraphrase of a report would pass any redactor. His answer still
         // does what it does.
         const words = event.payload.report ? undefined : event.payload.answer;
-        const said = words ?? (cause === 'scope' && event.payload.decision === 'approved' ? FENCE_APPROVED : undefined);
+        // Approved or answered in words, a scope hold goes back to the planner, which is told what it may not take in.
+        const replanScope = cause === 'scope' && resolution === 'replan';
+        const said = replanScope ? scopeAnswered(state.hold, event.payload.decision, words) : words;
         // Words settle nothing for triage's holds: the hold stands, and the work item waits as it did.
         if (event.payload.decision === 'answered' && WORDS_LEAVE_HELD.includes(cause)) break;
         if ((stage === 'plan' || resolution === 'replan') && said) {
-          state.answers.push({ asked: askedOf(state.hold, state.fenced), answer: said });
+          state.answers.push({ ...askedOf(state.hold, state.fenced), answer: said });
         }
         state.hold = undefined;
         forgetLook(state);
@@ -534,11 +540,35 @@ function startAgain(state: WorkItemState): void {
 /** What approving a hold of the scope fence's says, for the planner. */
 const FENCE_APPROVED = 'Yes: the coder needed those files, so let the scope take them in.';
 
-/** What Martin was asked by a hold, as the planner is told it. */
-function askedOf(hold: PayloadOf<'hold.started'>, fenced: string | undefined): string {
+/** What an answer to a scope hold says, for the planner: of a file no scope may name, that it stays out of the scope. */
+function scopeAnswered(
+  hold: PayloadOf<'hold.started'>,
+  decision: HoldAnswer,
+  words: string | undefined,
+): string | undefined {
+  const approved = decision === 'approved';
+  if (!hold.needs?.some((need) => need.barred)) return words ?? (approved ? FENCE_APPROVED : undefined);
+  // His own words never drop what the planner may not do.
+  const said =
+    words ?? (approved ? 'Yes: let the scope take in the files the coder needed that a scope may name.' : '');
+  return `${said} A file no scope may name stays out of it: if the fix needs one, reject the ticket.`.trim();
+}
+
+/**
+ * What Martin was asked by a hold, as the planner is told it, and what the coder said of each file it needs, which
+ * the planner is told beside it, but may quote no criterion from: an agent's words are not what he asked for.
+ */
+function askedOf(hold: PayloadOf<'hold.started'>, fenced: string | undefined): { asked: string; said?: string } {
+  if (hold.needs) {
+    const said = hold.needs.map(
+      ({ path, reason, barred }) =>
+        `The coder said of ${path}${barred ? ', which no scope may name' : ''}: ${reason.replace(/[.\s]+$/, '')}.`,
+    );
+    return { asked: hold.reason.endsWith('…') ? hold.reason : `${hold.reason}.`, said: said.join(' ') };
+  }
   if (hold.cause === 'scope' && fenced)
-    return `${hold.reason}. The scope fence printed: ${fenced.split('\n').join('; ')}.`;
-  return hold.question ?? hold.reason;
+    return { asked: `${hold.reason}. The scope fence printed: ${fenced.split('\n').join('; ')}.` };
+  return { asked: hold.question ?? hold.reason };
 }
 
 const MOVES_ON = new Set<LineEvent['type']>([
@@ -935,6 +965,29 @@ export function unchangedHold(state: WorkItemState, why: string): PayloadOf<'hol
   const from = state.rebuild.from === 'gates' ? 'gates' : 'review';
   const reason = `The coder changed nothing when the work came back from ${from}: ${why}`.slice(0, 300);
   return { stage: from, kind: 'held', cause: from, reason };
+}
+
+/**
+ * The hold for a coder that named files outside the spec's scope it needs to change: `scope`, as when the fence kept
+ * refusing its patch, so Martin's approval sends the work back to the planner, told the files, to widen the scope to
+ * them. Those no scope may name (`protectedPaths`) are marked `barred`, and said first, so a reason cut to fit still
+ * says it: the planner may not widen to them, and rejects the work item if it needs them. Nothing of the round is
+ * pushed. Each reason is one line, as the card and the planner's prompt show it.
+ */
+export function needsHold(
+  named: readonly { path: string; reason: string }[],
+  protectedPaths: readonly string[],
+): PayloadOf<'hold.started'> {
+  const needs = named.map(({ path, reason }) => ({
+    path,
+    reason: reason.replace(/\s+/g, ' ').trim(),
+    ...(touches(path, protectedPaths) ? { barred: true as const } : {}),
+  }));
+  const barred = needs.filter((need) => need.barred).map(({ path }) => path);
+  const files = `${needs.length === 1 ? 'a file' : `${needs.length} files`} outside the spec’s scope`;
+  const never = barred.length ? `, and no scope may name ${barred.join(', ')}` : '';
+  const reason = `The coder needs ${files} to meet its criteria${never}: ${needs.map(({ path }) => path).join(', ')}`;
+  return { stage: 'build', kind: 'held', cause: 'scope', reason: cutTo(reason, 300), needs };
 }
 
 /** What the line does straight after Martin's answer, or undefined to carry on as the work item's events say. */

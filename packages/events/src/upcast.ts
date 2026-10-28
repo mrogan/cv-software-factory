@@ -47,6 +47,8 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
     6: (payload) => payload,
     // Version 8 records a spend hold's spend beside its cap; a version 7 hold reads as it was, its spend unknown.
     7: (payload) => payload,
+    // Version 9 adds the files a coder said it needs outside its scope, to a scope hold; a version 8 hold reads as it was.
+    8: (payload) => payload,
   },
   // Version 2 names the hold it answers, and says when its words stay Martin's; a version 1 answer said neither.
   'hold.answered': { 1: (payload) => payload },

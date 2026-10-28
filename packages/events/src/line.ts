@@ -4,6 +4,7 @@
  * words. One copy, here, because the console's image holds the events package and not the factory's code, and two
  * copies of a rule drift apart. Plain values, so the browser can import them.
  */
+import { cutTo } from './text.ts';
 import type { HoldAnswer, HoldCause, Stage } from './vocabulary.ts';
 
 /** How far the line lets a work item go round before it holds for Martin. */
@@ -167,9 +168,7 @@ export const inScope = (path: string, scope: readonly string[]) => scope.some((e
  * never inside one, which the store would refuse.
  */
 export function recordedPath(path: string): { path: string; cut?: true } {
-  if (path.length <= PATH_CHARS) return { path };
-  const kept = path.slice(0, PATH_CHARS - 1);
-  return { path: `${/[\uD800-\uDBFF]$/.test(kept) ? kept.slice(0, -1) : kept}…`, cut: true };
+  return path.length <= PATH_CHARS ? { path } : { path: cutTo(path, PATH_CHARS), cut: true };
 }
 
 /**
