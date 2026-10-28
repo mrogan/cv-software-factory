@@ -27,6 +27,8 @@ import { startOfDay } from './line.ts';
 /** The one piece of evidence that explains a hold: a check's or the fence's own output, a question, or words. */
 export type Evidence =
   | { kind: 'output'; heading: string; text: string }
+  /** The files a coder needs outside its scope, with why, each marked when no scope may name it. */
+  | { kind: 'needs'; heading: string; needs: { path: string; reason: string; barred: boolean }[] }
   | { kind: 'question'; before: string; question: string }
   | { kind: 'words'; text: string }
   /** An improvement's spec: the flag it names, the pages it changes, and how many acceptance criteria it has. */
@@ -240,9 +242,11 @@ function evidenceOf(item: ItemState, cause: HoldCause): Evidence {
     }
   }
   // The coder said which files it needs, and why: the fence refused nothing. The hold's reason heads them, saying
-  // first any no scope may name. Every one is shown, never cut: approving sends them all to the planner.
+  // first any no scope may name, and each of those is marked too, since a reason cut to fit may not reach them all.
+  // Every one is shown, never cut: approving sends them all to the planner.
   if (cause === 'scope' && hold?.needs) {
-    return { kind: 'output', heading: reason, text: hold.needs.map((n) => `${n.path}: ${n.reason}`).join('\n') };
+    const needs = hold.needs.map(({ path, reason, barred }) => ({ path, reason, barred: barred === true }));
+    return { kind: 'needs', heading: reason, needs };
   }
   if (cause === 'scope') {
     const refused = item.events.findLast(

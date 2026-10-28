@@ -12,8 +12,8 @@
  * with a change unsaved and for a visitor, and the bottom row: Needs you (Waiting on Martin for a visitor, his words
  * being written for him, the passkey asked for on a guardrail's Approve, and nothing waiting) beside Controls; and the
  * audit log, whole and narrowed to a visitor's report; and the privacy page. Part B's flags from the samples, with the
- * admin service's check of the app stood in for: Controls' Flags, each confirmation, a flag's card, and the sheet; and
- * the "+" on Plan, for Martin and a visitor, an improvement's spec in Needs you and its sheet's request.
+ * admin service's check of the app stood in for: Controls' Flags, each confirmation, a flag's card, and the sheet, its
+ * card and slider for Martin; a held work item's sheet, its card at its head; and the "+" on Plan, for Martin and a visitor, an improvement's spec in Needs you and its sheet's request.
  */
 import type { Page } from '@playwright/test';
 import { STAGES as KINDS } from '@software-factory/events';
@@ -532,6 +532,15 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
       await expect(page.locator('.bottom')).toHaveScreenshot(`m07-bottom-martin-${width}.png`);
     });
 
+    test('a held fix’s sheet, for Martin: its card from Needs you at its head', async ({ page }) => {
+      await adminService(page, 'martin');
+      await page.goto(consoleUrl({ item: '1274', sheet: true }));
+      const needs = page.locator('.sheet .sheet-needs');
+      await needs.getByRole('button', { name: /^Approve/ }).waitFor();
+      await page.evaluate(() => document.fonts.ready);
+      await expect(needs).toHaveScreenshot(`m07-sheet-needs-hold-${width}.png`);
+    });
+
     test('Approve on a gate’s hold, asking for the passkey again', async ({ page }) => {
       await adminService(page, 'martin');
       await page.route('**/admin/holds/**', (route) =>
@@ -683,6 +692,17 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
         await expect(section).toHaveScreenshot(`m07-sheet-flag-${item}-${width}.png`);
       });
     }
+
+    test('#1294’s sheet, for Martin: its flag’s card at its head, and its slider to set', async ({ page }) => {
+      await withFlags(page, 'martin');
+      await page.goto(consoleUrl({ item: '1294', sheet: true }));
+      const needs = page.locator('.sheet .sheet-needs');
+      const section = page.locator('.sheet section.sec', { has: page.getByRole('heading', { name: 'The flag' }) });
+      await section.locator('.fthumb').waitFor();
+      await page.evaluate(() => document.fonts.ready);
+      await expect(needs).toHaveScreenshot(`m07-sheet-needs-flag-${width}.png`);
+      await expect(section).toHaveScreenshot(`m07-sheet-flag-martin-${width}.png`);
+    });
 
     test('#1271’s sheet, its flag at Checks: the pages off and on', async ({ page }) => {
       await page.goto(consoleUrl({ item: '1271', sheet: true }));

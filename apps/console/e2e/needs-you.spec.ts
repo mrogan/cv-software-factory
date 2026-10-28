@@ -4,7 +4,8 @@
  * answers the planner's question and its card moves to Answered today; answers the visitor's suggestion in words, which
  * leave it held; and approving the gate's hold asks for his passkey again first. A refusal shows on the card. Then a
  * visitor sees the same cards, read only, as Waiting on Martin, with his answers today but not his words on the
- * visitor's suggestion. Answered today is the viewer's own day, so the answers checked are the ones made here, now. Snapshots are
+ * visitor's suggestion. Martin answers from a work item's sheet too, through the same card, the passkey asked there
+ * as here, and the card leaves both. Answered today is the viewer's own day, so the answers checked are the ones made here, now. Snapshots are
  * `visual.spec.ts`'s. Needs Postgres: TEST_DATABASE_URL, or Docker.
  */
 import { AxeBuilder } from '@axe-core/playwright';
@@ -131,4 +132,54 @@ test('a visitor sees what waits on Martin, read only, and not his words on a vis
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
     .analyze();
   expect(scan.violations).toEqual([]);
+});
+
+test('Martin answers from a work item’s sheet as from Needs you, his passkey asked there too', async ({ page }) => {
+  await virtualPasskey(page);
+  // A second passkey, on a second device: a fresh page has not given one in the last five minutes.
+  await enrolThroughTheDoor(page, await harness.code(), 'Phone');
+  await page.goto('/?motion=off&item=1334&sheet');
+  const sheet = page.locator('section.sheet');
+  const waits = sheet.locator('.sheet-needs');
+
+  await test.step('An improvement’s spec, approved from its sheet, asks for the passkey and leaves both', async () => {
+    await expect(waits.getByRole('heading', { level: 3 })).toHaveText('Needs you');
+    const spec = waits.locator('.need');
+    await expect(spec).toHaveAccessibleName('An improvement’s spec');
+    await spec.getByRole('button', { name: 'Approve (asks for your passkey)' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Approve #1334' });
+    await expect(dialog).toContainText('Approving an improvement’s spec sets the line building something new');
+    await dialog.getByRole('button', { name: 'Use your passkey' }).click();
+    await expect.poll(async () => (await answers('1334')).map((a) => a.payload.decision)).toEqual(['approved']);
+    await expect(waits).toHaveCount(0);
+    await expect(sheet).toBeVisible();
+    // Its button went with it: the sheet's title takes focus, so the sheet keeps it, and Escape closes it.
+    await expect(sheet.getByRole('heading', { level: 2 })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(sheet).toHaveCount(0);
+    await expect(card(page, '1334')).toHaveCount(0);
+    await expect(panel(page).locator('.answered')).toContainText('#1334 · Approved.');
+  });
+
+  await test.step('Words from a sheet go through the same route, and a refusal shows on its card', async () => {
+    await page.goto('/?motion=off&item=1317&sheet');
+    const tests = waits.locator('.need');
+    await page.route('**/admin/holds/1317/reject', (route) =>
+      route.fulfill({
+        status: 409,
+        json: { refused: 'hold', message: '#1317 has no hold waiting now: it was answered, or moved on.' },
+      }),
+    );
+    await tests.getByRole('button', { name: 'Reject' }).click();
+    await expect(tests.getByRole('alert')).toHaveText('#1317 has no hold waiting now: it was answered, or moved on.');
+    await tests.getByRole('button', { name: 'Answer in words' }).click();
+    const field = tests.getByLabel('Your answer to #1317');
+    await expect(field).toBeFocused();
+    await field.fill('Test the empty basket too');
+    await tests.getByRole('button', { name: 'Send' }).click();
+    await expect
+      .poll(async () => (await answers('1317')).map((a) => [a.payload.decision, a.payload.answer]))
+      .toEqual([['answered', 'Test the empty basket too']]);
+    await expect(waits).toHaveCount(0);
+  });
 });

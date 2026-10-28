@@ -1,13 +1,16 @@
 /**
  * An improvement's flag on its sheet, in place of Release and Verify: the flag's name and the stage it is at, in the
- * stages' words, its slider read-only, and a block per stage it reached, newest first, the older ones folded, each drawn
- * as a release's block is.
+ * stages' words, its slider, and a block per stage it reached, newest first, the older ones folded, each drawn as a
+ * release's block is. The slider is Controls' own: Martin sets a stage here as there, through the same confirmation,
+ * and a visitor's is read-only.
  *
  * What Verify finds at each stage comes in its own events: at Checks, the journeys' result with the flag on, against
  * a run with it off, and the probes' pictures of the pages off and on, with where they differ; at Preview, the same,
  * and what the device check found when a probe asked for the preview (`flag.checked`); at Share, its comparison of the
  * two sides (`flag.compared`). Until Verify has judged, a block says what it waits for.
  */
+import { Suspense, useState } from 'react';
+import type { Admin } from '../admin.ts';
 import { clock, shortVersion, shortWhen } from '../format.ts';
 import { previewHref } from '../profile.ts';
 import {
@@ -16,12 +19,13 @@ import {
   comparedWords,
   type FlagBlock,
   type FlagSheet,
+  type FlagStage,
   STAGE_NAME,
   shotOf,
   stageSays,
 } from '../projection/index.ts';
 import type { Tone } from './Canary.tsx';
-import { FlagSlider, stageWords } from './Flags.tsx';
+import { FlagDialog, FlagSlider, stageWords } from './Flags.tsx';
 import { Shot } from './Pictures.tsx';
 
 const lower = (text: string) => `${text[0]?.toLowerCase() ?? ''}${text.slice(1)}`;
@@ -175,7 +179,7 @@ function Body({ block, flag, app }: { block: FlagBlock; flag: FlagSheet; app: st
             {byWords(block)}, for everyone, a preview too. The admin service asks the app for the flags it holds, and
             tells his phone if it hasn’t taken it within a minute.{' '}
             {row.backOn
-              ? 'It was on for everyone, so it can go straight back from Controls.'
+              ? 'It was on for everyone, so it can go straight back, from its slider.'
               : `Its code stays in the app, off, and nothing was rolled back. To try again, Martin asks with the “+”.`}
           </p>
         </>
@@ -272,8 +276,8 @@ function Body({ block, flag, app }: { block: FlagBlock; flag: FlagSheet; app: st
     case 'everyone':
       return (
         <p className="rel-end">
-          {byWords(block)}. On for every visitor. Turning it off is still one press in Controls, and reaches the app in
-          seconds, with no deploy.
+          {byWords(block)}. On for every visitor. Turning it off is still one press, on its slider, and reaches the app
+          in seconds, with no deploy.
         </p>
       );
   }
@@ -331,8 +335,19 @@ function Block({
   );
 }
 
-export function FlagSection({ flag, app }: { flag: FlagSheet; app: string | undefined }) {
+export function FlagSection({
+  flag,
+  app,
+  admin,
+  onMoved,
+}: {
+  flag: FlagSheet;
+  app: string | undefined;
+  admin: Admin;
+  onMoved: () => void;
+}) {
   const { row } = flag;
+  const [choosing, setChoosing] = useState<FlagStage | undefined>(undefined);
   return (
     <section className="sec">
       <h3>The flag</h3>
@@ -341,9 +356,21 @@ export function FlagSection({ flag, app }: { flag: FlagSheet; app: string | unde
         {row.turnedOff
           ? `is off, turned off by Martin.`
           : `is at ${stageWords(row.stage)}: ${lower(stageSays(row.stage))}`}{' '}
-        Each stage is Martin’s, from Controls; widening asks for his passkey.
+        Each stage is Martin’s, here or in Controls; widening asks for his passkey.
       </p>
-      <FlagSlider row={row} />
+      <FlagSlider row={row} onChoose={admin.kind === 'martin' ? (stop) => setChoosing(stop.to) : undefined} />
+      {/* As in Controls, a flag closed meanwhile takes its confirmation with it: no move is left to make. */}
+      {choosing && admin.kind === 'martin' && !row.closed && (
+        <Suspense fallback={null}>
+          <FlagDialog
+            row={row}
+            to={choosing}
+            token={admin.session.token}
+            onClose={() => setChoosing(undefined)}
+            onMoved={onMoved}
+          />
+        </Suspense>
+      )}
       <div className="rels">
         {flag.blocks.map((block, i) => (
           <Block key={`${block.kind}-${block.at}`} block={block} flag={flag} app={app} folded={i > 0} />

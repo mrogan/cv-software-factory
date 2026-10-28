@@ -15,6 +15,8 @@
     ?enrol=code (default) | passkey (the code took; make the passkey) | done | wrong | spent (expired, used or out of tries)
     ?dialog=stop | start | stepup | abort (open one, as a click would)   ?fresh (the passkey was given in the last five minutes)
     ?needs=none (nothing waits)   ?menu (the account menu open)   ?profile=local (default) | cloud (no local model to choose)
+    A held work item's sheet heads with its cards from Needs you: ?item=1279&sheet (a gate's hold), ?item=1300&sheet (an
+    improvement's spec), ?item=1314&sheet (a deploy), and ?item=1316&sheet (a flag's card, and its slider to set)
   Improvements and flags (README, "Improvements and flags"):
     ?dialog=improve (the "+" on Plan's form; a visitor's is read-only) | flag&to=off|checks|preview|share|everyone (the slider's confirmation)
     ?flag=preview (default) | shipped (released, still off) | checks | share (Verify comparing) | compared | everyone | off
@@ -631,6 +633,9 @@ table.steps { width: 100%; border-collapse: collapse; font: 12px/1.35 var(--font
 .words-form { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 8px; }
 .words-form .row { justify-content: space-between; align-items: center; }
 .need-foot { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); }
+.need .barred { color: var(--station-led-attn); }
+/* What waits on Martin for a work item, at the head of its sheet: its cards from Needs you, untitled. */
+.sheet-needs h3 { margin-bottom: 12px; }
 textarea, input.field, select.field { font: inherit; font-size: 14px; color: var(--text); background: var(--raised); border: 1px solid var(--line-strong); border-radius: var(--radius-small); padding: 9px 11px; width: 100%; }
 textarea { min-height: 72px; resize: vertical; line-height: 1.45; }
 textarea:focus, input.field:focus, select.field:focus { outline: var(--stroke-rule) solid var(--signal); outline-offset: 1px; }
@@ -2331,7 +2336,7 @@ function flagBlocks(it) {
     `<p class="words">“The date is wrong on Sundays.”</p>
     <p class="rel-end">Turned off by Martin at the Share stage, for everyone, a preview too. The app had it 2s later, as the admin service checked. #${it.id} closed as turned off: its code stays in the app, off, and nothing was rolled back. To try again, Martin asks with the “+”.</p>`));
   if (at === 4) out.push(block('Everyone', t.everyone, 'On for everyone', 'ok',
-    `<p class="rel-end">On for every visitor, widened by Martin with his passkey${it.flag === 'delivery-dates' ? ', and at 15:02 the journeys still passed' : ''}. Turning it off is still one press in Controls, and reaches the app in seconds, with no deploy.</p>`));
+    `<p class="rel-end">On for every visitor, widened by Martin with his passkey${it.flag === 'delivery-dates' ? ', and at 15:02 the journeys still passed' : ''}. Turning it off is still one press, on its slider, and reaches the app in seconds, with no deploy.</p>`));
   return out.reverse();
 }
 function flagSection(it) {
@@ -2340,8 +2345,8 @@ function flagSection(it) {
   const blocks = flagBlocks(it).map((b, k) => k === 0
     ? `<article class="rel"><div class="rel-head">${b.head}</div>${b.body}</article>`
     : `<details class="rel"><summary>${b.head}<span class="more">Show this stage</span></summary>${b.body}</details>`).join('');
-  return `<section class="sec"><h3>The flag</h3><p class="help"><code class="flagname">${it.flag}</code> ${f.turnedOff ? 'is off, and #' + it.id + ' is closed.' : `is at ${FLAG_STAGES[at][1]}: ${FLAG_STAGES[at][2](f).replace(/^./, (c) => c.toLowerCase())}`} Each stage is Martin’s, from Controls; widening asks for his passkey.</p>
-    ${flagSlider(it.flag, { ro: true })}<div class="rels">${blocks}</div></section>`;
+  return `<section class="sec"><h3>The flag</h3><p class="help"><code class="flagname">${it.flag}</code> ${f.turnedOff ? 'is off, and #' + it.id + ' is closed.' : `is at ${FLAG_STAGES[at][1]}: ${FLAG_STAGES[at][2](f).replace(/^./, (c) => c.toLowerCase())}`} Each stage is Martin’s, here or in Controls; widening asks for his passkey.</p>
+    ${flagSlider(it.flag)}<div class="rels">${blocks}</div></section>`;
 }
 
 function renderSheet() {
@@ -2397,6 +2402,7 @@ function renderSheet() {
 
   $('sheet-body').innerHTML = `
     <div class="sheet-main">
+      ${sheetNeeds(it)}
       <p class="lead">${it.lead}</p>
       ${it.request ? `<figure class="request"><span class="label">The request · in Martin’s words · ${it.request.at}</span><blockquote>${esc(it.request.words)}</blockquote>
         <p class="help">Asked with the “+” on Plan, with his passkey. An improvement starts only from Martin: a visitor’s suggestion never starts work by itself.</p></figure>` : ''}
@@ -2501,6 +2507,11 @@ const HOLDS = [
   { id: '1314', cause: 'deploy', kicker: 'Waiting for your deploy', stage: 'Release', age: '25min', title: 'The contact form loses your message',
     ev: `<p class="ev">Merged at 15:58. Deploy #1330 carries it, and its checks passed: merging it is yours, on GitHub, and a release that carries it ends this wait by itself.</p><p class="ev"><a href="#">Deploy #1330 on GitHub</a></p>`,
     answers: [['rejected', 'Reject', 'Closes #1314. Its change stays merged, and goes out with the next deploy anyway.']] },
+  { id: '1318', cause: 'scope', kicker: 'Held to its scope', stage: 'Build', age: '20min', title: 'The contact form loses your message on a slow connection',
+    ev: `<p class="words">The coder needs 2 files outside the spec’s scope to meet its criteria, and no scope may name deploy/app.yaml: deploy/app.yaml, test/contact.test.ts\ndeploy/app.yaml<b class="barred"> · no scope may name it</b>: The request times out before the form is sent; the timeout is set here.\ntest/contact.test.ts: It expects the old error message.</p>`,
+    answers: [['approved', 'Approve', 'The planner writes the spec again, told the coder needed those files.', true],
+      ['answered', 'Answer in words', 'The planner reads your words and writes the spec again.'],
+      ['rejected', 'Reject', 'Closes #1318, unmerged.']] },
   { id: '1315', cause: 'finding', kicker: 'The planner found', stage: 'Triage', age: '10min', title: 'The About page links to a page that isn’t there',
     ev: `<p class="ev">Seen while planning #1312, and on no ticket yet. A finding waits for you before triage opens one.</p>`,
     answers: [['approved', 'Approve', 'Triage opens its ticket, and it goes down the line like any other.'],
@@ -2516,30 +2527,45 @@ const ANSWERED = [
 const WORDS_LEAVE = ['suggestion', 'finding', 'burst', 'environment'];
 const DECIDED = { approved: 'Approved', answered: 'Answered in words', rejected: 'Rejected' };
 
+// A hold's card, in Needs you or, for its work item, at the head of its sheet (`where`), where the sheet's head says
+// its title already and "Open the work item" would open the sheet it is on: both are left off, and its kicker names it.
+function needCard(h, where = 'needs') {
+  const v = S.visitor, key = `${where}-${h.id}`, sheet = where === 'sheet';
+  const rows = h.rows ? h.rows : h.answers.map(([d, label, what, keyed]) => {
+    const control = v ? `<span class="ro">${label}</span>`
+      : d === 'answered' ? `<button type="button" class="btn" data-words="${key}" aria-expanded="${S.words === key}">${label}</button>`
+      : `<button type="button" class="btn" data-answer="${h.id}:${d}">${label}${keyIf(keyed && !S.fresh)}</button>`;
+    const form = !v && d === 'answered' && S.words === key ? `<div class="words-form">
+        <label class="sr" for="words-${key}">Your answer to #${h.id}</label>
+        <textarea id="words-${key}" maxlength="300" placeholder="What the line should know"></textarea>
+        <div class="row"><span class="help">Visitors see your words, with anything shaped like a secret left out. <span class="chars">0 / 300</span></span>
+        <button type="button" class="btn primary small" data-answer="${h.id}:answered">Send</button></div></div>` : '';
+    return `${control}<p>${what}</p>${form}`;
+  }).join('');
+  const foot = sheet ? (v ? '<span>Martin answers, signed in</span>' : '')
+    : `<button type="button" class="linkish" data-open="${indexOf(h.id) >= 0 ? h.id : '1312'}">Open the work item</button>${v ? '<span>Martin answers, signed in</span>' : ''}`;
+  return `<article class="need" ${sheet ? `aria-label="${h.kicker}"` : `aria-labelledby="need-${h.id}"`}>
+    <div class="kick"><b>${h.kicker}</b><span>#${h.id} · ${h.stage} · ${h.age}</span></div>
+    ${sheet ? '' : `<h3 id="need-${h.id}">${esc(h.title)}</h3>`}${h.ev}
+    <div class="answers" role="group" aria-label="${v ? 'What Martin can answer' : 'Your answers'}">${rows}</div>
+    ${foot ? `<div class="need-foot">${foot}</div>` : ''}
+  </article>`;
+}
+// Every card that waits on Martin, oldest first: the line's and triage's holds, and the flags waiting to be widened.
+const openHolds = () => q.get('needs') === 'none' ? [] : [...HOLDS.slice(0, 1), ...flagHolds(), ...HOLDS.slice(1)].filter((h) => !S.answered[h.id]);
+// The head of a work item's sheet: its cards from Needs you, while any waits on Martin. Answered, a card leaves the
+// sheet as it leaves Needs you.
+function sheetNeeds(it) {
+  const holds = openHolds().filter((h) => h.id === it.id);
+  return holds.length ? `<section class="sec sheet-needs" aria-labelledby="sheet-needs-title"><h3 id="sheet-needs-title">${S.visitor ? 'Waiting on Martin' : 'Needs you'}</h3>
+    <div class="needs-list">${holds.map((h) => needCard(h, 'sheet')).join('')}</div></section>` : '';
+}
+
 function renderNeeds() {
   const el = $('needs'), v = S.visitor;
-  const all = [...HOLDS.slice(0, 1), ...flagHolds(), ...HOLDS.slice(1)];
-  const holds = q.get('needs') === 'none' ? [] : all.filter((h) => !S.answered[h.id]);
+  const holds = openHolds();
   const done = [...S.kept.map(([id, w]) => ['now', id, 'Answered in words, still held', `“${w}”`, true]).reverse(), ...HOLDS.filter((h) => S.answered[h.id]).map((h) => ['now', h.id, DECIDED[S.answered[h.id]], S.said[h.id] ? `“${S.said[h.id]}”` : '', true]), ...ANSWERED];
-  const cards = holds.map((h) => {
-    const rows = h.rows ? h.rows : h.answers.map(([d, label, what, key]) => {
-      const control = v ? `<span class="ro">${label}</span>`
-        : d === 'answered' ? `<button type="button" class="btn" data-words="${h.id}" aria-expanded="${S.words === h.id}">${label}</button>`
-        : `<button type="button" class="btn" data-answer="${h.id}:${d}">${label}${keyIf(key && !S.fresh)}</button>`;
-      const form = !v && d === 'answered' && S.words === h.id ? `<div class="words-form">
-          <label class="sr" for="words-${h.id}">Your answer to #${h.id}</label>
-          <textarea id="words-${h.id}" maxlength="300" placeholder="What the line should know"></textarea>
-          <div class="row"><span class="help">Visitors see your words, with anything shaped like a secret left out. <span class="chars">0 / 300</span></span>
-          <button type="button" class="btn primary small" data-answer="${h.id}:answered">Send</button></div></div>` : '';
-      return `${control}<p>${what}</p>${form}`;
-    }).join('');
-    return `<article class="need" aria-labelledby="need-${h.id}">
-      <div class="kick"><b>${h.kicker}</b><span>#${h.id} · ${h.stage} · ${h.age}</span></div>
-      <h3 id="need-${h.id}">${esc(h.title)}</h3>${h.ev}
-      <div class="answers" role="group" aria-label="${v ? 'What Martin can answer' : 'Your answers'}">${rows}</div>
-      <div class="need-foot"><button type="button" class="linkish" data-open="${indexOf(h.id) >= 0 ? h.id : '1312'}">Open the work item</button>${v ? '<span>Martin answers, signed in</span>' : ''}</div>
-    </article>`;
-  }).join('');
+  const cards = holds.map((h) => needCard(h)).join('');
   const empty = `<p class="help" style="font-size: 13px">${v ? 'Nothing waits on Martin.' : 'Nothing waits on you.'} A hold lands here when the line or triage needs a person: a spec to approve, a pull request a gate held, a fix waiting for your deploy.</p>`;
   const answered = done.length ? `<div class="answered"><span class="label">Answered today</span>${done.map(([t, id, how, said, here]) =>
     `<div><span class="mono">${here ? 'now' : t}</span><span>#${id} · ${how}${said === null && !here ? '. His words stay his: the hold was about a visitor’s report.' : said ? `. ${said.startsWith('“') ? `<q>${esc(said.slice(1, said.lastIndexOf('”')))}</q>${esc(said.slice(said.lastIndexOf('”') + 1))}` : esc(said)}` : ''}</span></div>`).join('')}</div>` : '';
@@ -2981,7 +3007,7 @@ function keepMode() {
     a.setAttribute('href', '?' + u.toString());
   });
 }
-function renderAll() { renderChrome(); renderLine(); renderStagePanel(); renderNeeds(); renderControls(); renderCanary(); renderMenu(); renderPage(); keepMode(); }
+function renderAll() { renderChrome(); renderLine(); renderStagePanel(); renderNeeds(); renderControls(); renderCanary(); renderMenu(); renderPage(); keepMode(); if (S.sheet !== null) renderSheet(); }
 
 /* ==== Events ============================================================================== */
 
@@ -3024,8 +3050,9 @@ document.addEventListener('click', (e) => {
   }
   if (d.answer) {
     const [id, how] = d.answer.split(':'), h = HOLDS.find((x) => x.id === id), a = h.answers.find(([x]) => x === how);
-    const words = how === 'answered' ? document.getElementById('words-' + id)?.value.trim() : '';
-    if (how === 'answered' && !words) return document.getElementById('words-' + id)?.focus();
+    const field = t.closest('.need')?.querySelector('textarea');
+    const words = how === 'answered' ? field?.value.trim() : '';
+    if (how === 'answered' && !words) return field?.focus();
     // Words on one of triage's holds are kept with it, and it stays held (WORDS_LEAVE_HELD).
     const stays = how === 'answered' && WORDS_LEAVE.includes(h.cause);
     return keyed(a[3], 'answer', { what: `<b>${a[1]} #${id}.</b> ${a[2]}` }, () => {
@@ -3033,7 +3060,7 @@ document.addEventListener('click', (e) => {
       S.words = null; renderAll();
     });
   }
-  if (d.words) { S.words = S.words === d.words ? null : d.words; renderNeeds(); return document.getElementById('words-' + d.words)?.focus(); }
+  if (d.words) { S.words = S.words === d.words ? null : d.words; renderNeeds(); if (S.sheet !== null) renderSheet(); return document.getElementById('words-' + d.words)?.focus(); }
   if (d.canary) {
     const c = d.canary;
     if (c === 'pause') { S.canary = 'paused'; return renderAll(); }

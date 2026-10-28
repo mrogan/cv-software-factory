@@ -1,6 +1,6 @@
 /**
- * The slider's confirmation (`Flags.tsx`), from a stop, a drag or a flag's card in Needs you. Only Martin opens one, so
- * its code arrives when he first does.
+ * The slider's confirmation (`Flags.tsx`), from a stop, a drag or a flag's card, in Controls, Needs you or a work
+ * item's sheet. Only Martin opens one, so its code arrives when he first does.
  */
 import { useEffect, useId, useRef, useState } from 'react';
 import { SHARES } from '../../../../../policy/flags.ts';
