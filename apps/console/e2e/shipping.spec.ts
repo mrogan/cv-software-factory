@@ -27,24 +27,105 @@ test.describe('the Canary panel', () => {
       /^50%3min, measuring now$/,
       /^100%all, to come$/,
     ]);
-    await expect(canary.locator('table.measures caption')).toContainText('At the 25% step');
+    // The background analysis's latest looks, a minute apart, and the step's time left.
+    await expect(canary.locator('table.measures caption')).toHaveText(
+      'At the 50% step · measuring until 15:24:00 · next look in 0:30',
+    );
+    await expect(canary.locator('.steptime')).toContainText('Measuring the 50% step0:29 left');
+    const row = (name: string) => canary.getByRole('row', { name: new RegExp(`^${name} `) });
+    await expect(row('Requests')).toContainText('376');
+    await expect(row('Requests')).toContainText('enough');
+    await expect(row('Errors')).toContainText('1.02 pt to spare');
+    await expect(row('Latency')).toContainText('128 ms');
+    await expect(row('Latency')).toContainText('102 ms to spare');
+    await expect(row('Journeys')).toContainText('none worse here');
     await expect(page.getByRole('button', { name: /^Release: .*, 50% · 1 waiting[.,] / })).toBeVisible();
     await canary.getByRole('button', { name: '#1314' }).click();
     await expect(page.getByRole('dialog', { name: 'The contact form loses your message' })).toBeVisible();
   });
 
-  test('draws the measures waiting before the first step is measured', async ({ page }) => {
+  test('counts the requests before the first step, and waits for enough of them to judge', async ({ page }) => {
     await page.goto(consoleUrl({ at: CANARY['first-step'] }));
     await shown(page);
     const canary = panel(page);
     await expect(canary.locator('.kick')).toHaveText('Canary · 25% of traffic');
-    await expect(canary.locator('table.measures caption')).toHaveText('At the 25% step · measuring until 15:21:00');
+    await expect(canary.locator('table.measures caption')).toHaveText(
+      'At the 25% step · measuring until 15:21:00 · next look in 0:31',
+    );
     const rows = canary.locator('table.measures tbody tr');
     await expect(rows).toHaveCount(4);
-    for (const row of await rows.all()) {
+    await expect(rows.nth(0).locator('td.mono')).toHaveText(['76 / 100baseline 824', '824']);
+    await expect(rows.nth(0)).toContainText('counting');
+    for (const row of (await rows.all()).slice(1))
       await expect(row.locator('td.mono')).toHaveText(['—baseline —', '—']);
-      await expect(row).toContainText('measuring');
-    }
+    await expect(rows.nth(1)).toContainText('waits for 100 requests');
+    await expect(rows.nth(2)).toContainText('waits for 100 requests');
+    await expect(rows.nth(3)).toContainText('waits for its first run');
+  });
+
+  test('says a step passed, in green, until the next look lands', async ({ page }) => {
+    await page.goto(consoleUrl({ at: Date.parse('2026-10-06T14:21:05Z') }));
+    await shown(page);
+    const verdicts = panel(page).locator('table.measures tbody tr td:last-child');
+    await expect(verdicts).toHaveText(Array(4).fill('passed at 25%'));
+  });
+
+  test('counts a figure up from the look before when a later look arrives on the stream', async ({ page, request }) => {
+    type Raw = { seq: number; type: string };
+    const events = (await (await request.get('/api/events')).json()) as Raw[];
+    const latest = events.findLast((e) => e.type === 'canary.measuring');
+    if (!latest) throw new Error('No look in the samples');
+    // Everything before the samples' last look is read; the look itself comes on the stream once the panel is drawn.
+    await page.route('**/api/events?after=0', (route) =>
+      route.fulfill({ json: events.filter((e) => e.seq < latest.seq) }),
+    );
+    await page.addInitScript(() => {
+      const Real = globalThis.EventSource;
+      class Held extends EventTarget {
+        readyState = 1;
+        onopen: ((event: Event) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        constructor() {
+          super();
+          (globalThis as { held?: Held }).held = this;
+          setTimeout(() => this.onopen?.(new Event('open')), 0);
+        }
+        close() {
+          this.readyState = 2;
+        }
+      }
+      class Either {
+        constructor(url: string, init?: EventSourceInit) {
+          // biome-ignore lint/correctness/noConstructorReturn: the public stream held here, any other the browser's
+          return url.startsWith('/api/events/stream') ? new Held() : new Real(url, init);
+        }
+      }
+      (globalThis as { EventSource: unknown }).EventSource = Either;
+    });
+    await page.goto(consoleUrl({ motion: true }));
+    await shown(page);
+    const cell = panel(page)
+      .getByRole('row', { name: /^Requests / })
+      .locator('td.mono')
+      .first();
+    await expect(cell).toHaveText('301baseline 599');
+    // Each frame's text of the figure while the look lands, read from the text node React drew.
+    const seen = await cell.evaluate(async (td, data) => {
+      const held = (globalThis as { held?: { onmessage: ((event: MessageEvent) => void) | null } }).held;
+      held?.onmessage?.(new MessageEvent('message', { data }));
+      const texts: string[] = [];
+      const until = performance.now() + 1200;
+      while (performance.now() < until) {
+        texts.push(td.firstChild?.nodeValue ?? '');
+        await new Promise(requestAnimationFrame);
+      }
+      return texts;
+    }, JSON.stringify(latest));
+    const between = seen.map(Number).filter((n) => n > 301 && n < 376);
+    expect(between.length, seen.join(' ')).toBeGreaterThan(0);
+    expect(seen.at(-1)).toBe('376');
+    await expect(cell).toHaveText('376baseline 524');
   });
 
   test('says a rollback’s story in words, and links the ticket its signal opened', async ({ page }) => {
@@ -123,6 +204,83 @@ test.describe('the Canary panel', () => {
     await shown(page);
     await expect(panel(page)).toContainText('No release in flight The last, v0.9.12, was promoted at 08:06');
   });
+
+  // A row is one line at every laptop width, with the steps beside the measures (above 1180px) or above them; on a
+  // tablet a caption may wrap, and the table never runs past the panel.
+  for (const width of [800, 1024, 1181, 1200, 1280, 1440]) {
+    test(`keeps the measures inside the panel, each rule's caption one line on a laptop, at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(consoleUrl());
+      await shown(page);
+      const canary = panel(page);
+      const captions = canary.locator('.measures small.rule');
+      await expect(captions).toHaveCount(4);
+      for (const caption of width >= WIDTHS.laptop.width ? await captions.all() : []) {
+        const [height, line] = await caption.evaluate((el) => [
+          el.getBoundingClientRect().height,
+          Number.parseFloat(getComputedStyle(el).lineHeight),
+        ]);
+        expect(height, await caption.innerText()).toBeLessThan(line * 1.5);
+      }
+      const right = (el: Element) => el.getBoundingClientRect().right;
+      const table = await canary.locator('table.measures').evaluate(right);
+      const body = await canary.locator('.canary-body').evaluate(right);
+      expect(table).toBeLessThanOrEqual(body + 0.5);
+    });
+  }
+
+  // A rollback at the step last measured draws the measures' own table, with the trend column once looks were
+  // recorded: it takes the same width, and the rollback's words beside it wrap to the table rather than widen it.
+  for (const width of [1200, 1440]) {
+    test(`keeps a rollback's measures, with looks, inside the panel and beside its steps, at ${width}px`, async ({
+      page,
+      request,
+    }) => {
+      type Event = {
+        seq: number;
+        ts: string;
+        work_item: string | null;
+        type: string;
+        payload: Record<string, unknown>;
+      };
+      const events = (await (await request.get('/api/events')).json()) as Event[];
+      const rolledBack = events.find((e) => e.type === 'release.rolled-back' && e.ts.startsWith('2026-10-02T07:25'));
+      const sample = events.find((e) => e.type === 'canary.measuring');
+      if (!rolledBack || !sample) throw new Error('No rollback on 2 October, or no look in the samples');
+      const at = '2026-10-02T07:24:50Z';
+      const look = {
+        ...sample,
+        id: crypto.randomUUID(),
+        ts: '2026-10-02T07:24:55.000Z',
+        work_item: rolledBack.work_item,
+        payload: {
+          ...sample.payload,
+          release: rolledBack.payload.release,
+          weight: 5,
+          at,
+          measures: (sample.payload.measures as Record<string, unknown>[]).map((m) => ({ ...m, at })),
+        },
+      };
+      // The look just before the rollback, and every event numbered again in that order.
+      const served = events.flatMap((e) => (e === rolledBack ? [look, e] : [e])).map((e, i) => ({ ...e, seq: i + 1 }));
+      await page.route('**/api/events?after=0', (route) => route.fulfill({ json: served }));
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(consoleUrl({ at: CANARY['rolled-back'] }));
+      await shown(page);
+      const canary = panel(page);
+      await expect(canary.locator('table.measures.trended')).toHaveCount(1);
+      const box = (selector: string) =>
+        canary
+          .locator(selector)
+          .first()
+          .evaluate((el) => el.getBoundingClientRect().toJSON());
+      const [table, body, steps] = [await box('table.measures'), await box('.canary-body'), await box('.canary-steps')];
+      expect(table.right).toBeLessThanOrEqual(body.right + 0.5);
+      expect(steps.width).toBeGreaterThan(200);
+    });
+  }
 });
 
 test.describe('the Canary panel on a phone', () => {
@@ -130,12 +288,17 @@ test.describe('the Canary panel on a phone', () => {
 
   test('keeps a measure’s own words, and drops the rules’ captions', async ({ page, request }) => {
     type Measure = { name: string; phase: string; message?: string };
-    type Event = { type: string; payload: { version?: string; analysis?: { measures: Measure[] } } };
+    type Event = { type: string; payload: { version?: string; measures?: Measure[] } };
     const events = (await (await request.get('/api/events')).json()) as Event[];
-    // The samples measure every step: the release in flight's step, as if the journeys could not be measured.
-    const step = events.findLast((e) => e.type === 'canary.stepped' && e.payload.version === 'v0.9.13');
-    const journeys = step?.payload.analysis?.measures.find((m) => m.name === 'journeys');
-    if (!journeys) throw new Error('No journeys measured on v0.9.13');
+    // The release in flight's latest look at the journeys, as if they could not be measured.
+    const look = events.findLast(
+      (e) =>
+        e.type === 'canary.measuring' &&
+        e.payload.version === 'v0.9.13' &&
+        e.payload.measures?.some((m) => m.name === 'journeys'),
+    );
+    const journeys = look?.payload.measures?.find((m) => m.name === 'journeys');
+    if (!journeys) throw new Error('No journeys looked at on v0.9.13');
     Object.assign(journeys, { phase: 'error', message: 'The journeys Job did not finish' });
     await page.route('**/api/events?after=0', (route) => route.fulfill({ json: events }));
     await page.goto(consoleUrl());

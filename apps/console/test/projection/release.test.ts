@@ -9,20 +9,28 @@ import { release as policy } from '../../../../policy/release.ts';
 import { DRAWN } from '../../../factory/src/release/read.ts';
 import { FRESH_MINUTES, STEP_UP } from '../../web/src/access.ts';
 import { project, projectSheet, upTo } from '../../web/src/projection/index.ts';
+import { foldItems } from '../../web/src/projection/items.ts';
 import { type Card, timeline } from '../../web/src/projection/reel.ts';
 import {
+  BACKGROUND,
   canaryView,
   controlsOf,
   type End,
   type Failed,
   failedLooks,
+  type LookVerdict,
+  lookVerdict,
   MEASURES,
+  measuring,
   ownWords,
+  pointsOf,
   type Release,
   releases,
+  room,
   SERIES_UNITS,
   sawOf,
   versionsAt,
+  written,
 } from '../../web/src/projection/release.ts';
 import { END, SAMPLES, work } from './support.ts';
 
@@ -541,15 +549,261 @@ describe('a release’s steps', () => {
   });
 });
 
-it('keeps the measures’ rules in the policy’s terms', () => {
+describe('the background analysis’s looks', () => {
+  const inFlight = (t: number) => {
+    const { canary } = shown(t);
+    if (canary.state !== 'shown') throw new Error('No release in the panel');
+    return canary.release;
+  };
+  const verdicts = (r: Release) =>
+    Object.fromEntries(MEASURES.map(([name]) => [name, lookVerdict(r, name)])) as Record<string, LookVerdict>;
+  const said = (words: string, kind: LookVerdict['kind'] = 'running', ruled = false) => ({ words, kind, ruled });
+
+  it('keeps each look of the release in flight, and when the next is due', () => {
+    const r = inFlight(END);
+    expect(measuring(r)).toBe(true);
+    expect(r.looks.map((l) => [new Date(l.at).toISOString().slice(11, 19), l.weight])).toEqual([
+      ['14:18:01', 25],
+      ['14:19:01', 25],
+      ['14:20:01', 25],
+      ['14:20:38', 25],
+      ['14:21:01', 50],
+      ['14:22:01', 50],
+      ['14:23:01', 50],
+    ]);
+    // A minute after the last look that took errors and latency; the step began when the 25% step passed.
+    expect(r.nextLook).toBe(at('2026-10-06T14:24:01Z'));
+    expect(r).toMatchObject({ since: at('2026-10-06T14:21:00Z'), until: at('2026-10-06T14:24:00Z') });
+  });
+
+  it('says how far each measure is from its limit, from the latest look', () => {
+    expect(verdicts(inFlight(END))).toEqual({
+      'enough-requests': said('enough'),
+      // 0.19% against 0.21%: a point above the baseline's is 1.21%.
+      errors: said('1.02 pt to spare'),
+      // 128 ms against 130 ms: the most is 100 ms above, since a quarter above is less.
+      latency: said('102 ms to spare'),
+      journeys: said('none worse here'),
+    });
+  });
+
+  it('counts the requests, and waits for enough of them before errors and latency are judged', () => {
+    const r = inFlight(at('2026-10-06T14:19:30Z'));
+    expect(r.looks).toHaveLength(2);
+    expect(verdicts(r)).toEqual({
+      'enough-requests': said('counting'),
+      errors: said('waits for 100 requests', 'pending'),
+      latency: said('waits for 100 requests', 'pending'),
+      journeys: said('waits for its first run', 'pending'),
+    });
+    expect(r.nextLook).toBe(at('2026-10-06T14:20:01Z'));
+  });
+
+  it('says a step passed, in green, until the next look lands', () => {
+    const passed = verdicts(inFlight(at('2026-10-06T14:21:05Z')));
+    for (const name of ['enough-requests', 'errors', 'latency', 'journeys'])
+      expect(passed[name]).toEqual(said('passed at 25%', 'successful'));
+    // The 50% step's first look, at 127 ms.
+    expect(verdicts(inFlight(at('2026-10-06T14:21:12Z'))).latency).toEqual(said('103 ms to spare'));
+  });
+
+  describe('of hand-made releases', () => {
+    const started: PayloadOf<'release.started'> = {
+      release: 'r1',
+      version: 'v1.0.1',
+      previous: 'v1.0.0',
+      image: { digest: `sha256:${'b'.repeat(64)}`, signed: true, admitted: true },
+      watched: true,
+      steps: [
+        { weight: 25, pauseSeconds: 180, analysis: true },
+        { weight: 50, pauseSeconds: 180, analysis: true },
+      ],
+      dryRun: false,
+    };
+    const figures = (canary: number, baseline: number) => ({
+      canary: { requests: 225, errorRate: 0.002, p99Ms: canary, journeys: null },
+      baseline: { requests: 675, errorRate: 0.002, p99Ms: baseline, journeys: null },
+    });
+    /** A look of latency alone, its value the canary's p99 less the most it may be, in seconds. */
+    const look = (minute: number, p99: number, phase: 'successful' | 'failed' = 'successful') => {
+      const at = new Date(Date.parse('2026-10-03T09:00:00Z') + minute * 60_000).toISOString();
+      return {
+        release: 'r1',
+        version: 'v1.0.1',
+        weight: 25,
+        at,
+        measures: [{ name: 'latency', phase, value: (p99 - 230) / 1000, limit: 0, at }],
+        figures: figures(p99, 130),
+        dryRun: false,
+      } satisfies PayloadOf<'canary.measuring'>;
+    };
+    const flying = () => work('1').open().add(1, 'release.started', 'rollouts', started);
+
+    it('keeps a look recorded on each work item the release carries once', () => {
+      const one = flying().add(2.2, 'canary.measuring', 'rollouts', look(2, 200));
+      const two = work('2')
+        .add(1, 'release.started', 'rollouts', started)
+        .add(2.4, 'canary.measuring', 'rollouts', look(2, 200));
+      const events = [...one.events, ...two.events].sort((a, b) => a.ts.localeCompare(b.ts));
+      const [r] = releases(events, [], one.at(3));
+      expect(r?.looks).toHaveLength(1);
+      expect(r?.nextLook).toBe(one.at(3));
+    });
+
+    it('keeps a measurement the line recorded a pass after a look that ended in the same second, as a look of its own', () => {
+      const latency = look(2, 200);
+      const errors = { name: 'errors', phase: 'successful', value: -0.0002, limit: 0.01, at: latency.at } as const;
+      const split = flying()
+        .add(2.2, 'canary.measuring', 'rollouts', { ...latency, measures: [errors] })
+        .add(2.4, 'canary.measuring', 'rollouts', latency);
+      const [r] = releases(split.events, [], split.at(2.5));
+      expect(r?.looks.map((l) => l.measures.map((m) => m.name))).toEqual([['errors'], ['latency']]);
+      expect(r && lookVerdict(r, 'latency').words).toBe('30 ms to spare');
+      expect(r && lookVerdict(r, 'errors').words).toBe('1.02 pt to spare');
+    });
+
+    it('keeps each measurement once, however the line grouped it into looks on each work item', () => {
+      // On one work item the line read errors and the failed latency together; on another, between the two writes.
+      const failed = look(2, 255, 'failed');
+      const errors = { name: 'errors', phase: 'successful', value: -0.0002, limit: 0.01, at: look(1.9, 0).at } as const;
+      const together = flying().add(2.2, 'canary.measuring', 'rollouts', {
+        ...failed,
+        measures: [errors, ...failed.measures],
+      });
+      const apart = work('2')
+        .add(1, 'release.started', 'rollouts', started)
+        .add(2.1, 'canary.measuring', 'rollouts', { ...failed, at: errors.at, measures: [errors] })
+        .add(2.4, 'canary.measuring', 'rollouts', failed);
+      for (const events of [
+        [...together.events, ...apart.events],
+        [...apart.events, ...together.events],
+      ]) {
+        const [r] = releases(
+          events.sort((a, b) => a.ts.localeCompare(b.ts)),
+          [],
+          together.at(3),
+        );
+        if (!r) throw new Error('No release');
+        expect(r.looks.flatMap((l) => l.measures.map((m) => m.name)).sort()).toEqual(['errors', 'latency']);
+        expect(lookVerdict(r, 'latency')).toEqual(said('25 ms over · 1 of 2', 'warm', true));
+        expect(pointsOf(r, 'latency')).toHaveLength(1);
+      }
+    });
+
+    it('places the looks a line that was down records together each at its own time', () => {
+      const back = flying()
+        .add(10.1, 'canary.measuring', 'rollouts', look(2, 200))
+        .add(10.1, 'canary.measuring', 'rollouts', look(3, 210))
+        .add(10.1, 'canary.measuring', 'rollouts', look(4, 220));
+      const [r] = releases(back.events, [], back.at(11));
+      expect(r?.looks.map((l) => l.at)).toEqual([back.at(2), back.at(3), back.at(4)]);
+    });
+
+    it('says a failed look in warm words, with how many of the looks that fail the release have failed', () => {
+      const over = flying()
+        .add(2.2, 'canary.measuring', 'rollouts', look(2, 200))
+        .add(3.2, 'canary.measuring', 'rollouts', look(3, 255, 'failed'));
+      const [r] = releases(over.events, [], over.at(3.5));
+      if (!r) throw new Error('No release');
+      expect(lookVerdict(r, 'latency')).toEqual(said('25 ms over · 1 of 2', 'warm', true));
+      // Back under its limit, the failed look still counts.
+      over.add(4.2, 'canary.measuring', 'rollouts', look(4, 145));
+      const [later] = releases(over.events, [], over.at(4.5));
+      if (!later) throw new Error('No release');
+      expect(lookVerdict(later, 'latency')).toEqual(said('85 ms to spare · 1 of 2', 'warm', true));
+      // Each point's limit is where the canary's p99 would fail: 230 ms, a hundred above the baseline's.
+      expect(pointsOf(later, 'latency').map((p) => [p.canary, p.baseline, p.limit, p.failed])).toEqual([
+        [200, 130, 230, false],
+        [255, 130, 230, true],
+        [145, 130, 230, false],
+      ]);
+    });
+
+    it('starts a retry’s looks again, and keeps none after the end, nor a next look', () => {
+      const retried = flying()
+        .add(2.2, 'canary.measuring', 'rollouts', look(2, 200))
+        .add(3, 'release.aborted', 'rollouts', {
+          release: 'r1',
+          version: 'v1.0.1',
+          restored: 'v1.0.0',
+          by: 'martin',
+          abortedAt: '2026-10-03T09:03:00Z',
+        })
+        .add(3.2, 'canary.measuring', 'rollouts', look(3, 200));
+      const [stopped] = releases(retried.events, [], retried.at(4));
+      expect(stopped).toMatchObject({ looks: [{ weight: 25 }], nextLook: undefined });
+      if (stopped) expect(measuring(stopped)).toBe(false);
+      retried.add(5, 'release.started', 'rollouts', started);
+      expect(releases(retried.events, [], retried.at(6))[0]).toMatchObject({ looks: [], nextLook: undefined });
+    });
+
+    it('places a look at its event when the log was moved in time and its payload was not', () => {
+      // As \`pnpm dev\` serves the samples: every event's time moved to end now, the payloads' times as they were.
+      const moved = flying().add(2.2, 'canary.measuring', 'rollouts', { ...look(2, 200), at: '2026-09-01T09:02:00Z' });
+      expect(releases(moved.events, [], moved.at(3))[0]?.looks[0]?.at).toBe(moved.at(2.2));
+      // Recorded on another work item a pass later, it is still one look, known by its own time.
+      const other = work('2')
+        .add(1, 'release.started', 'rollouts', started)
+        .add(2.7, 'canary.measuring', 'rollouts', { ...look(2, 200), at: '2026-09-01T09:02:00Z' });
+      const both = [...moved.events, ...other.events].sort((a, b) => a.ts.localeCompare(b.ts));
+      expect(releases(both, [], moved.at(3))[0]?.looks).toHaveLength(1);
+      const recorded = flying().add(2.2, 'canary.measuring', 'rollouts', look(2, 200));
+      expect(releases(recorded.events, [], recorded.at(3))[0]?.looks[0]?.at).toBe(recorded.at(2));
+      // Its later looks move as far as the first, keeping their order and spacing, even recorded in one pass.
+      const later = (minute: number, p99: number) => ({
+        ...look(minute, p99),
+        at: new Date(Date.parse('2026-09-01T09:00:00Z') + minute * 60_000).toISOString(),
+      });
+      moved
+        .add(5.2, 'canary.measuring', 'rollouts', later(3, 200))
+        .add(5.2, 'canary.measuring', 'rollouts', later(4, 200));
+      expect(releases(moved.events, [], moved.at(6))[0]?.looks.map((l) => l.at)).toEqual([
+        moved.at(2.2),
+        moved.at(3.2),
+        moved.at(4.2),
+      ]);
+    });
+
+    it('leaves a work item’s latest time where its last change put it', () => {
+      const looked = flying().add(2.2, 'canary.measuring', 'rollouts', look(2, 200));
+      const item = foldItems(looked.events).find((i) => i.number === '1');
+      expect(item?.lastAt).toBe(looked.at(1));
+    });
+
+    it('keeps no looks, and no next look, for a dry run, which has no canary to look at', () => {
+      const dry = work('1')
+        .open()
+        .add(1, 'release.started', 'rollouts', { ...started, dryRun: true })
+        .add(2.2, 'canary.measuring', 'rollouts', look(2, 200));
+      const [r] = releases(dry.events, [], dry.at(3));
+      expect(r?.looks).toEqual([]);
+      expect(r?.nextLook).toBeUndefined();
+    });
+  });
+
+  it('says the room to a limit in each figure’s unit, never an excess as none', () => {
+    expect(room('errors', -0.0002, 0.01)).toBe('1.02 pt');
+    expect(room('errors', 0.0123, 0.01)).toBe('0.23 pt');
+    expect(room('latency', -0.085, 0)).toBe('85 ms');
+    expect(room('latency', 0.0004, 0)).toBe('1 ms');
+    expect(room('latency', 0.025, 0)).toBe('25 ms');
+  });
+});
+
+it('keeps the measures’ rules, and the background analysis’s figures, in the policy’s terms', () => {
   const words = Object.fromEntries(MEASURES.map(([name, , rule]) => [name, rule]));
-  expect(words['enough-requests']).toContain(`at least ${policy.minRequests} `);
+  expect(words['enough-requests']).toBe(`at least ${policy.minRequests} in the window`);
   expect(policy.errors.maxAbove).toBe(0.01); // "a point above"
-  expect(words.errors).toContain('a point above');
+  expect(words.errors).toBe('5xx share · fails a point above');
   expect(policy.latency).toMatchObject({ percentile: 0.99, maxRatioAbove: 0.25, minSecondsAbove: 0.1 });
-  expect(words.latency).toBe('p99 · fails a quarter and 100 ms above');
+  expect(words.latency).toBe('p99 · fails 25% and 100 ms above');
   expect(policy.background.failures).toBe(2);
-  expect(words.journeys).toContain('twice');
+  expect(words.journeys).toBe('fails on a check failing here alone, twice');
+  expect(BACKGROUND).toEqual({
+    minRequests: policy.minRequests,
+    intervalMs: policy.background.intervalMinutes * 60_000,
+    failures: policy.background.failures,
+  });
 });
 
 it('reads each series in the unit the line draws it in', () => {
@@ -648,6 +902,23 @@ describe('what the analysis saw of a measure that failed', () => {
     expect(sawOf(failed('journeys', null, null, reason), reason)).toBe(
       'a check that passed on the baseline failed here',
     );
+  });
+});
+
+describe('a live figure, as written and counted up', () => {
+  it('says the requests are short of the window’s least only while the figure shown is', () => {
+    // Counting up from 63 to 140, and down from 140 to 40: each figure it passes is written as it stands.
+    expect([63, 99.4, 99.6, 140].map((n) => written('requests', n))).toEqual(['63 / 100', '99 / 100', '100', '140']);
+    expect([140, 120, 100, 99, 40].map((n) => written('requests', n))).toEqual([
+      '140',
+      '120',
+      '100',
+      '99 / 100',
+      '40 / 100',
+    ]);
+    expect(written('requests', 1234)).toBe('1,234');
+    expect(written('share', 0.0042)).toBe('0.42%');
+    expect(written('ms', 126.6)).toBe('127 ms');
   });
 });
 

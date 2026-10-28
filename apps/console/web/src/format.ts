@@ -23,6 +23,12 @@ export const clock = (at: number) => time.format(at);
 /** 16:20:30, for a canary's steps, which last minutes */
 export const clockSeconds = (at: number) => precise.format(at);
 
+/** 2:31, for the time left of a canary's step or until its next look: never below 0:00. */
+export function countdown(ms: number): string {
+  const seconds = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
 /** Thu 16:20 */
 export const shortWhen = (at: number) => `${weekday.format(at)} ${time.format(at)}`;
 

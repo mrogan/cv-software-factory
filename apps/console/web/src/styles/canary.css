@@ -66,11 +66,36 @@
 .linkish:hover {
   text-decoration-color: var(--text);
 }
+/*
+ * The steps and the note on the left, the measures on the right, and Martin's controls under the note, where the
+ * left column ends well above the measures. The second row takes what height the measures need beyond the steps, so
+ * the controls sit just under the note and never push it down. The space above the controls is theirs, not the
+ * grid's, so a release with no controls has no gap under its steps.
+ */
 .canary-body {
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-  gap: 20px 40px;
+  grid-template-rows: auto 1fr;
+  gap: 0 40px;
   align-items: start;
+}
+.canary-steps {
+  grid-area: 1 / 1;
+}
+.canary-measures {
+  grid-area: 1 / 2 / span 2;
+}
+.canary-body > .canary-controls {
+  grid-area: 2 / 1;
+  margin-top: 20px;
+}
+/*
+ * While looks land, the measures take the width their table needs to keep each row on one line, and the steps the
+ * rest, which they can spare: at the widest window that is about the 5 : 7 the panel has otherwise. The column is
+ * as wide as the table, its narrowest, so a rollback's words beside it wrap to the table rather than widen it.
+ */
+.canary-body.trended {
+  grid-template-columns: minmax(0, 1fr) min-content;
 }
 .canary .canary-note {
   margin-top: 10px;
@@ -199,11 +224,66 @@ p.words {
   background: var(--text-muted);
 }
 
-/* The measures at the latest step measured. */
+/*
+ * How far through its step the canary is: the step in words, the time left, and a bar the browser runs as one
+ * animation. Under the steps, over the note.
+ */
+.steptime {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 12px;
+  align-items: baseline;
+  margin-top: 4px;
+}
+.steptime .left {
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-2);
+}
+.steptime .bar {
+  grid-column: 1 / -1;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+.steptime .bar span {
+  display: block;
+  height: 100%;
+  background: var(--signal);
+  transform-origin: left;
+  transform: scaleX(0);
+}
+
+/* The measures: as each look lands while the canary is in flight, or at the latest step measured. */
 .measures {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+}
+/*
+ * With the trend column, a row is one line, in columns of their own width, each cell from the top: the measure's
+ * column as wide as its longest rule caption, so no caption wraps, and the table as wide as its columns.
+ */
+.measures.trended {
+  --measure: 228px;
+  --fig: 84px;
+  --tr: 166px;
+  --vd: 184px;
+  table-layout: fixed;
+  width: calc(var(--measure) + 2 * var(--fig) + var(--tr) + var(--vd));
+}
+.measures.trended col.name {
+  width: var(--measure);
+}
+.measures.trended col.fig {
+  width: var(--fig);
+}
+.measures.trended col.tr {
+  width: var(--tr);
+}
+.measures.trended col.vd {
+  width: var(--vd);
 }
 .measures caption {
   text-align: left;
@@ -214,7 +294,11 @@ p.words {
   text-align: left;
   font-weight: 400;
   padding: 0 12px 8px 0;
-  vertical-align: baseline;
+  vertical-align: top;
+}
+.measures td.mono,
+.measures .v {
+  line-height: 19px;
 }
 .measures td {
   padding-top: 9px;
@@ -239,6 +323,86 @@ p.words {
 .measures tr.failed td:first-child {
   box-shadow: inset 2px 0 0 var(--attn);
   padding-left: 10px;
+}
+/* A look landed: the figure comes up from faint to its own colour, in place. Nothing moves and no box is drawn. */
+.measures td.landed {
+  animation: fresh 0.9s ease-out;
+}
+@keyframes fresh {
+  from {
+    color: var(--text-faint);
+  }
+}
+
+/* Each measure over the release: a line each for the canary and the baseline, a bar for the requests, a dot a run. */
+.trend svg {
+  display: block;
+  width: 150px;
+  height: 30px;
+  margin-top: 2px;
+  overflow: visible;
+}
+.trend .tick {
+  stroke: var(--line-strong);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+.trend .lim {
+  fill: none;
+  stroke: var(--attn);
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+  opacity: 0.55;
+}
+.trend .bl {
+  fill: none;
+  stroke: var(--text-faint);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+.trend .cn {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1.75;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.trend .pt,
+.trend .pip {
+  fill: var(--text);
+}
+.trend .pt.over {
+  fill: var(--attn);
+}
+.trend .pip.bad {
+  fill: none;
+  stroke: var(--attn);
+  stroke-width: 1.5;
+}
+.reqbar {
+  position: relative;
+  display: block;
+  width: 150px;
+  height: 6px;
+  margin-top: 7px;
+  border-radius: 3px;
+  background: var(--line);
+}
+.reqbar .f {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--text-muted);
+}
+.reqbar.enough .f {
+  background: var(--text);
+}
+.reqbar .m {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 1.5px;
+  background: var(--text-2);
 }
 
 /* Idle: the last release in one line. */
@@ -265,7 +429,24 @@ p.words {
 @media (max-width: 1180px) {
   .canary-body {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
-    gap: 20px 28px;
+    gap: 0 28px;
+  }
+  /* The trend column needs the width: the steps, the measures and the controls, one under the next, as written. */
+  .canary-body.trended {
+    grid-template: none / minmax(0, 1fr);
+    row-gap: 20px;
+  }
+  .canary-body.trended > *,
+  .canary-body.trended > .canary-controls {
+    grid-area: auto;
+    margin-top: 0;
+  }
+  /* The measure's column takes what the others leave, so the table never runs past the panel. */
+  .measures.trended {
+    width: 100%;
+  }
+  .measures.trended col.name {
+    width: auto;
   }
 }
 @media (max-width: 720px) {
@@ -277,12 +458,23 @@ p.words {
     text-align: left;
   }
   .canary-body {
-    grid-template-columns: 1fr;
+    grid-template: none / minmax(0, 1fr);
+    row-gap: 20px;
+  }
+  .canary-body > *,
+  .canary-body > .canary-controls {
+    grid-area: auto;
+    margin-top: 0;
   }
   /* The rules' captions go; a measure's own words, such as why it could not measure, stay. */
   .measures .base,
-  .measures .rule {
+  .measures .rule,
+  .measures .tr,
+  .measures .trend {
     display: none;
+  }
+  .measures.trended {
+    table-layout: auto;
   }
   .measures .base-inline {
     display: block;

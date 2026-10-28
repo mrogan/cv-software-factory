@@ -3,13 +3,14 @@
  * release that carries two work items has its events on each, and is one release here. The Canary panel draws the
  * newest; the Release station takes its figure from the one in flight.
  */
-import type { PayloadOf, PublicEvent, ReleaseControl } from '@software-factory/events';
+import { measurementOf, type PayloadOf, type PublicEvent, type ReleaseControl } from '@software-factory/events';
 import { STEP_UP } from '../access.ts';
 import { shortVersion } from '../format.ts';
 import type { ItemState } from './items.ts';
 
 type Started = PayloadOf<'release.started'>;
 export type Stepped = PayloadOf<'canary.stepped'>;
+type Measuring = PayloadOf<'canary.measuring'>;
 export type Failed = PayloadOf<'release.rolled-back'>['failed'][number];
 export type Errored = PayloadOf<'release.errored'>['errored'][number];
 type AbortedBy = PayloadOf<'release.aborted'>['by'];
@@ -26,6 +27,17 @@ export interface Measured {
   weight: number;
   at: number;
   stepped: Stepped;
+}
+
+/**
+ * A look of the canary's background analysis, as it landed: when the analysis took it, the canary's weight then, the
+ * measures it took (errors and latency together, or the journeys on their own), and each version's figures then.
+ */
+export interface Look {
+  at: number;
+  weight: number;
+  measures: Measuring['measures'];
+  figures: Measuring['figures'];
 }
 
 export type End =
@@ -66,12 +78,21 @@ export interface Release {
   /** Whether the steps are the release's own, rather than the steps measured. */
   planned: boolean;
   measured: Measured[];
+  /** Each look of the background analysis this attempt has recorded, oldest first. */
+  looks: Look[];
+  /**
+   * When errors and latency are next due to be looked at: an interval after the last look that took them, while the
+   * release is in flight. Undefined before the first, for a dry run, which measures nothing, and once it has ended.
+   */
+  nextLook: number | undefined;
   /** The step the canary is at, as an index into the steps: -1 when nothing says which. */
   step: number;
   /** The canary's share of the traffic, now or when it ended: 0 when nothing says yet. */
   weight: number;
   /** When the step it is at ends, if its pause ends by itself. */
   until: number | undefined;
+  /** When it reached the step it is at, when that step's pause ends by itself. */
+  since: number | undefined;
   end: End | undefined;
   /** How each earlier attempt of the same release ended, oldest first: a retry goes again from the first step. */
   retried: End[];
@@ -92,11 +113,18 @@ export type CanaryView = { state: 'none' } | { state: 'shown'; release: Release 
  * image is built without policy/, so it keeps these words, and a test holds them to the policy's figures.
  */
 export const MEASURES = [
-  ['enough-requests', 'Requests', 'enough to judge: at least 100 to the canary'],
-  ['errors', 'Errors', 'share of 5xx answers · fails more than a point above'],
-  ['latency', 'Latency', 'p99 · fails a quarter and 100 ms above'],
-  ['journeys', 'Journeys', 'fails when a check passes on the baseline and fails here, twice'],
+  ['enough-requests', 'Requests', 'at least 100 in the window'],
+  ['errors', 'Errors', '5xx share · fails a point above'],
+  ['latency', 'Latency', 'p99 · fails 25% and 100 ms above'],
+  ['journeys', 'Journeys', 'fails on a check failing here alone, twice'],
 ] as const;
+
+/**
+ * The background analysis, in `policy/release.ts`'s figures (`minRequests` and `background`), which a test holds
+ * these to: the requests the canary needs in the window before errors and latency are judged, how often they are
+ * looked at, and how many failed looks of a measure fail the release.
+ */
+export const BACKGROUND = { minRequests: 100, intervalMs: 60_000, failures: 2 } as const;
 
 /**
  * What the analysis saw of a measure that failed a release, against its limit, in the analysis's own terms
@@ -136,6 +164,126 @@ export function sawOf(failed: Failed, reason: string): string {
   }
   if (name === 'enough-requests') return `${value} requests to the canary${against(`at least ${limit}`)}`;
   return `${value}${against(`a limit of ${limit}`)}`;
+}
+
+/**
+ * Whether the measures are the background analysis's as each look lands, rather than the latest step's: a release in
+ * flight that has recorded a look. A dry run measures nothing, and a history from before the looks were recorded has
+ * only its steps.
+ */
+export const measuring = (r: Release) => !r.end && !r.dryRun && r.looks.length > 0;
+
+/** The measures errors' and latency's looks take together: the requests are counted in the same window. */
+export const JUDGED = new Set(['errors', 'latency']);
+
+/** The latest look that took a measure; for the requests, the latest that took errors or latency. */
+export function lookOf(r: Release, name: string): Look | undefined {
+  const took = (m: Look['measures'][number]) => (name === 'enough-requests' ? JUDGED.has(m.name) : m.name === name);
+  return r.looks.findLast((l) => l.measures.some(took));
+}
+
+/**
+ * How far a look of errors or latency was from its limit, in the analysis's own terms, said in each figure's unit:
+ * "85 ms", "0.89 pt". Latency in µs first, so a float is not misread; over its limit, never as none, since any excess
+ * fails.
+ */
+export function room(name: string, value: number, limit: number): string {
+  if (name !== 'latency') return `${Math.abs((limit - value) * 100).toFixed(2)} pt`;
+  const spare = Math.round(Math.round((limit - value) * 1e6) / 1000);
+  return `${value > limit ? Math.max(1, -spare) : spare} ms`;
+}
+
+/**
+ * A measure's verdict as the looks land: its words, what kind of verdict they are (an analysis phase, which the panel
+ * draws as it draws a step's, `none` for a measure the step did not take, or `warm` for a measure with a failed look
+ * that has not failed the release), and whether its row is ruled warm for a failed look.
+ */
+export interface LookVerdict {
+  words: string;
+  kind: Stepped['analysis']['phase'] | 'none' | 'warm';
+  ruled: boolean;
+}
+
+/**
+ * A measure's verdict as the looks land. A step that passed since the last look says so in green ("passed at 25%")
+ * until the next lands. Then: the requests are "counting" until the window has enough to judge, then "enough"; errors
+ * and latency wait for those requests, then say how far the latest look was from its limit ("85 ms to spare"), warm
+ * once a look has failed, with how many of the looks that fail the release have ("25 ms over · 1 of 2"); the journeys
+ * wait for their first run, then say whether a check failed here alone.
+ */
+export function lookVerdict(r: Release, name: string): LookVerdict {
+  const m = r.measured.at(-1);
+  const newest = r.looks.at(-1);
+  if (m && newest && m.at > newest.at) {
+    const { analysis } = m.stepped;
+    const phase =
+      analysis.measures.find((x) => x.name === name)?.phase ?? (analysis.measures.length ? 'none' : analysis.phase);
+    return { words: phase === 'successful' ? `passed at ${m.weight}%` : '', kind: phase, ruled: phase === 'failed' };
+  }
+  const look = lookOf(r, name);
+  const min = BACKGROUND.minRequests;
+  const waits = (words: string): LookVerdict => ({ words, kind: 'pending', ruled: false });
+  if (name === 'enough-requests') {
+    const n = look?.figures?.canary.requests;
+    return { words: n != null && n >= min ? 'enough' : 'counting', kind: 'running', ruled: false };
+  }
+  const taken = look?.measures.find((x) => x.name === name);
+  if (!taken) return waits(name === 'journeys' ? 'waits for its first run' : `waits for ${min} requests`);
+  if (taken.phase === 'error' || taken.phase === 'inconclusive') return { words: '', kind: taken.phase, ruled: false };
+  const fails = r.looks.filter((l) => l.measures.some((x) => x.name === name && x.phase === 'failed')).length;
+  const failed = taken.phase === 'failed';
+  let words: string;
+  if (name === 'journeys') words = failed ? 'worse here' : 'none worse here';
+  else if (taken.value === null || taken.limit === null) {
+    if (!fails) return waits(`waits for ${min} requests`);
+    words = failed ? 'no figures to compare' : `waits for ${min} requests`;
+  } else words = `${room(name, taken.value, taken.limit)} ${taken.value > taken.limit ? 'over' : 'to spare'}`;
+  if (!fails) return { words, kind: 'running', ruled: false };
+  return { words: `${words} · ${fails} of ${BACKGROUND.failures}`, kind: 'warm', ruled: true };
+}
+
+/** How a figure is written, and counted up: requests, a share of 5xx answers, a p99, or words that do not count. */
+export type Unit = 'requests' | 'share' | 'ms' | 'none';
+
+/**
+ * A figure written in its unit, as it stands, on its way to a new look's or there: requests short of the window's least
+ * say so, "63 / 100", and the count-up writes each figure it passes the same way.
+ */
+export function written(unit: Unit, x: number): string {
+  if (unit === 'share') return `${(x * 100).toFixed(2)}%`;
+  if (unit === 'ms') return `${Math.round(x)} ms`;
+  const n = Math.round(x);
+  const words = n.toLocaleString('en-GB');
+  return n < BACKGROUND.minRequests ? `${words} / ${BACKGROUND.minRequests}` : words;
+}
+
+/** A point of a measure's line: each version's figure, and its limit, in the figure's unit. */
+export interface Point {
+  at: number;
+  canary: number;
+  baseline: number;
+  limit: number;
+  failed: boolean;
+}
+
+/**
+ * Each look of errors or latency that judged them, as points: the canary's and the baseline's figures, and the limit
+ * where the canary's would fail, which is the canary's figure less how far the look put it from its limit, in the
+ * figure's unit (a share in percent, a p99 in ms).
+ */
+export function pointsOf(r: Release, name: 'errors' | 'latency'): Point[] {
+  const scale = name === 'latency' ? 1000 : 100;
+  return r.looks.flatMap((l) => {
+    const taken = l.measures.find((m) => m.name === name);
+    const f = l.figures;
+    if (!taken || taken.value === null || taken.limit === null || !f) return [];
+    const [canary, baseline] =
+      name === 'latency' ? [f.canary.p99Ms, f.baseline.p99Ms] : [f.canary.errorRate, f.baseline.errorRate];
+    if (canary === null || baseline === null) return [];
+    const [c, b] = name === 'latency' ? [canary, baseline] : [canary * 100, baseline * 100];
+    const limit = c - (taken.value - taken.limit) * scale;
+    return [{ at: l.at, canary: c, baseline: b, limit, failed: taken.phase === 'failed' }];
+  });
 }
 
 /**
@@ -214,6 +362,10 @@ interface Building extends Release {
   /** Each pause of Martin's that has ended: from when he paused it to when he resumed or promoted it. */
   held: { from: number; to: number }[];
   stoppedAt: number | undefined;
+  /** Each measurement its looks took, by `measurementOf`. */
+  seen: Set<string>;
+  /** How far its looks' own times are from the events’ clock (`lookedShift`), from its first look. */
+  shift: number | undefined;
 }
 
 /**
@@ -221,7 +373,7 @@ interface Building extends Release {
  * and past any step the analysis does not judge whose pause has run out, since such a step records nothing. Paused by
  * Martin, it stays where it was when he paused it, at the weight it kept, with no end to wait for.
  */
-function position(r: Building, now: number): Pick<Release, 'step' | 'weight' | 'until'> {
+function position(r: Building, now: number): Pick<Release, 'step' | 'weight' | 'until' | 'since'> {
   if (!r.listed) {
     // With no steps to place it on, the weight it last went to: measured, or promoted to.
     const latest = [
@@ -230,7 +382,7 @@ function position(r: Building, now: number): Pick<Release, 'step' | 'weight' | '
     ]
       .sort((a, b) => a.at - b.at)
       .at(-1);
-    return { step: -1, weight: r.paused?.weight ?? latest?.weight ?? 0, until: undefined };
+    return { step: -1, weight: r.paused?.weight ?? latest?.weight ?? 0, until: undefined, since: undefined };
   }
   const steps = r.steps;
   const paused = r.paused && r.paused.at <= now ? r.paused : undefined;
@@ -258,7 +410,8 @@ function position(r: Building, now: number): Pick<Release, 'step' | 'weight' | '
       [step, from, holding] = [index, at, false];
     }
   }
-  if (holding) return { step, weight: paused?.weight ?? steps[step]?.weight ?? 100, until: undefined };
+  if (holding)
+    return { step, weight: paused?.weight ?? steps[step]?.weight ?? 100, until: undefined, since: undefined };
   // A step's pause counts only the time the canary ran: what Martin held it for is added to its end.
   const after = (start: number, ms: number) => {
     let [t, left] = [start, ms];
@@ -278,8 +431,9 @@ function position(r: Building, now: number): Pick<Release, 'step' | 'weight' | '
   }
   step = Math.min(step, steps.length - 1);
   const pause = steps[step]?.pauseSeconds;
-  if (paused) return { step, weight: paused.weight, until: undefined };
-  return { step, weight: steps[step]?.weight ?? 100, until: pause == null ? undefined : after(from, pause * 1000) };
+  if (paused) return { step, weight: paused.weight, until: undefined, since: undefined };
+  const until = pause == null ? undefined : after(from, pause * 1000);
+  return { step, weight: steps[step]?.weight ?? 100, until, since: until === undefined ? undefined : from };
 }
 
 /** Every release by t, oldest first, each as far as it had got. */
@@ -349,15 +503,20 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
         steps: listed ? (listed.at(-1)?.weight === 100 ? listed : [...listed, ALL]) : [],
         planned: Boolean(listed),
         measured: [],
+        looks: [],
+        nextLook: undefined,
         step: 0,
         weight: 0,
         until: undefined,
+        since: undefined,
         end: undefined,
         retried,
         paused: undefined,
         promotions: [],
         held: [],
         stoppedAt: undefined,
+        seen: new Set(),
+        shift: undefined,
       });
       continue;
     }
@@ -374,6 +533,22 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
         r.paused = undefined;
       }
       if (to !== undefined) r.promotions.push({ at, to });
+      continue;
+    }
+    // A look lands on each work item the release carries, not always in the same pass, and not always grouped the same
+    // way: the line may have read one work item's between two of the analysis's writes. Each measurement is kept once,
+    // by its measure and its own end, as the line keeps them, whatever look it came in. A dry run has no canary to
+    // look at, so it keeps none.
+    if (event.type === 'canary.measuring') {
+      const r = byId.get(event.payload.release);
+      if (!r || r.end || r.dryRun) continue;
+      const { weight, figures } = event.payload;
+      const measures = event.payload.measures.filter((m) => !r.seen.has(measurementOf(m)));
+      if (!measures.length) continue;
+      for (const m of measures) r.seen.add(measurementOf(m));
+      const taken = Date.parse(event.payload.at);
+      r.shift ??= lookedShift(taken, at);
+      r.looks.push({ at: Math.min(taken + r.shift, at), weight, measures, figures });
       continue;
     }
     if (
@@ -407,15 +582,34 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
     if (event.type === 'release.aborted') r.end = abortedAt(r, Date.parse(event.payload.abortedAt), event.payload.by);
   }
   return [...byId.values()].map((r): Release => {
-    const { listed: _listed, stoppedAt: _stoppedAt, held: _held, ...release } = r;
+    const { listed: _listed, stoppedAt: _stoppedAt, held: _held, seen: _seen, shift: _shift, ...release } = r;
     if (!r.planned) release.steps = measuredSteps(r);
     const end = endOf(r);
     const place = position(r, end?.at ?? t);
     const ticket = tickets.get(r.id);
     if (end?.kind === 'rolled-back' && ticket) end.ticket = { ...carried(ticket.number), how: ticket.how };
+    release.looks = [...r.looks].sort((a, b) => a.at - b.at);
+    const judged = release.looks.findLast((l) => l.measures.some((m) => m.name !== 'journeys'));
+    if (!end && !r.dryRun && judged) release.nextLook = judged.at + BACKGROUND.intervalMs;
     return { ...release, ...place, weight: end ? end.weight : place.weight, end };
   });
 }
+
+/**
+ * The oldest a look can be when the line records it: Argo Rollouts keeps a measure's last ten measurements, the
+ * journeys' three minutes apart, so a line that was down records looks up to half an hour old, and a pass more.
+ */
+const RECORDED_WITHIN_MS = 35 * 60_000;
+
+/**
+ * How far a release's looks' own times are from the events' clock, from its first look: none, as a look is recorded
+ * within Argo Rollouts' memory of it after it was taken. A log moved in time as a whole (`pnpm dev` serves the samples'
+ * as if their last event were now, and `factory events load` moves a recording's) moves the events' times and not
+ * their payloads': there the first look is placed at its event, and every later one moved as far, so the looks keep
+ * their order and spacing, and none is placed after its own event.
+ */
+const lookedShift = (taken: number, recorded: number) =>
+  taken <= recorded && recorded - taken <= RECORDED_WITHIN_MS ? 0 : recorded - taken;
 
 /** A release that recorded no steps: the steps measured stand in, then all of the traffic. */
 const measuredSteps = (r: Building) =>

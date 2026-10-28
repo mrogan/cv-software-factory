@@ -29,13 +29,16 @@ export function useMotion(): [boolean, (on: boolean) => void] {
   return [motion, setMotion];
 }
 
+/** Whether the time the console draws moves on by itself: live, and not pinned by `?t=`. */
+export const ticks = (live: boolean) => live && Number.isNaN(Date.parse(params().get('t') ?? ''));
+
 /**
  * The time the console draws: `?t=` pins it, a recording is drawn at its last event, and the live view at now,
  * moving on every ten seconds and never behind the newest event, whatever the viewer's clock says.
  */
 export function useTime(latest: number | undefined, live: boolean): number {
   const pinned = Date.parse(params().get('t') ?? '');
-  const ticking = Number.isNaN(pinned) && live;
+  const ticking = ticks(live);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!ticking) return;
