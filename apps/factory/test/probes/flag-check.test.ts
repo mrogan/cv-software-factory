@@ -271,19 +271,28 @@ describe('the server that answers for a flag’s check', () => {
     return { base, close: () => new Promise((resolve) => server.close(resolve)) };
   }
 
+  /** Once every promise callback already set off has run: a run that has settled has been recorded by then. */
+  const settled = () => new Promise((resolve) => setImmediate(resolve));
+
   it('answers that it runs, joins the run when asked again, then gives its answer once', async () => {
     let runs = 0;
     const answer: FlagCheckAnswer = { kind: 'have', version: V1 };
+    // The test, not a timer, says when the run ends, so both requests before it find it running however slow they are.
+    let finish = () => {};
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
     const { base, close } = await serve(async () => {
       runs++;
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await gate;
       return answer;
     });
     try {
       const client = new ProbesClient(base);
       expect(await client.flagCheck(off())).toBeNull();
       expect(await client.flagCheck(off())).toBeNull();
-      await new Promise((resolve) => setTimeout(resolve, 60));
+      finish();
+      await settled();
       expect(await client.flagCheck(off())).toEqual(answer);
       expect(runs).toBe(1);
       // Another request is another run.
@@ -312,7 +321,7 @@ describe('the server that answers for a flag’s check', () => {
       expect((await post('x'.repeat(70_000))).status).toBe(413);
       const client = new ProbesClient(base);
       expect(await client.flagCheck(off())).toBeNull();
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await settled();
       await expect(client.flagCheck(off())).rejects.toThrow("The probes answered a flag's check with 502");
     } finally {
       await close();
