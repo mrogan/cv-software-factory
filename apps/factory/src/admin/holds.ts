@@ -7,9 +7,10 @@
  * - **Only the hold the card showed.** The answer is refused, having changed nothing, unless that hold is the work
  *   item's open one as the answer is taken, as the line reads it: its latest hold, with nothing since that answered
  *   or ended it (an answer, a merge, a close, a reopening, for a deploy a release, for a merge gates that failed, for a
- *   spec a spec written again, which the line holds afresh and an answer to the old card is told of). Words on one of triage's holds leave it open (`WORDS_LEAVE_HELD`), so it can still be
- *   approved or rejected. Answers are taken one at a time, under the lock every append takes, so two cannot both
- *   answer one hold, and a hold the line or triage appends meanwhile is the one answered next.
+ *   spec a spec written again, which the line holds afresh and an answer to the old card is told of). Words on one of
+ *   triage's holds leave it open (`WORDS_LEAVE_HELD`), so it can still be approved or rejected. Answers are taken one
+ *   at a time, under the lock every append takes, so two cannot both answer one hold, and a hold the line or triage
+ *   appends meanwhile is the one answered next.
  * - **Only an answer that does something.** One the line would only wait after is refused (`answersTo`): approving a
  *   merge, which Martin does on GitHub, a deploy, which a release ends by itself, or a suggestion, which never starts
  *   work: Martin asks for an improvement himself with the console's "+".

@@ -32,7 +32,7 @@
  */
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
-import type { HoldAnswer, ReleaseControl } from '@software-factory/events';
+import { type HoldAnswer, REQUEST_WORDS, type ReleaseControl } from '@software-factory/events';
 import { z } from 'zod';
 import { ACCESS, ENROLMENT_CODE, PASSKEYS, routeOf, SESSION, type ServedBy } from '../../../../policy/access.ts';
 import type { Logger } from '../log.ts';
@@ -412,7 +412,7 @@ export function createAdminApp({
     'improvement.request': async ({ body, session }) => {
       const given = REQUEST.safeParse(body);
       if (!given.success) {
-        return refused(400, 'body', 'Send your words, up to 600 characters, and the request’s id.');
+        return refused(400, 'body', `Send your words, up to ${REQUEST_WORDS} characters, and the request’s id.`);
       }
       return { status: 200, body: await requestImprovement(store, session as Session, given.data) };
     },
