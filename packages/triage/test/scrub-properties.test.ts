@@ -9,6 +9,7 @@
  *
  * A failure prints the seed and the shrunk text that broke the property: `fc.assert(..., { seed, path })` replays it.
  */
+import { processorTime } from '@software-factory/testing';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { privatePath, scrub } from '../src/scrub.ts';
@@ -182,12 +183,7 @@ describe('what leaves the cluster of a report, whatever the text', () => {
  * time and the short one often not, which looks like time growing faster than the text.
  */
 function timesOf(short: string, long: string): [number, number] {
-  const time = (text: string) => {
-    const started = process.cpuUsage();
-    scrub(text);
-    const { user, system } = process.cpuUsage(started);
-    return (user + system) / 1000;
-  };
+  const time = (text: string) => processorTime(() => scrub(text));
   let [leastShort, leastLong] = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
   for (let i = 0; i < 5; i++) {
     leastShort = Math.min(leastShort, time(short));
