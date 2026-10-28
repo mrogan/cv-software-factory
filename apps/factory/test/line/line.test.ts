@@ -2375,6 +2375,34 @@ describe('the deploy pull request', () => {
     expect(described(github)).toMatchObject([
       { carries: [{ workItem, pullRequest: 17, title: 'Delivery dates', issue: 16 }] },
     ]);
+    // The title its spec names, as the line recorded it, replaces the one made from his words; a ticket a worker appends
+    // to it names it nothing.
+    await events.append(
+      event(workItem, 'spec.written', { ...SPEC, title: 'Delivery dates on product pages' }, 'planner'),
+    );
+    await new EventWriter(database.as.triage, {
+      kind: 'real',
+      artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))),
+    }).append(
+      event(
+        workItem,
+        'ticket.opened',
+        {
+          title: 'Not its title',
+          category: 'errors',
+          severity: 'broken',
+          fingerprint: { route: '/', class: 'server-error' },
+          traces: [],
+        },
+        'triage',
+      ),
+    );
+    github.deploy = { ...github.deploy, commit: sha('4') };
+    github.deployCommits = [sha('2'), sha('3'), sha('4')];
+    await pass();
+    expect(described(github).at(-1)).toMatchObject({
+      carries: [{ workItem, title: 'Delivery dates on product pages' }],
+    });
   });
 
   it('is told it carries none when no fix of the line’s is in its range, and nothing when the pin is not known', async () => {

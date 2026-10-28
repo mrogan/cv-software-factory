@@ -231,20 +231,6 @@ async function openWork(tx: TransactionSql, workItem: string): Promise<boolean> 
   return row !== undefined;
 }
 
-/**
- * Whether an improvement Martin asked for has been released since its last merge: the line has handed it over to the
- * flag pass (`line/machine.ts`), and takes it no more, though it stays open.
- */
-async function handedOver(tx: TransactionSql, workItem: string): Promise<boolean> {
-  const [row] = await tx`
-    select 1 from events p
-    where p.work_item = ${workItem} and p.type = 'release.promoted' and not p.sample
-      and ${askedByMartin(tx, 'p.work_item')}
-      and p.seq > (select max(m.seq) from events m where m.work_item = p.work_item and m.type = 'pull-request.merged')
-    limit 1`;
-  return row !== undefined;
-}
-
 /** Makes one change of the line's controls, or refuses having changed nothing. */
 export async function changeControls(store: AdminStore, session: Session, asked: Change): Promise<Changed> {
   const { after, change } = await store.record(
@@ -269,14 +255,6 @@ export async function changeControls(store: AdminStore, session: Session, asked:
         !(await openWork(tx, change.after.workItem))
       ) {
         const why = `#${change.after.workItem} has no open ticket or improvement for the line to take.`;
-        throw new Refused('policy', 422, why);
-      }
-      if (
-        change.control === 'take' &&
-        change.after.kind === 'just-one' &&
-        (await handedOver(tx, change.after.workItem))
-      ) {
-        const why = `#${change.after.workItem} is released behind its flag: the flag pass looks after it now, not the line.`;
         throw new Refused('policy', 422, why);
       }
       // Asked as the change is taken, after the lock, from the controls in force: the passkey given may have gone

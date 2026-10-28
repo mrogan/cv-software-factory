@@ -578,7 +578,7 @@ export class Line {
           payload: { outcome: 'no-change', reason },
         },
       ]);
-      this.#o.log.info({ workItem, why: left.why }, 'closed a work item a dry run left');
+      this.#o.log.info({ workItem, why: still.why }, 'closed a work item a dry run left');
     } finally {
       await this.#release(workItem);
     }
