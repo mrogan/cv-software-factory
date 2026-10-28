@@ -1,7 +1,7 @@
 /**
  * What the line decides by and the console draws with: the bounds on a work item's loop, what each answer to a hold
- * does, how a spec's scope matches a path and another spec's scope, when two versions are the same, and a return's few
- * words. One copy, here, because the console's image holds the events package and not the factory's code, and two
+ * does, how a spec's scope matches a path and another spec's scope, when two versions are the same, which of a canary's
+ * measurements is which, and a return's few words. One copy, here, because the console's image holds the events package and not the factory's code, and two
  * copies of a rule drift apart. Plain values, so the browser can import them.
  */
 import { cutTo } from './text.ts';
@@ -392,6 +392,14 @@ export const clearedOnWords = (carried: readonly string[]) =>
 /** The same version of the app, whether either names its commit in full or shortened. */
 export const sameVersion = (a: string, b: string) =>
   a === b || (/^[0-9a-f]{7,40}$/.test(a) && /^[0-9a-f]{7,40}$/.test(b) && (a.startsWith(b) || b.startsWith(a)));
+
+/**
+ * A measurement of a canary's background analysis, by its measure and when it ended: the line records each once, in a
+ * `canary.measuring`, and the console counts each once, whichever look or work item it arrives on. Argo Rollouts keeps
+ * the end to the second, so two measurements of one measure that ended in the same second would be one; a measure's
+ * interval, a minute or more, keeps them apart.
+ */
+export const measurementOf = (m: { name: string; at: string }) => `${m.name}@${Date.parse(m.at)}`;
 
 const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 

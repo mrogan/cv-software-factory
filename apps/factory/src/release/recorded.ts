@@ -4,7 +4,7 @@
  * watch's reads and their settings. The line and the admin service read the records from the store with the same
  * queries (`releaseRecords`, `lastPromoted`).
  */
-import { type PayloadOf, type RawEvent, RELEASE_TYPES, upcast } from '@software-factory/events';
+import { measurementOf, type PayloadOf, type RawEvent, RELEASE_TYPES, upcast } from '@software-factory/events';
 import type { Sql } from 'postgres';
 
 type Started = PayloadOf<'release.started'>;
@@ -29,21 +29,15 @@ export interface TargetRecord {
   abortedAt?: string;
   /**
    * Each measurement of the background analysis its looks recorded (`canary.measuring`), over every attempt, by
-   * `measurementKey`.
+   * `measurementOf`.
    */
   looked?: Set<string>;
 }
 
-/**
- * A measurement of the background analysis, by its measure and when it ended. Two measurements of one
- * measure that ended in the same second would be one here; a measure's interval, a minute or more, keeps them apart.
- */
-export const measurementKey = (name: string, at: string) => `${name}@${Date.parse(at)}`;
-
 /** Adds a look's measurements to what a record has recorded. */
 const looked = (record: TargetRecord, look: PayloadOf<'canary.measuring'>) => {
   record.looked ??= new Set();
-  for (const measure of look.measures) record.looked.add(measurementKey(measure.name, measure.at));
+  for (const measure of look.measures) record.looked.add(measurementOf(measure));
 };
 
 /** What is recorded of each release, by its name, and on each target. */
