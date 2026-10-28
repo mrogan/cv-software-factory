@@ -218,9 +218,6 @@ function improvementProblems(spec: PayloadOf<'spec.written'>, { flagsTaken }: Im
     if (criterion.withFlag === undefined) {
       issue(['criteria', i, 'withFlag'], 'each criterion of an improvement says the side of its flag: on or off');
     }
-    if (criterion.from && !/\b(request|answer)/i.test(criterion.from)) {
-      issue(['criteria', i, 'from'], 'an improvement’s criterion is from the request, or from Martin’s answer');
-    }
   });
   for (const side of ['on', 'off'] as const) {
     if (!spec.criteria.some((c) => c.withFlag === side)) {

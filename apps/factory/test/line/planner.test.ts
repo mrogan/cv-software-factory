@@ -199,14 +199,8 @@ describe('an improvement’s spec', () => {
     expect(from({ ...on, quote: 'show a delivery date' })).toEqual([
       'the quote is not in the request: copy the words that ask for the criterion from there, word for word',
     ]);
-    expect(from({ ...on, from: 'signal 1' })).toEqual([
-      'an improvement’s criterion is from the request, or from Martin’s answer',
-      'there is no signal 1',
-    ]);
-    expect(from({ ...on, from: 'the ticket' })).toEqual([
-      'an improvement’s criterion is from the request, or from Martin’s answer',
-      'from names the request, or Martin’s answer',
-    ]);
+    expect(from({ ...on, from: 'signal 1' })).toEqual(['there is no signal 1']);
+    expect(from({ ...on, from: 'the ticket' })).toEqual(['from names the request, or Martin’s answer']);
   });
 
   it('is the one the coder’s bench fixture holds the coder to', () => {

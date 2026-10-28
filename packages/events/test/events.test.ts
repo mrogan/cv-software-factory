@@ -1304,6 +1304,12 @@ describe('the title of Martin’s request', () => {
     // Cut at the last word within sixty characters, which counts each emoji once: by UTF-16 units it would be sooner.
     const words = `${'abcd '.repeat(10)}abc📦 📦📦📦 then more`;
     expect(requestTitle(words)).toBe(`${'abcd '.repeat(10)}abc📦 📦📦📦…`);
+    // An emoji of several code points, and a flag, are one character each, and are not split either.
+    const family = '👨‍👩‍👧';
+    expect(requestTitle(`${'x'.repeat(58)}${family} more`)).toBe(`${'x'.repeat(58)}${family}…`);
+    expect(requestTitle(`${'x'.repeat(58)}🇬🇧🇬🇧 more`)).toBe(`${'x'.repeat(58)}🇬🇧…`);
+    // Punctuation is not left at a cut, unless it is all there is.
+    expect(requestTitle('- '.repeat(40))).toBe(`${'- '.repeat(29)}-…`);
     for (const text of [sixty, long, words, '📦'.repeat(90)]) {
       expect(count(requestTitle(text))).toBeLessThanOrEqual(REQUEST_TITLE);
       expect(requestTitle(text)).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
