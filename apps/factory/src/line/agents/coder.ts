@@ -600,7 +600,7 @@ function pullRequestBody(
 ): string {
   return [
     improvement
-      ? `The factory’s improvement #${workItem}, behind the flag \`${spec.flag}\`, off until Martin turns it on. ${refersTo(issue)}`.trim()
+      ? `The factory’s improvement #${workItem}, behind the flag \`${spec.flag ?? 'its-flag'}\`, off until Martin turns it on. ${refersTo(issue)}`.trim()
       : `The factory’s fix for ticket #${workItem}. ${refersTo(issue)}`.trim(),
     '',
     `**Outcome.** ${spec.outcome}`,

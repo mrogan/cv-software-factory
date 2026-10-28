@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { trace } from '@opentelemetry/api';
 import { type InboxSignal, type NewEvent, PATH_CHARS, type PayloadOf, VERSIONS } from '@software-factory/events';
-import { DiskArtifacts, EventWriter, lineStopped, nextWorkItem } from '@software-factory/store';
+import { DiskArtifacts, EventWriter, flagsTaken, lineStopped, nextWorkItem } from '@software-factory/store';
 import { listenLocal } from '@software-factory/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
@@ -369,6 +369,17 @@ describe('the line', () => {
     const prompt = steps.requests.find((r) => r.workItem === workItem)?.prompt;
     expect(prompt).toContain('which other improvements have named: `gift-note`, `sort-by-price`.');
     expect(prompt).not.toContain('`delivery-dates`');
+  });
+
+  it('counts a flag as taken when another improvement named it, though this one’s later spec names it too', async () => {
+    const twin = await improvement();
+    const workItem = await improvement();
+    await events.append([
+      event(twin, 'spec.written', { ...SPEC, flag: 'delivery-dates' }, 'planner'),
+      event(workItem, 'spec.written', { ...SPEC, flag: 'delivery-dates' }, 'planner'),
+    ]);
+    expect(await flagsTaken(database.as.line, workItem)).toEqual(['delivery-dates']);
+    expect(await flagsTaken(database.as.line, twin)).toEqual(['delivery-dates']);
   });
 
   it('hands an improvement over once its volume is gone, when its issue is gone too, and ends a wait on it', async () => {
