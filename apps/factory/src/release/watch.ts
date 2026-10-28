@@ -54,9 +54,9 @@
  * A dry run's merge never shipped, so no Rollout will carry it: in a dry run, `dryRunEvents` releases it by the dry
  * run's word, marked `dryRun`, so a soak goes round.
  */
-import type { PayloadOf } from '@software-factory/events';
+import { measurementOf, type PayloadOf } from '@software-factory/events';
 import type { Draft } from '../line/gates.ts';
-import { measurementKey, type Recorded, releaseName, short, type Target, type TargetRecord } from './recorded.ts';
+import { type Recorded, releaseName, short, type Target, type TargetRecord } from './recorded.ts';
 import {
   type AnalysisRun,
   type CanaryStep,
@@ -263,7 +263,7 @@ export const lookKey = (look: Pick<Look, 'run' | 'at'>) => `${look.run.metadata.
 /**
  * A release's background looks that no look has recorded (each of a run's measurements that ended, as Argo Rollouts
  * kept them, and `looked` has not), oldest first. A measurement that has not ended is no look yet. Each is known by its
- * measure and its end (`measurementKey`), not by a time the looks have reached: Argo Rollouts keeps the time to the
+ * measure and its end (`measurementOf`), not by a time the looks have reached: Argo Rollouts keeps the time to the
  * second, and a measurement written a pass after a look can have ended in the same second as it.
  *
  * A look is what the line finds ended together. Argo Rollouts takes the measures due together in one pass and writes
@@ -295,7 +295,7 @@ export function looksOf(
       .flatMap((result) =>
         result.measurements.flatMap((measurement) => {
           const at = Date.parse(measurement.finishedAt ?? '');
-          const recorded = looked?.has(measurementKey(result.name, measurement.finishedAt ?? ''));
+          const recorded = looked?.has(measurementOf({ name: result.name, at: measurement.finishedAt ?? '' }));
           return Number.isFinite(at) && !recorded ? [{ name: result.name, measurement, at }] : [];
         }),
       )
