@@ -7,8 +7,7 @@
  * split across two events, when the line read the analysis between two of its writes: each part is a look of its own,
  * and the bird hops for each, but a measure is never sour twice for the same measurement.
  */
-import type { PublicEvent } from '@software-factory/events';
-import { measurementOf } from './release.ts';
+import { measurementOf, type PublicEvent } from '@software-factory/events';
 
 export type Reaction =
   /** A release started: the bird leaves its cage for the Canary panel, as a paper bird for a dry run. */

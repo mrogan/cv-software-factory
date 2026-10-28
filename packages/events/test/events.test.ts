@@ -4,6 +4,7 @@ import {
   answersTo,
   inScope,
   knownInScope,
+  measurementOf,
   PATH_CHARS,
   recordedPath,
   returnWords,
@@ -1338,6 +1339,19 @@ describe('the same version', () => {
     expect(sameVersion('d728dbe', `d728dbe${'0'.repeat(33)}`)).toBe(true);
     expect(sameVersion('v0.9.3', 'v0.9.3')).toBe(true);
     expect(sameVersion('d728dbe', 'd728dbf')).toBe(false);
+  });
+});
+
+describe('a measurement of the background analysis', () => {
+  it('is its measure and its end, however the time is written', () => {
+    const at = '2026-10-28T17:30:00Z';
+    expect(measurementOf({ name: 'latency', at })).toBe(
+      measurementOf({ name: 'latency', at: '2026-10-28T17:30:00.000Z' }),
+    );
+    expect(measurementOf({ name: 'latency', at })).not.toBe(measurementOf({ name: 'errors', at }));
+    expect(measurementOf({ name: 'latency', at })).not.toBe(
+      measurementOf({ name: 'latency', at: '2026-10-28T17:31:00Z' }),
+    );
   });
 });
 
