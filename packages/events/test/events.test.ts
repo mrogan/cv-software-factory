@@ -463,6 +463,14 @@ describe('validation', () => {
     expect(validate({ ...answered, payload: { ...payload, declined: declined(1, 1) } }).ok).toBe(false);
   });
 
+  it('takes Martin’s acceptance of a review, naming the review and how many of its findings blocked', () => {
+    const accepted = { ...opened, type: 'review.accepted', version: 1, actor: 'factory' };
+    const payload = { pullRequest: 12, review: 2, findings: 3 };
+    expect(validate({ ...accepted, payload })).toEqual({ ok: true });
+    expect(validate({ ...accepted, payload: { ...payload, findings: 0 } }).ok).toBe(false);
+    expect(validate({ ...accepted, payload: { ...payload, review: 0 } }).ok).toBe(false);
+  });
+
   it('takes a wait on work in flight, naming the work items and the files their specs share', () => {
     const waits = { ...opened, type: 'wait.started', version: 1, actor: 'factory' };
     const payload = { on: ['1028'], files: ['src/search.ts'], reason: 'Waits for #1028, whose spec also changes it' };

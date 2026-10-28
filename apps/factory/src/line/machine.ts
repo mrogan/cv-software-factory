@@ -16,7 +16,10 @@
  *
  * A review that blocks sends the work back to the coder, whose next round resumes its session with the blocking
  * findings and the suggestions, and the gates and a fresh reviewer run again on what it pushes. A review that still
- * blocks after the second holds the work item for Martin, as does one the reviewer escalates.
+ * blocks after the second holds the work item for Martin, as does one the reviewer escalates. His approval of a held
+ * review stands in for the reviewer's: before the change goes on, the line answers the thread of each finding it
+ * blocked on, saying he accepted it, and resolves it (`review.accepted`). His words leave the threads open for the
+ * coder he sends the work back to.
  *
  * A review that approves and leaves suggestions sends the work back to the coder once in a pass
  * (`LIMITS.suggestions`), before the describer writes the change up, to take each or decline it with a reason, as the
@@ -137,6 +140,7 @@ type Payloads = {
     | 'gates.started'
     | 'gates.finished'
     | 'review.submitted'
+    | 'review.accepted'
     | 'work-item.summarised'
     | 'work.returned'
     | 'hold.started'
@@ -203,6 +207,11 @@ export interface WorkItemState {
   reviews: PayloadOf<'review.submitted'>[];
   /** Each time the work went back to Build, in order, and why. */
   returns: { from: Stage; reason: string }[];
+  /**
+   * Martin's approval of a held review whose findings block, until the line has answered their threads on the pull
+   * request (`review.accepted`), saying he accepted them: his words, unless they stay his.
+   */
+  accepted: { words: string | undefined } | undefined;
   /** Whether the describer has written up the approved change. */
   described: boolean;
   /** The hold in force, if any. */
@@ -294,6 +303,7 @@ const initial = (): WorkItemState => ({
   respecified: false,
   reviews: [],
   returns: [],
+  accepted: undefined,
   described: false,
   hold: undefined,
   answer: undefined,
@@ -359,6 +369,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         state.gates = undefined;
         state.gatesPassed = false;
         state.review = undefined;
+        state.accepted = undefined;
         break;
       // A run on a newer commit of the same push (main merged into the branch, as to resolve a conflict) replaces the
       // run before once it ends: until then, gates that passed still stand, and the work item waits where it is.
@@ -386,6 +397,10 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         state.review = event.payload;
         state.reviews.push(event.payload);
         state.suggestionsAnswered = undefined;
+        state.accepted = undefined;
+        break;
+      case 'review.accepted':
+        state.accepted = undefined;
         break;
       case 'suggestions.answered':
         state.suggestionsAnswered = event.payload;
@@ -398,6 +413,8 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         if (state.review?.verdict === 'approved') state.described = true;
         break;
       case 'work.returned':
+        // Work sent back leaves the threads open for the round it goes to.
+        state.accepted = undefined;
         if (event.payload.to === 'build') {
           state.rebuild = { from: event.payload.from, reason: event.payload.reason };
           state.respecified = false;
@@ -487,7 +504,9 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         if (cause === 'spec' && resolution === 'carry-on') state.specApproved = true;
         if (resolution === 'approve') {
           // His approval overrules the review of the latest push, if there is one, and the review that sent the work
-          // back, if one did: the coder has nothing to do. With no review of the spec in force, the reviewer runs.
+          // back, if one did: the coder has nothing to do. With no review of the spec in force, the reviewer runs. The
+          // threads of what it blocked on are answered first, as his acceptance.
+          if (state.review?.findings.some((f) => f.blocking)) state.accepted = { words };
           if (state.review) state.review = { ...state.review, verdict: 'approved' };
           state.rebuild = undefined;
         }
@@ -684,6 +703,12 @@ export type Next =
   | { do: 'return'; from: Stage; to: Stage; reason: string; blocking?: number; suggestions?: number; failed?: string[] }
   /** Hold the work item for Martin. */
   | { do: 'hold'; hold: PayloadOf<'hold.started'> }
+  /**
+   * Answer the threads of what the latest review blocked on, and of each earlier finding one holds again, saying
+   * Martin accepted it in the console, with his words if they are not his alone, and resolve them: his approval of
+   * the hold stood in for the reviewer's.
+   */
+  | { do: 'accept'; review: number; words?: string }
   /**
    * Nothing to do until something outside the line happens: the gates, Martin, the release in flight, or the work in
    * flight a spec that overlaps waits on.
@@ -893,6 +918,14 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
       return { stage: 'build', next: { do: 'return', from: 'review', to: 'build', reason, blocking } };
     }
     case 'approved': {
+      // His approval of a review that blocked answers its threads before the change goes on, so none stays open.
+      if (s.accepted) {
+        const { words } = s.accepted;
+        return {
+          stage: 'review',
+          next: { do: 'accept', review: s.reviews.length, ...(words === undefined ? {} : { words }) },
+        };
+      }
       const suggestions = s.review.findings.filter((f) => !f.blocking).length;
       // His approval stands in for the reviewer's, and sends the change on as it is.
       if (suggestions && suggestionsGoBack(s) && s.answer?.resolution !== 'approve') {

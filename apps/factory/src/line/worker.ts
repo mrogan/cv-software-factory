@@ -160,6 +160,7 @@ import { stepCalls, workItemSpend } from './model-calls.ts';
 import { type Own, pagesFor } from './pictures.ts';
 import { type Pending, Queue, type QueueItem, type Takes, takesOf } from './queue.ts';
 import { type Carried, carried, Releases, type ReleaseWatchOptions } from './release.ts';
+import { acceptedReply, acceptedThreads, resolveThreads } from './review.ts';
 import {
   closingComment,
   closingPullComment,
@@ -920,6 +921,26 @@ export class Line {
         await this.#queue.moved(workItem);
         // The coder of a fresh pass starts a session of its own: the old one worked on a change that has merged.
         if (next.to === 'plan') await this.#queue.setSession(workItem, null);
+        return;
+      }
+      case 'accept': {
+        // The reply says when he answered, so one asked for again after a failure reads the same, and is made once.
+        const number = state.pullRequest?.number;
+        if (number === undefined) return false;
+        const at = (await this.#answeredAt(workItem)) ?? this.#o.now();
+        const threads = acceptedThreads(state.reviews, acceptedReply(at, next.words));
+        await resolveThreads(threads, (batch) =>
+          this.#o.github.act('resolveThreads', this.#o.repo, { number, threads: batch }, { workItem }),
+        );
+        const findings = state.review?.findings.filter((f) => f.blocking).length ?? 0;
+        await this.#append(workItem, [
+          {
+            type: 'review.accepted',
+            actor: 'factory',
+            summary: `Martin accepted review ${next.review} of PR #${number}: the ${findings === 1 ? 'thread of its blocking finding is' : `threads of its ${findings} blocking findings are`} answered and resolved`,
+            payload: { pullRequest: number, review: next.review, findings },
+          },
+        ]);
         return;
       }
       case 'hold': {
@@ -1913,6 +1934,16 @@ export class Line {
         ? []
         : [{ workItem, scope: s.lastSpec?.scope, waitsOn: s.waiting && !s.waiting.ended ? s.waiting.on : [] }],
     );
+  }
+
+  /** When Martin last answered a hold of the work item's, from one of his roles, as the line reads his answers. */
+  async #answeredAt(workItem: string): Promise<Date | undefined> {
+    const { sql } = this.#o;
+    const [row] = await sql<{ ts: Date }[]>`
+      select e.ts from events e
+      where e.work_item = ${workItem} and e.type = 'hold.answered' and ${fromMartin(sql, 'e')}
+      order by e.seq desc limit 1`;
+    return row ? new Date(row.ts) : undefined;
   }
 
   async #events(workItem: string): Promise<{ events: LineEvent[]; last: number }> {

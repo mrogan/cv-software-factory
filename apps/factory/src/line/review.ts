@@ -8,8 +8,9 @@
  * where the reviewer put it.
  *
  * A finding's thread is answered and resolved once the finding is: a blocking finding or a suggestion a later review
- * finds put right, with the commit it reviewed, and a suggestion the coder declines, with its reason. So is the thread
- * of every earlier finding it held again (`lineage`). The app's `main` merges nothing with a review thread open. The
+ * finds put right, with the commit it reviewed, and a suggestion the coder declines, with its reason; and a blocking
+ * finding of a held review Martin approves in the console, saying he accepted it. So is the thread of every earlier
+ * finding it held again (`lineage`). The app's `main` merges nothing with a review thread open. The
  * thread is found by its comment, as this module wrote it, and the line it was made on.
  */
 import type { PayloadOf } from '@software-factory/events';
@@ -93,6 +94,26 @@ export function lineage(reviews: readonly PayloadOf<'review.submitted'>[], findi
   return found;
 }
 
+/**
+ * The threads Martin's approval of a held review answers, which stands in for the reviewer's: each of the latest
+ * review's blocking findings, and each earlier finding it holds again, with what the line says on them. What he
+ * accepts is what blocked: the review's suggestions are not answered here.
+ */
+export function acceptedThreads(reviews: readonly PayloadOf<'review.submitted'>[], reply: string): ThreadAnswer[] {
+  const blocking = reviews.at(-1)?.findings.filter((f) => f.blocking) ?? [];
+  return threadAnswers(blocking.flatMap((finding) => lineage(reviews, finding).map((f) => ({ finding: f, reply }))));
+}
+
+/**
+ * What the line says on a thread Martin accepted, at the time he answered, so a reply asked for again reads the same
+ * and is made once: with his words, unless they stay his, on a work item a visitor's report opened.
+ */
+export function acceptedReply(at: Date, words: string | undefined): string {
+  const when = `${at.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+  const said = words ? `\n\nHe said: “${words}”` : '';
+  return `Martin accepted this in the console at ${when}, in place of the factory’s reviewer’s approval.${said}`;
+}
+
 /** What the GitHub worker says of a request that asking again will not help: refused, gone, or not as it was. */
 const REFUSED = [403, 404, 409, 422];
 
@@ -107,18 +128,29 @@ export async function answerThreads(
   pullRequest: number,
   threads: ThreadAnswer[],
 ): Promise<void> {
+  await resolveThreads(threads, (batch, i) =>
+    context.once(i ? `${name} ${i + 1}` : name, () =>
+      context.act('resolveThreads', { number: pullRequest, threads: batch }),
+    ),
+  );
+}
+
+/**
+ * Has each thread answered and resolved, once each, in as many calls as the GitHub worker needs (`resolve`, given
+ * each batch and its place). GitHub refusing it holds nothing up: what is left is Martin's to resolve by hand. The
+ * GitHub worker replies on a thread only once and passes over one resolved, so asking again after a failure is safe.
+ */
+export async function resolveThreads(
+  threads: ThreadAnswer[],
+  resolve: (batch: ThreadAnswer[], index: number) => Promise<unknown>,
+): Promise<void> {
   const key = (c: ReviewComment) => `${c.path}:${c.line}\n${c.body}`;
   const once = threads.filter((t, i) => threads.findIndex((u) => key(u) === key(t)) === i);
   // The worker takes at most fifty threads a call: a finding held again through every review answers one each.
   for (let i = 0; i < once.length; i += THREADS_A_CALL) {
-    const batch = once.slice(i, i + THREADS_A_CALL);
-    await context
-      .once(i ? `${name} ${i / THREADS_A_CALL + 1}` : name, () =>
-        context.act('resolveThreads', { number: pullRequest, threads: batch }),
-      )
-      .catch((error: unknown) => {
-        if (!(error instanceof GitHubWorkerError && REFUSED.includes(error.status))) throw error;
-      });
+    await resolve(once.slice(i, i + THREADS_A_CALL), i / THREADS_A_CALL).catch((error: unknown) => {
+      if (!(error instanceof GitHubWorkerError && REFUSED.includes(error.status))) throw error;
+    });
   }
 }
 
