@@ -15,9 +15,10 @@
  *
  * Samples are never read: a sample's flag is no flag of the app's.
  */
-import { type PayloadOf, upcast, VERSIONS } from '@software-factory/events';
+import { inBothSchemes, type PayloadOf, upcast, VERSIONS } from '@software-factory/events';
 import type { Sql, TransactionSql } from 'postgres';
-import { type FlagRecord, inBothSchemes } from '../../../policy/flag-moves.ts';
+// Types only: the console's image holds no policy/flag-moves.ts (scripts/image-modules.test.ts).
+import type { FlagRecord } from '../../../policy/flag-moves.ts';
 import { askedByMartin, fromMartin } from './commands.ts';
 
 /** The role whose events of Verify's, and records of the planner's specs, are believed: the line's. */

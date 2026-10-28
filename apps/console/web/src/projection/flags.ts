@@ -11,7 +11,7 @@
  * A flag shows once its release is out, or once Martin has staged it. Waiting for Martin to widen, it is a card in
  * Needs you, but while Verify is still checking it at Checks or Preview, or comparing its two sides at Share.
  */
-import type { PayloadOf, PublicEvent, Screenshot } from '@software-factory/events';
+import { inBothSchemes, type PayloadOf, type PublicEvent, type Screenshot } from '@software-factory/events';
 import {
   type Around,
   type Check,
@@ -21,7 +21,6 @@ import {
   type FlagNow,
   type FlagRecord,
   flagsFrom,
-  inBothSchemes,
   type Move,
   movesOf,
   sameStage,

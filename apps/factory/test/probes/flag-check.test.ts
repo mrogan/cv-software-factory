@@ -7,11 +7,13 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Screenshot } from '@software-factory/events';
+import { type Screenshot, VERSIONS } from '@software-factory/events';
+import { validate } from '@software-factory/events/schemas';
 import { DiskArtifacts } from '@software-factory/store';
 import { listenLocal } from '@software-factory/testing';
 import { describe, expect, it } from 'vitest';
 import type { Seen } from '../../src/gates/journeys.ts';
+import { type CheckAsked, checkedDraft, requestOf } from '../../src/line/flag-checks.ts';
 import { ProbesClient } from '../../src/line/verify.ts';
 import type { FlagPicture } from '../../src/pictures/index.ts';
 import {
@@ -131,6 +133,13 @@ const off = (more: Partial<FlagCheckRequest> = {}): FlagCheckRequest => ({
   pages: ['/'],
   ...more,
 });
+
+/** A draft as the store would take it: a whole event, at the current version, with its artifacts. */
+const valid = (draft: ReturnType<typeof checkedDraft>) => {
+  const event = { id: crypto.randomUUID(), ts: new Date().toISOString(), work_item: '7', ...draft };
+  expect(validate({ ...event, version: VERSIONS[draft.type], artifacts: draft.artifacts ?? [] })).toEqual({ ok: true });
+  return draft;
+};
 
 const checked = (answer: FlagCheckAnswer) => {
   if (answer.kind !== 'checked') throw new Error(`Not checked: ${JSON.stringify(answer)}`);
@@ -348,6 +357,53 @@ describe('the server that answers for a flag’s check', () => {
       expect(await client.flagCheck(off({ have: V2 }))).toBeNull();
     } finally {
       gate.resolve();
+      await close();
+    }
+  });
+
+  it('gives the line, through its own client, the answers of a real run, which make events the store takes', async () => {
+    // The probes' own run, at Off and then at Checks, served and read as in the cluster: nothing between them faked.
+    const probes = app([{}, {}, {}]);
+    const { base, close } = await serve((request) => flagCheck(probes.deps, request));
+    try {
+      const client = new ProbesClient(base);
+      // Asked as the line's pass asks, again until the run has answered.
+      const ask = async (request: FlagCheckRequest) => {
+        for (let pass = 0; pass < 100; pass++) {
+          const answer = await client.flagCheck(request);
+          if (answer) return checked(answer);
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        throw new Error('The run never answered');
+      };
+      const offAsked: CheckAsked = {
+        flag: 'gift-note',
+        workItem: '7',
+        stage: 'off',
+        revision: 'r7',
+        move: null,
+        base: null,
+        pages: ['/'],
+      };
+      const baseline = checkedDraft(offAsked, await ask(requestOf(offAsked)));
+      expect(valid(baseline).payload).toMatchObject({ pages: [{ scheme: 'light' }, { scheme: 'dark' }] });
+      probes.turnOn();
+      const checksAsked: CheckAsked = {
+        ...offAsked,
+        stage: 'checks',
+        move: '8',
+        moveRevision: 'r7',
+        base: { seq: '6', ts: new Date().toISOString(), workItem: '7', check: baseline.payload as never },
+      };
+      const draft = checkedDraft(checksAsked, await ask(requestOf(checksAsked)));
+      expect(valid(draft).payload).toMatchObject({
+        outcome: 'passed',
+        pages: [
+          { scheme: 'light', changed: 0.1 },
+          { scheme: 'dark', changed: 1 },
+        ],
+      });
+    } finally {
       await close();
     }
   });

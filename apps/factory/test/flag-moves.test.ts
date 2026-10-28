@@ -2,7 +2,7 @@
  * Which stage a feature flag may move to, and why one can't be taken now (`policy/flag-moves.ts`): the rules the admin
  * service refuses a move by, and the console draws each stop of a flag's slider from.
  */
-import { FLAG_SHARES, FLAG_STAGES } from '@software-factory/events';
+import { FLAG_SHARES, FLAG_STAGES, inBothSchemes } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { ACCESS } from '../../../policy/access.ts';
 import {
@@ -10,7 +10,6 @@ import {
   type FlagNow,
   flagAction,
   flagsFrom,
-  inBothSchemes,
   moveOf,
   movesOf,
   stageWords,

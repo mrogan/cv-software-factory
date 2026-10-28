@@ -31,7 +31,7 @@
  */
 import { context, ROOT_CONTEXT } from '@opentelemetry/api';
 import type { Evidence, PayloadOf, Sense, SignalSource, SymptomClass } from '@software-factory/events';
-import { clearedOnWords, SENSES, sameVersion } from '@software-factory/events';
+import { COLOR_SCHEMES, clearedOnWords, SENSES, sameVersion } from '@software-factory/events';
 import { artifactRef, evidence as evidenceSchema } from '@software-factory/events/schemas';
 import { CANARY_ANY_ROUTE } from '@software-factory/triage';
 import { z } from 'zod';
@@ -609,6 +609,7 @@ const flagCheckAnswer = z.discriminatedUnion('kind', [
     pages: z.array(
       z.strictObject({
         path: z.string(),
+        scheme: z.enum(COLOR_SCHEMES),
         route: z.string(),
         off: screenshot.optional(),
         on: screenshot.optional(),

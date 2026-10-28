@@ -238,18 +238,14 @@ export type FlagRecord =
   | { type: 'flag.staged'; flag: string; workItem: string; from: Stage | null; to: Stage; revision: string }
   | { type: 'flag.compared'; flag: string; share: Share; outcome: FlagComparison; moveRevision: string }
   | { type: 'flag.checked'; flag: string; stage: CheckedStage; outcome: FlagCheck; moveRevision: string }
-  | { type: 'flag.checked'; flag: string; stage: 'off'; workItem: string; bothSchemes: boolean };
-
-/**
- * Whether a baseline pictured each page it pictured in both colour schemes (`bothSchemes` on its record): a page
- * pictured in one alone, or with no scheme named (taken before Verify named one, in the browser's default, light), is
- * not. One that pictured no page at all has none missing.
- */
-export function inBothSchemes(pages: readonly { page: string; scheme?: string }[]): boolean {
-  const schemes = new Map<string, Set<string>>();
-  for (const { page, scheme = 'light' } of pages) schemes.set(page, (schemes.get(page) ?? new Set()).add(scheme));
-  return [...schemes.values()].every((taken) => taken.has('light') && taken.has('dark'));
-}
+  | {
+      type: 'flag.checked';
+      flag: string;
+      stage: 'off';
+      workItem: string;
+      /** Whether it pictured each page in both colour schemes (`inBothSchemes`, in the events' vocabulary). */
+      bothSchemes: boolean;
+    };
 
 /**
  * Each flag as Martin's stages and Verify's comparisons and checks tell it, from their events oldest first (only those

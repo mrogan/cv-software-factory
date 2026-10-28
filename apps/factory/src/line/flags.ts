@@ -41,13 +41,13 @@
  *     (`PROBES_URL`, Verify's), it waits.
  * - **With just one** (`only`), it acts on that work item alone.
  */
-import { VERSIONS } from '@software-factory/events';
+import { inBothSchemes, VERSIONS } from '@software-factory/events';
 import { redactSecrets } from '@software-factory/events/public';
 import type { EventWriter, FlagEvents, StoredFlagCheck } from '@software-factory/store';
 import { askedByMartin, flagEvents, fromMartin, lastEnd } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
-import { flagsFrom, inBothSchemes, stageWords } from '../../../../policy/flag-moves.ts';
+import { flagsFrom, stageWords } from '../../../../policy/flag-moves.ts';
 import { FLAGS_HELD, type Share, type Stage } from '../../../../policy/flags.ts';
 import { release as RELEASE } from '../../../../policy/release.ts';
 import type { Prometheus } from '../clients/prometheus.ts';

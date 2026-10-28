@@ -26,7 +26,7 @@ import { endJobToken, issueJobToken, jobForToken } from '@software-factory/store
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-// Types only: the factory image holds no runner, so a value from it would fail to load there (`test/image.test.ts`).
+// Types only: the factory image holds no runner, so a value from it would fail to load there (`scripts/image-modules.test.ts`).
 import type { Handback, Step } from '../../../runner/src/step.ts';
 
 export type { Handback, Step };

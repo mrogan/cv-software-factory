@@ -256,6 +256,18 @@ export type FlagCheckStage = (typeof FLAG_CHECK_STAGES)[number];
 export const COLOR_SCHEMES = ['light', 'dark'] as const;
 export type ColorScheme = (typeof COLOR_SCHEMES)[number];
 
+/**
+ * Whether a check of a flag pictured each page it pictured in both colour schemes: a page pictured in one alone, or
+ * with no scheme named (taken before Verify named one, in the browser's default, light), is not. One that pictured no
+ * page at all has none missing. A baseline counts for Checks only when it has (`policy/flag-moves.ts`), and the line
+ * takes one that has not again.
+ */
+export function inBothSchemes(pages: readonly { page: string; scheme?: string }[]): boolean {
+  const schemes = new Map<string, Set<string>>();
+  for (const { page, scheme = 'light' } of pages) schemes.set(page, (schemes.get(page) ?? new Set()).add(scheme));
+  return [...schemes.values()].every((taken) => taken.has('light') && taken.has('dark'));
+}
+
 /** How Verify's check of a flag at Checks or Preview came out: unsure when it had nothing to compare with. */
 export const FLAG_CHECKS = ['passed', 'failed', 'unsure'] as const;
 export type FlagCheck = (typeof FLAG_CHECKS)[number];
