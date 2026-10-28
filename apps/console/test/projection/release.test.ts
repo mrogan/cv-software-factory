@@ -624,16 +624,18 @@ describe('the background analysis’s looks', () => {
       baseline: { requests: 675, errorRate: 0.002, p99Ms: baseline, journeys: null },
     });
     /** A look of latency alone, its value the canary's p99 less the most it may be, in seconds. */
-    const look = (minute: number, p99: number, phase: 'successful' | 'failed' = 'successful') =>
-      ({
+    const look = (minute: number, p99: number, phase: 'successful' | 'failed' = 'successful') => {
+      const at = new Date(Date.parse('2026-10-03T09:00:00Z') + minute * 60_000).toISOString();
+      return {
         release: 'r1',
         version: 'v1.0.1',
         weight: 25,
-        at: new Date(Date.parse('2026-10-03T09:00:00Z') + minute * 60_000).toISOString(),
-        measures: [{ name: 'latency', phase, value: (p99 - 230) / 1000, limit: 0 }],
+        at,
+        measures: [{ name: 'latency', phase, value: (p99 - 230) / 1000, limit: 0, at }],
         figures: figures(p99, 130),
         dryRun: false,
-      }) satisfies PayloadOf<'canary.measuring'>;
+      } satisfies PayloadOf<'canary.measuring'>;
+    };
     const flying = () => work('1').open().add(1, 'release.started', 'rollouts', started);
 
     it('keeps a look recorded on each work item the release carries once', () => {
@@ -645,6 +647,18 @@ describe('the background analysis’s looks', () => {
       const [r] = releases(events, [], one.at(3));
       expect(r?.looks).toHaveLength(1);
       expect(r?.nextLook).toBe(one.at(3));
+    });
+
+    it('keeps a measurement the line recorded a pass after a look that ended in the same second, as a look of its own', () => {
+      const latency = look(2, 200);
+      const errors = { name: 'errors', phase: 'successful', value: -0.0002, limit: 0.01, at: latency.at } as const;
+      const split = flying()
+        .add(2.2, 'canary.measuring', 'rollouts', { ...latency, measures: [errors] })
+        .add(2.4, 'canary.measuring', 'rollouts', latency);
+      const [r] = releases(split.events, [], split.at(2.5));
+      expect(r?.looks.map((l) => l.measures.map((m) => m.name))).toEqual([['errors'], ['latency']]);
+      expect(r && lookVerdict(r, 'latency').words).toBe('30 ms to spare');
+      expect(r && lookVerdict(r, 'errors').words).toBe('1.02 pt to spare');
     });
 
     it('says a failed look in warm words, with how many of the looks that fail the release have failed', () => {

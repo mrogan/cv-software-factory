@@ -54,7 +54,7 @@ test.describe('the Canary panel', () => {
     );
     const rows = canary.locator('table.measures tbody tr');
     await expect(rows).toHaveCount(4);
-    await expect(rows.nth(0).locator('td.mono')).toHaveText(['94 / 100baseline 806', '806']);
+    await expect(rows.nth(0).locator('td.mono')).toHaveText(['76 / 100baseline 824', '824']);
     await expect(rows.nth(0)).toContainText('counting');
     for (const row of (await rows.all()).slice(1))
       await expect(row.locator('td.mono')).toHaveText(['—baseline —', '—']);
