@@ -5,6 +5,7 @@
  * the factory's own text, never the visitor's.
  */
 import {
+  cutTo,
   type PayloadOf,
   REPORT_CATEGORIES,
   type ReportCategory,
@@ -201,6 +202,6 @@ export function passagesOf(read: readonly string[]): string[] {
   const passages = read
     .map((passage) => passage.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
-    .map((passage) => (passage.length <= 200 ? passage : `${passage.slice(0, 199)}…`));
+    .map((passage) => cutTo(passage, 200));
   return [...new Set(passages)].slice(0, 40);
 }

@@ -11,7 +11,7 @@
  * "Still storing" is asked as "stored something lately", never as "answers": a Loki on a full disk answers every
  * query, and returns nothing.
  */
-import type { Dependency, Environment } from '@software-factory/events';
+import { cutTo, type Dependency, type Environment } from '@software-factory/events';
 import { ENVIRONMENT } from '../../../policy/triage.ts';
 import type { Loki } from './clients/loki.ts';
 import type { Prometheus } from './clients/prometheus.ts';
@@ -53,7 +53,7 @@ export function environmentLook(backends: Backends): ((at: Date) => Promise<Envi
               unasked = true;
               return { healthy: null, saw: `could not ask: ${error instanceof Error ? error.message : String(error)}` };
             });
-          return { name, ...reading, saw: clip(reading.saw) };
+          return { name, ...reading, saw: cutTo(reading.saw, 160) };
         }),
       ).then((dependencies) => {
         // A look with a backend that did not answer is not kept: the next signal asks again.
@@ -143,5 +143,3 @@ async function disk(prometheus: Prometheus, at: Date): Promise<Omit<Reading, 'na
   const free = `${Math.floor(fullest.value * 100)}% free`;
   return { healthy: fullest.value >= ENVIRONMENT.diskFree, saw: `the fullest volume${which} ${free}` };
 }
-
-const clip = (text: string) => (text.length > 160 ? `${text.slice(0, 159)}…` : text);

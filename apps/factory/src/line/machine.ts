@@ -99,6 +99,7 @@
 import {
   ALWAYS_HELD,
   ANSWERS,
+  cutTo,
   type HoldAnswer,
   type HoldCause,
   LIMITS,
@@ -970,14 +971,7 @@ export function needsHold(
   const files = `${needs.length === 1 ? 'a file' : `${needs.length} files`} outside the spec’s scope`;
   const never = barred.length ? `, and no scope may name ${barred.join(', ')}` : '';
   const reason = `The coder needs ${files} to meet its criteria${never}: ${needs.map(({ path }) => path).join(', ')}`;
-  return { stage: 'build', kind: 'held', cause: 'scope', reason: clip(reason, 300), needs };
-}
-
-/** Text cut to `max` characters, with an ellipsis where it was cut: between characters, never inside one. */
-function clip(text: string, max: number): string {
-  if (text.length <= max) return text;
-  const kept = text.slice(0, max - 1);
-  return `${/[\uD800-\uDBFF]$/.test(kept) ? kept.slice(0, -1) : kept}…`;
+  return { stage: 'build', kind: 'held', cause: 'scope', reason: cutTo(reason, 300), needs };
 }
 
 /** What the line does straight after Martin's answer, or undefined to carry on as the work item's events say. */
