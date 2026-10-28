@@ -947,13 +947,15 @@ export class Line {
         return;
       }
       case 'close':
-        // The issue goes with it; closing one already closed changes nothing.
+        // The issue goes with it; closing one already closed changes nothing, and one that is gone, or that the App may
+        // not change, has nothing to close.
         if (item.issue) {
-          await this.#o.github.act(
-            'closeIssue',
+          await closeIssue(
+            this.#o.github,
             this.#o.repo,
             { number: item.issue, reason: 'not_planned' },
-            { workItem },
+            workItem,
+            this.#o.log,
           );
         }
         await this.#append(workItem, [
@@ -966,19 +968,21 @@ export class Line {
         ]);
         return;
       case 'verified': {
-        // The issue first, with what cleared it: closing one already closed changes nothing, and says nothing again.
+        // The issue first, with what cleared it: closing one already closed changes nothing, and says nothing again;
+        // one that is gone, or that the App may not change, has nothing to close.
         const { rechecked } = next;
         const reason = rechecked ? whatClearedOnLook(rechecked) : whatCleared(next.verification, next.answer);
         if (item.issue) {
-          await this.#o.github.act(
-            'closeIssue',
+          await closeIssue(
+            this.#o.github,
             this.#o.repo,
             {
               number: item.issue,
               reason: 'completed',
               comment: closingComment(next.verification, workItem, next.answer, rechecked),
             },
-            { workItem },
+            workItem,
+            this.#o.log,
           );
         }
         // A pull request for a defect that went another way is left for nobody to merge. Once it is closed, a crash
@@ -1663,15 +1667,16 @@ export class Line {
         );
         const verified = drafts.some((d) => d.type === 'work-item.closed' && d.payload.outcome === 'verified');
         if (cleared && verified && item.issue) {
-          await github.act(
-            'closeIssue',
+          await closeIssue(
+            github,
             repo,
             {
               number: item.issue,
               reason: 'completed',
               comment: closingComment(undefined, item.workItem, undefined, cleared),
             },
-            { workItem: item.workItem },
+            item.workItem,
+            log,
           );
         }
         if (drafts.length) await this.#append(item.workItem, drafts);

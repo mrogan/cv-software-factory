@@ -9,6 +9,7 @@ import { type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/event
 import { DiskArtifacts, EventWriter, nextWorkItem } from '@software-factory/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
+import { GitHubWorkerError } from '../../src/github/worker-client.ts';
 import { Line, type LineOptions } from '../../src/line/worker.ts';
 import type { VerifyAnswer } from '../../src/probes/verify.ts';
 import { quiet } from '../github/fake.ts';
@@ -225,6 +226,34 @@ describe('a held work item looked at again after a release', () => {
     now += 60_000;
     await pass(it);
     expect(await payloads(workItem, 'work-item.closed')).toHaveLength(1);
+  });
+
+  it('closes a hold of the line’s own as verified when the signal cleared, though its issue is gone', async () => {
+    const probes = new FakeProbes(CLEARED);
+    const { line: it, github } = line(probes);
+    const workItem = await held('gates', github);
+    await promoted(null);
+    await pass(it); // the probe looks again
+    github.refusing.set('closeIssue', new GitHubWorkerError(404, 'not-found', 'Not Found'));
+    await pass(it); // and the work item closes in this pass, with no issue to close
+    expect(await payloads(workItem, 'work-item.closed')).toMatchObject([{ outcome: 'verified' }]);
+    expect(github.acts.filter((a) => a.action === 'closeIssue')).toEqual([]);
+  });
+
+  it('closes as verified when Martin closes its pull request on a clearance, though its issue is gone', async () => {
+    const probes = new FakeProbes(CLEARED);
+    const { line: it, github } = line(probes);
+    const workItem = await held('merge', github);
+    await promoted(null);
+    await pass(it);
+    await pass(it);
+    const pull = github.pulls.get(12);
+    if (pull) pull.state = 'closed';
+    github.refusing.set('closeIssue', new GitHubWorkerError(410, 'gone', 'Gone'));
+    now += 60_000;
+    await pass(it);
+    expect(await payloads(workItem, 'work-item.closed')).toMatchObject([{ outcome: 'verified' }]);
+    expect(github.acts.filter((a) => a.action === 'closeIssue')).toEqual([]);
   });
 
   it('records the look on a hold for Martin’s merge, and closes it as verified when he closes its pull request', async () => {

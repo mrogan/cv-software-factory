@@ -1854,6 +1854,21 @@ describe('the line', () => {
     expect(await stage(workItem)).toBe('ended');
   });
 
+  it('closes a work item Martin rejects though its issue is gone, as it would with the issue', async () => {
+    const workItem = await ticket();
+    const { pass, github } = line({ ...AGENTS, planner: () => handback({ verdict: 'question', question: 'Which?' }) });
+    await pass(); // the planner asks
+    await martin.append(event(workItem, 'hold.answered', { decision: 'rejected' }, 'martin'));
+    github.refusing.set('closeIssue', new GitHubWorkerError(404, 'not-found', 'Not Found'));
+    await pass(); // closed in this pass, with nothing to close in GitHub
+    expect((await payloads(workItem, 'work-item.closed'))[0]).toEqual({
+      outcome: 'no-change',
+      reason: 'Martin rejected it',
+    });
+    expect(github.acts.filter((a) => a.action === 'closeIssue')).toEqual([]);
+    expect(await stage(workItem)).toBe('ended');
+  });
+
   it('counts a step that ran out of turns as failed, whatever result it wrote first', async () => {
     const workItem = await ticket();
     const unfinished = { ...handback({ verdict: 'spec', spec: SPEC }), ending: 'max-turns' as const };
