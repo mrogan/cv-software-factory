@@ -306,6 +306,8 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
             }}
             onClose={() => setOpen(undefined)}
             app={factory.app}
+            admin={admin}
+            onMoved={held.refresh}
           />
         </Suspense>
       )}

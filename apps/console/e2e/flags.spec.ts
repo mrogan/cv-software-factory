@@ -8,6 +8,8 @@
  * share, Preview skipped, to Checks with no passkey, narrowing, turning off with a reason, turning back on, and a stop
  * that can't be taken, which says why and only closes. The move he confirms is what the console sends. Dragging the
  * handle renders nothing until it is let go. The line under the flags says each state of the admin service's check.
+ * An improvement's sheet carries the same slider and the flag's card: Martin moves the flag there as in Controls, and
+ * a visitor reads both, as the sheet of any held work item heads with its card, read-only.
  * Snapshots are `visual.spec.ts`'s, and axe's look is `quality.spec.ts`'s.
  */
 import type { Locator, Page, Request } from '@playwright/test';
@@ -266,6 +268,88 @@ test('Everyone waits while Verify compares at Share, and no card waits for Marti
   await expect(page.locator('article.needs .flag-need')).toHaveCount(0);
 });
 
+const sheet = (page: Page) => page.locator('section.sheet');
+/** The sheet's flag: its section, The flag. */
+const sheetFlag = (page: Page) =>
+  sheet(page)
+    .locator('.sec')
+    .filter({ has: page.getByRole('heading', { name: 'The flag', exact: true }) });
+
+test('Martin moves a flag from its improvement’s sheet, as from Controls, and its card heads the sheet', async ({
+  page,
+}) => {
+  await heldAs(page, 'held');
+  const sent = moves(page);
+  await adminService(page, 'martin');
+  await page.goto(consoleUrl({ item: '1294', sheet: true }));
+  const waits = sheet(page).locator('.sheet-needs');
+  await expect(waits.getByRole('heading', { level: 3 })).toHaveText('Needs you');
+
+  await test.step('The flag’s card heads it, as in Needs you, but for its title and the link to the sheet', async () => {
+    const card = waits.locator('.flag-need');
+    await expect(card).toHaveAccessibleName('Ready to widen');
+    await expect(card.locator('.kick')).toContainText('#1294 · Verify · Preview');
+    await expect(card.getByRole('heading')).toHaveCount(0);
+    await expect(card.getByRole('button', { name: 'Open the work item' })).toHaveCount(0);
+    await expect(card.getByRole('button', { name: 'Widen to Share' })).toBeDisabled();
+    // Its confirmation opens over the sheet, and Escape closes it, not the sheet.
+    await card.getByRole('button', { name: 'Turn off' }).click();
+    await expect(dialog(page).getByRole('heading')).toHaveText('Turn off delivery-dates');
+    await page.keyboard.press('Escape');
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(sheet(page)).toBeVisible();
+  });
+
+  await test.step('The sheet’s slider takes a stop, through the same confirmation, and sends the same move', async () => {
+    await expect(sheetFlag(page)).toContainText('Each stage is Martin’s, here or in Controls');
+    const stop = sheetFlag(page).getByRole('button', { name: 'Narrow to Checks, delivery-dates' });
+    await stop.click();
+    await expect(dialog(page).getByRole('heading')).toHaveText('Narrow delivery-dates to Checks');
+    await dialog(page).getByRole('button', { name: 'Narrow' }).click();
+    await expect(dialog(page)).toHaveCount(0);
+    expect(sent.bodies).toEqual([{ from: { stage: 'preview' }, to: { stage: 'checks' } }]);
+    // Focus goes back to the stop it came from, in the sheet, which is still open.
+    await expect(stop).toBeFocused();
+    await expect(sheet(page)).toBeVisible();
+  });
+
+  await test.step('A stop that can’t be taken says why, in the same words', async () => {
+    await sheetFlag(page)
+      .getByRole('button', { name: /^Widen to Share 50%: can’t be taken now/ })
+      .click();
+    await expect(dialog(page)).toContainText(
+      'v0.9.13 is at 50%, and its two versions would mix the two sides. Share can be taken once it ends.',
+    );
+    await expect(dialog(page).getByRole('button')).toHaveText(['Close']);
+    await dialog(page).getByRole('button', { name: 'Close' }).click();
+  });
+});
+
+test('a visitor reads an improvement’s flag and a held work item’s answers on its sheet, read-only', async ({
+  page,
+}) => {
+  await heldAs(page, 'held');
+  await open(page, 'visitor');
+  await page.goto(consoleUrl({ item: '1294', sheet: true }));
+  const waits = sheet(page).locator('.sheet-needs');
+  await expect(waits.getByRole('heading', { level: 3 })).toHaveText('Waiting on Martin');
+  await expect(waits.locator('.ro')).toHaveText(['Widen to Share', 'Turn off']);
+  await expect(waits).toContainText('Martin answers, signed in');
+  await expect(sheetFlag(page).getByRole('button')).toHaveCount(0);
+  await expect(sheetFlag(page).locator('.fthumb')).toHaveCount(0);
+
+  // A ticket's hold: the same card as Waiting on Martin's, each answer a label beside what it does.
+  await page.goto(consoleUrl({ item: '1323', sheet: true }));
+  await expect(waits).toHaveAccessibleName('Waiting on Martin');
+  await expect(waits.locator('.need')).toHaveAccessibleName('Held by review');
+  await expect(waits.locator('.ro')).toHaveText(['Approve', 'Answer in words', 'Reject']);
+  await expect(waits.getByRole('button')).toHaveCount(0);
+  // Nothing waits on a work item that is done.
+  await page.goto(consoleUrl({ item: '1271', sheet: true }));
+  await expect(sheet(page).getByRole('heading', { name: 'The flag', exact: true })).toBeVisible();
+  await expect(waits).toHaveCount(0);
+});
+
 /** The centre of a stop, in the page's pixels. */
 const centre = async (stop: Locator) => {
   const box = await stop.boundingBox();
@@ -274,17 +358,20 @@ const centre = async (stop: Locator) => {
 };
 const renders = (page: Page) => page.evaluate(() => (globalThis as { sfRenders?: { flags: number } }).sfRenders?.flags);
 
-for (const [width, viewport] of [
-  ['a desktop', WIDTHS.desktop],
-  ['a phone', WIDTHS.phone],
+for (const [width, viewport, where] of [
+  ['a desktop', WIDTHS.desktop, 'Controls'],
+  ['a phone', WIDTHS.phone, 'Controls'],
+  ['a desktop', WIDTHS.desktop, 'the sheet'],
+  ['a phone', WIDTHS.phone, 'the sheet'],
 ] as const) {
-  test(`dragging the handle on ${width} renders nothing until it is let go, then opens that stop’s confirmation`, async ({
+  test(`dragging the handle in ${where} on ${width} renders nothing until it is let go, then opens that stop’s confirmation`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);
     await adminService(page, 'martin');
-    await page.goto(consoleUrl({ debug: 'renders' }));
-    const row = flag(page, 'delivery-dates');
+    const inSheet = where === 'the sheet';
+    await page.goto(consoleUrl({ debug: 'renders', ...(inSheet && { item: '1294', sheet: true }) }));
+    const row = inSheet ? sheetFlag(page) : flag(page, 'delivery-dates');
     await row.scrollIntoViewIfNeeded();
     const thumb = row.locator('.fthumb');
     const from = await centre(thumb);

@@ -8,7 +8,7 @@ import { answersTo, HOLD_CAUSES, type HoldCause, type PayloadOf } from '@softwar
 import { describe, expect, it } from 'vitest';
 import { GUARDRAIL_HOLDS as TABLE } from '../../../../policy/access.ts';
 import { GUARDRAIL_HOLDS } from '../../web/src/access.ts';
-import { project } from '../../web/src/projection/index.ts';
+import { project, projectSheet } from '../../web/src/projection/index.ts';
 import { foldItems } from '../../web/src/projection/items.ts';
 import { needsView } from '../../web/src/projection/needs.ts';
 import { END, payloads, SAMPLES, work } from './support.ts';
@@ -213,9 +213,16 @@ describe('Needs you', () => {
       kicker: 'Held to its scope',
       stage: 'build',
       evidence: {
-        kind: 'output',
+        kind: 'needs',
         heading: reason,
-        text: 'test/flags-preview.test.ts: It assumes / asks no flag; every page now does.\ntest/home.test.ts: It expects the old heading.',
+        needs: [
+          {
+            path: 'test/flags-preview.test.ts',
+            reason: 'It assumes / asks no flag; every page now does.',
+            barred: false,
+          },
+          { path: 'test/home.test.ts', reason: 'It expects the old heading.', barred: false },
+        ],
       },
     });
     expect(need?.answers.find((a) => a.answer === 'approved')).toMatchObject({
@@ -231,8 +238,9 @@ describe('Needs you', () => {
       .open()
       .add(30, 'hold.started', 'coder', hold('scope', { reason, needs: many }));
     const shown = needsView(foldItems(long.events), START + 60 * 60_000).holds[0]?.evidence;
-    expect(shown?.kind === 'output' && shown.text.split('\n')).toHaveLength(20);
-    // A file no scope may name is said first in the reason that heads them, so he can reject rather than approve.
+    expect(shown?.kind === 'needs' && shown.needs).toHaveLength(20);
+    // A file no scope may name is said first in the reason that heads them, so he can reject rather than approve, and
+    // marked among the files, since a reason cut to fit may not reach it.
     const never =
       'The coder needs a file outside the spec’s scope to meet its criteria, and no scope may name deploy/app.yaml: deploy/app.yaml';
     const barred = work('2013', START)
@@ -241,12 +249,21 @@ describe('Needs you', () => {
         30,
         'hold.started',
         'coder',
-        hold('scope', { reason: never, needs: [{ path: 'deploy/app.yaml', reason: 'x', barred: true }] }),
+        hold('scope', {
+          reason: never,
+          needs: [
+            { path: 'deploy/app.yaml', reason: 'x', barred: true },
+            { path: 'test/home.test.ts', reason: 'y' },
+          ],
+        }),
       );
     expect(needsView(foldItems(barred.events), START + 60 * 60_000).holds[0]?.evidence).toEqual({
-      kind: 'output',
+      kind: 'needs',
       heading: never,
-      text: 'deploy/app.yaml: x',
+      needs: [
+        { path: 'deploy/app.yaml', reason: 'x', barred: true },
+        { path: 'test/home.test.ts', reason: 'y', barred: false },
+      ],
     });
     // The fence's own hold still shows what it printed.
     const fenced = work('2011', START)
@@ -358,5 +375,29 @@ describe('Needs you', () => {
     expect(needs.answered).toEqual([
       expect.objectContaining({ workItem: '1329', how: 'Answered in words, still held', words: 'kept' }),
     ]);
+  });
+
+  it('heads a held work item’s sheet with its card in Needs you, and an improvement’s with its flag’s', () => {
+    const { needs, flags } = project(SAMPLES, END);
+    // Every hold's card, the same on its sheet as in Needs you, tickets and improvements alike.
+    for (const need of needs.holds) {
+      expect(projectSheet(SAMPLES, need.workItem, END)?.needs).toEqual({ hold: need, flag: undefined });
+    }
+    // A flag waiting for Martin to widen it, beside the flag's own row.
+    const [flag] = flags.needs;
+    const sheet = projectSheet(SAMPLES, flag?.workItem ?? '', END);
+    expect(sheet?.needs).toEqual({ hold: undefined, flag });
+    expect(sheet?.flag?.row).toEqual(flags.flags.find((row) => row.name === flag?.flag));
+    // Nothing waits on a work item closed, or held for nobody.
+    expect(projectSheet(SAMPLES, '1271', END)?.needs).toEqual({ hold: undefined, flag: undefined });
+  });
+
+  it('leaves the sheet’s card once its hold is answered, as Needs you does', () => {
+    const item = work('2060', START)
+      .open()
+      .add(10, 'hold.started', 'planner', hold('question', { stage: 'plan', kind: 'question', question: 'Which?' }))
+      .add(20, 'hold.answered', 'martin', { decision: 'approved' });
+    expect(projectSheet(item.events, '2060', START + 15 * 60_000)?.needs.hold?.kicker).toBe('The planner asks');
+    expect(projectSheet(item.events, '2060', START + 25 * 60_000)?.needs.hold).toBeUndefined();
   });
 });

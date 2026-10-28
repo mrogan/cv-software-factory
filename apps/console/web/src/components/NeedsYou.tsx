@@ -11,6 +11,9 @@
  *
  * A flag waiting for Martin to widen it has a card among them (`FlagCard`): Widen to the next stage, dashed with its
  * reason when it can't be taken now, and Turn off, each opening the slider's confirmation (`Flags.tsx`).
+ *
+ * A work item's sheet heads with the same cards for it (`WaitsOnMartin`), drawn by the same components, so answering
+ * there is answering here; only the title, which the sheet has already, and "Open the work item" are left off.
  */
 import { Fragment, type ReactNode, Suspense, useEffect, useId, useRef, useState } from 'react';
 import { FLAG_STEP_UP } from '../access.ts';
@@ -19,6 +22,7 @@ import { clock, inWords } from '../format.ts';
 import { previewHref } from '../profile.ts';
 import {
   type FlagNeed,
+  type FlagRow,
   type FlagStage,
   type FlagsView,
   type Move,
@@ -52,6 +56,8 @@ function Evidence({ need }: { need: Need }) {
         </p>
       ) : evidence.kind === 'spec' ? (
         <SpecEvidence evidence={evidence} />
+      ) : evidence.kind === 'needs' ? (
+        <NeedsEvidence evidence={evidence} />
       ) : (
         <p className="ev">{evidence.text}</p>
       )}
@@ -61,6 +67,25 @@ function Evidence({ need }: { need: Need }) {
         </p>
       )}
     </>
+  );
+}
+
+/**
+ * The files a coder needs outside its scope, under the hold's reason: each with why, and those no scope may name
+ * marked, since the reason, cut to fit, may not name them all.
+ */
+function NeedsEvidence({ evidence }: { evidence: Extract<Need['evidence'], { kind: 'needs' }> }) {
+  return (
+    <p className="words">
+      {evidence.heading}
+      {evidence.needs.map(({ path, reason, barred }) => (
+        <Fragment key={path}>
+          {'\n'}
+          {path}
+          {barred && <b className="barred"> · no scope may name it</b>}: {reason}
+        </Fragment>
+      ))}
+    </p>
   );
 }
 
@@ -99,13 +124,39 @@ function SpecEvidence({ evidence }: { evidence: Extract<Need['evidence'], { kind
   );
 }
 
+/**
+ * Where a card stands: Needs you's own, titled, which opens the work item's sheet; or the sheet's (no `onOpen`), whose
+ * title the sheet has already, named by its kicker.
+ */
+interface Placed {
+  onOpen?: ((item: string) => void) | undefined;
+}
+
+/**
+ * A card's foot: "Open the work item", in Needs you only, since the sheet is the work item; and, for a visitor, who
+ * answers. Nothing, when it has neither.
+ */
+function Foot({ workItem, onOpen, martin }: { workItem: string; martin: boolean } & Placed) {
+  if (!onOpen && martin) return null;
+  return (
+    <div className="need-foot">
+      {onOpen && (
+        <button type="button" className="linkish" onClick={() => onOpen(workItem)}>
+          Open the work item
+        </button>
+      )}
+      {!martin && <span>Martin answers, signed in</span>}
+    </div>
+  );
+}
+
 /** A card, read only: each answer a label beside what it does, and who answers. */
-function ReadOnlyCard({ need, onOpen }: { need: Need; onOpen: (item: string) => void }) {
+function ReadOnlyCard({ need, onOpen }: { need: Need } & Placed) {
   const id = useId();
   return (
-    <article className="need" aria-labelledby={id}>
+    <article className="need" {...named(id, need.kicker, onOpen)}>
       <Kick need={need} />
-      <h3 id={id}>{need.title}</h3>
+      {onOpen && <h3 id={id}>{need.title}</h3>}
       <Evidence need={need} />
       <div className="answers">
         {need.answers.map((row) => (
@@ -115,15 +166,14 @@ function ReadOnlyCard({ need, onOpen }: { need: Need; onOpen: (item: string) => 
           </div>
         ))}
       </div>
-      <div className="need-foot">
-        <button type="button" className="linkish" onClick={() => onOpen(need.workItem)}>
-          Open the work item
-        </button>
-        <span>Martin answers, signed in</span>
-      </div>
+      <Foot workItem={need.workItem} onOpen={onOpen} martin={false} />
     </article>
   );
 }
+
+/** What names a card: its title in Needs you, its kicker in the sheet. */
+const named = (id: string, kicker: string, onOpen: Placed['onOpen']) =>
+  onOpen ? { 'aria-labelledby': id } : { 'aria-label': kicker };
 
 function Kick({ need }: { need: Need }) {
   return (
@@ -137,7 +187,7 @@ function Kick({ need }: { need: Need }) {
 }
 
 /** Martin's card: his answers, the words field when he opens it, and what the service said if it refused. */
-function MartinsCard({ need, token, onOpen }: { need: Need; token: string; onOpen: (item: string) => void }) {
+function MartinsCard({ need, token, onOpen }: { need: Need; token: string } & Placed) {
   const id = useId();
   const stepUp = useStepUp();
   const [busy, setBusy] = useState(false);
@@ -180,9 +230,9 @@ function MartinsCard({ need, token, onOpen }: { need: Need; token: string; onOpe
   };
 
   return (
-    <article className="need" aria-labelledby={id} aria-busy={busy || undefined}>
+    <article className="need" {...named(id, need.kicker, onOpen)} aria-busy={busy || undefined}>
       <Kick need={need} />
-      <h3 id={id}>{need.title}</h3>
+      {onOpen && <h3 id={id}>{need.title}</h3>}
       <Evidence need={need} />
       <div className="answers">
         {need.answers.map((row) => (
@@ -255,11 +305,7 @@ function MartinsCard({ need, token, onOpen }: { need: Need; token: string; onOpe
           {refusal}
         </p>
       )}
-      <div className="need-foot">
-        <button type="button" className="linkish" onClick={() => onOpen(need.workItem)}>
-          Open the work item
-        </button>
-      </div>
+      <Foot workItem={need.workItem} onOpen={onOpen} martin />
     </article>
   );
 }
@@ -306,23 +352,22 @@ function FlagAnswer({
  */
 function FlagCard({
   need,
-  flags,
+  row,
   admin,
   app,
   onOpen,
   onMoved,
 }: {
   need: FlagNeed;
-  flags: FlagsView;
+  /** The flag's row, as Controls draws it, which the confirmation judges the move from. */
+  row: FlagRow | undefined;
   admin: Admin;
   app: string | undefined;
-  onOpen: (item: string) => void;
   onMoved: () => void;
-}) {
+} & Placed) {
   const id = useId();
   const martin = admin.kind === 'martin';
   const [choosing, setChoosing] = useState<FlagStage | undefined>(undefined);
-  const row = flags.flags.find((r) => r.name === need.flag);
   const evidence: ReactNode =
     need.stage.stage === 'preview' && app ? (
       <>
@@ -336,14 +381,14 @@ function FlagCard({
       need.evidence
     );
   return (
-    <article className="need flag-need" aria-labelledby={id}>
+    <article className="need flag-need" {...named(id, need.kicker, onOpen)}>
       <div className="kick">
         <b>{need.kicker}</b>
         <span>
           #{need.workItem} · Verify · {STAGE_NAME[need.stage.stage]} · {need.waited}
         </span>
       </div>
-      <h3 id={id}>{need.title}</h3>
+      {onOpen && <h3 id={id}>{need.title}</h3>}
       <p className="ev">
         <code className="flagname">{need.flag}</code> {evidence}
       </p>
@@ -379,12 +424,7 @@ function FlagCard({
           />
         )}
       </div>
-      <div className="need-foot">
-        <button type="button" className="linkish" onClick={() => onOpen(need.workItem)}>
-          Open the work item
-        </button>
-        {!martin && <span>Martin answers, signed in</span>}
-      </div>
+      <Foot workItem={need.workItem} onOpen={onOpen} martin={martin} />
       {choosing && row && admin.kind === 'martin' && (
         <Suspense fallback={null}>
           <FlagDialog
@@ -431,7 +471,15 @@ export function NeedsYou({ needs, flags, admin, app, onOpen, onMoved }: NeedsYou
         <div className="needs-list">
           {cards.map(({ key, hold, flag }) =>
             flag ? (
-              <FlagCard key={key} need={flag} flags={flags} admin={admin} app={app} onOpen={onOpen} onMoved={onMoved} />
+              <FlagCard
+                key={key}
+                need={flag}
+                row={flags.flags.find((row) => row.name === flag.flag)}
+                admin={admin}
+                app={app}
+                onOpen={onOpen}
+                onMoved={onMoved}
+              />
             ) : hold && martin ? (
               <MartinsCard key={key} need={hold} token={admin.session.token} onOpen={onOpen} />
             ) : (
@@ -473,5 +521,41 @@ export function NeedsYou({ needs, flags, admin, app, onOpen, onMoved }: NeedsYou
         </div>
       )}
     </article>
+  );
+}
+
+/**
+ * What waits on Martin for one work item, at the head of its sheet: its hold's card and its flag's, the same cards as
+ * in Needs you, untitled, since the sheet's title is the work item's. A visitor reads them as Waiting on Martin.
+ */
+export function WaitsOnMartin({
+  hold,
+  flag,
+  row,
+  admin,
+  app,
+  onMoved,
+}: {
+  hold: Need | undefined;
+  flag: FlagNeed | undefined;
+  row: FlagRow | undefined;
+  admin: Admin;
+  app: string | undefined;
+  onMoved: () => void;
+}) {
+  if (!hold && !flag) return null;
+  return (
+    <section className="sec sheet-needs" aria-labelledby="sheet-needs-title">
+      <h3 id="sheet-needs-title">{admin.kind === 'martin' ? 'Needs you' : 'Waiting on Martin'}</h3>
+      <div className="needs-list">
+        {hold &&
+          (admin.kind === 'martin' ? (
+            <MartinsCard key={hold.hold} need={hold} token={admin.session.token} />
+          ) : (
+            <ReadOnlyCard need={hold} />
+          ))}
+        {flag && <FlagCard need={flag} row={row} admin={admin} app={app} onMoved={onMoved} />}
+      </div>
+    </section>
   );
 }

@@ -1,10 +1,14 @@
 /**
  * The sheet: one work item in full, raised from the bottom of the screen over most of it. It holds focus while it
  * is open and gives it back when it closes; previous and next step between work items, and the reel follows.
+ *
+ * What waits on Martin for the work item heads it, as Needs you's cards, and an improvement's flag has its slider:
+ * Martin answers and moves the flag here as there, and a visitor reads both, read-only.
  */
 
 import { MODEL_AGENTS, type Sense } from '@software-factory/events';
 import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { Admin } from '../admin.ts';
 import {
   AGENT_NAME,
   APP_REPO,
@@ -39,6 +43,7 @@ import { kindName, ONGOING, OutcomeWord, spendWords } from './Card.tsx';
 import { FlagSection } from './FlagSheet.tsx';
 import { CATEGORY_NAME, Glyph } from './Glyph.tsx';
 import { LogoMark, ToolMark, type ToolName } from './Logos.tsx';
+import { WaitsOnMartin } from './NeedsYou.tsx';
 import { Picture, Shot } from './Pictures.tsx';
 import { ShippedSection } from './Shipped.tsx';
 
@@ -145,9 +150,13 @@ interface SheetProps {
   onClose: () => void;
   /** The app's origin, which a flag's preview opens. */
   app?: string | undefined;
+  /** Who is reading: Martin answers and moves the flag here, a visitor reads. */
+  admin: Admin;
+  /** A flag was moved: the page asks again soon whether the app holds it. */
+  onMoved: () => void;
 }
 
-export function Sheet({ sheet, index, count, motion, onStep, onClose, app }: SheetProps) {
+export function Sheet({ sheet, index, count, motion, onStep, onClose, app, admin, onMoved }: SheetProps) {
   const dialog = useRef<HTMLElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -183,6 +192,8 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose, app }: She
 
   // Escape closes; Tab stays inside while the sheet is open.
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    // A dialog opened from the sheet (an answer's, a flag's) keeps its own keys: Escape closes it, not the sheet.
+    if (event.target instanceof Element && event.target.closest('dialog')) return;
     if (event.key === 'Escape') {
       event.stopPropagation();
       close();
@@ -274,6 +285,14 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose, app }: She
         <div className="sheet-scroll" ref={scroller}>
           <div className="wrap sheet-body">
             <div className="sheet-main">
+              <WaitsOnMartin
+                hold={sheet.needs.hold}
+                flag={sheet.needs.flag}
+                row={sheet.flag?.row}
+                admin={admin}
+                app={app}
+                onMoved={onMoved}
+              />
               <div>
                 <p className="lead">
                   {sheet.story}
@@ -354,7 +373,11 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose, app }: She
                   )}
                 </Section>
               )}
-              {sheet.flag ? <FlagSection flag={sheet.flag} app={app} /> : <ShippedSection sheet={sheet} />}
+              {sheet.flag ? (
+                <FlagSection flag={sheet.flag} app={app} admin={admin} onMoved={onMoved} />
+              ) : (
+                <ShippedSection sheet={sheet} />
+              )}
               {sheet.spec ? (
                 <SpecSection sheet={sheet} />
               ) : (

@@ -84,8 +84,8 @@ function stopName(stop: Stop, row: FlagRow): string {
 
 /**
  * A flag's stages as a slider: the stops passed filled, the one it stands at ringed, the rest hollow; a stop that
- * can't be taken now dashed. Martin's has a button for each other stop and a handle he can drag; a visitor's, and the
- * sheet's, neither.
+ * can't be taken now dashed. Martin's, in Controls and on the sheet, has a button for each other stop and a handle he
+ * can drag; a visitor's, and a closed flag's, neither.
  */
 export function FlagSlider({ row, onChoose }: { row: FlagRow; onChoose?: ((stop: Stop) => void) | undefined }) {
   renders.flags += 1;

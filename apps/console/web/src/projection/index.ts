@@ -169,5 +169,10 @@ export function projectSheet(events: readonly PublicEvent[], item: string, t: nu
   const items = state.kind === 'improvement' ? foldItems(seen) : [];
   const flags = state.kind === 'improvement' ? flagsView(seen, items, releases(seen, items, t), t) : undefined;
   const flag = flags && [...flags.flags, ...flags.closed].find((row) => row.workItem === item);
-  return sheet(state, seen, t, flag);
+  // What waits on Martin for it, drawn as Needs you draws it: its hold, and its flag waiting to be widened.
+  const needs = {
+    hold: needsView([state], t).holds[0],
+    flag: flags?.needs.find((need) => need.workItem === item),
+  };
+  return { ...sheet(state, seen, t, flag), needs };
 }

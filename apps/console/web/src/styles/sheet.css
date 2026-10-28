@@ -121,6 +121,10 @@ html[data-motion="off"] .scrim {
 .sec > .help {
   margin-bottom: 14px;
 }
+/* What waits on Martin, at the head of the sheet: Needs you's cards for the work item. */
+.sheet-needs h3 {
+  margin-bottom: 12px;
+}
 .source {
   margin: 10px 0 0;
   display: flex;

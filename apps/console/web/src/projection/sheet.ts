@@ -20,6 +20,7 @@ import {
   type Checked,
   type Compared,
   checkedOf,
+  type FlagNeed,
   type FlagRow,
   type Stage as FlagStage,
   fromVerify,
@@ -27,6 +28,7 @@ import {
   STAGE_NAME,
 } from './flags.ts';
 import { type Capture, clearanceWords, type Hold, type ItemState, summaryOf } from './items.ts';
+import type { Need } from './needs.ts';
 import { bySense, type Card, card, type Picture, picture, pictureOfSignal } from './reel.ts';
 import { endedWords, type Release, releases, type StoppedBy, stoppedBy } from './release.ts';
 import { reportText } from './report.ts';
@@ -214,6 +216,11 @@ export interface Sheet {
   shipped: Shipped[];
   /** For an improvement out behind its flag: the flag, in place of Release and Verify. */
   flag: FlagSheet | undefined;
+  /**
+   * What waits on Martin for it, as Needs you draws it, at the head of the sheet: its open hold, and its flag waiting
+   * for him to widen it.
+   */
+  needs: { hold: Need | undefined; flag: FlagNeed | undefined };
   /** While a merged fix is held for a deploy: the pull request it waits with, and the deploy pull request's state. */
   deploy: Extract<Picture, { type: 'deploy' }> | undefined;
   /** Who wrote the paragraph at the top: the describer, once it has. */
@@ -947,7 +954,12 @@ function reviewsOfPass(item: ItemState): { done: number; of: number; pass: numbe
   return { done, of: Math.max(LIMITS.reviews, done), pass: passes.length > 1 ? index + 1 : undefined };
 }
 
-export function sheet(item: ItemState, events: readonly PublicEvent[], t: number, flag?: FlagRow): Sheet {
+export function sheet(
+  item: ItemState,
+  events: readonly PublicEvent[],
+  t: number,
+  flag?: FlagRow,
+): Omit<Sheet, 'needs'> {
   const end = item.closedAt ?? t;
   const own = releases(events, [item], t).filter((r) => r.items.some((i) => i.number === item.number));
   const byId = new Map(own.map((r) => [r.id, r]));
