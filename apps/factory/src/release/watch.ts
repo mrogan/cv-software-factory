@@ -168,17 +168,19 @@ function reachedWeight(o: Observed, release: string, attempt: readonly AnalysisR
  * attempt before it, or past it once that run had passed, or before any, at the first. A background run is made as its
  * attempt starts, and the app's first step run after the first step's pause, so a step run made before it is an
  * earlier attempt's. A Rollout whose first step is an analysis would make the two in one pass, in either order and a
- * moment apart, so a step run made a few seconds before is the attempt's too: an earlier attempt's ended in an abort,
- * and a retry, which makes the next background run, comes after it.
+ * moment apart, so a step run made a few seconds before is the attempt's too, unless it had already ended: an earlier
+ * attempt's ended in the abort, which the retry that makes the next background run comes after, however quickly.
  */
 function lookWeight(o: Observed, release: string, look: Look): number {
-  const from = Date.parse(look.run.metadata.creationTimestamp) - MADE_TOGETHER_MS;
+  const from = Date.parse(look.run.metadata.creationTimestamp);
   const at = Date.parse(look.at);
   const last = o.runs
     .filter((run) => isOf(run, release) && isStep(run))
     .filter((run) => {
       const made = Date.parse(run.metadata.creationTimestamp);
-      return made >= from && made <= at;
+      const ended = Date.parse(run.status.completedAt ?? '');
+      const together = made >= from - MADE_TOGETHER_MS && !(ended < from);
+      return (made >= from || together) && made <= at;
     })
     .at(-1);
   if (!last) return weightAt(o, 0);
@@ -290,14 +292,15 @@ export function looksOf(o: Observed, release: string, looked: ReadonlySet<string
     let first = Number.NaN;
     let look: Look | undefined;
     for (const { name, measurement, at } of ended) {
-      if (!look || at - first > LOOK_MS) {
+      // A second of one measure, a moment after the first (one Argo Rollouts took again), is a look of its own, so
+      // that each measurement is recorded, and recorded once.
+      if (!look || at - first > LOOK_MS || look.taken.some((t) => t.name === name)) {
         first = at;
         look = { run, at: measurement.finishedAt as string, taken: [] };
         looks.push(look);
       }
       look.at = measurement.finishedAt as string;
-      // Two of one measure in a look: the later is the one that counts.
-      look.taken = [...look.taken.filter((t) => t.name !== name), { name, measurement }];
+      look.taken.push({ name, measurement });
     }
   }
   const order = background[0]?.status.metricResults.map((r) => r.name) ?? [];

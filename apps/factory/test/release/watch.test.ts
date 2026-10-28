@@ -879,6 +879,39 @@ describe('the background analysis’s looks', () => {
     ).toEqual(['Canary at 25%: the analysis passed', 'Canary at 50%, a look: errors passed']);
   });
 
+  it('records a measure Argo Rollouts took twice in a few seconds as two looks, each once', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(at25, [looking({})], { start: START });
+    const again = looking({
+      errors: [{ at: at(1, 1), phase: 'Error' }, { at: at(1, 4) }],
+      latency: [{ at: at(1, 1) }],
+    });
+    expect(
+      s
+        .pass(at25, [again])
+        .drafts.get('1001')
+        ?.map((d) => d.summary),
+    ).toEqual([
+      'Canary at 25%, a look: errors could not be measured; latency passed',
+      'Canary at 25%, a look: errors passed',
+    ]);
+    expect(s.pass(at25, [again]).said).toEqual({});
+  });
+
+  it('weighs a quick retry’s looks at its first step, not at the aborted attempt’s step run made just before', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(at25, [looking({})], { start: START });
+    // The 50% step's run, ended by an abort, and a retry whose background run came three seconds after it was made.
+    const aborted = step(5, { created: at(6, 30), completed: at(6, 31), phase: 'Successful', terminate: true });
+    const retried = looking({ errors: [{ at: at(7) }] }, { name: 'website-68ff668868-4.1', created: at(6, 33) });
+    expect(
+      s
+        .pass(at25, [aborted, retried])
+        .drafts.get('1001')
+        ?.find((d) => d.type === 'canary.measuring')?.summary,
+    ).toBe('Canary at 25%, a look: errors passed');
+  });
+
   it('records the looks a line that was down missed, each at the weight the canary had then, among the steps', () => {
     const s = store(STABLE_RECORDED);
     s.pass(at25, [looking({})], { start: START });
