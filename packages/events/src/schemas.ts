@@ -421,7 +421,7 @@ export const PAYLOADS = {
     /**
      * How it ended. Triage ends a report it quarantines or discards; anything else ends after the line. An improvement
      * whose flag Martin turned off, at any stage, closes as turned off, with his reason: its code stays in the app, off,
-     * and nothing is rolled back.
+     * and nothing is rolled back. One whose flag he widened to Everyone closes as verified, and its flag stays his.
      */
     outcome: z.enum(['verified', 'rolled-back', 'no-change', 'quarantined', 'discarded', 'turned-off']),
     reason: text(200),
