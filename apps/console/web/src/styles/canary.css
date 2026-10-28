@@ -69,13 +69,14 @@
 /*
  * The steps and the note on the left, the measures on the right, and Martin's controls under the note, where the
  * left column ends well above the measures. The second row takes what height the measures need beyond the steps, so
- * the controls sit just under the note and never push it down.
+ * the controls sit just under the note and never push it down. The space above the controls is theirs, not the
+ * grid's, so a release with no controls has no gap under its steps.
  */
 .canary-body {
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
   grid-template-rows: auto 1fr;
-  gap: 20px 40px;
+  gap: 0 40px;
   align-items: start;
 }
 .canary-steps {
@@ -86,6 +87,7 @@
 }
 .canary-body > .canary-controls {
   grid-area: 2 / 1;
+  margin-top: 20px;
 }
 /*
  * While looks land, the measures take the width their table needs to keep each row on one line, and the steps the
@@ -426,17 +428,24 @@ p.words {
 @media (max-width: 1180px) {
   .canary-body {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
-    gap: 20px 28px;
+    gap: 0 28px;
   }
   /* The trend column needs the width: the steps, the measures and the controls, one under the next, as written. */
   .canary-body.trended {
     grid-template: none / minmax(0, 1fr);
+    row-gap: 20px;
   }
-  .canary-body.trended > * {
+  .canary-body.trended > *,
+  .canary-body.trended > .canary-controls {
     grid-area: auto;
+    margin-top: 0;
   }
+  /* The measure's column takes what the others leave, so the table never runs past the panel. */
   .measures.trended {
     width: 100%;
+  }
+  .measures.trended col.name {
+    width: auto;
   }
 }
 @media (max-width: 720px) {
@@ -449,9 +458,12 @@ p.words {
   }
   .canary-body {
     grid-template: none / minmax(0, 1fr);
+    row-gap: 20px;
   }
-  .canary-body > * {
+  .canary-body > *,
+  .canary-body > .canary-controls {
     grid-area: auto;
+    margin-top: 0;
   }
   /* The rules' captions go; a measure's own words, such as why it could not measure, stay. */
   .measures .base,

@@ -215,6 +215,9 @@
   .canary-controls dd {
     margin-bottom: 8px;
   }
+  .canary-controls dl > div:last-child dd {
+    margin-bottom: 0;
+  }
 }
 
 /* The account menu's links, which look as its buttons do. */

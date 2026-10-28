@@ -541,7 +541,11 @@ table.models { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .canary-panel .rel-id { font: 11px/1.5 var(--font-mono); color: var(--text-muted); text-align: right; }
 .canary-panel .rel-id b { font-weight: 400; color: var(--text-2); }
 .carries { margin: 8px 0 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--text-2); }
-.canary-body { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 20px 40px; align-items: start; }
+/* Martin's controls go under the note, in the room the measures leave there; the second row takes what height the measures need beyond the steps. */
+.canary-body { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); grid-template-rows: auto 1fr; gap: 0 40px; align-items: start; }
+.canary-steps { grid-area: 1 / 1; }
+.canary-measures { grid-area: 1 / 2 / span 2; }
+.canary-body > .canary-controls { grid-area: 2 / 1; margin-top: 20px; }
 .canary-note { margin: 10px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
 /* The steps: the bar is the share of the traffic the canary has, each stop a step of the Rollout. */
 .steps-track { position: relative; height: 66px; margin: 6px 14px 0 4px; }
@@ -841,7 +845,7 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
 
 /* ---- Laptop and tablet -------------------------------------------------------------- */
 @media (max-width: 1180px) {
-  .canary-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 20px 28px; }
+  .canary-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 0 28px; }
   .stage .name { font-size: 20px; }
   .stage .fig { display: none; }
   .sheet-body { grid-template-columns: 1fr; }
@@ -899,7 +903,8 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
   .bottom { grid-template-columns: 1fr; margin-top: 40px; }
   .canary-panel { margin-top: 32px; }
   .canary-panel .rel-id { text-align: left; }
-  .canary-body { grid-template-columns: 1fr; }
+  .canary-body { grid-template: none / 1fr; row-gap: 20px; }
+  .canary-body > *, .canary-body > .canary-controls { grid-area: auto; margin-top: 0; }
   .measures.figs th:nth-child(3), .measures.figs td:nth-child(3) { display: none; }
   .measures td .base-inline { display: block; }
   .measures td small { display: none; }
@@ -1887,8 +1892,7 @@ function renderCanary() {
       <div class="kick"><span class="word tone-${tone}"><span class="dot tone-${tone} ${dot}"></span>${word}</span>${r.dry ? '<span class="remark">Dry run</span>' : ''}</div>
       <h2 id="canary-title">${esc(title)}</h2>${carried(r)}</div>
     <div class="rel-id">Release ${r.id}<br><b>${r.previous} → ${r.version}</b> · ${r.commit}<br>${image}</div></div>
-    <div class="canary-body"><div>${stepsTrack(r)}<p class="canary-note">${note}</p></div><div>${right}</div></div>
-    ${canaryControls(r)}
+    <div class="canary-body"><div class="canary-steps">${stepsTrack(r)}<p class="canary-note">${note}</p></div><div class="canary-measures">${right}</div>${canaryControls(r)}</div>
     <p class="help">The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody needs to press anything.</p>`;
 }
 

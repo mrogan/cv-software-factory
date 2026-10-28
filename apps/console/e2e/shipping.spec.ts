@@ -146,6 +146,32 @@ test.describe('the Canary panel', () => {
     await shown(page);
     await expect(panel(page)).toContainText('No release in flight The last, v0.9.12, was promoted at 08:06');
   });
+
+  // A row is one line at every laptop width, with the steps beside the measures (above 1180px) or above them; on a
+  // tablet a caption may wrap, and the table never runs past the panel.
+  for (const width of [800, 1024, 1181, 1200, 1280, 1440]) {
+    test(`keeps the measures inside the panel, each rule's caption one line on a laptop, at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(consoleUrl());
+      await shown(page);
+      const canary = panel(page);
+      const captions = canary.locator('.measures small.rule');
+      await expect(captions).toHaveCount(4);
+      for (const caption of width >= WIDTHS.laptop.width ? await captions.all() : []) {
+        const [height, line] = await caption.evaluate((el) => [
+          el.getBoundingClientRect().height,
+          Number.parseFloat(getComputedStyle(el).lineHeight),
+        ]);
+        expect(height, await caption.innerText()).toBeLessThan(line * 1.5);
+      }
+      const right = (el: Element) => el.getBoundingClientRect().right;
+      const table = await canary.locator('table.measures').evaluate(right);
+      const body = await canary.locator('.canary-body').evaluate(right);
+      expect(table).toBeLessThanOrEqual(body + 0.5);
+    });
+  }
 });
 
 test.describe('the Canary panel on a phone', () => {

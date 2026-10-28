@@ -975,6 +975,8 @@ export function Canary({ view, t, onOpen, admin, lineStopped, ticking, motion }:
     ) : (
       (measuring(r) || m || first !== undefined) && <Measures r={r} m={m} until={first} clock={clock} />
     );
+  // The measures' table with its trend column, which takes the width it needs: not a rollback's or an error's table.
+  const trended = r.looks.length > 0 && r.end?.kind !== 'rolled-back' && r.end?.kind !== 'errored';
   return (
     <section className="canary" aria-labelledby="canary-title">
       <div className="canary-head">
@@ -1013,7 +1015,7 @@ export function Canary({ view, t, onOpen, admin, lineStopped, ticking, motion }:
             : 'no image: nothing shipped'}
         </p>
       </div>
-      <div className={`canary-body ${r.looks.length ? 'trended' : ''}`}>
+      <div className={`canary-body ${trended ? 'trended' : ''}`}>
         <div className="canary-steps">
           <Steps r={r} tone={tone} />
           <StepTime r={r} clock={clock} />

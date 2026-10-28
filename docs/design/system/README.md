@@ -532,7 +532,7 @@ In the left column under the steps and the note, under a hairline, labelled **Yo
 - **Stopped with the line, aborted by Martin, or stopped by an analysis error:** Retry, with the key, which starts the canary again from its first step. While the line is stopped, Retry is disabled, with "Start the line first: a stopped line starts no canary."
 - **Promoted, rolled back, or a dry run:** no controls; the release has ended, or nothing shipped.
 
-Abort opens a dialog saying that the version before takes all the traffic at once, that nothing failed so it opens no ticket, and what the work item waits for. For a visitor the same controls are labels beside what each does, under **Martin's controls**, and above what each does where the column is narrower than 400px. The panel's last line still says the canary needs nobody to press anything, for everyone: the controls are for when Martin wants to, not for when it needs him.
+Abort opens a dialog saying that the version before takes all the traffic at once, that nothing failed so it opens no ticket, and what the work item waits for. For a visitor the same controls are labels beside what each does, under **Martin's controls**, and above what each does where the column is 400px or narrower. The panel's last line still says the canary needs nobody to press anything, for everyone: the controls are for when Martin wants to, not for when it needs him.
 
 ### Preview as visitor
 
