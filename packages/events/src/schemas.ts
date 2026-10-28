@@ -763,7 +763,10 @@ export const PAYLOADS = {
   'canary.measuring': z.strictObject({
     release: releaseId,
     version: appVersion,
-    /** The canary's share of the traffic when the line read the look, as the Rollout's step then has it. */
+    /**
+     * The canary's share of the traffic when the analysis took the look, read from the attempt's step runs: the
+     * Rollout's step now is not where the canary was for a look the line missed, or one read after an abort.
+     */
     weight: z.number().int().min(1).max(100),
     /** When the analysis took the look: the latest of its measurements' ends, as Argo Rollouts keeps them. */
     at: timestamp,

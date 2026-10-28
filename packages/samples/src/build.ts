@@ -262,7 +262,7 @@ export interface LookFigures {
 }
 
 /**
- * A look of the background analysis that every measure it took passed, as the line records it: errors and latency
+ * A look of the background analysis in which every measure it took passed, as the line records it: errors and latency
  * worked out from the figures as the release policy judges, or the journeys, at the time it ended (`at`, to the second,
  * as Argo Rollouts keeps it).
  */
