@@ -458,9 +458,8 @@ export const coder = defineAgent<CoderInput, CoderResult>({
     const { workItem, issue, state, commit } = context;
     const { patch } = handback;
     // Files it needs outside the scope hold the work item before anything else: nothing of the round is pushed. Its
-    // session is not kept, since it holds work that was not: a later round resumes the one before, which matches the
-    // pull request's head, and a first round starts afresh on the new spec.
-    const needs = outsideScope(result, spec.scope);
+    // session is not kept, since it holds work that was not: a later step resumes the last one kept.
+    const needs = outsideScope(result, spec.scope, input.protectedPaths);
     if (needs.length) {
       const hold = holdDraft('coder', needsHold(needs, input.protectedPaths));
       const declined = 'declined' in result ? (result.declined ?? []) : [];
@@ -582,9 +581,14 @@ export const coder = defineAgent<CoderInput, CoderResult>({
 });
 
 /** The files the coder needs outside the spec's scope, each once: one the scope takes in is not one it needs. */
-function outsideScope(result: CoderResult, scope: readonly string[]): NonNullable<PayloadOf<'hold.started'>['needs']> {
+function outsideScope(
+  result: CoderResult,
+  scope: readonly string[],
+  protectedPaths: readonly string[],
+): NonNullable<PayloadOf<'hold.started'>['needs']> {
   const named = 'needs' in result ? (result.needs ?? []) : [];
-  const outside = named.filter(({ path }) => !inScope(path, scope));
+  // As the fence reads it: a protected path is outside every scope, even under a folder the scope takes in.
+  const outside = named.filter(({ path }) => !inScope(path, scope) || inScope(path, protectedPaths));
   return outside.filter(({ path }, i) => outside.findIndex((n) => n.path === path) === i);
 }
 

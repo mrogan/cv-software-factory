@@ -434,8 +434,8 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         // since what an agent writes is public and a paraphrase of a report would pass any redactor. His answer still
         // does what it does.
         const words = event.payload.report ? undefined : event.payload.answer;
-        const said =
-          words ?? (cause === 'scope' && event.payload.decision === 'approved' ? scopeApproved(state.hold) : undefined);
+        const approvedScope = cause === 'scope' && event.payload.decision === 'approved';
+        const said = approvedScope ? scopeApproved(state.hold, words) : words;
         // Words settle nothing for triage's holds: the hold stands, and the work item waits as it did.
         if (event.payload.decision === 'answered' && WORDS_LEAVE_HELD.includes(cause)) break;
         if ((stage === 'plan' || resolution === 'replan') && said) {
@@ -540,10 +540,12 @@ function startAgain(state: WorkItemState): void {
 const FENCE_APPROVED = 'Yes: the coder needed those files, so let the scope take them in.';
 
 /** What approving a scope hold says: of a file no scope may name, that it stays out, so the planner rejects it. */
-const scopeApproved = (hold: PayloadOf<'hold.started'>) =>
-  hold.needs?.some((need) => need.barred)
-    ? 'Yes: let the scope take in the files the coder needed that a scope may name. A file no scope may name stays out of it: if the fix needs one, reject the ticket.'
-    : FENCE_APPROVED;
+function scopeApproved(hold: PayloadOf<'hold.started'>, words: string | undefined): string {
+  const barred = 'A file no scope may name stays out of it: if the fix needs one, reject the ticket.';
+  if (!hold.needs?.some((need) => need.barred)) return words ?? FENCE_APPROVED;
+  // His own words never drop what the planner may not do.
+  return `${words ?? 'Yes: let the scope take in the files the coder needed that a scope may name.'} ${barred}`;
+}
 
 /**
  * What Martin was asked by a hold, as the planner is told it, and what the coder said of each file it needs, which

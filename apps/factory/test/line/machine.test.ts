@@ -320,6 +320,12 @@ describe('what the line does next', () => {
     expect(told?.answer).toBe(
       'Yes: let the scope take in the files the coder needed that a scope may name. A file no scope may name stays out of it: if the fix needs one, reject the ticket.',
     );
+    // His own words with his approval keep what the planner may not do.
+    const worded = fold([ticket, spec, { type: 'hold.started', payload: barredOnly }, answer('approved', 'Go ahead.')])
+      .answers[0];
+    expect(worded?.answer).toBe(
+      'Go ahead. A file no scope may name stays out of it: if the fix needs one, reject the ticket.',
+    );
     // A reason cut to fit ends as it was cut, with no full stop after the mark.
     const cutHold = needsHold(many, []);
     const cutTold = fold([ticket, spec, { type: 'hold.started', payload: cutHold }, answer('approved')]).answers[0];

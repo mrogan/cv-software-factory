@@ -1693,6 +1693,16 @@ describe('the line', () => {
     expect(row?.failure).toBe('The coder said it needs test/search.test.ts, which its scope already allows');
   });
 
+  it('holds a protected file under a folder its scope takes in as one no scope may name, as the fence reads it', async () => {
+    const workItem = await ticket();
+    const needs = [{ path: 'test/AGENTS.md', reason: 'It names the old command.' }];
+    const { pass, github } = line({ ...AGENTS, coder: () => handback({ needs }) });
+    github.protectedPaths = [...github.protectedPaths, '**/AGENTS.md'];
+    await pass();
+    await pass();
+    expect((await payloads(workItem, 'hold.started'))[0]?.needs).toEqual([{ ...needs[0], barred: true }]);
+  });
+
   it('answers the suggestions a coder declined before it holds for the files it needs', async () => {
     const workItem = await ticket();
     const name = { path: 'src/search.ts', line: 1, blocking: false, comment: 'Name the escape for what it does.' };
