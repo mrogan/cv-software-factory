@@ -156,6 +156,8 @@ async function step<A extends LineAgent>(
         HOME: home,
         GIT_CONFIG_GLOBAL: '/dev/null',
         GIT_CONFIG_NOSYSTEM: '1',
+        // As the runner image sets it: pnpm runs as itself, and fetches no other version (apps/runner/Dockerfile).
+        npm_config_manage_package_manager_versions: 'false',
         ANTHROPIC_BASE_URL: o.gateway,
         ANTHROPIC_API_KEY: token,
       },

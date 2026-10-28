@@ -31,6 +31,8 @@ on:
       - docs/design/system/mark/**
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
+      # The runner image's pnpm.
+      - mise.lock
       - .github/workflows/build.yml
   workflow_dispatch:
 
@@ -64,7 +66,7 @@ jobs:
           # What each image copies in (the Dockerfiles and their .dockerignore files say the same), and what they share.
           shared='^(packages/events/|packages/store/|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.github/workflows/build\.yml)'
           console="$shared|^(apps/console/|docs/design/system/(tokens\.css|station\.ts|mark/))"
-          factory="$shared|^(apps/factory/|apps/runner/|packages/triage/|policy/)"
+          factory="$shared|^(apps/factory/|apps/runner/|packages/triage/|policy/|mise\.lock)"
           # $1: the output, $2: what the deploy commits' subject calls the image, $3: the image's inputs.
           decide() {
             # The squash-merged deploy pull request's subject names the commit it deployed, alone or after another:

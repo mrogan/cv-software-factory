@@ -3,6 +3,8 @@
 !package.json
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
+!mise.lock
+!apps/runner/scripts/install-pnpm.ts
 !apps/runner/package.json
 !apps/runner/src
 !apps/runner/plugin

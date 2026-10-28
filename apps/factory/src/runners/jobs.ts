@@ -121,8 +121,6 @@ function job(
                 // Named on each line the pod prints (apps/runner/src/log.ts).
                 RUNNER_JOB: names.job,
                 RUNNER_WORK_ITEM: names.workItem,
-                // pnpm, at the version the image holds, read-only: neither pod can change the pnpm the other runs.
-                COREPACK_HOME: '/opt/corepack',
                 ...(part === 'prepare'
                   ? { PREPARE: '/prepare', HOME: '/prepare/home', npm_config_store_dir: '/prepare/store' }
                   : { HOME: '/work/home' }),

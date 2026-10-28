@@ -3,21 +3,28 @@
 #
 #     docker build --file apps/runner/Dockerfile .
 #
-# It holds Node at the version the app pins, git, pnpm through corepack, and the Agent SDK. The app's own
+# It holds Node at the version the app pins, git, this repository's pnpm, and the Agent SDK. The app's own
 # dependencies are not here: the prepare pod installs them onto the job's volume, from the app's lockfile.
 
-FROM node:24.22.1-trixie-slim@sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e0586c7cf7726daaeabc1bea AS node
+FROM node:24.22.1-trixie-slim@sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e0586c7cf7726daaeabc1bea AS base
 # git, to check out the app and write the agent's patch. The Debian packages are the image's release's.
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends git ca-certificates \
-  && rm -rf /var/lib/apt/lists/* \
-  && corepack enable
-# pnpm at the version the repository pins, which is the app's too, held in the image, read-only: the runner's pods
-# have no way to change it, and the agent pod, with no network, has no need to fetch it.
-ENV COREPACK_HOME=/opt/corepack
-COPY package.json /tmp/pin/
-RUN cd /tmp/pin && corepack install && COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm --version \
-  && rm -rf /tmp/pin && chmod -R a+rX,go-w /opt/corepack
+  && rm -rf /var/lib/apt/lists/*
+
+FROM base AS release
+# pnpm, at the version mise.lock holds for this platform, checked against its checksum there (scripts/install-pnpm.ts).
+COPY mise.lock apps/runner/scripts/install-pnpm.ts /tmp/pnpm/
+RUN node /tmp/pnpm/install-pnpm.ts /tmp/pnpm/mise.lock /opt/pnpm && chmod -R a+rX,go-w /opt/pnpm
+
+FROM base AS node
+# This repository's pnpm, the one `mise upgrade` moves, as pnpm's own executable, read-only: the runner's pods have no
+# way to change it, and the agent pod, with no network, has no need to fetch one. Corepack is not enabled, so no shim
+# of its stands in for pnpm and enforces a checkout's `packageManager`, and pnpm itself is told not to switch to the
+# version that names: the app pins pnpm on its own, within the same major (src/prepare.ts says when the major differs).
+COPY --from=release /opt/pnpm /opt/pnpm
+RUN ln -s /opt/pnpm/pnpm /usr/local/bin/pnpm
+ENV npm_config_manage_package_manager_versions=false
 
 FROM node AS runner
 WORKDIR /repo

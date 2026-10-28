@@ -13,10 +13,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { attempt } from '../src/agent.ts';
-import { prepare, SEED_MESSAGE } from '../src/prepare.ts';
+import { namedPnpm, prepare, SEED_MESSAGE, samePnpmMajor } from '../src/prepare.ts';
 
 /** A repository the prepare step can fetch from by path, with a package that needs nothing installed. */
-function origin(): { url: string; commit: string; dir: string } {
+function origin(packageManager?: string): { url: string; commit: string; dir: string } {
   const dir = mkdtempSync(join(tmpdir(), 'origin-'));
   const git = (...args: string[]) =>
     execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.invalid', ...args], {
@@ -24,7 +24,7 @@ function origin(): { url: string; commit: string; dir: string } {
       encoding: 'utf-8',
     });
   git('init', '--quiet');
-  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'shop', private: true }));
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'shop', private: true, packageManager }));
   writeFileSync(
     join(dir, 'pnpm-lock.yaml'),
     "lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\nimporters:\n\n  .: {}\n",
@@ -39,9 +39,18 @@ function origin(): { url: string; commit: string; dir: string } {
   return { url: `file://${dir}`, commit: git('rev-parse', 'HEAD').trim(), dir };
 }
 
+/** pnpm 12.8.1, by the pin a checkout gives it. */
+const OTHER_PNPM =
+  'pnpm@12.8.1+sha512.f64ba907507f5ceafe06c8d38e6052d0179444580ec1279ddd5bfc11cb48aa8a2644b66598e07e761da84872a9fc57d5f902b87fa49d024198d558612aabbe45';
+/** The pnpm that runs here: this repository's. */
+const OWN = /"packageManager": "pnpm@([^+"]+)/.exec(
+  readFileSync(join(import.meta.dirname, '..', '..', '..', 'package.json'), 'utf-8'),
+)?.[1];
+
 describe('the prepare step', () => {
   it('starts from a fresh checkout each time, whatever the agent left behind, with the seed as the same base', async () => {
-    const { url, commit } = origin();
+    // A checkout that names another pnpm than the one that runs, as the app does: it is named, and not fetched.
+    const { url, commit } = origin(OTHER_PNPM);
     const work = mkdtempSync(join(tmpdir(), 'work-'));
     const own = mkdtempSync(join(tmpdir(), 'prepare-'));
     mkdirSync(join(own, 'home'));
@@ -72,6 +81,8 @@ describe('the prepare step', () => {
         commit,
       }),
       expect.objectContaining({ job: 'coder-1001-1-1', msg: 'applied the seed, and committed it as the base' }),
+      // The pnpm that runs, this repository's, beside the one the checkout names.
+      expect.objectContaining({ job: 'coder-1001-1-1', msg: 'runs its own pnpm', pnpm: OWN, packageManager: '12.8.1' }),
       expect.objectContaining({ job: 'coder-1001-1-1', msg: 'installed the dependencies' }),
     ]);
     const repo = join(work, 'repo');
@@ -170,6 +181,36 @@ describe('the prepare step', () => {
       'takes no seed',
     );
   }, 60_000);
+});
+
+describe('the pnpm the prepare step runs', () => {
+  it('reads the pnpm a checkout names, and nothing from one that names none or another manager', async () => {
+    const named = async (packageManager?: string, devEngines?: unknown) => {
+      const dir = mkdtempSync(join(tmpdir(), 'checkout-'));
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'shop', packageManager, devEngines }));
+      return namedPnpm(dir);
+    };
+    expect(await named(`pnpm@12.8.1+sha512.${'0'.repeat(128)}`)).toBe('12.8.1');
+    expect(await named('pnpm@13.0.0-rc.1')).toBe('13.0.0-rc.1');
+    expect(await named()).toBeUndefined();
+    expect(await named('yarn@4.9.0')).toBeUndefined();
+    expect(await named(undefined, { packageManager: { name: 'pnpm', version: '^13.0.0' } })).toBe('^13.0.0');
+    expect(await named(undefined, { packageManager: [{ name: 'yarn' }, { name: 'pnpm', version: '12.8.1' }] })).toBe(
+      '12.8.1',
+    );
+    expect(await namedPnpm(mkdtempSync(join(tmpdir(), 'empty-')))).toBeUndefined();
+  });
+
+  it('goes on within a major, and stops at another with a sentence that names both', () => {
+    expect(() => samePnpmMajor('12.8.1', '12.15.0')).not.toThrow();
+    expect(() => samePnpmMajor(undefined, '12.15.0')).not.toThrow();
+    expect(() => samePnpmMajor('^12.8.0', '12.15.0')).not.toThrow();
+    expect(() => samePnpmMajor('>=13', '12.15.0')).toThrow('asks for pnpm >=13');
+    expect(() => samePnpmMajor('13.0.0', '12.15.0')).toThrow(
+      'The checkout asks for pnpm 13.0.0, and the runner runs pnpm 12.15.0: pnpm moves to a new major in both ' +
+        "repositories, and the runner image's pnpm is this repository's (mise.lock).",
+    );
+  });
 });
 
 describe('the fence check', () => {
