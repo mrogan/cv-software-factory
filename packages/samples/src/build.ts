@@ -197,6 +197,27 @@ export interface StepFigures {
 /** A step of a sample release: its figures, and, when a sample says more than the line would, its words and pictures. */
 export type Step = StepFigures & { summary?: string; artifacts?: ArtifactRef[] };
 
+/**
+ * Errors and latency in the analysis's own terms, worked out from each version's figures as the release policy judges:
+ * how far the canary is from its limit. Neither has a value until the canary has had enough requests to judge.
+ */
+function judged(figures: Pick<StepFigures, 'errorRate' | 'p99Ms'>, canaryRequests: number) {
+  const { errorRate, p99Ms } = figures;
+  const baseline = p99Ms.baseline / 1000;
+  const most = baseline + Math.max(baseline * release.latency.maxRatioAbove, release.latency.minSecondsAbove);
+  const round = (n: number) => Math.round(n * 10_000) / 10_000;
+  const enough = canaryRequests >= release.minRequests;
+  return [
+    {
+      name: 'errors',
+      phase: 'successful',
+      value: enough ? round(errorRate.canary - errorRate.baseline) : null,
+      limit: release.errors.maxAbove,
+    },
+    { name: 'latency', phase: 'successful', value: enough ? round(p99Ms.canary / 1000 - most) : null, limit: 0 },
+  ] as const;
+}
+
 /** A step every measure passed: the analysis's measures, worked out from the figures as the release policy judges. */
 export function stepped(version: string, weight: number, figures: StepFigures): PayloadOf<'canary.stepped'> {
   const { errorRate, p99Ms, journeys } = figures;
@@ -205,9 +226,6 @@ export function stepped(version: string, weight: number, figures: StepFigures): 
     canary: Math.round((window * weight) / 100),
     baseline: Math.round((window * (100 - weight)) / 100),
   };
-  const baseline = p99Ms.baseline / 1000;
-  const most = baseline + Math.max(baseline * release.latency.maxRatioAbove, release.latency.minSecondsAbove);
-  const round = (n: number) => Math.round(n * 10_000) / 10_000;
   const of = (side: 'canary' | 'baseline') => ({
     requests: requests[side],
     errorRate: errorRate[side],
@@ -223,16 +241,54 @@ export function stepped(version: string, weight: number, figures: StepFigures): 
       requests: requests.canary,
       measures: [
         { name: 'enough-requests', phase: 'successful', value: requests.canary, limit: release.minRequests },
-        {
-          name: 'errors',
-          phase: 'successful',
-          value: round(errorRate.canary - errorRate.baseline),
-          limit: release.errors.maxAbove,
-        },
-        { name: 'latency', phase: 'successful', value: round(p99Ms.canary / 1000 - most), limit: 0 },
+        ...judged(figures, requests.canary),
         { name: 'journeys', phase: 'successful', value: null, limit: null },
       ],
     },
+    figures: { canary: of('canary'), baseline: of('baseline') },
+    dryRun: false,
+  };
+}
+
+/**
+ * Each version's figures over the window that ended with a look of the background analysis, as a sample states them.
+ * With `journeys`, it is the journeys' look, a Job's of its own; without, errors' and latency's, taken together.
+ */
+export interface LookFigures {
+  requests: Versus<number>;
+  errorRate: Versus<number>;
+  p99Ms: Versus<number>;
+  journeys?: Versus<[number, number]>;
+}
+
+/**
+ * A look of the background analysis in which every measure it took passed, as the line records it: errors and latency
+ * worked out from the figures as the release policy judges, or the journeys, at the time it ended (`at`, to the second,
+ * as Argo Rollouts keeps it).
+ */
+export function measuring(
+  version: string,
+  weight: number,
+  at: string,
+  look: LookFigures,
+): PayloadOf<'canary.measuring'> {
+  const of = (side: 'canary' | 'baseline') => ({
+    requests: look.requests[side],
+    errorRate: look.errorRate[side],
+    p99Ms: look.p99Ms[side],
+    journeys: look.journeys?.[side] ?? null,
+  });
+  const ended = at.replace(/\.\d{3}Z$/, 'Z');
+  const measures = look.journeys
+    ? [{ name: 'journeys', phase: 'successful', value: null, limit: null } as const]
+    : judged(look, look.requests.canary);
+  return {
+    release: releaseFor(version),
+    version,
+    weight,
+    at: ended,
+    // Argo Rollouts takes errors and latency together, so they end in the same second.
+    measures: measures.map((measure) => ({ ...measure, at: ended })),
     figures: { canary: of('canary'), baseline: of('baseline') },
     dryRun: false,
   };
@@ -460,6 +516,16 @@ export class Item {
       abortedAt: this.time(acted),
       by,
     });
+  }
+
+  /**
+   * A look of the canary's background analysis that ended at `ended`, as the line records it a pass later, at
+   * `offset`, with the line's own words.
+   */
+  looked(offset: string, ended: string, version: string, weight: number, look: LookFigures): this {
+    const payload = measuring(version, weight, this.time(ended), look);
+    const names = payload.measures.map((m) => m.name).join(' and ');
+    return this.at(offset, 'canary.measuring', 'rollouts', `Canary at ${weight}%, a look: ${names} passed`, payload);
   }
 
   /**

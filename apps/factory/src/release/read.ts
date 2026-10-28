@@ -238,16 +238,17 @@ export async function journeysOf(kube: Kube, namespace: string, run: AnalysisRun
 
 /**
  * How many of the journeys' checks passed, of how many ran, on each version, as the Job of the run's latest journeys
- * measurement wrote them (`comparisonMessage`): the canary is the change, and the baseline the base. Undefined while
- * the Job has not ended, when it or its pod is gone, or when its message holds no counts (a gate that crashed, or one
- * from before the gate counted).
+ * measurement wrote them (`comparisonMessage`), or of the one given, for a look: the canary is the change, and the
+ * baseline the base. Undefined while the Job has not ended, when it or its pod is gone, or when its message holds no
+ * counts (a gate that crashed, or one from before the gate counted).
  */
 export async function journeysCounted(
   kube: Kube,
   namespace: string,
   run: AnalysisRun,
+  measurement: Measurement | undefined = journeysMeasurements(run).at(-1),
 ): Promise<{ canary: Counted; baseline: Counted } | undefined> {
-  const read = await messagesOf(kube, namespace, journeysMeasurements(run).at(-1));
+  const read = await messagesOf(kube, namespace, measurement);
   if (read.kind !== 'ended') return undefined;
   const counts = read.messages.map((m) => comparisonIn(m)?.counts).find((c) => c !== undefined);
   if (!counts) return undefined;

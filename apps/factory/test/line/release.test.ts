@@ -237,6 +237,7 @@ function line(options: Partial<LineOptions> = {}, { prometheusDown = false } = {
   return { line: it, github, kube, asked };
 }
 
+/** The release's events on a work item, but for the background analysis's looks, which tests read on their own. */
 const typesOf = async (workItem: string | null) =>
   (
     await database.as.line<{ type: string; actor: string }[]>`
@@ -340,7 +341,16 @@ describe('the line’s watch of the app’s release', () => {
       baseline: { requests: 640, errorRate: 0.002, p99Ms: 118, journeys: [41, 48] },
     });
     expect(stepped?.weight).toBe(25);
-    expect(asked.filter((path) => path === '/api/v1/query')).toHaveLength(6);
+    // The background analysis's first look, as it landed, with each version's figures then.
+    const [look] = await payloads(carried[0] as string, 'canary.measuring');
+    expect(look).toMatchObject({ release: releaseOf(CANARY), weight: 25, at: t0, dryRun: false });
+    expect(look?.measures.map((m) => m.name)).toEqual(['errors', 'latency', 'journeys']);
+    expect(look?.figures).toEqual({
+      canary: { requests: 224, errorRate: 0.004, p99Ms: 124, journeys: null },
+      baseline: { requests: 640, errorRate: 0.002, p99Ms: 118, journeys: null },
+    });
+    // Three figures of each version, at the step's end and at the look.
+    expect(asked.filter((path) => path === '/api/v1/query')).toHaveLength(12);
 
     // Promoted. The line starts again, and appends nothing it has.
     kube.rollout = rollout({ current: CANARY, stable: CANARY });

@@ -4,7 +4,7 @@
  * watch's reads and their settings. The line and the admin service read the records from the store with the same
  * queries (`releaseRecords`, `lastPromoted`).
  */
-import { type PayloadOf, type RawEvent, RELEASE_TYPES, upcast } from '@software-factory/events';
+import { measurementOf, type PayloadOf, type RawEvent, RELEASE_TYPES, upcast } from '@software-factory/events';
 import type { Sql } from 'postgres';
 
 type Started = PayloadOf<'release.started'>;
@@ -27,7 +27,18 @@ export interface TargetRecord {
   ended: 'promoted' | 'rolled-back' | 'errored' | 'aborted' | undefined;
   /** When Argo Rollouts acted on its latest abort, if it was aborted or its analysis erred. */
   abortedAt?: string;
+  /**
+   * Each measurement of the background analysis its looks recorded (`canary.measuring`), over every attempt, by
+   * `measurementOf`.
+   */
+  looked?: Set<string>;
 }
+
+/** Adds a look's measurements to what a record has recorded. */
+const looked = (record: TargetRecord, look: PayloadOf<'canary.measuring'>) => {
+  record.looked ??= new Set();
+  for (const measure of look.measures) record.looked.add(measurementOf(measure));
+};
 
 /** What is recorded of each release, by its name, and on each target. */
 export type Recorded = Map<string, Map<Target, TargetRecord>>;
@@ -51,11 +62,13 @@ export function recordedFrom(
         steps: record?.steps ?? 0,
         stepsBefore: record?.steps ?? 0,
         ended: undefined,
+        ...(record?.looked ? { looked: record.looked } : {}),
       });
       continue;
     }
     if (!record) continue;
     if (type === 'canary.stepped') record.steps += 1;
+    if (type === 'canary.measuring') looked(record, payload as PayloadOf<'canary.measuring'>);
     if (type === 'release.promoted') record.ended = 'promoted';
     if (type === 'release.rolled-back') record.ended = 'rolled-back';
     if (type === 'release.aborted' || type === 'release.errored') {

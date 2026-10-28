@@ -1,8 +1,22 @@
 /**
  * The canary in flight as the samples end: Martin merged the fix in the morning and his deploy in the afternoon, and
- * v0.9.13 has passed its 25% step and is being measured at 50%, against v0.9.12.
+ * v0.9.13 has passed its 25% step and is being measured at 50%, against v0.9.12. The background analysis looks at
+ * errors and latency each minute, and the line records each look a pass later: the first before the canary has had
+ * the 100 requests that judge them, and the journeys, a Job of their own, once, on their own.
  */
-import { commitFor, Item, started, stepped } from '../build.ts';
+import { commitFor, Item, type LookFigures, started, stepped } from '../build.ts';
+
+/**
+ * Each version's figures over the three minutes to a look, at five requests a second, 900 in all: the canary has a
+ * quarter of them from the release's start (a request at its first look, a second in) until the 50% step, then half.
+ * Errors and latency are looked at a second past each minute; the journeys, after 90 seconds and every three minutes,
+ * run a Job of about a minute.
+ */
+const look = (canary: number, errorRate: [number, number], p99Ms: [number, number]): LookFigures => ({
+  requests: { canary, baseline: 900 - canary },
+  errorRate: { canary: errorRate[0], baseline: errorRate[1] },
+  p99Ms: { canary: p99Ms[0], baseline: p99Ms[1] },
+});
 
 export default new Item('1314', '2026-10-06T09:00:00+01:00')
   .probeTicket('0:00', {
@@ -89,6 +103,13 @@ export default new Item('1314', '2026-10-06T09:00:00+01:00')
     'v0.9.13 signed and admitted; canary started',
     started('v0.9.13', 'v0.9.12'),
   )
+  .looked('6:18:12', '6:18:01', 'v0.9.13', 25, look(1, [0, 0.0021], [124, 130]))
+  .looked('6:19:12', '6:19:01', 'v0.9.13', 25, look(76, [0.0021, 0.0021], [126, 131]))
+  .looked('6:20:12', '6:20:01', 'v0.9.13', 25, look(151, [0.0018, 0.0022], [128, 130]))
+  .looked('6:20:52', '6:20:38', 'v0.9.13', 25, {
+    ...look(198, [0.0019, 0.0021], [127, 130]),
+    journeys: { canary: [24, 24], baseline: [24, 24] },
+  })
   .at(
     '6:21:00',
     'canary.stepped',
@@ -99,4 +120,7 @@ export default new Item('1314', '2026-10-06T09:00:00+01:00')
       p99Ms: { canary: 127, baseline: 130 },
       journeys: { canary: [24, 24], baseline: [24, 24] },
     }),
-  );
+  )
+  .looked('6:21:12', '6:21:01', 'v0.9.13', 50, look(226, [0.0018, 0.0021], [127, 130]))
+  .looked('6:22:12', '6:22:01', 'v0.9.13', 50, look(301, [0.0017, 0.0022], [129, 131]))
+  .looked('6:23:12', '6:23:01', 'v0.9.13', 50, look(376, [0.0019, 0.0021], [128, 130]));

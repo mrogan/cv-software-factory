@@ -33,6 +33,7 @@ export const VERSIONS = {
   'deploy.changed': 1,
   'release.started': 3,
   'canary.stepped': 2,
+  'canary.measuring': 1,
   'release.promoted': 2,
   'release.rolled-back': 3,
   'release.aborted': 1,
@@ -100,6 +101,7 @@ export const LINE_TYPES: readonly EventType[] = [
 export const RELEASE_TYPES: readonly EventType[] = [
   'release.started',
   'canary.stepped',
+  'canary.measuring',
   'release.promoted',
   'release.rolled-back',
   'release.aborted',

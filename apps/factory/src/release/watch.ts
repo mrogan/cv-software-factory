@@ -15,6 +15,12 @@
  * - **It starts** when the canary's pods are available, so the image was admitted; or it is recorded as refused when
  *   the Rollout says it could not make them. The line records a release only once it knows the version before it.
  * - **Each step** is a step AnalysisRun that ended, in the order they were made: the n-th recorded is the n-th run.
+ * - **Each look** of the background analysis, as it lands, is a `canary.measuring`: the measurements of the release's
+ *   newest background run (its latest attempt's, unless an abort ended it) that ended and no look has recorded
+ *   (`looksOf`), those that ended within a few seconds of each other taken as one look. Argo Rollouts keeps a run's
+ *   latest measurements, so a line that missed a few minutes records the looks it missed, and one that is behind by
+ *   more records those it still has.
+ *   Only a release in flight has looks, so a release found live has none.
  * - **It is promoted** when it is the stable version.
  * - **It rolls back** when the Rollout is aborted and an AnalysisRun of the release has failed. Only a run whose phase
  *   is Failed fails a release.
@@ -48,7 +54,7 @@
  * A dry run's merge never shipped, so no Rollout will carry it: in a dry run, `dryRunEvents` releases it by the dry
  * run's word, marked `dryRun`, so a soak goes round.
  */
-import type { PayloadOf } from '@software-factory/events';
+import { measurementOf, type PayloadOf } from '@software-factory/events';
 import type { Draft } from '../line/gates.ts';
 import { type Recorded, releaseName, short, type Target, type TargetRecord } from './recorded.ts';
 import {
@@ -56,6 +62,7 @@ import {
   type CanaryStep,
   ended,
   hashOf,
+  type Measurement,
   type Named,
   namedReleases,
   type Observed,
@@ -155,6 +162,36 @@ function reachedWeight(o: Observed, release: string, attempt: readonly AnalysisR
   return weightAt(o, Math.max(indexOf(o, last) + passed, ...later.map((run) => indexOf(o, run))));
 }
 
+/**
+ * The canary's weight when a look was taken. The Rollout says only where it is now, which for a look the line missed,
+ * or one read after an abort sent the canary back to its first step, is not where it was. The step runs say, as for a
+ * failure in the background (`reachedWeight`): the canary was at the step of the last step run made in the look's
+ * attempt before it, or past it once that run had passed, or before any, at the first. A background run is made as its
+ * attempt starts, and the app's first step run after the first step's pause, so a step run made before it is an
+ * earlier attempt's. A Rollout whose first step is an analysis would make the two in one pass, in either order and a
+ * moment apart, so a step run made a few seconds before is the attempt's too, unless it had already ended: an earlier
+ * attempt's ended in the abort, which the retry that makes the next background run comes after, however quickly.
+ */
+function lookWeight(o: Observed, release: string, look: Look): number {
+  const from = Date.parse(look.run.metadata.creationTimestamp);
+  const at = Date.parse(look.at);
+  const last = o.runs
+    .filter((run) => isOf(run, release) && isStep(run))
+    .filter((run) => {
+      const made = Date.parse(run.metadata.creationTimestamp);
+      const ended = Date.parse(run.status.completedAt ?? '');
+      const together = made >= from - MADE_TOGETHER_MS && !(ended < from);
+      return (made >= from || together) && made <= at;
+    })
+    .at(-1);
+  if (!last) return weightAt(o, 0);
+  const passed = last.status.phase === 'Successful' && Date.parse(last.status.completedAt ?? '') <= at ? 1 : 0;
+  return weightAt(o, indexOf(o, last) + (last.spec.terminate ? 0 : passed));
+}
+
+/** How far apart Argo Rollouts may make an attempt's background run and its first step run, in one pass. */
+const MADE_TOGETHER_MS = 5_000;
+
 const PHASES: Record<string, Measure['phase']> = {
   Pending: 'pending',
   Running: 'running',
@@ -203,18 +240,143 @@ function limitOf(condition: string | null | undefined): number | null {
   return match?.[1] === undefined ? null : Number(match[1]);
 }
 
+/**
+ * One look of a release's background analysis: the measurements of one run that ended together, by measure, and when
+ * the last of them ended.
+ */
+export interface Look {
+  run: AnalysisRun;
+  at: string;
+  /** Each measure's measurement in this look, in the run's order of its measures. */
+  taken: { name: string; measurement: Measurement }[];
+}
+
+/**
+ * How far apart two measurements may end and be one look. Argo Rollouts takes the measures that are due together and
+ * writes them in one status, a moment apart; the journeys, a Job, end when they end, and are a look of their own.
+ */
+const LOOK_MS = 5_000;
+
+/** The key a look's figures are read under, in `Facts.figures`: its run and its time. */
+export const lookKey = (look: Pick<Look, 'run' | 'at'>) => `${look.run.metadata.name}@${look.at}`;
+
+/**
+ * A release's background looks that no look has recorded (each of a run's measurements that ended, as Argo Rollouts
+ * kept them, and `looked` has not), oldest first. A measurement that has not ended is no look yet. Each is known by its
+ * measure and its end (`measurementOf`), not by a time the looks have reached: Argo Rollouts keeps the time to the
+ * second, and a measurement written a pass after a look can have ended in the same second as it.
+ *
+ * A look is what the line finds ended together. Argo Rollouts takes the measures due together in one pass and writes
+ * them in one status, so errors and latency land as one look; the journeys, a Job, end on their own, and are a look of
+ * their own. A line that reads between two writes a moment apart records the second as a look of its own a pass later:
+ * nothing is lost or recorded twice, and a reader takes each measure's latest.
+ *
+ * `inFlight` says the Rollout has neither aborted the release nor promoted it. Then a background run that an abort
+ * ended (`endedAttempt`) is an earlier attempt's, retried a moment before Argo Rollouts made the new one: what it wrote
+ * after the line recorded that attempt's end (a Job's measurement the abort terminated) is no look of the retry's.
+ */
+export function looksOf(
+  o: Observed,
+  release: string,
+  looked: ReadonlySet<string> | undefined,
+  inFlight: boolean,
+): Look[] {
+  const looks: Look[] = [];
+  // Each attempt makes a background run of its own as it starts: the newest is the attempt in flight's, and an
+  // earlier one's looks are an attempt's that is over.
+  const background = o.runs
+    .filter((r) => isOf(r, release) && !isStep(r))
+    .sort((a, b) => Date.parse(a.metadata.creationTimestamp) - Date.parse(b.metadata.creationTimestamp))
+    .slice(-1)
+    .filter((run) => !(inFlight && endedAttempt(run)));
+  for (const run of background) {
+    const ended = run.status.metricResults
+      .slice(0, 8)
+      .flatMap((result) =>
+        result.measurements.flatMap((measurement) => {
+          const at = Date.parse(measurement.finishedAt ?? '');
+          const recorded = looked?.has(measurementOf({ name: result.name, at: measurement.finishedAt ?? '' }));
+          return Number.isFinite(at) && !recorded ? [{ name: result.name, measurement, at }] : [];
+        }),
+      )
+      .sort((a, b) => a.at - b.at);
+    let first = Number.NaN;
+    let look: Look | undefined;
+    for (const { name, measurement, at } of ended) {
+      // A second of one measure, a moment after the first (one Argo Rollouts took again), is a look of its own, so
+      // that each measurement is recorded, and recorded once.
+      if (!look || at - first > LOOK_MS || look.taken.some((t) => t.name === name)) {
+        first = at;
+        look = { run, at: measurement.finishedAt as string, taken: [] };
+        looks.push(look);
+      }
+      look.at = measurement.finishedAt as string;
+      look.taken.push({ name, measurement });
+    }
+  }
+  const order = background[0]?.status.metricResults.map((r) => r.name) ?? [];
+  for (const look of looks) look.taken.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+  return looks;
+}
+
+/**
+ * Whether a background run ended its attempt: Argo Rollouts terminates it when it aborts the release (or promotes it),
+ * and one that failed or erred aborts the release itself. An attempt's background run runs until then, or stops
+ * inconclusive, which pauses the release and does not end it.
+ */
+const endedAttempt = (run: AnalysisRun) =>
+  run.spec.terminate === true || run.status.phase === 'Failed' || run.status.phase === 'Error';
+
+/** A look's measures, in the analysis's own terms: each measurement's own phase, value and words, and its end. */
+export const lookMeasures = (look: Look): (Measure & { at: string })[] =>
+  look.taken.map(({ name, measurement }) => ({
+    ...measureOf(look.run, name, measurement.phase, measurement, measurement.message),
+    at: measurement.finishedAt as string,
+  }));
+
+/** One measure of a run, in the analysis's own terms: its phase, a measurement's value, its limit and its words. */
+function measureOf(
+  run: AnalysisRun,
+  name: string,
+  phase: string | undefined,
+  measurement: Measurement | undefined,
+  message: string | undefined,
+): Measure {
+  const said = words(message, 300);
+  return {
+    name,
+    phase: phaseOf(phase),
+    value: measured(measurement?.value),
+    limit: limitOf(run.spec.metrics.find((m) => m.name === name)?.successCondition),
+    ...(said ? { message: said } : {}),
+  };
+}
+
+const LOOKED: Record<Measure['phase'], string> = {
+  failed: 'failed',
+  error: 'could not be measured',
+  inconclusive: 'inconclusive',
+  successful: 'passed',
+  running: 'measuring',
+  pending: 'measuring',
+};
+
+/** What a look found, in words, worst first: `latency failed; errors passed`. */
+function lookWords(measures: readonly Measure[]): string {
+  const list = (names: string[]) =>
+    names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : (names[0] ?? '');
+  return (Object.keys(LOOKED) as Measure['phase'][])
+    .map((phase) => [list(measures.filter((m) => m.phase === phase).map((m) => m.name)), LOOKED[phase]])
+    .filter(([names]) => names)
+    .map(([names, words]) => `${names} ${words}`)
+    .join('; ');
+}
+
 /** A run's measures, in the analysis's own terms. */
 export function measuresOf(run: AnalysisRun): Measure[] {
   return run.status.metricResults.slice(0, 8).map((result) => {
     const last = result.measurements.at(-1);
-    const message = words(result.message ?? last?.message, 300);
-    return {
-      name: result.name,
-      phase: phaseOf(result.phase),
-      value: measured(last?.value),
-      limit: limitOf(run.spec.metrics.find((m) => m.name === result.name)?.successCondition),
-      ...(message ? { message } : {}),
-    };
+    return measureOf(run, result.name, result.phase, last, result.message ?? last?.message);
   });
 }
 
@@ -230,7 +392,7 @@ export interface Start {
 /** What the line read for the drafts: a release's start, and the figures and series of its runs, where it read them. */
 export interface Facts {
   start?: Start;
-  /** Each step's figures, by its run's name. */
+  /** Each step's figures, by its run's name, and each look's, by `lookKey`. */
   figures: ReadonlyMap<string, Figures>;
   /** Each failed measure's series, by `<run>/<measure>`. */
   series: ReadonlyMap<string, Series>;
@@ -250,6 +412,8 @@ export interface Needs {
   /** A release to start recording, and how: watched from the version the line knows, or found live. */
   start?: { release: string; digest: string; found: boolean; previous: Started | undefined };
   steps: AnalysisRun[];
+  /** The background analysis's looks to record, each with the figures to read at its time. */
+  looks: Look[];
   failures: AnalysisRun[];
   /** Whether a release was aborted, so the line must say by whom. */
   aborted: boolean;
@@ -262,17 +426,18 @@ function forTarget(
   name: string,
   record: TargetRecord,
   facts: Facts,
-): { drafts: Draft[]; steps: AnalysisRun[]; failures: AnalysisRun[]; aborted: boolean } {
+): { drafts: Draft[]; steps: AnalysisRun[]; looks: Look[]; failures: AnalysisRun[]; aborted: boolean } {
   const drafts: Draft[] = [];
   const live = names.current === name || names.stable === name;
   const { started, ended } = record;
   let retried = false;
-  if (ended === 'promoted') return { drafts, steps: [], failures: [], aborted: false };
+  const none = { drafts, steps: [], looks: [], failures: [], aborted: false };
+  if (ended === 'promoted') return none;
   if (ended === 'rolled-back' || ended === 'errored' || ended === 'aborted') {
     // Retried, it goes again; otherwise it is over. Retried and aborted again between two reads (by Martin, or by an
     // Error), it has a later abort.
     const abortedAgain = ended !== 'rolled-back' && Date.parse(o.abortedAt ?? '') > Date.parse(record.abortedAt ?? '');
-    if (!live || (o.aborted && !abortedAgain)) return { drafts, steps: [], failures: [], aborted: false };
+    if (!live || (o.aborted && !abortedAgain)) return none;
     drafts.push({
       type: 'release.started',
       actor: 'rollouts',
@@ -284,30 +449,59 @@ function forTarget(
   }
   const ran = stepsOf(o, name);
   const steps = ran.slice(record.steps);
+  // Each step and look in the order they ended, so a pass that finds several records them as they happened.
+  const timed: { at: number; draft: Draft }[] = [];
   for (const run of steps) {
     const measures = measuresOf(run);
     const requests = measures.find((m) => m.name === 'enough-requests')?.value;
     const phase = phaseOf(run.status.phase);
     const weight = weightOf(o, run);
     const figures = facts.figures.get(run.metadata.name);
-    drafts.push({
-      type: 'canary.stepped',
-      actor: 'rollouts',
-      summary: `Canary at ${weight}%: the analysis ${ENDINGS[phase]}`,
-      payload: {
-        release: name,
-        version: started.version,
-        weight,
-        analysis: {
-          phase,
-          requests: requests === null || requests === undefined ? null : Math.max(0, Math.round(requests)),
-          measures,
+    timed.push({
+      at: Date.parse(run.status.completedAt ?? '') || 0,
+      draft: {
+        type: 'canary.stepped',
+        actor: 'rollouts',
+        summary: `Canary at ${weight}%: the analysis ${ENDINGS[phase]}`,
+        payload: {
+          release: name,
+          version: started.version,
+          weight,
+          analysis: {
+            phase,
+            requests: requests === null || requests === undefined ? null : Math.max(0, Math.round(requests)),
+            measures,
+          },
+          ...(figures ? { figures } : {}),
+          dryRun: false,
         },
-        ...(figures ? { figures } : {}),
-        dryRun: false,
       },
     });
   }
+  const looks = looksOf(o, name, record.looked, !o.aborted && names.stable !== name);
+  for (const look of looks) {
+    const measures = lookMeasures(look);
+    const weight = lookWeight(o, name, look);
+    const figures = facts.figures.get(lookKey(look));
+    timed.push({
+      at: Date.parse(look.at),
+      draft: {
+        type: 'canary.measuring',
+        actor: 'rollouts',
+        summary: `Canary at ${weight}%, a look: ${lookWords(measures)}`.slice(0, 200),
+        payload: {
+          release: name,
+          version: started.version,
+          weight,
+          at: look.at,
+          measures,
+          ...(figures ? { figures } : {}),
+          dryRun: false,
+        },
+      },
+    });
+  }
+  drafts.push(...timed.sort((a, b) => a.at - b.at).map((t) => t.draft));
   // A retried release's earlier failures are its earlier attempts': only a run that failed after it started again
   // fails this one. A first attempt's are all its own, however late the line saw it start. Retried and ended again
   // between two reads, its attempt is what ended after the abort the line recorded.
@@ -412,7 +606,7 @@ function forTarget(
       });
     }
   }
-  return { drafts, steps, failures, aborted };
+  return { drafts, steps, looks, failures, aborted };
 }
 
 /** What a release's first events would need: the start, if it is to be recorded now, as `releaseEvents` decides. */
@@ -436,10 +630,12 @@ export function releaseNeeds(o: Observed, recorded: Recorded, lastRelease?: stri
   const names = namedReleases(o, recorded, lastRelease);
   const start = startOfRelease(o, names, recorded);
   const steps: AnalysisRun[] = [];
+  const looks = new Map<string, Look>();
   const failures: AnalysisRun[] = [];
   let aborted = false;
   const add = (each: ReturnType<typeof forTarget>) => {
     for (const run of each.steps) if (!steps.includes(run)) steps.push(run);
+    for (const look of each.looks) if (!looks.has(lookKey(look))) looks.set(lookKey(look), look);
     for (const run of each.failures) if (!failures.includes(run)) failures.push(run);
     aborted ||= each.aborted;
   };
@@ -459,7 +655,7 @@ export function releaseNeeds(o: Observed, recorded: Recorded, lastRelease?: stri
   for (const name of releasesIn(names)) {
     for (const record of recorded.get(name)?.values() ?? []) add(forTarget(o, names, name, record, empty));
   }
-  return { ...(start ? { start } : {}), steps, failures, aborted };
+  return { ...(start ? { start } : {}), steps, looks: [...looks.values()], failures, aborted };
 }
 
 /** The releases the Rollout names, by name: a release in flight, and the stable version it would replace. */

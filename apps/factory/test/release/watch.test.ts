@@ -108,9 +108,10 @@ describe('a release, from the Rollout and its runs', () => {
     // The image's commit, its signature and what it carries are read only now that the release is to be recorded.
     expect(first.needs.start).toMatchObject({ release: releaseOf(CANARY), digest: digestOf(CANARY), found: false });
     expect(first.said).toEqual({});
+    // The background analysis's first look, a moment after the run began, comes with it.
     expect(s.pass(up, [background()], { start: START }).said).toEqual({
-      1001: ['release.started'],
-      1006: ['release.started'],
+      1001: ['release.started', 'canary.measuring'],
+      1006: ['release.started', 'canary.measuring'],
     });
     expect(s.of('1001', 'release.started')).toEqual([
       {
@@ -173,8 +174,8 @@ describe('a release, from the Rollout and its runs', () => {
     const first = s.pass(at25, runs, { start: START, figures: new Map([[runs[1]?.metadata.name ?? '', figures]]) });
     expect(first.needs.steps.map((r) => r.metadata.name)).toEqual([`website-${CANARY}-4-2`]);
     expect(first.said).toEqual({
-      1001: ['release.started', 'canary.stepped'],
-      1006: ['release.started', 'canary.stepped'],
+      1001: ['release.started', 'canary.measuring', 'canary.stepped'],
+      1006: ['release.started', 'canary.measuring', 'canary.stepped'],
     });
     expect(s.of('1006', 'canary.stepped')).toEqual([
       {
@@ -234,8 +235,8 @@ describe('a release, from the Rollout and its runs', () => {
     expect(
       late.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 5, weight: 50 }), all, { start: START }).said,
     ).toEqual({
-      1001: ['release.started', 'canary.stepped', 'canary.stepped'],
-      1006: ['release.started', 'canary.stepped', 'canary.stepped'],
+      1001: ['release.started', 'canary.measuring', 'canary.stepped', 'canary.stepped'],
+      1006: ['release.started', 'canary.measuring', 'canary.stepped', 'canary.stepped'],
     });
   });
 
@@ -251,7 +252,7 @@ describe('a release, from the Rollout and its runs', () => {
           (e) => e.work_item === null && e.payload && (e.payload as { release: string }).release === releaseOf(CANARY),
         )
         .map((e) => e.type),
-    ).toEqual(['release.started', 'canary.stepped', 'canary.stepped', 'release.promoted']);
+    ).toEqual(['release.started', 'canary.measuring', 'canary.stepped', 'canary.stepped', 'release.promoted']);
   });
 
   it('rolls back when an analysis run of the release failed, with the failed measures, their series and failed looks', () => {
@@ -284,7 +285,11 @@ describe('a release, from the Rollout and its runs', () => {
     });
     // The failed run is the one whose series are read.
     expect(needs.failures.map((r) => r.metadata.name)).toEqual([failedRun.metadata.name]);
-    expect(said).toEqual({ 1001: ['release.rolled-back'], 1006: ['release.rolled-back'] });
+    // The look that failed it, then the rollback.
+    expect(said).toEqual({
+      1001: ['canary.measuring', 'release.rolled-back'],
+      1006: ['canary.measuring', 'release.rolled-back'],
+    });
     expect(s.of('1001', 'release.rolled-back')).toEqual([
       {
         release: releaseOf(CANARY),
@@ -334,7 +339,11 @@ describe('a release, from the Rollout and its runs', () => {
     // At 50%, the background analysis fails it: the Rollout is aborted, back at its first step, in the same write.
     const aborted = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true });
     const { drafts } = s.pass(aborted, [failedInBackground(t(5)), step(2)]);
-    expect(drafts.get('1001')?.map((d) => d.summary)).toEqual(['Rolled back at 50%: The analysis failed the canary']);
+    expect(drafts.get('1001')?.map((d) => d.summary)).toEqual([
+      // The look that failed it was at the weight the canary had reached, as the rollback's.
+      'Canary at 50%, a look: latency failed; errors and journeys passed',
+      'Rolled back at 50%: The analysis failed the canary',
+    ]);
     expect(s.of('1006', 'release.rolled-back').map((p) => (p as PayloadOf<'release.rolled-back'>).weight)).toEqual([
       50,
     ]);
@@ -430,6 +439,8 @@ describe('a release, from the Rollout and its runs', () => {
     const going = s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 }), retried);
     expect(going.drafts.get('1001')?.map((d) => [d.type, d.summary])).toEqual([
       ['release.started', `${commitOf(CANARY).slice(0, 7)} started again after its abort`],
+      // Its new background run's first look, at the first step again; the earlier attempt's are over.
+      ['canary.measuring', 'Canary at 25%, a look: errors, latency and journeys passed'],
       ['canary.stepped', 'Canary at 25%: the analysis passed'],
     ]);
     // Martin aborts the retry by hand.
@@ -538,7 +549,7 @@ describe('a release, from the Rollout and its runs', () => {
     });
     const error = background({ phase: 'Error', completed: t(10), metrics: { latency: { phase: 'Error' } } });
     const aborted = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: t(10) });
-    expect(s.pass(aborted, [error, step(2)]).said).toEqual({ 1001: ['release.errored'] });
+    expect(s.pass(aborted, [error, step(2)]).said).toEqual({ 1001: ['canary.measuring', 'release.errored'] });
     const [ended] = s.of('1001', 'release.errored') as PayloadOf<'release.errored'>[];
     // Past the 25% step it passed, so at 50%; in the analysis's place, as Argo Rollouts gave no words.
     expect([ended?.weight, ended?.reason, ended?.errored.map((m) => m.name)]).toEqual([
@@ -606,7 +617,7 @@ describe('a release, from the Rollout and its runs', () => {
     const untimed = background({ name: 'website-68ff668868-4.1', created: t(1), phase: 'Error' });
     const aborted = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: t(5) });
     expect(s.pass(aborted, [background(), untimed], { abortedBy: 'martin' }).said).toEqual({
-      1001: ['release.aborted'],
+      1001: ['canary.measuring', 'release.aborted'],
     });
   });
 
@@ -630,6 +641,7 @@ describe('a release, from the Rollout and its runs', () => {
     s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 2, abort: true }), [background(), failed]);
     expect(s.log.filter((e) => e.work_item === '1001').map((e) => e.type)).toEqual([
       'release.started',
+      'canary.measuring',
       'canary.stepped',
       'release.rolled-back',
     ]);
@@ -669,7 +681,7 @@ describe('a release, from the Rollout and its runs', () => {
       }),
     ];
     expect(s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, abort: true }), again).said).toEqual({
-      1001: ['release.rolled-back'],
+      1001: ['canary.measuring', 'release.rolled-back'],
     });
     expect(
       (s.of('1001', 'release.rolled-back')[1] as PayloadOf<'release.rolled-back'>).failed.map((m) => m.name),
@@ -723,6 +735,260 @@ describe('a release, from the Rollout and its runs', () => {
     });
     expect([...drafts.keys()]).toEqual([null]);
     expect(s.of(null, 'release.promoted')).toMatchObject([{ previous: commitOf(STABLE), watched: false }]);
+  });
+});
+
+describe('the background analysis’s looks', () => {
+  /** What a look's measurement says: its phase, and its value as Argo keeps it. */
+  type Taken = { phase?: 'Running' | 'Successful' | 'Failed' | 'Error'; value?: string; at?: string };
+  /**
+   * A background run with each measure's measurements as given, as Argo Rollouts keeps them: oldest first, each with
+   * the time it ended, or none while it runs.
+   */
+  const looking = (taken: Record<string, Taken[]>, state: Partial<Parameters<typeof run>[0]> = {}) => {
+    const r = background(state);
+    for (const result of r.status.metricResults) {
+      result.measurements = (taken[result.name] ?? []).map(({ phase = 'Successful', value, at }) => ({
+        phase,
+        ...(value ? { value } : {}),
+        ...(at ? { finishedAt: at } : {}),
+      }));
+    }
+    return r;
+  };
+  /** A moment past a minute, as a time Argo Rollouts keeps, to the second. */
+  const at = (minutes: number, seconds = 0) => t(minutes + seconds / 60).replace(/\.\d{3}Z$/, 'Z');
+  const at25 = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+
+  it('records each look as it lands, once, with its measures in the analysis’s terms and each version’s figures', () => {
+    const s = store(STABLE_RECORDED);
+    const first = looking({
+      // Errors and latency are taken together, a moment apart: one look.
+      errors: [{ value: '[-0.0003]', at: at(0, 1) }],
+      latency: [{ value: '[-0.095]', at: at(0, 2) }],
+      // The journeys run as a Job, and have not ended.
+      journeys: [{ phase: 'Running' }],
+    });
+    expect(s.pass(at25, [first], { start: START }).said).toEqual({
+      1001: ['release.started', 'canary.measuring'],
+      1006: ['release.started', 'canary.measuring'],
+    });
+    // Read again, nothing has changed: nothing more.
+    expect(s.pass(at25, [first]).said).toEqual({});
+    const figures = {
+      canary: { requests: 63, errorRate: 0.004, p99Ms: 120, journeys: [12, 12] as [number, number] },
+      baseline: { requests: 190, errorRate: 0.006, p99Ms: 118, journeys: [12, 12] as [number, number] },
+    };
+    const second = looking({
+      errors: [
+        { value: '[-0.0003]', at: at(0, 1) },
+        { value: '[0.02]', phase: 'Failed', at: at(1, 1) },
+      ],
+      latency: [
+        { value: '[-0.095]', at: at(0, 2) },
+        { value: '[-0.09]', at: at(1, 1) },
+      ],
+      journeys: [{ at: at(1, 50) }],
+    });
+    const later = s.pass(at25, [second], { figures: new Map([[`${second.metadata.name}@${at(1, 1)}`, figures]]) });
+    // The line reads each new look's figures, at its time, and the journeys' counts where they ran.
+    expect(later.needs.looks.map((look) => [look.at, look.taken.map((m) => m.name)])).toEqual([
+      [at(1, 1), ['errors', 'latency']],
+      [at(1, 50), ['journeys']],
+    ]);
+    expect(later.drafts.get('1001')?.map((d) => d.summary)).toEqual([
+      'Canary at 25%, a look: errors failed; latency passed',
+      'Canary at 25%, a look: journeys passed',
+    ]);
+    expect(s.of('1006', 'canary.measuring')).toEqual([
+      {
+        release: releaseOf(CANARY),
+        version: commitOf(CANARY),
+        weight: 25,
+        at: at(0, 2),
+        measures: [
+          { name: 'errors', phase: 'successful', value: -0.0003, limit: 0.01, at: at(0, 1) },
+          { name: 'latency', phase: 'successful', value: -0.095, limit: 0, at: at(0, 2) },
+        ],
+        dryRun: false,
+      },
+      {
+        release: releaseOf(CANARY),
+        version: commitOf(CANARY),
+        weight: 25,
+        at: at(1, 1),
+        measures: [
+          { name: 'errors', phase: 'failed', value: 0.02, limit: 0.01, at: at(1, 1) },
+          { name: 'latency', phase: 'successful', value: -0.09, limit: 0, at: at(1, 1) },
+        ],
+        figures,
+        dryRun: false,
+      },
+      {
+        release: releaseOf(CANARY),
+        version: commitOf(CANARY),
+        weight: 25,
+        at: at(1, 50),
+        measures: [{ name: 'journeys', phase: 'successful', value: null, limit: null, at: at(1, 50) }],
+        dryRun: false,
+      },
+    ]);
+    expect(s.pass(at25, [second]).said).toEqual({});
+  });
+
+  it('records a measurement written a pass after a look that ended in the same second, and each only once', () => {
+    const s = store(STABLE_RECORDED);
+    // The line reads errors as they land; latency, ended in the same second, is in the next status Argo Rollouts writes.
+    s.pass(at25, [looking({ errors: [{ at: at(1, 1) }], latency: [{ phase: 'Running' }] })], { start: START });
+    const both = looking({ errors: [{ at: at(1, 1) }], latency: [{ at: at(1, 1) }] });
+    expect(
+      s
+        .pass(at25, [both])
+        .drafts.get('1001')
+        ?.map((d) => d.summary),
+    ).toEqual(['Canary at 25%, a look: latency passed']);
+    // Read again, and again with the journeys ended in that second too: each measurement once.
+    expect(s.pass(at25, [both]).said).toEqual({});
+    const journeys = looking({ errors: [{ at: at(1, 1) }], latency: [{ at: at(1, 1) }], journeys: [{ at: at(1, 1) }] });
+    expect(
+      s
+        .pass(at25, [journeys])
+        .drafts.get('1001')
+        ?.map((d) => d.summary),
+    ).toEqual(['Canary at 25%, a look: journeys passed']);
+    expect(s.pass(at25, [journeys]).said).toEqual({});
+    expect(
+      (s.of('1001', 'canary.measuring') as PayloadOf<'canary.measuring'>[]).flatMap((look) =>
+        look.measures.map((m) => `${m.name}@${m.at}`),
+      ),
+    ).toEqual([`errors@${at(1, 1)}`, `latency@${at(1, 1)}`, `journeys@${at(1, 1)}`]);
+  });
+
+  it('weighs a look by the step runs of its attempt, one made a moment before its background run among them', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(at25, [looking({})], { start: START });
+    // A Rollout whose first step is an analysis makes the two runs in one pass: here the step run, a second first.
+    const together = looking({ errors: [{ at: at(5) }] }, { created: at(0, 1) });
+    const passed = step(2, { created: at(0), completed: at(3) });
+    const at50 = rollout({ current: CANARY, stable: STABLE, stepIndex: 4, weight: 50 });
+    expect(
+      s
+        .pass(at50, [together, passed])
+        .drafts.get('1001')
+        ?.map((d) => d.summary),
+    ).toEqual(['Canary at 25%: the analysis passed', 'Canary at 50%, a look: errors passed']);
+  });
+
+  it('records a measure Argo Rollouts took twice in a few seconds as two looks, each once', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(at25, [looking({})], { start: START });
+    const again = looking({
+      errors: [{ at: at(1, 1), phase: 'Error' }, { at: at(1, 4) }],
+      latency: [{ at: at(1, 1) }],
+    });
+    expect(
+      s
+        .pass(at25, [again])
+        .drafts.get('1001')
+        ?.map((d) => d.summary),
+    ).toEqual([
+      'Canary at 25%, a look: errors could not be measured; latency passed',
+      'Canary at 25%, a look: errors passed',
+    ]);
+    expect(s.pass(at25, [again]).said).toEqual({});
+  });
+
+  it('weighs a quick retry’s looks at its first step, not at the aborted attempt’s step run made just before', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(at25, [looking({})], { start: START });
+    // The 50% step's run, ended by an abort, and a retry whose background run came three seconds after it was made.
+    const aborted = step(5, { created: at(6, 30), completed: at(6, 31), phase: 'Successful', terminate: true });
+    const retried = looking({ errors: [{ at: at(7) }] }, { name: 'website-68ff668868-4.1', created: at(6, 33) });
+    expect(
+      s
+        .pass(at25, [aborted, retried])
+        .drafts.get('1001')
+        ?.find((d) => d.type === 'canary.measuring')?.summary,
+    ).toBe('Canary at 25%, a look: errors passed');
+  });
+
+  it('records the looks a line that was down missed, each at the weight the canary had then, among the steps', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(at25, [looking({})], { start: START });
+    // Back after five minutes: a look at 25%, the step's analysis that passed, and a look at 50%.
+    const missed = looking({
+      errors: [{ at: at(2) }, { at: at(4) }],
+      latency: [{ at: at(2) }, { at: at(4) }],
+    });
+    const at50 = rollout({ current: CANARY, stable: STABLE, stepIndex: 4, weight: 50 });
+    const { drafts } = s.pass(at50, [missed, step(2)]);
+    expect(drafts.get('1001')?.map((d) => d.summary)).toEqual([
+      'Canary at 25%, a look: errors and latency passed',
+      'Canary at 25%: the analysis passed',
+      'Canary at 50%, a look: errors and latency passed',
+    ]);
+  });
+
+  it('records only the latest attempt’s looks, from its own background run, even when the line missed a retry', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(at25, [looking({ errors: [{ at: at(1) }] })], { start: START });
+    // While the line was down, the first attempt looked again and failed; Martin retried it, and its new run looked.
+    const first = looking({ errors: [{ at: at(1) }, { at: at(2), phase: 'Failed', value: '[0.3]' }] });
+    const second = looking({ errors: [{ at: at(11) }] }, { name: 'website-68ff668868-4.1', created: at(10) });
+    expect(
+      s
+        .pass(at25, [first, second])
+        .drafts.get('1001')
+        ?.map((d) => (d.payload as { at: string }).at),
+    ).toEqual([at(11)]);
+  });
+
+  it('records no look of an aborted attempt’s run in its retry, before Argo Rollouts makes the retry’s own', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(at25, [looking({ errors: [{ at: at(1) }], journeys: [{ phase: 'Running' }] })], { start: START });
+    // The 25% step fails, and the abort terminates the background run, the journeys still running as the line reads.
+    const failed = step(2, { created: at(2), completed: at(3), phase: 'Failed', message: 'Metric "errors" failed' });
+    const terminating = looking({ errors: [{ at: at(1) }], journeys: [{ phase: 'Running' }] }, { terminate: true });
+    const aborted = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, abort: true });
+    expect(s.pass(aborted, [terminating, failed]).said[1001]).toEqual(['canary.stepped', 'release.rolled-back']);
+    // The journeys end as terminated; Martin retries before Argo Rollouts has made the retry's background run.
+    const ended = looking(
+      { errors: [{ at: at(1) }], journeys: [{ at: at(3, 30) }] },
+      { terminate: true, completed: at(3, 30), phase: 'Successful' },
+    );
+    expect(s.pass(at25, [ended, failed]).said[1001]).toEqual(['release.started']);
+    expect(s.pass(at25, [ended, failed]).said).toEqual({});
+    // The retry's own run looks, and that look is its first.
+    const retry = looking({ errors: [{ at: at(6) }] }, { name: 'website-68ff668868-4.1', created: at(5) });
+    expect(s.pass(at25, [ended, failed, retry]).said[1001]).toEqual(['canary.measuring']);
+    expect((s.of('1001', 'canary.measuring') as PayloadOf<'canary.measuring'>[]).map((look) => look.at)).toEqual([
+      at(1),
+      at(6),
+    ]);
+  });
+
+  it('records no look of a release that is over, nor one found live, nor a measurement that has not ended', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(at25, [looking({ errors: [{ phase: 'Running' }] })], { start: START });
+    expect(s.of('1001', 'canary.measuring')).toEqual([]);
+    const done = looking({ errors: [{ at: at(1) }] });
+    s.pass(rollout({ current: CANARY, stable: CANARY }), [done, step(2), step(5)]);
+    // A look that ended before the line saw the promotion is recorded before it; none after.
+    expect(s.log.filter((e) => e.work_item === '1001').map((e) => e.type)).toEqual([
+      'release.started',
+      'canary.measuring',
+      'canary.stepped',
+      'canary.stepped',
+      'release.promoted',
+    ]);
+    const after = looking({ errors: [{ at: at(1) }, { at: at(8) }] });
+    expect(s.pass(rollout({ current: CANARY, stable: CANARY }), [after, step(2), step(5)]).said).toEqual({});
+    const found = store();
+    const live = found.pass(rollout({ current: CANARY, stable: CANARY }), [after, step(2), step(5)], { start: START });
+    expect(live.said).toEqual({
+      1001: ['release.started', 'release.promoted'],
+      1006: ['release.started', 'release.promoted'],
+    });
   });
 });
 
@@ -785,7 +1051,10 @@ describe('a release of a version released before', () => {
         .pass(again, runs, { start: START })
         .drafts.get('1001')
         ?.map((d) => [d.type, d.summary]),
-    ).toEqual([['release.started', `${commitOf(CANARY).slice(0, 7)} signed and admitted; canary started`]]);
+    ).toEqual([
+      ['release.started', `${commitOf(CANARY).slice(0, 7)} signed and admitted; canary started`],
+      ['canary.measuring', 'Canary at 25%, a look: errors, latency and journeys passed'],
+    ]);
     expect(s.of('1001', 'release.started').map((p) => (p as PayloadOf<'release.started'>).release)).toEqual([
       releaseOf(CANARY),
       `${CANARY}-6`,
@@ -867,7 +1136,7 @@ describe('a release of a version released before', () => {
     // In flight when the line began naming releases by revision: it goes on under its old name.
     const runs = [background(), step(2)];
     const at25 = rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 25 });
-    expect(s.pass(at25, runs).said).toEqual({ 1001: ['canary.stepped'] });
+    expect(s.pass(at25, runs).said).toEqual({ 1001: ['canary.measuring', 'canary.stepped'] });
     expect(s.pass(rollout({ current: CANARY, stable: CANARY }), runs).said).toEqual({ 1001: ['release.promoted'] });
     expect(s.of('1001', 'release.promoted')).toMatchObject([{ release: CANARY }]);
     // Promoted, its hash pinned again later is a release of its own.
