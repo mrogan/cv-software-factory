@@ -770,12 +770,14 @@ describe('the background analysis’s looks', () => {
       expect(item?.lastAt).toBe(looked.at(1));
     });
 
-    it('has no next look for a dry run', () => {
+    it('keeps no looks, and no next look, for a dry run, which has no canary to look at', () => {
       const dry = work('1')
         .open()
         .add(1, 'release.started', 'rollouts', { ...started, dryRun: true })
         .add(2.2, 'canary.measuring', 'rollouts', look(2, 200));
-      expect(releases(dry.events, [], dry.at(3))[0]?.nextLook).toBeUndefined();
+      const [r] = releases(dry.events, [], dry.at(3));
+      expect(r?.looks).toEqual([]);
+      expect(r?.nextLook).toBeUndefined();
     });
   });
 

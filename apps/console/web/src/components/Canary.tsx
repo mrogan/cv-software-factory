@@ -614,6 +614,19 @@ function StepTime({ r, clock: { t, ticking, motion } }: { r: Release; clock: Clo
   );
 }
 
+/**
+ * Whether the panel shows the measures' own table: always before an end, and after a rollback or an error only when it
+ * came at the step last measured (and, for an error, that step's analysis erred); otherwise the end has a table of its
+ * own.
+ */
+function showsMeasures(r: Release): boolean {
+  const { end } = r;
+  const m = r.measured.at(-1);
+  if (end?.kind === 'rolled-back') return m?.weight === end.weight;
+  if (end?.kind === 'errored') return m?.weight === end.weight && m.stepped.analysis.phase === 'error';
+  return true;
+}
+
 /** A rollback: the measures where it failed, the analysis's words, and the ticket its signal opened. */
 function Rollback({ r, onOpen }: { r: Release; onOpen: (item: string) => void }) {
   const { end } = r;
@@ -622,7 +635,7 @@ function Rollback({ r, onOpen }: { r: Release; onOpen: (item: string) => void })
   const label = (name: string) => MEASURES.find(([n]) => n === name)?.[1] ?? name;
   return (
     <>
-      {m?.weight === end.weight ? (
+      {showsMeasures(r) ? (
         <Measures r={r} m={m} />
       ) : (
         <>
@@ -681,7 +694,7 @@ function ErrorEnd({ r }: { r: Release }) {
   const label = (name: string) => MEASURES.find(([n]) => n === name)?.[1] ?? name;
   return (
     <>
-      {m?.weight === end.weight && m.stepped.analysis.phase === 'error' ? (
+      {showsMeasures(r) ? (
         <Measures r={r} m={m} />
       ) : !end.errored.length ? (
         <p className="canary-note first">
@@ -975,8 +988,9 @@ export function Canary({ view, t, onOpen, admin, lineStopped, ticking, motion }:
     ) : (
       (measuring(r) || m || first !== undefined) && <Measures r={r} m={m} until={first} clock={clock} />
     );
-  // The measures' table with its trend column, which takes the width it needs: not a rollback's or an error's table.
-  const trended = r.looks.length > 0 && r.end?.kind !== 'rolled-back' && r.end?.kind !== 'errored';
+  // The measures' table with its trend column, which takes the width it needs, after a rollback or an error too; not
+  // the table of their own a rollback or an error has otherwise.
+  const trended = r.looks.length > 0 && showsMeasures(r);
   return (
     <section className="canary" aria-labelledby="canary-title">
       <div className="canary-head">
