@@ -7,8 +7,10 @@
 import { commitFor, Item, type LookFigures, started, stepped } from '../build.ts';
 
 /**
- * Each version's figures over the three minutes to a look, at five requests a second: the canary's share is a quarter
- * of them until the 50% step, then half.
+ * Each version's figures over the three minutes to a look, at five requests a second, 900 in all: the canary has a
+ * quarter of them from the release's start (a request at its first look, a second in) until the 50% step, then half.
+ * Errors and latency are looked at a second past each minute; the journeys, after 90 seconds and every three minutes,
+ * run a Job of about a minute.
  */
 const look = (canary: number, errorRate: [number, number], p99Ms: [number, number]): LookFigures => ({
   requests: { canary, baseline: 900 - canary },
@@ -101,11 +103,11 @@ export default new Item('1314', '2026-10-06T09:00:00+01:00')
     'v0.9.13 signed and admitted; canary started',
     started('v0.9.13', 'v0.9.12'),
   )
-  .looked('6:18:12', '6:18:01', 'v0.9.13', 25, look(19, [0, 0.0021], [124, 130]))
-  .looked('6:19:12', '6:19:01', 'v0.9.13', 25, look(94, [0.0021, 0.0021], [126, 131]))
-  .looked('6:20:12', '6:20:01', 'v0.9.13', 25, look(168, [0.0018, 0.0022], [128, 130]))
+  .looked('6:18:12', '6:18:01', 'v0.9.13', 25, look(1, [0, 0.0021], [124, 130]))
+  .looked('6:19:12', '6:19:01', 'v0.9.13', 25, look(76, [0.0021, 0.0021], [126, 131]))
+  .looked('6:20:12', '6:20:01', 'v0.9.13', 25, look(151, [0.0018, 0.0022], [128, 130]))
   .looked('6:20:52', '6:20:38', 'v0.9.13', 25, {
-    ...look(206, [0.0019, 0.0021], [127, 130]),
+    ...look(198, [0.0019, 0.0021], [127, 130]),
     journeys: { canary: [24, 24], baseline: [24, 24] },
   })
   .at(

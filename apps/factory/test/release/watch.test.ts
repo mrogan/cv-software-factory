@@ -807,8 +807,8 @@ describe('the background analysis’s looks', () => {
         weight: 25,
         at: at(0, 2),
         measures: [
-          { name: 'errors', phase: 'successful', value: -0.0003, limit: 0.01 },
-          { name: 'latency', phase: 'successful', value: -0.095, limit: 0 },
+          { name: 'errors', phase: 'successful', value: -0.0003, limit: 0.01, at: at(0, 1) },
+          { name: 'latency', phase: 'successful', value: -0.095, limit: 0, at: at(0, 2) },
         ],
         dryRun: false,
       },
@@ -818,8 +818,8 @@ describe('the background analysis’s looks', () => {
         weight: 25,
         at: at(1, 1),
         measures: [
-          { name: 'errors', phase: 'failed', value: 0.02, limit: 0.01 },
-          { name: 'latency', phase: 'successful', value: -0.09, limit: 0 },
+          { name: 'errors', phase: 'failed', value: 0.02, limit: 0.01, at: at(1, 1) },
+          { name: 'latency', phase: 'successful', value: -0.09, limit: 0, at: at(1, 1) },
         ],
         figures,
         dryRun: false,
@@ -829,11 +829,54 @@ describe('the background analysis’s looks', () => {
         version: commitOf(CANARY),
         weight: 25,
         at: at(1, 50),
-        measures: [{ name: 'journeys', phase: 'successful', value: null, limit: null }],
+        measures: [{ name: 'journeys', phase: 'successful', value: null, limit: null, at: at(1, 50) }],
         dryRun: false,
       },
     ]);
     expect(s.pass(at25, [second]).said).toEqual({});
+  });
+
+  it('records a measurement written a pass after a look that ended in the same second, and each only once', () => {
+    const s = store(STABLE_RECORDED);
+    // The line reads errors as they land; latency, ended in the same second, is in the next status Argo Rollouts writes.
+    s.pass(at25, [looking({ errors: [{ at: at(1, 1) }], latency: [{ phase: 'Running' }] })], { start: START });
+    const both = looking({ errors: [{ at: at(1, 1) }], latency: [{ at: at(1, 1) }] });
+    expect(
+      s
+        .pass(at25, [both])
+        .drafts.get('1001')
+        ?.map((d) => d.summary),
+    ).toEqual(['Canary at 25%, a look: latency passed']);
+    // Read again, and again with the journeys ended in that second too: each measurement once.
+    expect(s.pass(at25, [both]).said).toEqual({});
+    const journeys = looking({ errors: [{ at: at(1, 1) }], latency: [{ at: at(1, 1) }], journeys: [{ at: at(1, 1) }] });
+    expect(
+      s
+        .pass(at25, [journeys])
+        .drafts.get('1001')
+        ?.map((d) => d.summary),
+    ).toEqual(['Canary at 25%, a look: journeys passed']);
+    expect(s.pass(at25, [journeys]).said).toEqual({});
+    expect(
+      (s.of('1001', 'canary.measuring') as PayloadOf<'canary.measuring'>[]).flatMap((look) =>
+        look.measures.map((m) => `${m.name}@${m.at}`),
+      ),
+    ).toEqual([`errors@${at(1, 1)}`, `latency@${at(1, 1)}`, `journeys@${at(1, 1)}`]);
+  });
+
+  it('weighs a look by the step runs of its attempt, one made a moment before its background run among them', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(at25, [looking({})], { start: START });
+    // A Rollout whose first step is an analysis makes the two runs in one pass: here the step run, a second first.
+    const together = looking({ errors: [{ at: at(5) }] }, { created: at(0, 1) });
+    const passed = step(2, { created: at(0), completed: at(3) });
+    const at50 = rollout({ current: CANARY, stable: STABLE, stepIndex: 4, weight: 50 });
+    expect(
+      s
+        .pass(at50, [together, passed])
+        .drafts.get('1001')
+        ?.map((d) => d.summary),
+    ).toEqual(['Canary at 25%: the analysis passed', 'Canary at 50%, a look: errors passed']);
   });
 
   it('records the looks a line that was down missed, each at the weight the canary had then, among the steps', () => {

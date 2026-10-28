@@ -767,8 +767,14 @@ export const PAYLOADS = {
     weight: z.number().int().min(1).max(100),
     /** When the analysis took the look: the latest of its measurements' ends, as Argo Rollouts keeps them. */
     at: timestamp,
-    /** Each measure the look took, with that measurement's phase, value and words, in the analysis's order. */
-    measures: z.array(measure).min(1).max(8),
+    /**
+     * Each measure the look took, with that measurement's phase, value and words, and when it ended, in the analysis's
+     * order. A measure and its end name the measurement, so the line records each once.
+     */
+    measures: z
+      .array(measure.extend({ at: timestamp }))
+      .min(1)
+      .max(8),
     /** Each version's own figures over the window that ended with the look, from the telemetry, when they were read. */
     figures: versus(figures).optional(),
     dryRun: z.boolean(),

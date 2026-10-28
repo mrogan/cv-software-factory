@@ -109,8 +109,8 @@ describe('validation', () => {
         weight: 25,
         at: '2026-10-06T06:31:02Z',
         measures: [
-          { name: 'errors', phase: 'successful', value: -0.0003, limit: 0.01 },
-          { name: 'latency', phase: 'failed', value: 0.025, limit: 0 },
+          { name: 'errors', phase: 'successful', value: -0.0003, limit: 0.01, at: '2026-10-06T06:31:01Z' },
+          { name: 'latency', phase: 'failed', value: 0.025, limit: 0, at: '2026-10-06T06:31:02Z' },
         ],
         figures: {
           canary: { requests: 63, errorRate: 0.004, p99Ms: 145, journeys: null },
@@ -124,6 +124,10 @@ describe('validation', () => {
     // A look took at least one measure, at a time.
     expect(validate({ ...look, payload: { ...look.payload, measures: [] } }).ok).toBe(false);
     expect(validate({ ...look, payload: { ...look.payload, at: 'a minute ago' } }).ok).toBe(false);
+    // Each measure says when it ended: the measure and its end name the measurement, so it is recorded once.
+    const [errors, latency] = look.payload.measures;
+    const { at: _, ...untimed } = errors as NonNullable<typeof errors>;
+    expect(validate({ ...look, payload: { ...look.payload, measures: [untimed, latency] } }).ok).toBe(false);
     // Martin's abort says when Argo Rollouts acted on it, and whether Stop the line made it.
     const aborted = {
       ...started,

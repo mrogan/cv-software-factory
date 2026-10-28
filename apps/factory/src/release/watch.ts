@@ -16,10 +16,10 @@
  *   the Rollout says it could not make them. The line records a release only once it knows the version before it.
  * - **Each step** is a step AnalysisRun that ended, in the order they were made: the n-th recorded is the n-th run.
  * - **Each look** of the background analysis, as it lands, is a `canary.measuring`: the measurements of the release's
- *   newest background run (its latest attempt's) that ended after the last look recorded (`looksOf`), those that
- *   ended within a few seconds of each other taken as one look. Argo Rollouts keeps a run's latest measurements, so a line that missed a few
- *   minutes records the looks it missed, and one that is behind by more records those it still has. Only a release
- *   in flight has looks, so a release found live has none.
+ *   newest background run (its latest attempt's) that ended and no look has recorded (`looksOf`), those that ended
+ *   within a few seconds of each other taken as one look. Argo Rollouts keeps a run's latest measurements, so a line
+ *   that missed a few minutes records the looks it missed, and one that is behind by more records those it still has.
+ *   Only a release in flight has looks, so a release found live has none.
  * - **It is promoted** when it is the stable version.
  * - **It rolls back** when the Rollout is aborted and an AnalysisRun of the release has failed. Only a run whose phase
  *   is Failed fails a release.
@@ -55,7 +55,7 @@
  */
 import type { PayloadOf } from '@software-factory/events';
 import type { Draft } from '../line/gates.ts';
-import { type Recorded, releaseName, short, type Target, type TargetRecord } from './recorded.ts';
+import { measurementKey, type Recorded, releaseName, short, type Target, type TargetRecord } from './recorded.ts';
 import {
   type AnalysisRun,
   type CanaryStep,
@@ -166,10 +166,13 @@ function reachedWeight(o: Observed, release: string, attempt: readonly AnalysisR
  * or one read after an abort sent the canary back to its first step, is not where it was. The step runs say, as for a
  * failure in the background (`reachedWeight`): the canary was at the step of the last step run made in the look's
  * attempt before it, or past it once that run had passed, or before any, at the first. A background run is made as its
- * attempt starts, so a step run made before it is an earlier attempt's.
+ * attempt starts, and the app's first step run after the first step's pause, so a step run made before it is an
+ * earlier attempt's. A Rollout whose first step is an analysis would make the two in one pass, in either order and a
+ * moment apart, so a step run made a few seconds before is the attempt's too: an earlier attempt's ended in an abort,
+ * and a retry, which makes the next background run, comes after it.
  */
 function lookWeight(o: Observed, release: string, look: Look): number {
-  const from = Date.parse(look.run.metadata.creationTimestamp);
+  const from = Date.parse(look.run.metadata.creationTimestamp) - MADE_TOGETHER_MS;
   const at = Date.parse(look.at);
   const last = o.runs
     .filter((run) => isOf(run, release) && isStep(run))
@@ -182,6 +185,9 @@ function lookWeight(o: Observed, release: string, look: Look): number {
   const passed = last.status.phase === 'Successful' && Date.parse(last.status.completedAt ?? '') <= at ? 1 : 0;
   return weightAt(o, indexOf(o, last) + (last.spec.terminate ? 0 : passed));
 }
+
+/** How far apart Argo Rollouts may make an attempt's background run and its first step run, in one pass. */
+const MADE_TOGETHER_MS = 5_000;
 
 const PHASES: Record<string, Measure['phase']> = {
   Pending: 'pending',
@@ -252,12 +258,17 @@ const LOOK_MS = 5_000;
 export const lookKey = (look: Pick<Look, 'run' | 'at'>) => `${look.run.metadata.name}@${look.at}`;
 
 /**
- * A release's background looks that ended after `after` (each of a run's measurements that ended, as Argo Rollouts
- * kept them), oldest first. A measurement that has not ended is no look yet, and one that ended in the same second as
- * `after` counts as accounted for with it: Argo Rollouts keeps the time to the second.
+ * A release's background looks that no look has recorded (each of a run's measurements that ended, as Argo Rollouts
+ * kept them, and `looked` has not), oldest first. A measurement that has not ended is no look yet. Each is known by its
+ * measure and its end (`measurementKey`), not by a time the looks have reached: Argo Rollouts keeps the time to the
+ * second, and a measurement written a pass after a look can have ended in the same second as it.
+ *
+ * A look is what the line finds ended together. Argo Rollouts takes the measures due together in one pass and writes
+ * them in one status, so errors and latency land as one look; the journeys, a Job, end on their own, and are a look of
+ * their own. A line that reads between two writes a moment apart records the second as a look of its own a pass later:
+ * nothing is lost or recorded twice, and a reader takes each measure's latest.
  */
-export function looksOf(o: Observed, release: string, after: string | undefined): Look[] {
-  const since = after === undefined ? -Infinity : Date.parse(after);
+export function looksOf(o: Observed, release: string, looked: ReadonlySet<string> | undefined): Look[] {
   const looks: Look[] = [];
   // Each attempt makes a background run of its own as it starts: the newest is the attempt in flight's, and an
   // earlier one's looks are an attempt's that is over.
@@ -271,7 +282,8 @@ export function looksOf(o: Observed, release: string, after: string | undefined)
       .flatMap((result) =>
         result.measurements.flatMap((measurement) => {
           const at = Date.parse(measurement.finishedAt ?? '');
-          return Number.isFinite(at) && at > since ? [{ name: result.name, measurement, at }] : [];
+          const recorded = looked?.has(measurementKey(result.name, measurement.finishedAt ?? ''));
+          return Number.isFinite(at) && !recorded ? [{ name: result.name, measurement, at }] : [];
         }),
       )
       .sort((a, b) => a.at - b.at);
@@ -293,11 +305,12 @@ export function looksOf(o: Observed, release: string, after: string | undefined)
   return looks;
 }
 
-/** A look's measures, in the analysis's own terms: each measurement's own phase, value and words. */
-export const lookMeasures = (look: Look): Measure[] =>
-  look.taken.map(({ name, measurement }) =>
-    measureOf(look.run, name, measurement.phase, measurement, measurement.message),
-  );
+/** A look's measures, in the analysis's own terms: each measurement's own phase, value and words, and its end. */
+export const lookMeasures = (look: Look): (Measure & { at: string })[] =>
+  look.taken.map(({ name, measurement }) => ({
+    ...measureOf(look.run, name, measurement.phase, measurement, measurement.message),
+    at: measurement.finishedAt as string,
+  }));
 
 /** One measure of a run, in the analysis's own terms: its phase, a measurement's value, its limit and its words. */
 function measureOf(
@@ -443,7 +456,7 @@ function forTarget(
       },
     });
   }
-  const looks = looksOf(o, name, record.lastLook);
+  const looks = looksOf(o, name, record.looked);
   for (const look of looks) {
     const measures = lookMeasures(look);
     const weight = lookWeight(o, name, look);

@@ -27,13 +27,23 @@ export interface TargetRecord {
   ended: 'promoted' | 'rolled-back' | 'errored' | 'aborted' | undefined;
   /** When Argo Rollouts acted on its latest abort, if it was aborted or its analysis erred. */
   abortedAt?: string;
-  /** When its latest recorded look of the background analysis was taken (`canary.measuring`), over every attempt. */
-  lastLook?: string;
+  /**
+   * Each measurement of the background analysis its looks recorded (`canary.measuring`), over every attempt, by
+   * `measurementKey`.
+   */
+  looked?: Set<string>;
 }
 
-/** Moves a record's latest look up to `at`, if it is later. */
-const looked = (record: TargetRecord, at: string) => {
-  if (!record.lastLook || Date.parse(at) > Date.parse(record.lastLook)) record.lastLook = at;
+/**
+ * A measurement of the background analysis, by its measure and when it ended. A measure is taken a minute or more
+ * apart, so no two of one measure end in the same second.
+ */
+export const measurementKey = (name: string, at: string) => `${name}@${Date.parse(at)}`;
+
+/** Adds a look's measurements to what a record has recorded. */
+const looked = (record: TargetRecord, look: PayloadOf<'canary.measuring'>) => {
+  record.looked ??= new Set();
+  for (const measure of look.measures) record.looked.add(measurementKey(measure.name, measure.at));
 };
 
 /** What is recorded of each release, by its name, and on each target. */
@@ -58,13 +68,13 @@ export function recordedFrom(
         steps: record?.steps ?? 0,
         stepsBefore: record?.steps ?? 0,
         ended: undefined,
-        ...(record?.lastLook ? { lastLook: record.lastLook } : {}),
+        ...(record?.looked ? { looked: record.looked } : {}),
       });
       continue;
     }
     if (!record) continue;
     if (type === 'canary.stepped') record.steps += 1;
-    if (type === 'canary.measuring') looked(record, (payload as PayloadOf<'canary.measuring'>).at);
+    if (type === 'canary.measuring') looked(record, payload as PayloadOf<'canary.measuring'>);
     if (type === 'release.promoted') record.ended = 'promoted';
     if (type === 'release.rolled-back') record.ended = 'rolled-back';
     if (type === 'release.aborted' || type === 'release.errored') {

@@ -278,14 +278,17 @@ export function measuring(
     p99Ms: look.p99Ms[side],
     journeys: look.journeys?.[side] ?? null,
   });
+  const ended = at.replace(/\.\d{3}Z$/, 'Z');
+  const measures = look.journeys
+    ? [{ name: 'journeys', phase: 'successful', value: null, limit: null } as const]
+    : judged(look, look.requests.canary);
   return {
     release: releaseFor(version),
     version,
     weight,
-    at: at.replace(/\.\d{3}Z$/, 'Z'),
-    measures: look.journeys
-      ? [{ name: 'journeys', phase: 'successful', value: null, limit: null }]
-      : [...judged(look, look.requests.canary)],
+    at: ended,
+    // Argo Rollouts takes errors and latency together, so they end in the same second.
+    measures: measures.map((measure) => ({ ...measure, at: ended })),
     figures: { canary: of('canary'), baseline: of('baseline') },
     dryRun: false,
   };
