@@ -208,7 +208,7 @@ check: check-static check-tests ## Lint, type-check, test, build the browser cod
 
 # CI runs the two halves of `make check` side by side, and the tests in parts (check.yml).
 check-static: ## All of `make check` but the tests
-	pnpm exec biome ci
+	pnpm exec biome ci --error-on-warnings
 	pnpm exec tsc
 	pnpm exec tsc -p apps/console/web
 	pnpm exec tsc -p apps/console/e2e
