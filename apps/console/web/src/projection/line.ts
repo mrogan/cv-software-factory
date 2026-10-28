@@ -351,9 +351,16 @@ function returnOf(item: string, returned: PayloadOf<'work.returned'>, summary: s
  */
 const waitsHere = (item: ItemState) => item.queued || deploying(item);
 
-/** An open ticket waiting at Plan for the planner, which an improvement Martin asked for waits behind. */
+/**
+ * An open ticket waiting at Plan for the planner, which an improvement Martin asked for waits behind. A ticket on a work
+ * item opened as an improvement is none the line's queue takes.
+ */
 export const ticketWaits = (item: ItemState) =>
-  item.queued && item.ticket !== undefined && item.stage === 'plan' && item.closedAt === undefined;
+  item.queued &&
+  item.ticket !== undefined &&
+  item.kind !== 'improvement' &&
+  item.stage === 'plan' &&
+  item.closedAt === undefined;
 const deploying = (item: ItemState) => item.outcome === 'deploying';
 
 /**

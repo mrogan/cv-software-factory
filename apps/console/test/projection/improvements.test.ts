@@ -69,6 +69,10 @@ describe('An improvement Martin asked for', () => {
     expect(alone.cards.find((c) => c.number === '2100')?.outcome).toBe('waiting');
     expect(alone.improve).toEqual({ tickets: 0, latest: { workItem: '2100', words: WORDS, at: START } });
 
+    // A ticket on a work item opened as an improvement is none the line's queue takes, so nothing waits ahead of it.
+    const onImprovement = asked('2098').add(1, 'ticket.opened', 'triage', ticket('x').events[1]?.payload as never);
+    expect(project(onImprovement.events, START + 60_000).improve.tickets).toBe(0);
+
     const behind = project([...ticket('2099').events, ...asked('2100', 2).events], START + 5 * 60_000);
     expect(behind.panels.plan.rows.find((r) => r.item === '2100')?.note).toBe(
       'Asked by Martin · waiting behind the open tickets',
@@ -203,6 +207,8 @@ describe('Preview it', () => {
     const named = staged(asked('2106').add(4, 'spec.written', 'planner', SPEC), 'delivery-dates');
     const { pages: _, ...older } = SPEC;
     const none = staged(asked('2107').add(4, 'spec.written', 'planner', { ...older, flag: 'gift-note' }), 'gift-note');
+    // A spec no planner wrote changes neither the flag's page nor whose flag it is.
+    named.add(21, 'spec.written', 'coder', { ...SPEC, pages: ['/elsewhere'] });
     const view = project([...named.events, ...none.events], START + 30 * 60_000);
     expect(view.flags.flags.map((row) => [row.name, row.page])).toEqual([
       ['delivery-dates', '/products/blue-mug'],

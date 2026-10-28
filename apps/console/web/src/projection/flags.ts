@@ -170,10 +170,10 @@ export function specFlag(item: ItemState): string | undefined {
   return improvementSpec(item)?.flag;
 }
 
-/** An improvement's latest spec, if it has one. */
+/** An improvement's latest spec, the planner's, as the line and the admin service read only the line's own. */
 function improvementSpec(item: ItemState): PayloadOf<'spec.written'> | undefined {
   if (item.kind !== 'improvement') return undefined;
-  const spec = item.events.findLast((event) => event.type === 'spec.written');
+  const spec = item.events.findLast((event) => event.type === 'spec.written' && event.actor === 'planner');
   return spec?.type === 'spec.written' ? spec.payload : undefined;
 }
 
@@ -303,7 +303,7 @@ export function flagsView(
   const named: Record<string, string> = {};
   const specs = items.flatMap((item) => {
     const flag = specFlag(item);
-    const spec = item.events.findLast((event) => event.type === 'spec.written');
+    const spec = item.events.findLast((event) => event.type === 'spec.written' && event.actor === 'planner');
     return flag && spec ? [{ flag, number: item.number, seq: spec.seq }] : [];
   });
   for (const { flag, number } of specs.sort((a, b) => a.seq - b.seq)) named[flag] = number;
