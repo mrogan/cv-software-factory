@@ -185,8 +185,8 @@ export function attempts(item: ItemState): Attempt[] {
 /**
  * What the rounds have in hand now, besides gates that are running, which the last round's own gates say. A return
  * sends the work into a round the coder has not pushed yet: its row is drawn at once, hollow, so the return's arc
- * lands on its Build. None follows a return once the work item has closed, or one the coder declined in full, as it
- * pushes nothing.
+ * lands on its Build. None follows a return once the work item has closed or left Build for a new pass, or one the
+ * coder declined in full, as it pushes nothing.
  */
 export interface RoundsNow {
   /** The round a return sent the work into, before the coder pushed it, and whether the coder is at work on it. */
@@ -200,7 +200,8 @@ export function roundsNow(item: ItemState, list: readonly Attempt[]): RoundsNow 
   const last = list.at(-1);
   const inHand = (stage: Stage) => item.stage === stage && item.outcome === 'in-progress';
   const next =
-    last?.returned && !last.returned.declined && item.closedAt === undefined
+    // At Build still: a return to Plan or a reopening since starts a new pass, whose first round is round 1 again.
+    last?.returned && !last.returned.declined && item.closedAt === undefined && item.stage === 'build'
       ? { attempt: last.attempt + 1, building: inHand('build') }
       : undefined;
   // The line records no start for a review, only the reviewer's call as it ends: a round whose gates passed is the

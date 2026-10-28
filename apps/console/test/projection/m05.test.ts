@@ -502,6 +502,23 @@ describe('a fix sent back by the gates and then by the reviewer', () => {
     expect(sheet('1325')?.roundsNow.next).toEqual({ attempt: 3, building: true });
   });
 
+  it('draws no next round once a return to Plan starts a new pass', () => {
+    const end = Date.parse('2026-10-06T14:24:00Z');
+    const events = SAMPLES.filter((e) => e.work_item === '1325' && Date.parse(e.ts) <= end);
+    const back = events.at(-1);
+    if (back?.type !== 'work.returned') throw new Error('expected #1325 to end on its return');
+    const replanned = [
+      ...events,
+      {
+        ...back,
+        id: `${back.id}-plan`,
+        ts: '2026-10-06T14:24:00.000Z',
+        payload: { ...back.payload, from: 'build' as const, to: 'plan' as const },
+      },
+    ];
+    expect(projectSheet(replanned, '1325', end)?.roundsNow.next).toBeUndefined();
+  });
+
   it('says which step of the last round is in hand: its gates, then its review', () => {
     const at = (time: string) => projectSheet(SAMPLES, '1325', Date.parse(time));
     const gating = at('2026-10-06T14:20:00Z');

@@ -781,7 +781,7 @@ function Rounds({ rounds, now, after }: { rounds: Attempt[]; now: RoundsNow; aft
         <RoundRow
           key={a.attempt}
           attempt={a}
-          followed={i < rounds.length - 1 || Boolean(now.next)}
+          followed={i < rounds.length - 1 ? rounds[i + 1]?.attempt === a.attempt + 1 : Boolean(now.next)}
           reviewing={i === rounds.length - 1 && now.reviewing}
         />
       ))}
@@ -834,7 +834,7 @@ const COLUMN: Record<string, number> = { build: 50, gates: 150, review: 250 };
 
 /**
  * One attempt, in the coder's round of the same number: the line's round, as the return's pill names it. Its return's
- * arc is drawn only to a row after it.
+ * arc is drawn only to the round it sent the work into, in the same pass.
  */
 function RoundRow({ attempt: a, followed, reviewing }: { attempt: Attempt; followed: boolean; reviewing: boolean }) {
   const gates = a.gates;
@@ -881,7 +881,7 @@ function RoundRow({ attempt: a, followed, reviewing }: { attempt: Attempt; follo
           <span className="t muted">Waiting</span>
         )}
       </div>
-      <div className={`cell${reviewing && !review ? ' running' : ''}`}>
+      <div className={`cell${reviewing ? ' running' : ''}`}>
         {review ? (
           <>
             <span className={`t ${review.verdict === 'approved' ? 'ok' : ''}`}>
