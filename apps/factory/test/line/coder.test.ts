@@ -232,4 +232,45 @@ describe('the coder', () => {
     const owned = fenceFor(patch('src/money.ts'), { ...input, protectedPaths: ['src/money.ts'] });
     expect(owned).toMatchObject({ ok: false, outside: ['src/money.ts'] });
   });
+
+  describe('for an improvement', () => {
+    const improvement: CoderInput =
+      FIXTURES.coder['delivery-dates']?.input ??
+      (() => {
+        throw new Error('The coder has no delivery-dates fixture.');
+      })();
+    const prompt = coder.prompt(improvement);
+
+    it('is told Martin’s words and the spec with its flag, its pages and each criterion’s side', () => {
+      expect(prompt.split('\n')[0]).toBe('Make improvement #999999999: Delivery dates on each product.');
+      expect(prompt).toContain('Martin asked for it in his own words: “Delivery dates on each product.');
+      expect(prompt).toContain('Flag: delivery-dates. Pages it shows on: /products/doorstop.');
+      expect(prompt).toMatch(/^4\. Given a product with stock, .*no word of delivery\. \(with the flag off\)$/m);
+      expect(prompt).not.toMatch(/ticket|defect/);
+    });
+
+    it('builds every new behaviour behind its flag, tests each criterion on its side, and keeps out of src/flags/', () => {
+      expect(prompt).toContain("Every new behaviour goes behind the flag: `await request.flag('delivery-dates')`");
+      expect(prompt).toContain(
+        "`flag: async () => false` for off, and `flag: async (name) => name === 'delivery-dates'` for on",
+      );
+      expect(prompt).toContain('Never change the flag context, src/flags/');
+      expect(prompt).toContain('Keep nothing on a visitor’s device');
+      expect(prompt).toContain('Do not define the flag anywhere');
+    });
+
+    it('is told again, in a later round without its session, how the change goes behind its flag', () => {
+      const back = coder.prompt({ ...improvement, round: 2, returned: { from: 'review', reason: 'Blocking.' } });
+      expect(back).toContain('Your change for improvement #999999999 came back from review, for round 2: Blocking.');
+      expect(back).toContain("`await request.flag('delivery-dates')`");
+    });
+
+    it('hands back a feature’s title, and a fix’s is refused', () => {
+      const note = 'Adds a delivery date behind delivery-dates; tests run it with the flag on and off.';
+      const fits = (title: string) => coder.schema(improvement).safeParse({ title, note }).success;
+      expect(fits('feat(products): show when each product would arrive')).toBe(true);
+      expect(fits('fix(products): show when each product would arrive')).toBe(false);
+      expect(coder.schema(input).safeParse({ title: 'feat(money): pad pence', note }).success).toBe(false);
+    });
+  });
 });

@@ -57,6 +57,8 @@ export interface StepContext {
   request(): Promise<Request>;
   /** What each sense saw of the work item, from their public views, without a report's signal (`evidence.ts`). */
   signals(): Promise<Signal[]>;
+  /** The flags other improvements Martin asked for have named, open or closed: never this work item's own. */
+  flagsTaken(): Promise<string[]>;
   /** Reads GitHub through the worker. Reading is harmless, so a step may read as it starts. */
   read<K extends ReadName>(read: K, args: ReadArgs[K]): Promise<ReadResult<K>>;
 }
@@ -297,16 +299,26 @@ export const closesAnIssue = (text: string) => CLOSES.test(text);
  */
 export const mentions = (markdown: string) => /(?:^|[^\w`@./])@[a-z\d]/im.test(outsideCode(markdown));
 
+/** A pull request's title of one of these Conventional Commit types, of 80 characters at most, closing no issue. */
+const titleOf = (types: string, message: string) =>
+  z
+    .string()
+    .trim()
+    .max(80)
+    .regex(new RegExp(`^(${types})(\\([a-z0-9-]+\\))?: \\S.{0,70}$`), message)
+    .refine((title) => !closesAnIssue(title), 'no closing keyword before an issue: the issue closes once verified');
+
 /**
  * A fix's pull request title, and so its squash commit's headline: a Conventional Commit of 80 characters at most,
  * which both the coder and the describer write, closing no issue.
  */
-export const commitTitle = z
-  .string()
-  .trim()
-  .max(80)
-  .regex(
-    /^(fix|test|refactor|perf)(\([a-z0-9-]+\))?: \S.{0,70}$/,
-    'a Conventional Commit title of 80 characters at most',
-  )
-  .refine((title) => !closesAnIssue(title), 'no closing keyword before an issue: the issue closes once verified');
+export const commitTitle = titleOf('fix|test|refactor|perf', 'a Conventional Commit title of 80 characters at most');
+
+/**
+ * An improvement's: a feature, as the app's release notes count one, whatever the coder thought it. A fix's types
+ * would put a change Martin asked for among the fixes.
+ */
+export const featureTitle = titleOf('feat', 'a Conventional Commit title of type feat, of 80 characters at most');
+
+/** The title a work item's pull request takes: an improvement's, or a fix's. */
+export const titleFor = (asked: Asked) => (asked.kind === 'request' ? featureTitle : commitTitle);

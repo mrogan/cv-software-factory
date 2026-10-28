@@ -1,8 +1,8 @@
 # Reviewer
 
-An agent: reviews the fix once the gates pass. Part of the [factory plane](README.md#agents).
+An agent: reviews the fix, or the improvement, once the gates pass. Part of the [factory plane](README.md#agents).
 
-- **Reads:** the ticket's public view and what the senses saw, Martin's answers at Plan, the pull request's diff, the spec, and the app's `docs/REVIEWERS.md` at the base.
+- **Reads:** the ticket's public view and what the senses saw, or Martin's request, Martin's answers at Plan, the pull request's diff, the spec, and the app's `docs/REVIEWERS.md` at the base.
 - **Produces:** a comment review, a check run, and its findings.
 - **v1:** `line/agents/reviewer.ts`, in a [runner](AGENT-RUNNERS.md) at the pull request's head with its base beside it, with 30 turns and 15 minutes.
 
@@ -16,6 +16,14 @@ An agent: reviews the fix once the gates pass. Part of the [factory plane](READM
 |---|---|---|
 | A criterion the ticket and Martin's answers do not ask for | Blocking, citing that criterion and the ticket. The schema makes such a review an escalation, in every autonomy mode, since the coder cannot put a spec right | Martin, as `beyond-ticket` |
 | A change that goes beyond a sound spec | Blocking, citing the spec or a rule | The coder |
+
+An improvement's spec is held to Martin's request and his answers in the same way: a criterion he did not ask for blocks, cites the request (the finding's `ticket`), and goes to him. Its change is held to its flag too, and each of these blocks and goes back to the coder:
+
+- anything a visitor or a caller could see change with the flag off, since the change ships off;
+- a criterion that no test shows on its side of the flag;
+- the flag read any way but `await request.flag('<flag>')`, or another flag read;
+- anything kept on a visitor's device;
+- a change to the app's flag context, `src/flags/`.
 
 ## Its result
 

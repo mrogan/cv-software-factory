@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { trace } from '@opentelemetry/api';
 import { type InboxSignal, type NewEvent, PATH_CHARS, type PayloadOf, VERSIONS } from '@software-factory/events';
-import { DiskArtifacts, EventWriter, lineStopped, nextWorkItem } from '@software-factory/store';
+import { DiskArtifacts, EventWriter, flagsTaken, lineStopped, nextWorkItem } from '@software-factory/store';
 import { listenLocal } from '@software-factory/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
@@ -238,13 +238,29 @@ describe('the line', () => {
       ),
       event(workItem, 'improvement.requested', { words, steppedUp: true }, 'martin'),
     ]);
+    const criterion = { ...SPEC.criteria[0], from: 'the request', quote: 'delivery date' };
     const spec = {
       ...SPEC,
-      criteria: [{ ...SPEC.criteria[0], quote: 'delivery date' }],
+      title: 'Delivery dates',
+      criteria: [
+        { ...criterion, withFlag: 'on' },
+        { ...criterion, withFlag: 'off' },
+      ],
       flag: 'delivery-dates',
       pages: ['/products/blue-mug'],
     };
-    const agents = { ...AGENTS, planner: () => handback({ verdict: 'spec', spec }) };
+    const title = 'feat(products): show each product’s delivery date';
+    const agents = {
+      ...AGENTS,
+      planner: () => handback({ verdict: 'spec', spec }),
+      coder: () => handback({ ...CODED, title }, PATCH),
+      describer: () =>
+        handback({
+          title,
+          body: 'Each product’s page says when it would arrive, behind `delivery-dates`.',
+          summary: { title: 'Delivery dates', description: 'Martin asked.', story: 'The factory built it.' },
+        }),
+    };
     const probes = new FakeProbes({ outcome: 'cleared', version: 'v0.9.4', runs: ['passed', 'passed'] });
     const { pass, steps, github } = line(agents, events, { verify: { probes } });
 
@@ -254,7 +270,7 @@ describe('the line', () => {
       args: { title: 'Show each product’s delivery date on its page' },
     });
     expect(String(github.acts[0]?.args.body)).toContain(`Martin asked for this improvement:\n\n> ${words}`);
-    expect(steps.requests[0]?.prompt).toContain(`Plan the change for improvement #${workItem}`);
+    expect(steps.requests[0]?.prompt).toContain(`Plan improvement #${workItem}`);
     expect(steps.requests[0]?.prompt).toContain(`Martin asked for it in his own words: “${words}”`);
 
     await pass(); // its spec, held for Martin before any code
@@ -266,6 +282,14 @@ describe('the line', () => {
     await pass(); // the coder, on a branch named from the request's title
     expect(github.acts[1]?.args).toMatchObject({ branch: `factory/${workItem}-show-each-product-s-delivery` });
     expect(steps.requests[1]?.prompt).toContain(`Make improvement #${workItem}`);
+    // Its draft pull request says what it is, behind which flag, and each criterion's side.
+    const opened = github.acts.find((a) => a.action === 'openPullRequest')?.args;
+    expect(opened?.title).toBe(title);
+    expect(String(opened?.body)).toContain(
+      `The factory’s improvement #${workItem}, behind the flag \`delivery-dates\`, off until Martin turns it on. Refers to #41.`,
+    );
+    expect(String(opened?.body)).toContain('**Pages.** `/products/blue-mug`');
+    expect(String(opened?.body)).toContain('then the page lists matches. (with the flag off)');
     github.pass();
     await pass(); // the gates pass, and the reviewer
     await pass(); // the describer
@@ -324,6 +348,38 @@ describe('the line', () => {
     await pass();
     expect(steps.requests.map((r) => r.agent)).toEqual(['planner']);
     expect(await types(workItem)).not.toContain('hold.started');
+  });
+
+  it('tells an improvement’s planner the flags other improvements named, and not its own', async () => {
+    const other = await improvement();
+    const closed = await improvement();
+    const workItem = await improvement();
+    await events.append([
+      event(other, 'spec.written', { ...SPEC, flag: 'gift-note' }, 'planner'),
+      event(closed, 'spec.written', { ...SPEC, flag: 'sort-by-price' }, 'planner'),
+      event(closed, 'work-item.closed', { outcome: 'turned-off', reason: 'Martin turned it off' }),
+      // Its own spec before, which Martin answered: a fresh plan may keep its flag.
+      event(workItem, 'spec.written', { ...SPEC, flag: 'delivery-dates' }, 'planner'),
+      event(workItem, 'hold.started', { stage: 'plan', kind: 'approval', cause: 'spec', reason: 'Held' }),
+    ]);
+    await martin.append(event(workItem, 'hold.answered', { decision: 'answered', answer: 'Weekdays only.' }, 'martin'));
+    await database.owner`insert into line (work_item, stage, issue) values (${workItem}, 'plan', 41)`;
+    const { pass, steps } = line({ planner: () => 'fails' });
+    await pass();
+    const prompt = steps.requests.find((r) => r.workItem === workItem)?.prompt;
+    expect(prompt).toContain('which other improvements have named: `gift-note`, `sort-by-price`.');
+    expect(prompt).not.toContain('`delivery-dates`');
+  });
+
+  it('counts a flag as taken when another improvement named it, though this one’s later spec names it too', async () => {
+    const twin = await improvement();
+    const workItem = await improvement();
+    await events.append([
+      event(twin, 'spec.written', { ...SPEC, flag: 'delivery-dates' }, 'planner'),
+      event(workItem, 'spec.written', { ...SPEC, flag: 'delivery-dates' }, 'planner'),
+    ]);
+    expect(await flagsTaken(database.as.line, workItem)).toEqual(['delivery-dates']);
+    expect(await flagsTaken(database.as.line, twin)).toEqual(['delivery-dates']);
   });
 
   it('hands an improvement over once its volume is gone, when its issue is gone too, and ends a wait on it', async () => {
@@ -1851,6 +1907,21 @@ describe('the line', () => {
     });
     expect(github.acts.at(-1)).toEqual({ action: 'closeIssue', args: { number: 41, reason: 'not_planned' } });
     expect(steps.finished).toEqual([workItem]);
+    expect(await stage(workItem)).toBe('ended');
+  });
+
+  it('closes a work item Martin rejects though its issue is gone, as it would with the issue', async () => {
+    const workItem = await ticket();
+    const { pass, github } = line({ ...AGENTS, planner: () => handback({ verdict: 'question', question: 'Which?' }) });
+    await pass(); // the planner asks
+    await martin.append(event(workItem, 'hold.answered', { decision: 'rejected' }, 'martin'));
+    github.refusing.set('closeIssue', new GitHubWorkerError(404, 'not-found', 'Not Found'));
+    await pass(); // closed in this pass, with nothing to close in GitHub
+    expect((await payloads(workItem, 'work-item.closed'))[0]).toEqual({
+      outcome: 'no-change',
+      reason: 'Martin rejected it',
+    });
+    expect(github.acts.filter((a) => a.action === 'closeIssue')).toEqual([]);
     expect(await stage(workItem)).toBe('ended');
   });
 

@@ -16,6 +16,11 @@
  * which holds the spec and what it tried; without one, it is told everything a first step is. This module decides
  * both, from its input alone (`resume`, `prompt`), so the line and the bench agree.
  *
+ * An improvement is built, not fixed: from Martin's words and its spec, every new behaviour behind the spec's flag,
+ * read the one way the app reads a flag (`await request.flag(...)`), and its tests run each criterion with the flag
+ * on or off as the criterion says, stubbed as the app's tests stub it. The flag is defined nowhere, since one the flag
+ * service does not name is off, and the flag context is a protected path. Its title is a feature's (`feat`).
+ *
  * Suggestions do not block, and the coder answers them as the factory asks of any agent answering a review: it takes
  * each, changing the code for it, or declines it with a reason (`declined`). The GitHub worker answers each declined
  * suggestion's thread with the reason and resolves it once the change is pushed; one taken is the next reviewer's to
@@ -46,6 +51,7 @@ import {
   need,
   StepFailed,
   StepStale,
+  titleFor,
   words,
 } from './agent.ts';
 import { type Asked, askedLines, askedName, askedTitle, type Signal, seen } from './evidence.ts';
@@ -86,12 +92,12 @@ const declined = z
  * The result, for a round given `suggestions` suggestions: a declined one must be one of them. A round sent back for
  * suggestions alone (`alone`) may change nothing by declining every one.
  */
-export function coderResult(suggestions = 0, alone = false) {
+export function coderResult(suggestions = 0, alone = false, title: z.ZodType<string> = commitTitle) {
   return z
     .union([
       z.strictObject({
-        /** The pull request's title, and its commit's headline, as a Conventional Commit. */
-        title: commitTitle,
+        /** The pull request's title, and its commit's headline, as a Conventional Commit: a fix's, or an improvement's. */
+        title,
         /** The commit's body: what was wrong, which test shows it, what changed, and anything noticed and left alone. */
         note: words(1000),
         /** The suggestions it declined, with why; every other it took. */
@@ -172,6 +178,17 @@ const RESULT = [
   `If the code already does what every criterion asks, so there is nothing to fix, change nothing and write {"unchanged"} instead: at most ${UNCHANGED_MAX} characters, in plain sentences for Martin, on what you found. He decides what happens next.`,
 ];
 
+/** An improvement's result: a feature's title, and a note on what it adds behind which flag. */
+const IMPROVEMENT_RESULT = [
+  'Then write the result, {"title","note"}:',
+  '- `title`: the pull request’s title as a Conventional Commit of type feat, at most 80 characters, such as "feat(products): sort the list by price".',
+  '- `note`: the commit’s body, at most 1000 characters, in plain sentences for the reviewer: what the change adds, behind which flag, which tests show it with the flag on and which with it off, and what you changed. Add anything else you noticed and left alone.',
+  `If the code already does what every criterion asks with the flag on, so there is nothing to build, change nothing and write {"unchanged"} instead: at most ${UNCHANGED_MAX} characters, in plain sentences for Martin, on what you found. He decides what happens next.`,
+];
+
+/** What the work item's result is asked for: an improvement's, or a fix's. */
+const resultFor = ({ asked }: CoderInput) => (asked.kind === 'request' ? IMPROVEMENT_RESULT : RESULT);
+
 /** How a round with suggestions answers them. */
 const DECLINING =
   '- `declined`: the suggestions you decline, each {"suggestion","reason"}: its number above, and why, in at most 300 characters, for the reviewer and the pull request’s thread. Every suggestion you leave out is one you took. Leave it out when you take them all.';
@@ -199,11 +216,32 @@ const CHECKS =
 const CHECKS_AGAIN =
   'If you change anything, run the checks again before you hand back: lint and formatting, the type check and the tests.';
 
-function specLines({ spec }: CoderInput): string[] {
+function specLines({ spec, asked }: CoderInput): string[] {
+  if (asked.kind === 'request') return improvementSpecLines(spec);
   return [
     `Outcome: ${spec.outcome}`,
     'Acceptance criteria:',
     ...spec.criteria.map((c, i) => `${i + 1}. Given ${c.given}, when ${c.when}, then ${c.expect}.`),
+    `Scope, the only files you may change: ${spec.scope.join(', ')}. A folder ending in / takes in every file under it; * stands for any name within one folder, and ** for any depth of folders.`,
+    ...(spec.risks.length ? [`The planner tagged its risks: ${spec.risks.join(', ')}.`] : []),
+  ];
+}
+
+/** The side of its flag an improvement's criterion holds on, as a prompt says it. */
+export const side = ({ withFlag }: PayloadOf<'spec.written'>['criteria'][number]) =>
+  withFlag ? ` (with the flag ${withFlag})` : '';
+
+/** An improvement's flag and the pages it shows on, as a prompt says them. */
+export const flagLine = (spec: PayloadOf<'spec.written'>) =>
+  `Flag: ${spec.flag ?? 'none named'}. Pages it shows on: ${spec.pages?.join(', ') ?? 'none named'}.`;
+
+/** An improvement's spec: a fix's, with its flag, its pages and each criterion's side of the flag. */
+function improvementSpecLines(spec: PayloadOf<'spec.written'>): string[] {
+  return [
+    `Outcome: ${spec.outcome}`,
+    flagLine(spec),
+    'Acceptance criteria, each with the side of the flag it holds on:',
+    ...spec.criteria.map((c, i) => `${i + 1}. Given ${c.given}, when ${c.when}, then ${c.expect}.${side(c)}`),
     `Scope, the only files you may change: ${spec.scope.join(', ')}. A folder ending in / takes in every file under it; * stands for any name within one folder, and ** for any depth of folders.`,
     ...(spec.risks.length ? [`The planner tagged its risks: ${spec.risks.join(', ')}.`] : []),
   ];
@@ -224,6 +262,7 @@ function briefing(input: CoderInput): string[] {
 }
 
 function first(input: CoderInput): string[] {
+  if (input.asked.kind === 'request') return firstImprovement(input);
   return [
     ...briefing(input),
     '',
@@ -239,13 +278,42 @@ function first(input: CoderInput): string[] {
   ];
 }
 
+/**
+ * How an improvement is built: behind its flag, read the one way the app reads a flag and nowhere else, so that with
+ * it off the app is as it was; each criterion tested with the flag as its side says, stubbed as the app's own tests
+ * stub it. The flag is defined nowhere: one the flag service does not name is off, so the change ships off.
+ */
+const behindTheFlag = (flag: string) => [
+  `Every new behaviour goes behind the flag: \`await request.flag('${flag}')\`, as AGENTS.md says, and nothing reads the flag any other way. With it off, the app does exactly what it did: the same pages, the same responses. Do not define the flag anywhere: one the flag service does not name is off, so the change ships off, and Martin turns it on from the console.`,
+  'Never change the flag context, src/flags/, or anything else no scope may name. Keep nothing on a visitor’s device: no cookie, and nothing in the browser’s storage.',
+];
+
+function firstImprovement(input: CoderInput): string[] {
+  const flag = input.spec.flag ?? 'its-flag';
+  return [
+    ...briefing(input),
+    '',
+    'Read AGENTS.md first: its rules hold for every change here. Then:',
+    '1. Find where the change goes. Start from the code the criteria name, and its tests.',
+    `2. Write the tests first: a test for each criterion, in a test file the scope allows, beside the tests that are there, with the flag on or off as the criterion says. Stub the request’s \`flag\` as the app’s own tests do: \`flag: async () => false\` for off, and \`flag: async (name) => name === '${flag}'\` for on. Run them: each test with the flag on fails, since nothing is built yet, and each with it off passes, and goes on passing.`,
+    '3. Build the change, and run the tests again until yours pass and none that passed before fails.',
+    `4. ${CHECKS}`,
+    '',
+    ...behindTheFlag(flag),
+    '',
+    'Build only what the criteria need. You may see other things wrong with the app: leave them, even in a file the scope allows, and mention them in your note. The line refuses a patch that changes any file outside the scope, whole. Leave your changes in the checkout: the line takes them from there.',
+    '',
+    ...IMPROVEMENT_RESULT,
+  ];
+}
+
 /** A later step: why it came back, from review or the gates, from the fence, or both. */
 function again(input: CoderInput): string[] {
-  const { workItem, round, returned, findings, suggestions, fenced, answer } = input;
+  const { workItem, asked, round, returned, findings, suggestions, fenced, answer } = input;
   const back =
     round > 1
       ? [
-          `Your change for ticket #${workItem} came back from ${returned?.from ?? 'review'}, for round ${round}: ${returned?.reason ?? 'it needs another look'}.`,
+          `Your change for ${askedName(asked, workItem)} came back from ${returned?.from ?? 'review'}, for round ${round}: ${returned?.reason ?? 'it needs another look'}.`,
           ...(findings?.length
             ? [
                 'The reviewer’s blocking findings, each at a line of your change, with the rule or criterion it cites:',
@@ -271,7 +339,7 @@ function again(input: CoderInput): string[] {
     ? [
         `The line refused your patch${round > 1 ? ' for this round' : ''}: it changed files outside the spec’s scope. The scope fence printed:`,
         ...fenced.split('\n').map((line) => `    ${line}`),
-        `Nothing of that patch was kept: the checkout is back where ${round > 1 ? 'this round' : 'you'} started. Make the fix again, changing only files the scope allows. A test that will not fit in a test file the scope allows is one to leave out; say so in your note.`,
+        `Nothing of that patch was kept: the checkout is back where ${round > 1 ? 'this round' : 'you'} started. Make the ${asked.kind === 'ticket' ? 'fix' : 'change'} again, changing only files the scope allows. A test that will not fit in a test file the scope allows is one to leave out; say so in your note.`,
         ...recheck,
       ]
     : declineAll
@@ -291,11 +359,12 @@ function again(input: CoderInput): string[] {
       '',
       ...briefing(input),
       '',
-      'Read AGENTS.md first: its rules hold for every change here. The fix is in the checkout, and the reviewer approved it: change only what a suggestion you take needs.',
+      `Read AGENTS.md first: its rules hold for every change here. The ${asked.kind === 'ticket' ? 'fix' : 'change'} is in the checkout, and the reviewer approved it: change only what a suggestion you take needs.`,
+      ...(asked.kind === 'request' ? behindTheFlag(input.spec.flag ?? 'its-flag') : []),
       CHECKS,
       '',
       `${declineAll ? 'If you take any suggestion, then write' : 'Then write'} the result, {"title","note","declined"}:`,
-      ...RESULT.slice(1, 3),
+      ...resultFor(input).slice(1, 3),
       ...declining,
       ...(declineAll ? [DECLINE_ALL] : []),
     ];
@@ -335,7 +404,7 @@ export const coder = defineAgent<CoderInput, CoderResult>({
     answer: answerOf(state),
   }),
   resume: resumed,
-  schema: (input) => coderResult(input.suggestions?.length ?? 0, suggestionsAlone(input)),
+  schema: (input) => coderResult(input.suggestions?.length ?? 0, suggestionsAlone(input), titleFor(input.asked)),
   prompt: (input) => (later(input) ? again(input) : first(input)).join('\n'),
   apply: async (result, handback, input, context) => {
     const { spec, round, suggestions = [] } = input;
@@ -410,7 +479,7 @@ export const coder = defineAgent<CoderInput, CoderResult>({
               head: branch,
               base: 'main',
               title,
-              body: pullRequestBody(workItem, issue, spec),
+              body: pullRequestBody(workItem, issue, spec, state.request !== undefined),
               draft: true,
             })
           ).number,
@@ -523,15 +592,23 @@ export const refersTo = (issue: number | null) => (issue ? `Refers to #${issue}.
  * A fix's pull request until the describer writes its description: the ticket's issue and the spec the fix is held
  * to. It stays a draft until then, so nobody reviews it before the gates and the reviewer have.
  */
-function pullRequestBody(workItem: string, issue: number | null, spec: PayloadOf<'spec.written'>): string {
+function pullRequestBody(
+  workItem: string,
+  issue: number | null,
+  spec: PayloadOf<'spec.written'>,
+  improvement: boolean,
+): string {
   return [
-    `The factory’s fix for ticket #${workItem}. ${refersTo(issue)}`.trim(),
+    improvement
+      ? `The factory’s improvement #${workItem}, behind the flag \`${spec.flag ?? 'its-flag'}\`, off until Martin turns it on. ${refersTo(issue)}`.trim()
+      : `The factory’s fix for ticket #${workItem}. ${refersTo(issue)}`.trim(),
     '',
     `**Outcome.** ${spec.outcome}`,
+    ...(improvement && spec.pages ? ['', `**Pages.** ${spec.pages.map((page) => `\`${page}\``).join(', ')}`] : []),
     '',
     '**Acceptance criteria**',
     '',
-    ...spec.criteria.map((c) => `- Given ${c.given}, when ${c.when}, then ${c.expect}.`),
+    ...spec.criteria.map((c) => `- Given ${c.given}, when ${c.when}, then ${c.expect}.${side(c)}`),
     '',
     `**Scope.** ${spec.scope.map((path) => `\`${path}\``).join(', ')}`,
     '',

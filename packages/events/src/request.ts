@@ -16,7 +16,8 @@ export const REQUEST_TITLE = 60;
  * when it is longer. A sentence ends at `.`, `!` or `?` before a space and a capital letter, or before the end: so
  * "Add a U.S. flag" is one sentence, as is "Say v1.2 in the footer", though "the U.S. Map" ends at "U.S", as a rule
  * cannot tell an abbreviation, and the planner names the title in the spec. A first sentence with nothing in it gives
- * way to the whole of his words. Cut by characters as a reader counts them, so an emoji is never split.
+ * way to the whole of his words. Measured and cut by characters as a reader counts them (graphemes), so an emoji, a
+ * flag or a letter with its accent is one, and is never split.
  */
 export function requestTitle(words: string): string {
   const collapse = (text: string) => text.replace(/\s+/g, ' ').trim();
@@ -25,10 +26,12 @@ export function requestTitle(words: string): string {
   const first = end ? text.slice(0, end.index + (end[0] === '\n' ? 0 : 1)) : text;
   const sentence = collapse(first).replace(/\.$/, '');
   const title = sentence || collapse(words);
-  if (title.length <= REQUEST_TITLE) return title;
-  // Room for the mark: the cut is at most one character short of the whole.
-  const within = title.slice(0, REQUEST_TITLE);
+  const characters = Array.from(new Intl.Segmenter().segment(title), (g) => g.segment);
+  if (characters.length <= REQUEST_TITLE) return title;
+  // Room for the mark: the cut is at most one character short of the whole, and leaves no punctuation unless that is
+  // all there is.
+  const short = characters.slice(0, REQUEST_TITLE - 1).join('');
+  const within = characters.slice(0, REQUEST_TITLE).join('');
   const space = within.lastIndexOf(' ');
-  const cut = space > 0 ? within.slice(0, space) : [...title].slice(0, REQUEST_TITLE - 1).join('');
-  return `${cut.replace(/[\s,;:–—-]+$/, '')}…`;
+  return `${(space > 0 ? within.slice(0, space) : short).replace(/[\s,;:–—-]+$/, '') || short}…`;
 }

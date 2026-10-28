@@ -1292,6 +1292,30 @@ describe('the title of Martin’s request', () => {
     expect(requestTitle('x'.repeat(80))).toBe(`${'x'.repeat(59)}…`);
   });
 
+  it('counts an emoji as one character, measuring and cutting alike, and never splits one', () => {
+    const count = (text: string) => [...text].length;
+    // Sixty characters, though more than sixty UTF-16 units: whole.
+    const sixty = `${'x '.repeat(28)}📦📦📦📦`;
+    expect(count(sixty)).toBe(REQUEST_TITLE);
+    expect(requestTitle(sixty)).toBe(sixty);
+    // One more, with the emoji at the cut: no word to cut at, so cut at 59, the emoji whole.
+    const long = `${'x'.repeat(57)}📦📦📦📦`;
+    expect(requestTitle(long)).toBe(`${'x'.repeat(57)}📦📦…`);
+    // Cut at the last word within sixty characters, which counts each emoji once: by UTF-16 units it would be sooner.
+    const words = `${'abcd '.repeat(10)}abc📦 📦📦📦 then more`;
+    expect(requestTitle(words)).toBe(`${'abcd '.repeat(10)}abc📦 📦📦📦…`);
+    // An emoji of several code points, and a flag, are one character each, and are not split either.
+    const family = '👨‍👩‍👧';
+    expect(requestTitle(`${'x'.repeat(58)}${family} more`)).toBe(`${'x'.repeat(58)}${family}…`);
+    expect(requestTitle(`${'x'.repeat(58)}🇬🇧🇬🇧 more`)).toBe(`${'x'.repeat(58)}🇬🇧…`);
+    // Punctuation is not left at a cut, unless it is all there is.
+    expect(requestTitle('- '.repeat(40))).toBe(`${'- '.repeat(29)}-…`);
+    for (const text of [sixty, long, words, '📦'.repeat(90)]) {
+      expect(count(requestTitle(text))).toBeLessThanOrEqual(REQUEST_TITLE);
+      expect(requestTitle(text)).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    }
+  });
+
   it('is the whole of his words when the first sentence has nothing in it', () => {
     expect(requestTitle('. Then the rest')).toBe('. Then the rest');
     expect(requestTitle('?')).toBe('?');

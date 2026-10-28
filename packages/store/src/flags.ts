@@ -50,6 +50,25 @@ export interface FlagEvents {
   revision: string | null;
 }
 
+/**
+ * The flags improvements other than `workItem` have named, as `flagEvents` reads them: each improvement Martin asked
+ * for, by the latest spec the line's role wrote for it, open or closed, since a closed one's code stays in the app
+ * behind its flag. Each improvement's claim counts, so a flag two of them named is taken from either.
+ */
+export async function flagsTaken(sql: Sql | TransactionSql, workItem: string): Promise<string[]> {
+  const rows = await sql<{ flag: string }[]>`
+    with specs as (
+      select distinct on (s.work_item) s.work_item, s.seq, s.payload->>'flag' as flag
+      from events s
+      where s.type = 'spec.written' and s.appended_by = ${LINE_ROLE} and s.work_item is not null and not s.sample
+      order by s.work_item, s.seq desc
+    )
+    select p.flag from specs p
+    where p.flag is not null and p.work_item <> ${workItem} and ${askedByMartin(sql, 'p.work_item')}
+    group by p.flag order by min(p.seq)`;
+  return rows.map((row) => row.flag);
+}
+
 /** What the store says of the flags, or of one flag alone. */
 export async function flagEvents(sql: Sql | TransactionSql, flag?: string): Promise<FlagEvents> {
   const named = await sql<{ work_item: string; flag: string; pages: string[] | null }[]>`

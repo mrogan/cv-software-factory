@@ -99,21 +99,115 @@ const INPUT: PlannerInput = {
 /** What the planner was told of `INPUT`, which its criteria quote. */
 const SOURCES = sourcesOf(INPUT);
 
+/** An improvement Martin asked for, as the planner is given it. */
+const REQUEST: PlannerInput = {
+  workItem: '1302',
+  asked: {
+    kind: 'request',
+    request: {
+      title: 'Delivery dates on each product',
+      words: 'Delivery dates on each product. Say when it would arrive if ordered today.',
+    },
+  },
+  signals: [],
+  protectedPaths: PROTECTED,
+  answers: [{ asked: 'Count weekends?', answer: 'Working days only, please.' }],
+  flagsTaken: ['sort-by-price', 'gift-note'],
+};
+
+/** A spec for it that the line takes. */
+const IMPROVEMENT_SPEC = {
+  ...SPEC,
+  title: 'Delivery dates on each product',
+  flag: 'delivery-dates',
+  pages: ['/products/blue-mug'],
+  criteria: [
+    {
+      given: 'a product in stock',
+      when: 'a visitor opens its page',
+      expect: 'it says when the product would arrive',
+      withFlag: 'on' as const,
+      from: 'the request',
+      quote: 'say when it would arrive',
+    },
+    {
+      given: 'a product in stock',
+      when: 'a visitor opens its page',
+      expect: 'it counts working days only',
+      withFlag: 'on' as const,
+      from: 'Martin’s answer',
+      quote: 'working days only',
+    },
+    {
+      given: 'a product in stock',
+      when: 'a visitor opens its page',
+      expect: 'the page is as it is now',
+      withFlag: 'off' as const,
+      from: 'the request',
+      quote: 'Delivery dates on each product',
+    },
+  ],
+};
+
 describe('an improvement’s spec', () => {
-  const asked = (spec: object) =>
-    plannerResult(PROTECTED, SOURCES, { improvement: true }).safeParse({ verdict: 'spec', spec });
-  it('names the flag its change goes behind and the pages it shows on', () => {
-    expect(asked({ ...SPEC, flag: 'delivery-dates', pages: ['/products/blue-mug'] }).success).toBe(true);
-    const problems = (spec: object) => asked(spec).error?.issues.map((issue) => issue.message);
-    expect(problems(SPEC)).toEqual([
+  const asked = (spec: object) => planner.schema(REQUEST).safeParse({ verdict: 'spec', spec });
+  const problems = (spec: object) => asked(spec).error?.issues.map((issue) => issue.message);
+  const criteria = IMPROVEMENT_SPEC.criteria;
+
+  it('names its title, the flag its change goes behind and the pages it shows on', () => {
+    expect(asked(IMPROVEMENT_SPEC).success).toBe(true);
+    const { title: _, flag: __, pages: ___, ...bare } = IMPROVEMENT_SPEC;
+    expect(problems(bare)).toEqual([
+      'an improvement’s spec names it, in a few words',
       'an improvement’s spec names the flag its change goes behind',
       'an improvement’s spec names the pages its change shows on',
     ]);
-    expect(problems({ ...SPEC, flag: 'delivery-dates' })).toEqual([
-      'an improvement’s spec names the pages its change shows on',
+    // A ticket's spec is not held to them.
+    expect(planner.schema(INPUT).safeParse({ verdict: 'spec', spec: SPEC }).success).toBe(true);
+  });
+
+  it('takes a fresh flag: none another improvement named, and never the flag set’s revision', () => {
+    expect(problems({ ...IMPROVEMENT_SPEC, flag: 'gift-note' })).toEqual([
+      'another improvement has named gift-note: give this one a flag of its own',
     ]);
-    // A ticket's spec is not held to it.
-    expect(plannerResult(PROTECTED, SOURCES).safeParse({ verdict: 'spec', spec: SPEC }).success).toBe(true);
+    expect(problems({ ...IMPROVEMENT_SPEC, flag: 'flag-set-revision' })).toEqual([
+      "the flag set's revision is no feature flag",
+    ]);
+    expect(asked({ ...IMPROVEMENT_SPEC, flag: 'Delivery_Dates' }).success).toBe(false);
+    expect(asked({ ...IMPROVEMENT_SPEC, pages: ['//elsewhere.example/'] }).success).toBe(false);
+    expect(asked({ ...IMPROVEMENT_SPEC, pages: [] }).success).toBe(false);
+  });
+
+  it('holds each criterion on one side of the flag, with one on each side', () => {
+    const [on, , off] = criteria;
+    const { withFlag: _, ...sideless } = on as (typeof criteria)[number];
+    expect(problems({ ...IMPROVEMENT_SPEC, criteria: [sideless, off] })).toEqual([
+      'each criterion of an improvement says the side of its flag: on or off',
+      'an improvement’s spec has a criterion with its flag on',
+    ]);
+    expect(problems({ ...IMPROVEMENT_SPEC, criteria: [on] })).toEqual([
+      'an improvement’s spec has a criterion with its flag off',
+    ]);
+    expect(problems({ ...IMPROVEMENT_SPEC, criteria: [off] })).toEqual([
+      'an improvement’s spec has a criterion with its flag on',
+    ]);
+  });
+
+  it('takes each criterion from what Martin asked, in his words', () => {
+    const [on, , off] = criteria as [(typeof criteria)[number], unknown, (typeof criteria)[number]];
+    const from = (criterion: object) => problems({ ...IMPROVEMENT_SPEC, criteria: [criterion, off] });
+    expect(from({ ...on, quote: 'show a delivery date' })).toEqual([
+      'the quote is not in the request: copy the words that ask for the criterion from there, word for word',
+    ]);
+    expect(from({ ...on, from: 'signal 1' })).toEqual(['there is no signal 1']);
+    expect(from({ ...on, from: 'the ticket' })).toEqual(['from names the request, or Martin’s answer']);
+  });
+
+  it('is the one the coder’s bench fixture holds the coder to', () => {
+    const coder = FIXTURES.coder['delivery-dates']?.input;
+    const plan = FIXTURES.planner['delivery-dates']?.input;
+    if (!coder || !plan) throw new Error('The bench has no delivery-dates fixtures.');
+    expect(planner.schema(plan).safeParse({ verdict: 'spec', spec: coder.spec }).success).toBe(true);
   });
 });
 
@@ -353,6 +447,45 @@ describe('the planner’s prompt', () => {
   });
 });
 
+describe('the planner’s prompt for an improvement', () => {
+  const prompt = planner.prompt(REQUEST);
+
+  it('gives Martin’s words and answers, and asks where the change goes, not a diagnosis', () => {
+    expect(prompt.split('\n')[0]).toBe('Plan improvement #1302: Delivery dates on each product.');
+    expect(prompt).toContain(
+      'Martin asked for it in his own words: “Delivery dates on each product. Say when it would arrive if ordered today.”',
+    );
+    expect(prompt).toContain('- Count weekends? He said: Working days only, please.');
+    expect(prompt).toContain('Find where it goes in the repository');
+    expect(prompt).toContain('Do not build it or try it');
+    expect(prompt).not.toMatch(/ticket #|the ticket|defect|reproduce|diagnosis/);
+  });
+
+  it('asks for a spec behind a fresh flag, with its pages and each criterion’s side', () => {
+    expect(prompt).toContain('"spec":{"title","outcome","flag","pages":[]');
+    expect(prompt).toContain("`await request.flag('name')`");
+    expect(prompt).toContain(
+      'never `flag-set-revision`, and none of these, which other improvements have named: `sort-by-price`, `gift-note`.',
+    );
+    expect(prompt).toContain('Give at least one of each');
+    expect(prompt).toContain('An `off` criterion quotes the words of the request whose change it keeps back');
+    expect(prompt).toContain('out-of-scope: it changes behaviour beyond what Martin asked');
+    expect(planner.prompt({ ...REQUEST, flagsTaken: [] })).toContain('never `flag-set-revision`.');
+  });
+
+  it('rejects a change in a protected path, the flag context among them, or one that keeps anything on a device', () => {
+    expect(planner.prompt({ ...REQUEST, protectedPaths: [...PROTECTED, 'src/flags/'] })).toContain(
+      'the app’s flag context among them: .github/, deploy/, Dockerfile, **/AGENTS.md, docs/REVIEWERS.md, src/flags/.',
+    );
+    expect(prompt).toContain('Reject it when it would keep anything on a visitor’s device');
+  });
+
+  it('leaves a ticket’s prompt as it was', () => {
+    expect(planner.prompt(INPUT).split('\n')[0]).toBe('Plan the fix for ticket #1301: Server errors on /search.');
+    expect(planner.prompt(INPUT)).not.toContain('flag');
+  });
+});
+
 describe('what the planner noticed outside its ticket', () => {
   const finding = { page: '/products/camera', route: '/products/:slug', text: 'The stock line says 1 items.' };
 
@@ -476,6 +609,8 @@ describe('the words each criterion quotes', () => {
     expect(problem('signal 2', 'new error pattern')?.message).toBe('there is no signal 2');
     expect(problem('Martin’s answer', 'new error pattern')?.message).toBe('Martin has answered nothing yet');
     expect(problem('the code', 'new error pattern')?.message).toMatch(/^from names the ticket/);
+    // Only an improvement has a request: a ticket's criterion that names one names nothing it has.
+    expect(problem('the request', 'Server errors on /search')?.message).toMatch(/^from names the ticket/);
     expect(problem('the ticket', '/')?.message).toMatch(/two or more of them/);
     expect(problem('the ticket', 'the')?.message).toMatch(/two or more of them/);
     // Whole words only: the inside of a word is no quote of it.

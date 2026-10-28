@@ -13,6 +13,10 @@
  * - A change that goes beyond the spec, when the spec is sound, is an ordinary blocking finding, citing the spec or a
  *   rule: the coder can take it out, so the work goes back to it.
  *
+ * An improvement's spec is held to Martin's request and his answers the same way, and its change to its flag as well:
+ * behaviour a visitor could see with the flag off, a criterion no test shows on its side of the flag, the flag read
+ * any way but `request.flag`, anything kept on a visitor's device, or a change to the flag context, each blocks.
+ *
  * The checkout is the pull request's head, with its base beside it as the branch `base` and every commit between
  * (the runner fetches them: `readsChange`), so `git diff base` is the change and `git log base..HEAD` holds what the
  * coder said of it in each round. The reviewer holds the coder's claims to the diff, not the other way round: a
@@ -35,6 +39,7 @@ import { z } from 'zod';
 import { LIMITS, suggestionsGoBack, type WorkItemState } from '../machine.ts';
 import { answerThreads, cites, type Finding, lineage, reviewInGitHub, threadAnswers } from '../review.ts';
 import { askedOf, defineAgent, need, words } from './agent.ts';
+import { flagLine, side } from './coder.ts';
 import { type Asked, askedLines, askedName, askedTitle, numbered, type Signal } from './evidence.ts';
 
 export interface ReviewerInput {
@@ -163,6 +168,31 @@ const where = (f: Finding) => `${f.path}:${f.line}${cites(f) ? ` (${cites(f)})` 
 const source = ({ from, quote }: PayloadOf<'spec.written'>['criteria'][number]) =>
   from ? ` (From ${from}${quote ? `, which says “${quote.replace(/^["'“‘]+|["'”’]+$/g, '')}”` : ''}.)` : '';
 
+/** How a fix is reviewed: the spec held to the ticket, the change to the spec, and both to the rules. */
+const HOW_TO_REVIEW = [
+  'How to review:',
+  '1. Read the rules as they are at the base, so the change cannot loosen them: `git show base:docs/REVIEWERS.md`, and `git show base:AGENTS.md`, whose rules hold for every change.',
+  '2. Hold the spec to the ticket. A fix does what the ticket, what the senses saw and Martin’s answers ask, and no more, in every autonomy mode. A criterion they do not ask for (another defect, a new behaviour, a tidy-up) is a blocking finding that cites that criterion with `"ticket":true`, whatever the planner said it is from. The line checked only that each quote is there, not that it asks for its criterion: read the criterion beside its quote, and judge that. Anchor it to the code or test in the diff that meets that criterion, or to the change itself.',
+  '3. Read the whole diff. For each criterion, find the code that meets it and the test that shows it. A criterion that nothing in the change meets is a blocking finding that cites it, whatever the commit messages say. A change that does more than the spec’s criteria ask, when the spec itself is sound, is an ordinary blocking finding that cites the criterion it goes beyond, or a rule, without `"ticket"`: the coder can take it out.',
+  '4. Hold the change to each rule. A finding about a rule cites its number.',
+  '5. Review the diff, not the code around it. The app is bad on purpose: ask for nothing outside the ticket, and nothing outside the scope.',
+];
+
+/**
+ * How an improvement is reviewed: as a fix is, with the spec held to Martin's request, and the change to its flag. It
+ * ships off, so anything a visitor could see change with the flag off blocks; and each criterion's test runs the flag
+ * as its side says.
+ */
+const howToReviewAnImprovement = (flag: string) => [
+  'How to review:',
+  '1. Read the rules as they are at the base, so the change cannot loosen them: `git show base:docs/REVIEWERS.md`, and `git show base:AGENTS.md`, whose rules hold for every change.',
+  '2. Hold the spec to the request. An improvement does what Martin asked, in his words and his answers, and no more, in every autonomy mode. A criterion he did not ask for (another feature, a fix, a tidy-up) is a blocking finding that cites that criterion with `"ticket":true`, whatever the planner said it is from. The line checked only that each quote is there, not that it asks for its criterion: read the criterion beside its quote, and judge that. Anchor it to the code or test in the diff that meets that criterion, or to the change itself.',
+  `3. Hold the change to its flag, \`${flag}\`. Each of these is a blocking finding: anything a visitor or a caller could see change with the flag off, since the change ships off; the flag read any way but \`await request.flag('${flag}')\`, or another flag read; anything kept on a visitor’s device, such as a cookie or anything in the browser’s storage; and a change to the flag context, src/flags/.`,
+  '4. Read the whole diff. For each criterion, find the code that meets it and the test that shows it, with the flag on or off as the criterion says. A criterion that nothing in the change meets, or that no test shows on its side of the flag, is a blocking finding that cites it, whatever the commit messages say. A change that does more than the spec’s criteria ask, when the spec itself is sound, is an ordinary blocking finding that cites the criterion it goes beyond, or a rule, without `"ticket"`: the coder can take it out.',
+  '5. Hold the change to each rule. A finding about a rule cites its number.',
+  '6. Review the diff, not the code around it. The app has other things wrong with it: ask for nothing outside what Martin asked, and nothing outside the scope.',
+];
+
 function prompt({
   workItem,
   asked,
@@ -177,6 +207,7 @@ function prompt({
   declined = [],
 }: ReviewerInput): string {
   const earlier = blocked.length + suggested.length;
+  const improvement = asked.kind === 'request';
   return [
     `Review pull request #${pullRequest}, the factory’s ${asked.kind === 'ticket' ? 'fix' : 'change'} for ${askedName(asked, workItem)}: “${title}”${round > 1 ? `, in its round ${round}` : ''}.`,
     '',
@@ -188,15 +219,18 @@ function prompt({
     ...(answers.length
       ? [
           '',
-          'Martin was asked, as the planner planned, and answered. His answers are part of what the ticket asks:',
+          `Martin was asked, as the planner planned, and answered. His answers are part of what ${improvement ? 'he asks' : 'the ticket asks'}:`,
           ...answers.map((a) => `- ${a.asked} He said: ${a.answer}`),
         ]
       : []),
     '',
-    'The spec the change is held to, which the planner wrote from the ticket:',
+    `The spec the change is held to, which the planner wrote from the ${improvement ? 'request' : 'ticket'}:`,
     `Outcome: ${spec.outcome}`,
-    'Acceptance criteria, each with what the planner said asks for it, and the words it quoted from there:',
-    ...spec.criteria.map((c, i) => `${i + 1}. Given ${c.given}, when ${c.when}, then ${c.expect}.${source(c)}`),
+    ...(improvement ? [flagLine(spec)] : []),
+    `Acceptance criteria, each with ${improvement ? 'the side of the flag it holds on, ' : ''}what the planner said asks for it, and the words it quoted from there:`,
+    ...spec.criteria.map(
+      (c, i) => `${i + 1}. Given ${c.given}, when ${c.when}, then ${c.expect}.${side(c)}${source(c)}`,
+    ),
     `Scope, the only files it may change: ${spec.scope.join(', ')}.`,
     ...(blocked.length
       ? [
@@ -220,12 +254,7 @@ function prompt({
         ]
       : []),
     '',
-    'How to review:',
-    '1. Read the rules as they are at the base, so the change cannot loosen them: `git show base:docs/REVIEWERS.md`, and `git show base:AGENTS.md`, whose rules hold for every change.',
-    '2. Hold the spec to the ticket. A fix does what the ticket, what the senses saw and Martin’s answers ask, and no more, in every autonomy mode. A criterion they do not ask for (another defect, a new behaviour, a tidy-up) is a blocking finding that cites that criterion with `"ticket":true`, whatever the planner said it is from. The line checked only that each quote is there, not that it asks for its criterion: read the criterion beside its quote, and judge that. Anchor it to the code or test in the diff that meets that criterion, or to the change itself.',
-    '3. Read the whole diff. For each criterion, find the code that meets it and the test that shows it. A criterion that nothing in the change meets is a blocking finding that cites it, whatever the commit messages say. A change that does more than the spec’s criteria ask, when the spec itself is sound, is an ordinary blocking finding that cites the criterion it goes beyond, or a rule, without `"ticket"`: the coder can take it out.',
-    '4. Hold the change to each rule. A finding about a rule cites its number.',
-    '5. Review the diff, not the code around it. The app is bad on purpose: ask for nothing outside the ticket, and nothing outside the scope.',
+    ...(improvement ? howToReviewAnImprovement(spec.flag ?? 'its-flag') : HOW_TO_REVIEW),
     'The gates have passed: the tests, types and lint are green, so do not run them again, and do not start the app or send it requests. Read a test to see what it shows.',
     '',
     `Anchor each finding to a line the diff shows in the change’s version of a file it changes, and give at most ${MAX_FINDINGS}. A finding blocks only if the change is wrong without it: a criterion not met, a rule broken, a test that does not show what it claims. Taste is a suggestion. Say in each comment, in at most 300 characters, what is wrong and what would put it right.`,
@@ -233,12 +262,14 @@ function prompt({
     'The verdict:',
     '- approved: nothing blocks. Suggestions may stay.',
     '- changes-requested: something blocks that the coder can put right inside the scope.',
-    '- escalated: something blocks that the coder cannot put right inside the scope, such as a criterion that only a file outside it can meet, or any finding with `"ticket":true`, since the coder cannot put a spec right. Martin decides.',
+    `- escalated: something blocks that the coder cannot put right inside the scope, such as a criterion that only a file outside it can meet, or any finding with \`"ticket":true\`, since the coder cannot put a spec right. Martin decides.`,
     '',
     `Then write the result, {"verdict","note","findings":[{"path","line","blocking","rule","criterion","ticket",${earlier ? '"holds",' : ''}"comment"}]${earlier ? ',"answered"' : ''}}:`,
     '- `note`: the review in one or two short sentences, for the pull request and the console: at most 300 characters, or the result is refused. Leave the detail to the findings.',
     `- \`path\`: the file's path from the repository's root, at most ${PATH_CHARS} characters. A file with a longer path, which only a push other than the coder's can have put there, takes no finding: escalate, and say why in the note.`,
-    '- `rule` and `criterion`: numbers, each left out when the finding cites none. `ticket`: true only when the criterion the finding cites is one the ticket does not ask for, and left out otherwise.',
+    improvement
+      ? '- `rule` and `criterion`: numbers, each left out when the finding cites none. `ticket`: true only when the criterion the finding cites is one Martin did not ask for, and left out otherwise.'
+      : '- `rule` and `criterion`: numbers, each left out when the finding cites none. `ticket`: true only when the criterion the finding cites is one the ticket does not ask for, and left out otherwise.',
     ...(suggested.length
       ? [
           '- `answered`: the numbers of those above that the change now answers, a finding it puts right or a suggestion it has taken, such as `[1]`, or `[]` for none. Their threads are resolved on the pull request. Leave out one that still blocks, and give it again as a finding of this review.',

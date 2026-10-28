@@ -185,6 +185,45 @@ const DIFF = [
   { path: 'public/logo.png', patch: null, added: 0, removed: 0 },
 ];
 
+describe('the reviewer of an improvement', () => {
+  const coded =
+    FIXTURES.coder['delivery-dates']?.input ??
+    (() => {
+      throw new Error('The coder has no delivery-dates fixture.');
+    })();
+  const improvement: ReviewerInput = {
+    workItem: coded.workItem,
+    asked: coded.asked,
+    signals: [],
+    answers: [],
+    spec: coded.spec,
+    pullRequest: 103,
+    title: 'feat(products): show when each product would arrive',
+    round: 1,
+  };
+  const prompt = reviewer.prompt(improvement);
+
+  it('holds the spec to Martin’s request, and each criterion to a test on its side of the flag', () => {
+    expect(prompt).toContain(
+      `Review pull request #103, the factory’s change for improvement #${FIXTURE_WORK_ITEM}: “feat(products): show when each product would arrive”.`,
+    );
+    expect(prompt).toContain('The request: Delivery dates on each product.');
+    expect(prompt).toContain('Flag: delivery-dates. Pages it shows on: /products/doorstop.');
+    expect(prompt).toMatch(
+      /^4\. Given a product with stock, .*\(with the flag off\) \(From the request, which says “Delivery dates on each product”\.\)$/m,
+    );
+    expect(prompt).toContain('2. Hold the spec to the request. An improvement does what Martin asked');
+    expect(prompt).toContain('or that no test shows on its side of the flag, is a blocking finding');
+    expect(prompt).not.toMatch(/the ticket|defect/);
+  });
+
+  it('blocks on behaviour the flag does not hide, the flag read another way, and anything kept on a device', () => {
+    expect(prompt).toContain(
+      "3. Hold the change to its flag, `delivery-dates`. Each of these is a blocking finding: anything a visitor or a caller could see change with the flag off, since the change ships off; the flag read any way but `await request.flag('delivery-dates')`, or another flag read; anything kept on a visitor’s device, such as a cookie or anything in the browser’s storage; and a change to the flag context, src/flags/.",
+    );
+  });
+});
+
 describe('a review in GitHub', () => {
   it('knows the lines a diff shows in each file’s new version', () => {
     const shown = shownLines(DIFF);
