@@ -6,7 +6,8 @@
  *
  * - **Only the hold the card showed.** The answer is refused, having changed nothing, unless that hold is the work
  *   item's open one as the answer is taken, as the line reads it: its latest hold, with nothing since that answered
- *   or ended it (an answer, a merge, a close, a reopening, for a deploy a release, for a merge gates that failed). Words on one of triage's holds leave it open (`WORDS_LEAVE_HELD`), so it can still be
+ *   or ended it (an answer, a merge, a close, a reopening, for a deploy a release, for a merge gates that failed, for a
+ *   spec a spec written again, which the line holds afresh and an answer to the old card is told of). Words on one of triage's holds leave it open (`WORDS_LEAVE_HELD`), so it can still be
  *   approved or rejected. Answers are taken one at a time, under the lock every append takes, so two cannot both
  *   answer one hold, and a hold the line or triage appends meanwhile is the one answered next.
  * - **Only an answer that does something.** One the line would only wait after is refused (`answersTo`): approving a
@@ -32,7 +33,7 @@ import {
   VERSIONS,
   WORDS_LEAVE_HELD,
 } from '@software-factory/events';
-import { fromMartin, lockAppends } from '@software-factory/store';
+import { fromMartin, LINE_ROLE, lockAppends } from '@software-factory/store';
 import type { TransactionSql } from 'postgres';
 import { z } from 'zod';
 import { ACCESS, GUARDRAIL_HOLDS } from '../../../../policy/access.ts';
@@ -62,21 +63,31 @@ interface OpenHold {
   cause: HoldCause;
 }
 
+/** The open hold, if any, and the `spec` holds a later spec ended, which Martin may still be looking at. */
+interface Holds {
+  open: OpenHold | undefined;
+  respecified: Set<string>;
+}
+
 /**
  * The work item's open hold, if it has one: its latest `hold.started`, and nothing since that answers or ends it, as the
  * line's `fold` (`line/machine.ts`) reads them. The admin service keeps its own reading, of these few events, rather
  * than take in the line's code, its GitHub and Kubernetes clients with it; `admin.test.ts` holds the two to each other
- * case by case. Only Martin's roles' answers count, as the line and triage count them.
+ * case by case. Only Martin's roles' answers count, as the line and triage count them, and only the line's specs, as
+ * the line reads them: a spec written while a `spec` hold is open ends that hold, since what Martin read is not what
+ * the line would build, and the new spec is held afresh.
  */
-async function openHold(tx: TransactionSql, workItem: string): Promise<OpenHold | undefined> {
+async function openHold(tx: TransactionSql, workItem: string): Promise<Holds> {
   const rows = await tx<(RawEvent & { id: string })[]>`
     select e.id, e.seq, e.type, e.version, e.payload from events e
     where e.work_item = ${workItem} and ${fromMartin(tx, 'e')}
+      and (e.type <> 'spec.written' or e.appended_by is null or e.appended_by = ${LINE_ROLE})
       and e.type in ('hold.started', 'hold.answered', 'gates.started', 'gates.finished', 'pull-request.merged', 'work.returned',
                      'release.started', 'release.rolled-back', 'release.aborted', 'release.errored',
-                     'work-item.closed', 'work-item.reopened')
+                     'work-item.closed', 'work-item.reopened', 'spec.written')
     order by e.seq`;
   let open: OpenHold | undefined;
+  const respecified = new Set<string>();
   // The release carrying the merged change, while it has not ended, and the commit the latest gates ran on.
   let release: { name: string; ended: boolean } | undefined;
   let gates: string | undefined;
@@ -92,6 +103,12 @@ async function openHold(tx: TransactionSql, workItem: string): Promise<OpenHold 
         // A hold for a deploy decided as a release started is already answered by it.
         if (event.payload.cause === 'deploy' && release && !release.ended) break;
         open = { id: row.id, cause: event.payload.cause };
+        break;
+      case 'spec.written':
+        if (open?.cause === 'spec') {
+          respecified.add(open.id);
+          open = undefined;
+        }
         break;
       case 'hold.answered':
         // Words leave one of triage's holds standing, for his approval or rejection.
@@ -141,7 +158,7 @@ async function openHold(tx: TransactionSql, workItem: string): Promise<OpenHold 
         break;
     }
   }
-  return open;
+  return { open, respecified };
 }
 
 /**
@@ -196,7 +213,15 @@ export async function answerHold(
     async (tx) => {
       // One answer at a time, and none between a hold the line or triage appends and the next.
       await lockAppends(tx);
-      const open = await openHold(tx, workItem);
+      const { open, respecified } = await openHold(tx, workItem);
+      if (respecified.has(given.hold)) {
+        // The card showed a spec the planner has since written again: an answer to it would answer nothing.
+        throw new Refused(
+          'hold',
+          409,
+          `The spec of #${workItem} was written again since that card, so this answer would answer nothing: the line holds the new one for you when it needs you.`,
+        );
+      }
       if (!open || open.id !== given.hold) {
         throw new Refused(
           'hold',

@@ -32,10 +32,9 @@
  * whatever the limit: it is one the line took already, and its defect is in the app. It is taken back once for each reopening, from wherever its row was
  * (ended, or not yet ended when it reopened), and until then the line hands it to nobody.
  */
-import { lastEnd } from '@software-factory/store';
+import { askedByMartin, lastEnd, openedAsImprovement } from '@software-factory/store';
 import type { JSONValue, Sql } from 'postgres';
 import type { Take } from '../../../../policy/line.ts';
-import { MARTINS_ROLES } from '../../../../policy/store-grants.ts';
 import type { Handback } from '../runners/steps.ts';
 import type { Draft } from './gates.ts';
 import type { LineAgent, QueueStage } from './machine.ts';
@@ -199,13 +198,8 @@ export class Queue {
         insert into line (work_item, stage)
         select t.work_item, 'plan' from events t
         where not t.sample ${only ? tx`and t.work_item = ${only}` : tx``}
-          and ((t.type = 'ticket.opened'
-                and not exists (select 1 from events o where o.work_item = t.work_item and o.type = 'work-item.opened'
-                                and o.payload->>'kind' = 'improvement'))
-               or (t.type = 'improvement.requested' and t.appended_by = any(${MARTINS_ROLES})
-                   and exists (select 1 from events o where o.work_item = t.work_item and o.type = 'work-item.opened'
-                               and o.payload->>'kind' = 'improvement' and not o.sample
-                               and o.appended_by = any(${MARTINS_ROLES}))))
+          and ((t.type = 'ticket.opened' and not ${openedAsImprovement(tx, 't.work_item')})
+               or (t.type = 'improvement.requested' and ${askedByMartin(tx, 't.work_item')}))
           and ${lastEnd(tx, 't.work_item')} is distinct from 'work-item.closed'
           and not exists (select 1 from line l where l.work_item = t.work_item)
         order by case t.type when 'ticket.opened' then 0 else 1 end,

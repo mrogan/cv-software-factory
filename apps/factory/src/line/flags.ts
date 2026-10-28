@@ -36,18 +36,17 @@
  */
 import { redactSecrets } from '@software-factory/events/public';
 import type { EventWriter, FlagEvents, StoredFlagCheck } from '@software-factory/store';
-import { flagEvents, lastEnd } from '@software-factory/store';
+import { askedByMartin, flagEvents, lastEnd } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
 import { flagsFrom, stageWords } from '../../../../policy/flag-moves.ts';
 import { FLAGS_HELD, type Share, type Stage } from '../../../../policy/flags.ts';
 import { release as RELEASE } from '../../../../policy/release.ts';
-import { MARTINS_ROLES } from '../../../../policy/store-grants.ts';
 import type { Prometheus } from '../clients/prometheus.ts';
-import { GitHubWorkerError, ISSUE_GONE } from '../github/worker-client.ts';
 import { figuresOf, figuresQuery, judge, type Sides, type Span, sidesOf, windowOf } from './compare.ts';
 import { type CheckAsked, checkedDraft, FRONT_PAGE, requestOf } from './flag-checks.ts';
 import { asEvent } from './gates.ts';
+import { closeIssue } from './issues.ts';
 import { countRecorded } from './metrics.ts';
 import type { FlagChecksPort } from './verify.ts';
 import type { GitHubPort } from './worker.ts';
@@ -319,12 +318,7 @@ export class FlagPass {
       '',
       `The change stays in the app, behind its flag, off. The factory’s improvement #${next.workItem} is closed.`,
     ].join('\n');
-    await github
-      .act('closeIssue', repo, { number: issue, reason: 'not_planned', comment }, { workItem: next.workItem })
-      .catch((error: unknown) => {
-        if (!(error instanceof GitHubWorkerError && ISSUE_GONE.includes(error.status))) throw error;
-        this.#o.log.warn({ workItem: next.workItem, issue, err: error }, 'the issue cannot be closed');
-      });
+    await closeIssue(github, repo, { number: issue, reason: 'not_planned', comment }, next.workItem, this.#o.log);
   }
 
   /**
@@ -452,18 +446,14 @@ export class FlagPass {
    */
   async #items(workItems: string[]): Promise<Record<string, FlagItem>> {
     const sql = this.#o.sql;
-    const rows = await sql<
-      { work_item: string; kind: string; sample: boolean; closed: boolean; martins: boolean; requested: boolean }[]
-    >`
+    const rows = await sql<{ work_item: string; kind: string; sample: boolean; closed: boolean; asked: boolean }[]>`
       select o.work_item, o.payload->>'kind' as kind, o.sample,
              ${lastEnd(sql, 'o.work_item')} is not distinct from 'work-item.closed' as closed,
-             coalesce(o.appended_by = any(${MARTINS_ROLES}), false) as martins,
-             exists (select 1 from events r where r.type = 'improvement.requested' and r.work_item = o.work_item
-                     and not r.sample and r.appended_by = any(${MARTINS_ROLES})) as requested
+             ${askedByMartin(sql, 'o.work_item')} as asked
       from events o where o.type = 'work-item.opened' and o.work_item = any(${workItems})`;
     return Object.fromEntries(
       rows.map((row) => {
-        const asked = row.martins && row.requested;
+        const { asked } = row;
         if (row.kind === 'improvement' && !asked && !row.sample && !this.#leftOut.has(row.work_item)) {
           this.#leftOut.add(row.work_item);
           this.#o.log.warn(

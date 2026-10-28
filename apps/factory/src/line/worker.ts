@@ -88,6 +88,8 @@ import type {
 } from '@software-factory/events';
 import { returnWords, SENSES, scopesOverlap, upcast, WORDS_LEAVE_HELD, workItemsWords } from '@software-factory/events';
 import {
+  askedByMartin,
+  byMartin,
   type EventWriter,
   fromMartin,
   IgnoredCommands,
@@ -102,7 +104,6 @@ import type { Logger } from 'pino';
 import type { JSONValue, Sql } from 'postgres';
 import { type Controls, controlsInForce } from '../../../../policy/line.ts';
 import { release as RELEASE } from '../../../../policy/release.ts';
-import { MARTINS_ROLES } from '../../../../policy/store-grants.ts';
 import { sendCounts } from '../counts.ts';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
 import { type Carry, DEPLOYS, type DeployProposal, MAX_CARRIES } from '../github/deploys.ts';
@@ -115,7 +116,7 @@ import type {
   ReadName,
   ReadResult,
 } from '../github/server.ts';
-import { GitHubWorkerError, ISSUE_GONE } from '../github/worker-client.ts';
+import { issueGone } from '../github/worker-client.ts';
 import type { PictureIndex } from '../pictures/index.ts';
 import type { StepOutcome, StepRequest } from '../runners/steps.ts';
 import { ATTRIBUTES as A, inSpan } from '../spans.ts';
@@ -137,6 +138,7 @@ import { capOn, capsInForce, lastSeq } from './caps.ts';
 import { type HeldForDeploy, latestDeploy, recordDeploys } from './deploy.ts';
 import { FlagPass } from './flags.ts';
 import { asEvent, type Draft, gateEvents, gateRecord } from './gates.ts';
+import { closeIssue } from './issues.ts';
 import {
   closesWhenCleared,
   decide,
@@ -547,27 +549,23 @@ export class Line {
       // A dry run's issue is one GitHub never had, as its pull request is.
       if (claimed.issue && claimed.issue < DRY_RUN_NUMBERS_FROM) {
         // An issue that is gone, or that the App may not change, has nothing to close.
-        await this.#o.github
-          .act(
-            'closeIssue',
-            this.#o.repo,
-            {
-              number: claimed.issue,
-              reason: 'not_planned',
-              comment: [
-                `${reason}.`,
-                '',
-                improvement
-                  ? `The factory’s work item #${workItem} is closed with no change: Martin asks for it again if he still wants it.`
-                  : `The factory’s work item #${workItem} is closed with no change: the next signal of this defect opens a fresh ticket.`,
-              ].join('\n'),
-            },
-            { workItem },
-          )
-          .catch((error) => {
-            if (!(error instanceof GitHubWorkerError && ISSUE_GONE.includes(error.status))) throw error;
-            this.#o.log.warn({ workItem, issue: claimed.issue, err: error }, 'the issue cannot be closed');
-          });
+        await closeIssue(
+          this.#o.github,
+          this.#o.repo,
+          {
+            number: claimed.issue,
+            reason: 'not_planned',
+            comment: [
+              `${reason}.`,
+              '',
+              improvement
+                ? `The factory’s work item #${workItem} is closed with no change: Martin asks for it again if he still wants it.`
+                : `The factory’s work item #${workItem} is closed with no change: the next signal of this defect opens a fresh ticket.`,
+            ].join('\n'),
+          },
+          workItem,
+          this.#o.log,
+        );
       }
       await this.#append(workItem, [
         {
@@ -602,7 +600,7 @@ export class Line {
           await this.#o.github
             .act('reopenIssue', this.#o.repo, { number: item.issue, comment }, { workItem })
             .catch((error) => {
-              if (!(error instanceof GitHubWorkerError && ISSUE_GONE.includes(error.status))) throw error;
+              if (!issueGone(error)) throw error;
               this.#o.log.warn({ workItem, issue: item.issue, err: error }, 'the issue cannot be reopened');
               forgetIssue = true;
             });
@@ -874,7 +872,7 @@ export class Line {
               { workItem },
             )
             .catch((error) => {
-              if (!(error instanceof GitHubWorkerError && ISSUE_GONE.includes(error.status))) throw error;
+              if (!issueGone(error)) throw error;
               this.#o.log.warn({ workItem, issue: item.issue, err: error }, 'the issue cannot be commented on');
             });
         }
@@ -1768,11 +1766,12 @@ export class Line {
    * read, and so what may reach GitHub or an agent. Only from his roles, as the queue took it.
    */
   async #publicRequest(workItem: string): Promise<Request> {
-    const [row] = await this.#o.sql<{ title: string; words: string }[]>`
+    const { sql } = this.#o;
+    const [row] = await sql<{ title: string; words: string }[]>`
       select o.public->'payload'->>'title' as title, r.public->'payload'->>'words' as words
       from events r join events o on o.work_item = r.work_item and o.type = 'work-item.opened'
-      where r.work_item = ${workItem} and r.type = 'improvement.requested' and r.appended_by = any(${MARTINS_ROLES})
-        and o.appended_by = any(${MARTINS_ROLES}) and o.payload->>'kind' = 'improvement'
+      where r.work_item = ${workItem} and r.type = 'improvement.requested' and ${byMartin(sql, 'r')}
+        and o.payload->>'kind' = 'improvement' and ${byMartin(sql, 'o')} and ${askedByMartin(sql, 'r.work_item')}
       order by r.seq limit 1`;
     if (!row) throw new StepFailed('The work item has no request of Martin’s');
     return row;
@@ -1859,10 +1858,7 @@ export class Line {
       select l.work_item, l.moved_at from line l
       where l.work_item = any(${workItems as string[]}) and l.stage = 'ended'
         and ${lastEnd(sql, 'l.work_item')} is distinct from 'work-item.reopened'
-        and exists (select 1 from events r where r.work_item = l.work_item and r.type = 'improvement.requested'
-                    and not r.sample and r.appended_by = any(${MARTINS_ROLES}))
-        and exists (select 1 from events o where o.work_item = l.work_item and o.type = 'work-item.opened'
-                    and o.payload->>'kind' = 'improvement' and not o.sample and o.appended_by = any(${MARTINS_ROLES}))`;
+        and ${askedByMartin(sql, 'l.work_item')}`;
     for (const row of handedOver) closed[row.work_item] ??= { closedAt: new Date(row.moved_at).toISOString() };
     return closed;
   }
