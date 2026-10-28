@@ -18,6 +18,7 @@ import type { PublicEvent } from '@software-factory/events';
 import { useEffect, useRef } from 'react';
 import { hear, heard, type Reaction, type Watch } from '../projection/bird.ts';
 import type { Release } from '../projection/release.ts';
+import { type Point, route, swingOut } from './flight.ts';
 
 /** The bird's box in the station's drawing, whose viewBox is "0 -20 168 220", 168 wide. */
 const VB = { x: 56, y: 12, w: 36, h: 30 };
@@ -29,7 +30,6 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
 const narrow = () => matchMedia('(max-width: 720px)').matches;
 
-type Point = { x: number; y: number };
 type Mode = 'cage' | 'flying' | 'card' | 'down';
 type Tone = 'ok' | 'attn' | 'faint';
 type Shape = 'single' | 'double' | 'sour';
@@ -66,6 +66,8 @@ export class Flyer {
   /** Moves on when it starts again from its cage, or stops for good, so a reaction waiting on a sleep stops. */
   #life = 0;
   #anim: Animation | null = null;
+  /** The drawing turning about in the air, during a flight that turns back. */
+  #turning: Animation | null = null;
   #queue: (() => void)[] = [];
   /** Out for a release, but with no panel or station to stand on yet: whether it is a paper bird. */
   #waiting: boolean | undefined;
@@ -155,11 +157,19 @@ export class Flyer {
     this.#el.style.transform = `translate(${x}px, ${y}px)`;
   }
 
-  #face(d: number) {
+  /** Turns to face that way: in a moment, or, `instant`, at once, as it lands from a flight that turned about. */
+  #face(d: number, instant = false) {
     if (d === this.#facing) return;
     this.#facing = d;
     const flip = this.#part('.flip');
-    if (flip) flip.style.transform = `scaleX(${d})`;
+    if (!flip) return;
+    if (instant) flip.style.transition = 'none';
+    flip.style.transform = `scaleX(${d})`;
+    if (instant) {
+      // The style takes the turn before the transition is back, so the transition does not play it again.
+      flip.getBoundingClientRect();
+      flip.style.transition = '';
+    }
   }
 
   #beak(): Point {
@@ -175,6 +185,8 @@ export class Flyer {
   /** Stops a walk or a pause where it is; a loop waiting on it sees the generation move on. */
   #halt() {
     this.#gen += 1;
+    this.#turning?.cancel();
+    this.#turning = null;
     const a = this.#anim;
     if (a) {
       const m = new DOMMatrixReadOnly(getComputedStyle(this.#el).transform);
@@ -200,30 +212,38 @@ export class Flyer {
     return true;
   }
 
-  /** Flies a curve with a flutter across it, slower the further it goes. */
-  async #fly(to: Point): Promise<boolean> {
-    const from = { x: this.#x, y: this.#y };
-    const [dx, dy] = [to.x - from.x, to.y - from.y];
-    if (Math.abs(dx) > 4) this.#face(dx > 0 ? 1 : -1);
-    const c1 = { x: from.x + dx * 0.12, y: from.y - 70 };
-    const c2 = { x: to.x - dx * 0.3, y: to.y - 120 };
-    const bez = (t: number, a: number, b: number, c: number, d: number) =>
-      (1 - t) ** 3 * a + 3 * (1 - t) ** 2 * t * b + 3 * (1 - t) * t ** 2 * c + t ** 3 * d;
-    const ease = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
-    const frames: Keyframe[] = [];
-    for (let i = 0; i <= 48; i++) {
-      const t = i / 48;
-      const e = ease(t);
-      const wobble = 5 * Math.sin(Math.PI * t) * Math.sin(t * Math.PI * 9);
-      frames.push({
-        transform: `translate(${bez(e, from.x, c1.x, c2.x, to.x)}px, ${bez(e, from.y, c1.y, c2.y, to.y) + wobble}px)`,
-      });
-    }
-    const duration = clamp((Math.hypot(dx, dy) + 200) / 0.3, 1400, 3400);
+  /**
+   * Flies a curve with a flutter across it, slower the further it goes (`flight.ts`), swung `swing` pixels aside. It
+   * turns about in the air, by a Web Animation of its own, where the curve turns back.
+   */
+  async #fly(to: Point, swing = 0): Promise<boolean> {
+    const r = route({ x: this.#x, y: this.#y }, to, swing);
+    if (r.facing) this.#face(r.facing);
+    const frames: Keyframe[] = r.points.map((p) => ({ transform: `translate(${p.x}px, ${p.y}px)` }));
     this.#mode = 'flying';
     this.#el.classList.add('flying');
-    const landed = await this.#move(frames, { duration, easing: 'linear' }, to);
+    const flip = this.#part('.flip');
+    const last = r.turns.at(-1);
+    let turning: Animation | null = null;
+    if (flip && last) {
+      // The turns as quick flips of the drawing, each over 2% of the flight, held between them.
+      const keys: Keyframe[] = [{ transform: `scaleX(${this.#facing})`, offset: 0 }];
+      for (const { at, facing } of r.turns)
+        keys.push(
+          { transform: `scaleX(${-facing})`, offset: Math.max(0, at - 0.02) },
+          { transform: `scaleX(${facing})`, offset: at },
+        );
+      keys.push({ transform: `scaleX(${last.facing})`, offset: 1 });
+      turning = flip.animate(keys, { duration: r.duration, fill: 'forwards' });
+      this.#turning = turning;
+    }
+    const landed = await this.#move(frames, { duration: r.duration, easing: 'linear' }, to);
     this.#el.classList.remove('flying');
+    if (landed && last) this.#face(last.facing, true);
+    if (turning && this.#turning === turning) {
+      turning.cancel();
+      this.#turning = null;
+    }
     return landed;
   }
 
@@ -321,7 +341,9 @@ export class Flyer {
       { duration: 260 },
     ).finished;
     if (life !== this.#life) return;
-    const landed = await this.#fly(at);
+    // The cage is just above where it lands: it swings out over the line and back, rather than drop straight down.
+    const perch = this.#perch();
+    const landed = await this.#fly(at, perch ? swingOut(cage, at, perch.lo, perch.hi) : 0);
     if (life !== this.#life || !landed) return;
     this.#mode = 'card';
     this.#part('.body')?.animate([{ transform: 'scale(1.12, .82)' }, { transform: 'none' }], {
