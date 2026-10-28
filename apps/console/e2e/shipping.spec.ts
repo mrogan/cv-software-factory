@@ -230,7 +230,9 @@ test.describe('a sheet’s releases', () => {
     await expect(page.getByRole('dialog').locator('.deploy-wait')).toContainText(
       'Merged · waiting for Martin’s deploy',
     );
-    await expect(page.getByRole('dialog').getByRole('link', { name: '#1330 on GitHub' })).toHaveCount(0);
+    // A sample's deploy pull request never existed: its fact names it, and links nowhere.
+    await expect(page.locator('.facts-dl').getByRole('link', { name: '#1330 on GitHub' })).toHaveCount(0);
+    await expect(page.locator('.facts-dl')).toContainText('#1330');
     await page.goto(consoleUrl({ item: '1321', sheet: true }));
     await expect(page.getByRole('dialog').locator('.deploy-wait')).toContainText(
       'Merged · deploy #1331’s checks running',
