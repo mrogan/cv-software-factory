@@ -314,10 +314,10 @@ describe('a sheet', () => {
   });
 
   it('compares every page with the version before, the intended one first', () => {
-    const verification = projectSheet(SAMPLES, '1271', END)?.shipped[0]?.verification;
-    expect(verification?.against).toBe('v0.8.5');
-    expect(verification?.pages[0]).toMatchObject({ page: 'Products', intended: true });
-    expect(verification?.pages.find((p) => p.page === 'Contact')).toMatchObject({ changed: 0, intended: false });
+    const verification = projectSheet(SAMPLES, '1304', END)?.shipped[0]?.verification;
+    expect(verification?.against).toBe('v0.9.7');
+    expect(verification?.pages[0]).toMatchObject({ page: 'Contact', intended: true });
+    expect(verification?.pages.find((p) => p.page === 'Home')).toMatchObject({ changed: 0, intended: false });
   });
 
   it('shows each page as the verification took it, though a later one took the same picture', () => {

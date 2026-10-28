@@ -132,11 +132,11 @@ describe('a move', () => {
 
   it('keeps off a flag Martin turned off on its improvement, but for going straight back to Everyone', () => {
     const offFromPreview = at(off, { stagedOn: '1316', last: { from: preview, to: off } });
-    expect(refused(offFromPreview, checks)).toMatch(/#1316 closes as turned off: it stays off/);
+    expect(refused(offFromPreview, checks)).toMatch(/#1316, and stays off/);
     expect(refused(offFromPreview, everyone)).toMatch(/Only a flag turned off from Everyone/);
     const offFromEveryone = at(off, { stagedOn: '1316', last: { from: everyone, to: off } });
     expect(refused(offFromEveryone, everyone)).toBeUndefined();
-    expect(refused(offFromEveryone, checks)).toMatch(/#1316 closes as turned off/);
+    expect(refused(offFromEveryone, checks)).toMatch(/#1316, and stays off/);
     // Back on, it narrows and turns off as any flag does.
     const backOn = at(everyone, { stagedOn: '1316', last: { from: off, to: everyone } });
     expect(refused(backOn, share(50))).toBeUndefined();

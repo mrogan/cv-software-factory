@@ -289,6 +289,51 @@ describe('a flag', () => {
     expect(flags[0]?.stops.at(-1)?.move.refused).toBeUndefined();
   });
 
+  it('closed as verified at Everyone stays among the flags, Martin’s to turn off, and folds once narrowed and off', () => {
+    const item = improvement('2015', 'shipped')
+      .add(
+        70,
+        'flag.staged',
+        'martin',
+        staged('shipped', { stage: 'share', share: 50 }, { stage: 'everyone' }, 'flag.widen'),
+      )
+      .add(71, 'work-item.closed', 'factory', {
+        outcome: 'verified',
+        reason: "Martin widened shipped to Everyone, after Verify's comparison at Share passed",
+      });
+    const at = START + 1000 * 60_000;
+    const { flags, closed, needs } = viewOf(item.events);
+    expect(closed).toEqual([]);
+    expect(needs).toEqual([]);
+    expect(flags[0]).toMatchObject({ name: 'shipped', open: false, done: true, backOn: false });
+    expect(flags[0]?.stops.at(0)?.move).toMatchObject({ action: 'flag.off' });
+    expect(flags[0]?.stops.at(0)?.move.refused).toBeUndefined();
+    // Its outcome is Verified, a chapter of its own, and its story ends saying how.
+    expect(foldItems(item.events)[0]?.outcome).toBe('verified');
+    const sheet = projectSheet(item.events, '2015', at);
+    expect(sheet?.chapters.at(-1)).toMatchObject({ label: 'VERIFIED', tone: 'ok' });
+    // Its story ends with the line's reason: no sense verified it, so there is no check to name.
+    expect(sheet?.closing).toBe(
+      "It closed: Martin widened shipped to Everyone, after Verify's comparison at Share passed.",
+    );
+    // Narrowed and turned off, it can't go straight back, and folds as a turned-off one does.
+    const off = item
+      .add(
+        80,
+        'flag.staged',
+        'martin',
+        staged('shipped', { stage: 'everyone' }, { stage: 'share', share: 50 }, 'flag.narrow'),
+      )
+      .add(
+        90,
+        'flag.staged',
+        'martin',
+        staged('shipped', { stage: 'share', share: 50 }, { stage: 'off' }, 'flag.off', 'No'),
+      );
+    expect(viewOf(off.events).closed.map((row) => row.name)).toEqual(['shipped']);
+    expect(foldItems(off.events)[0]?.outcome).toBe('verified');
+  });
+
   it('turned off before everyone had it, its work item closed, folds under Turned off and closed', () => {
     const item = improvement('2005', 'gone')
       .add(70, 'flag.staged', 'martin', staged('gone', { stage: 'off' }, { stage: 'checks' }, 'flag.to-checks'))

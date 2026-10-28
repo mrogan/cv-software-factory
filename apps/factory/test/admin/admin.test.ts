@@ -2872,12 +2872,12 @@ describe('the flags’ stages', () => {
     expect((await move(browser, share(50), everyone)).status).toBe(200);
     expect((await move(browser, everyone, off, { reason: 'Wrong on Sundays' })).status).toBe(200);
     // Before the line's pass closes it, it stays off already.
-    expect((await move(browser, off, checks)).body.message).toMatch(/closes as turned off: it stays off/);
+    expect((await move(browser, off, checks)).body.message).toMatch(/, and stays off, its code in the app/);
     // The line closes it as turned off, as its pass does.
     const closed = (item: string, reason: string) =>
       append(db.as.line, [event(item, 'work-item.closed', 'factory', { outcome: 'turned-off', reason })]);
     await closed(workItem, 'Wrong on Sundays');
-    expect((await move(browser, off, checks)).body.message).toMatch(/closes as turned off: it stays off/);
+    expect((await move(browser, off, checks)).body.message).toMatch(/, and stays off, its code in the app/);
     // Straight back on, recorded on the closed work item; then off again.
     expect(await move(browser, off, everyone)).toMatchObject({
       status: 200,
@@ -2899,12 +2899,40 @@ describe('the flags’ stages', () => {
     await closed(other, 'Not wanted');
     expect(await move(browser, off, checks, {}, flag)).toMatchObject({
       status: 409,
-      body: { message: expect.stringMatching(/closes as turned off: it stays off/) },
+      body: { message: expect.stringMatching(/, and stays off, its code in the app/) },
     });
     expect(await move(browser, off, everyone, {}, flag)).toMatchObject({
       status: 409,
       body: { message: expect.stringMatching(/Only a flag turned off from Everyone/) },
     });
+  });
+
+  it('keeps a flag Martin’s once the line closes its improvement as verified at Everyone: off, and back on', async () => {
+    const workItem = await improvement(FLAG);
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect((await move(browser, off, checks)).status).toBe(200);
+    await checked(workItem, 'checks', 'passed');
+    expect((await move(browser, checks, share(50))).status).toBe(200);
+    await compared(workItem, 50, 'passed');
+    expect((await move(browser, share(50), everyone)).status).toBe(200);
+    // The line closes it as verified, as its pass does once the app has had its minute.
+    await append(db.as.line, [
+      event(workItem, 'work-item.closed', 'factory', {
+        outcome: 'verified',
+        reason: `Martin widened ${FLAG} to Everyone, after Verify's comparison at Share passed`,
+      }),
+    ]);
+    expect((await move(browser, everyone, off, { reason: 'Wrong on Sundays' })).status).toBe(200);
+    expect((await move(browser, off, checks)).body.message).toMatch(/, and stays off, its code in the app/);
+    expect(await move(browser, off, everyone)).toMatchObject({
+      status: 200,
+      body: { staged: { action: 'flag.back-on' } },
+    });
+    expect((await staged()).slice(-2).map((e) => [e.work_item, e.payload.action])).toEqual([
+      [workItem, 'flag.off'],
+      [workItem, 'flag.back-on'],
+    ]);
   });
 
   it('has the app asked soon after each write, and a narrowing, Off or a flag dropped start the minute it has', async () => {
