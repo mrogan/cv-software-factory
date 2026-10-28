@@ -11,5 +11,8 @@
     "@software-factory/events": "workspace:*",
     "@software-factory/store": "workspace:*",
     "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@software-factory/testing": "workspace:*"
   }
 }

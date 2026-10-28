@@ -17,6 +17,7 @@
  * share a path, and the file still takes a fraction of a second. A failure prints the seed and the shrunk
  * counterexample: `fc.assert(..., { seed, path })` replays it.
  */
+import { processorTime } from '@software-factory/testing';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { inScope, scopesOverlap, sharedPath, touches } from '../src/line.ts';
@@ -268,26 +269,30 @@ describe("a scope entry's test of a path", () => {
   });
 
   it('answers quickly however many `*` an entry has, a near miss too', () => {
-    // A regular expression tries every way of splitting a near miss between the `*`s: `a*a*…b` against a long run of
-    // `a`, which never ends in `b`, took seconds at 8 `*` and minutes at 10. The entries here have 30 to 66, and each
-    // answers in well under a millisecond: the limit is loose, so a busy machine cannot fail it, and still far short of
-    // what backtracking would take.
+    // A regular expression tries every way of splitting a near miss between the `*`s: `a*a*…b` against a run of `a`,
+    // which never ends in `b`, took seconds at 6 `*` over 120 characters, and twenty seconds at 12 over 40. The entries here
+    // have 30 to 66, and each answers in well under a millisecond. Each is timed in processor time, so a busy runner
+    // that takes the test off the processor part way cannot come near the limit, which is still far short of what
+    // backtracking would take. The first is small enough that backtracking fails it in seconds; on the larger ones it
+    // would run on for longer than CI waits.
+    const limit = 1000;
+    const nearMiss = `${'a*'.repeat(6)}b`;
+    expect(processorTime(() => expect(inScope('a'.repeat(120), [nearMiss])).toBe(false))).toBeLessThan(limit);
     const manyStars = fc
       .array(fc.constantFrom('a', 'b', 'ab', '/a', 'a/'), { minLength: 30, maxLength: 66 })
       .map((parts) => `${parts.join('*')}*b`.slice(0, 200));
     fc.assert(
       fc.property(manyStars, fc.integer({ min: 100, max: 200 }), fc.constantFrom('a', 'ab', 'a/'), (entry, n, unit) => {
         const target = unit.repeat(n).slice(0, n);
-        const started = performance.now();
-        inScope(target, [entry]);
-        expect(performance.now() - started).toBeLessThan(1000);
+        expect(processorTime(() => inScope(target, [entry]))).toBeLessThan(limit);
       }),
       { numRuns: 50 },
     );
     const worst = `${'a*'.repeat(99)}b`;
-    const started = performance.now();
-    expect(inScope('a'.repeat(200), [worst])).toBe(false);
-    expect(inScope(`${'a'.repeat(199)}b`, [worst])).toBe(true);
-    expect(performance.now() - started).toBeLessThan(1000);
+    const answers = processorTime(() => {
+      expect(inScope('a'.repeat(200), [worst])).toBe(false);
+      expect(inScope(`${'a'.repeat(199)}b`, [worst])).toBe(true);
+    });
+    expect(answers).toBeLessThan(limit);
   });
 });
