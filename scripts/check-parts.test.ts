@@ -134,9 +134,13 @@ describe('the required check', () => {
     },
   );
 
-  it("does not take a run's passing tests for its base's: a deploy's stand on the queue's run alone", () => {
-    expect(status({ KIND: 'deploy', STATIC: 'success', TESTS: 'success' })).toBe(1);
-    expect(status({ KIND: 'release', STATIC: 'success', TESTS: 'success' })).toBe(1);
+  it.each(['release', 'deploy'])("does not take a %s's own passing tests for its base's", (kind) => {
+    const failed = required(
+      { KIND: kind, STATIC: 'success', TESTS: 'success' },
+      { run: '42', state: 'completed failure' },
+    );
+    expect(failed.status).toBe(1);
+    expect(failed.asked).toHaveLength(2);
   });
 
   it("reads the queue's latest run on the base, and that run's latest attempt", () => {

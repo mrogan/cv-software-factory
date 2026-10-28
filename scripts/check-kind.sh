@@ -22,7 +22,8 @@
 set -uo pipefail
 
 APP='mrogan-software-factory[bot]'
-PINS=' deploy/overlays/local/console-image/kustomization.yaml deploy/overlays/local/factory-image/kustomization.yaml '
+CONSOLE_PINS=deploy/overlays/local/console-image/kustomization.yaml
+FACTORY_PINS=deploy/overlays/local/factory-image/kustomization.yaml
 # The branch the merge queue makes for a pull request into main, its number the second group: the same expression as
 # scripts/review-gate.ts's QUEUE_BRANCH, which a test holds it to.
 QUEUE='^(refs/heads/)?gh-readonly-queue/main/pr-([0-9]+)-[0-9a-f]{7,40}$'
@@ -31,7 +32,7 @@ QUEUE='^(refs/heads/)?gh-readonly-queue/main/pr-([0-9]+)-[0-9a-f]{7,40}$'
 # that differ only in those digests read the same. A digest is `- digest: sha256:` and 64 hex digits, a line of 81
 # characters; a line written any other way is left as it is, and so differs.
 unpinned() {
-  awk '/^[^[:space:]#-]/ { top = $0 }
+  awk '/^[^[:space:]#-]/ || /^---/ { top = $0 }
     top == "images:" && /^- digest: sha256:[0-9a-f]+$/ && length($0) == 81 { $0 = "- digest: sha256:<digest>" }
     { print }'
 }
@@ -50,7 +51,7 @@ moves_only_pins() {
   while IFS= read -r line; do
     [[ $line =~ ^:100644\ 100644\ [0-9a-f]{40,64}\ [0-9a-f]{40,64}\ M$'\t'(.+)$ ]] || return 1
     path=${BASH_REMATCH[1]}
-    [[ $PINS == *" $path "* ]] || return 1
+    [ "$path" = "$CONSOLE_PINS" ] || [ "$path" = "$FACTORY_PINS" ] || return 1
     before=$(unpinned_at HEAD^1 "$path") || return 1
     after=$(unpinned_at HEAD "$path") || return 1
     [ "$before" = "$after" ] || return 1

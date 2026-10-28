@@ -3,6 +3,8 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { APP_LOGIN } from '../apps/factory/src/github/actions.ts';
+import { DEPLOYS } from '../apps/factory/src/github/deploys.ts';
 import { QUEUE_BRANCH } from './review-gate.ts';
 
 /*
@@ -50,8 +52,15 @@ const GIT_ENV = {
   GIT_COMMITTER_EMAIL: 'test@example.com',
 };
 
-/** A repository whose HEAD makes `change` on the base files: a file's new text, or null to delete it. */
-function repository(change: Record<string, string | null>, modes: Record<string, string> = {}) {
+/**
+ * A repository whose HEAD makes `change` on the base files, with any more the base holds: a file's new text, or null to
+ * delete it, and a mode for any to change.
+ */
+function repository(
+  change: Record<string, string | null>,
+  modes: Record<string, string> = {},
+  base: Record<string, string> = {},
+) {
   const repo = mkdtempSync(join(tmpdir(), 'check-kind-'));
   repos.push(repo);
   const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, env: GIT_ENV, encoding: 'utf-8' });
@@ -66,7 +75,7 @@ function repository(change: Record<string, string | null>, modes: Record<string,
     }
   };
   git('init', '--quiet', '--initial-branch=main');
-  write(BASE);
+  write({ ...BASE, ...base });
   git('add', '--all');
   git('commit', '--quiet', '--no-gpg-sign', '--message', 'base');
   write(change);
@@ -146,6 +155,17 @@ describe('a deploy', () => {
     ]);
   });
 
+  it('is told by the login the App acts as, and the pin files its deploys in this repository write', () => {
+    expect(APP_LOGIN).toBe(APP);
+    const script = readFileSync(SCRIPT, 'utf-8');
+    expect(script).toContain(`APP='${APP}'`);
+    const ours = DEPLOYS.filter((d) => d.repo.endsWith('/cv-software-factory')).flatMap((d) =>
+      d.pins.map((p) => p.file),
+    );
+    expect(ours.sort()).toEqual([CONSOLE, FACTORY]);
+    for (const file of ours) expect(script).toContain(`=${file}\n`);
+  });
+
   it("matches the queue's branch as the review gate does", () => {
     const script = readFileSync(SCRIPT, 'utf-8');
     expect(script).toContain(`QUEUE='${QUEUE_BRANCH.source.replaceAll('\\/', '/')}'`);
@@ -161,6 +181,7 @@ describe('a deploy', () => {
     ['a digest too short', { [CONSOLE]: moved(CONSOLE).replace(/[0-9a-f]{64}$/m, '1'.repeat(63)) }],
     ['a digest not hex', { [CONSOLE]: moved(CONSOLE).replace(/[0-9a-f]{64}$/m, 'A'.repeat(64)) }],
     ['a digest indented', { [CONSOLE]: moved(CONSOLE).replace('- digest:', '-  digest:') }],
+    ['a digest in a document of its own', { [CONSOLE]: `${moved(CONSOLE)}---\n- digest: sha256:${'5'.repeat(64)}\n` }],
     ['a newline at the end', { [CONSOLE]: `${moved(CONSOLE)}\n` }],
     ['the file deleted', { [CONSOLE]: null }],
     ['its mode', { [CONSOLE]: moved(CONSOLE) }, { [CONSOLE]: '+x' }],
@@ -189,6 +210,13 @@ describe('a deploy', () => {
       expect(kind(repository(change), queued).kind).toBe('code');
       expect(kind(repository(change), app).kind).not.toBe('deploy');
     }
+  });
+
+  it('is not a file whose name holds both pin files', () => {
+    const both = `${CONSOLE} ${FACTORY}`;
+    const repo = () => repository({ [both]: moved(CONSOLE) }, {}, { [both]: BASE[CONSOLE] ?? '' });
+    expect(kind(repo(), queued).kind).toBe('code');
+    expect(kind(repo(), app).kind).toBe('manifests');
   });
 
   it('is the App’s and into main: anyone else’s, or into another branch, is not', () => {

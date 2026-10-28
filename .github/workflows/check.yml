@@ -140,8 +140,9 @@ jobs:
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     # Long enough for a release or a deploy to wait out a re-run of the queue's run of this check on its base, or the
-    # run of the entry ahead of it in the queue, which may run everything.
-    timeout-minutes: 20
+    # run of the entry ahead of it in the queue, which may run everything: a chain of its jobs takes about forty
+    # minutes at most (scripts/github-settings.ts).
+    timeout-minutes: 45
     permissions:
       actions: read
     steps:
@@ -166,7 +167,7 @@ jobs:
           # list can lag a moment behind a run, so it fails once a minute's asking finds none.
           runs="repos/$GITHUB_REPOSITORY/actions/workflows/check.yml/runs?event=merge_group&head_sha=$BASE"
           missing=0
-          for _ in $(seq 72); do
+          for _ in $(seq 168); do
             state=""
             if run=$(gh api "$runs" --jq '.workflow_runs[0].id // empty'); then
               if [ -n "$run" ]; then
