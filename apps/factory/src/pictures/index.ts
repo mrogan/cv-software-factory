@@ -1,11 +1,12 @@
 /**
  * The index of a release's pictures (migrations 0010 and 0013): which pages were compared for which canary, with their
  * screenshots' references, and where each sense last boxed an element; and of a feature flag's pictures (0034), its
- * pages with the flag off and on, which Verify takes at Off and Checks (`probes/flag-check.ts`). The images themselves
- * are in the artifact store, which the probes worker writes; the line has no way to that store, and reads this instead.
+ * pages with the flag off and on, in each colour scheme, which Verify takes at Off and Checks (`probes/flag-check.ts`).
+ * The images themselves are in the artifact store, which the probes worker writes; the line has no way to that store,
+ * and reads this instead.
  */
 
-import type { Screenshot } from '@software-factory/events';
+import type { ColorScheme, Screenshot } from '@software-factory/events';
 import type { ArtifactStore, OpenedArtifact } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import type { Check } from '../capture.ts';
@@ -45,8 +46,8 @@ export interface Look {
 }
 
 /**
- * A page of a feature flag's, pictured by Verify: at `off`, the baseline, with the flag off; at `checks`, with it on,
- * against the page with it off when there is one.
+ * A page of a feature flag's, pictured by Verify in one colour scheme: at `off`, the baseline, with the flag off; at
+ * `checks`, with it on, against the page with it off in the same scheme when there is one.
  */
 export interface FlagPicture {
   flag: string;
@@ -55,6 +56,8 @@ export interface FlagPicture {
   revision: string;
   version: string;
   path: string;
+  /** The colour scheme the browser said it preferred. */
+  scheme: ColorScheme;
   route: string;
   shot: Screenshot;
   /** At checks, the share of pixels that differ from the page with the flag off: none without one. */
@@ -189,22 +192,29 @@ export class PictureIndex {
     return unnamed.length - left.length;
   }
 
-  /** A flag's page as Verify pictured it already, for the same stage, flag set and version: the same picture. */
+  /**
+   * A flag's page as Verify pictured it already, for the same stage, flag set, version and colour scheme: the same
+   * picture.
+   */
   async flagPicture(
-    key: Pick<FlagPicture, 'flag' | 'stage' | 'revision' | 'version' | 'path'>,
+    key: Pick<FlagPicture, 'flag' | 'stage' | 'revision' | 'version' | 'path' | 'scheme'>,
   ): Promise<FlagPicture | undefined> {
     const [row] = await this.#sql<FlagPicture[]>`
-      select flag, stage, revision, version, path, route, shot, changed, diff from flag_pictures
+      select flag, stage, revision, version, path, scheme, route, shot, changed, diff from flag_pictures
       where flag = ${key.flag} and stage = ${key.stage} and revision = ${key.revision} and version = ${key.version}
-        and path = ${key.path}`;
+        and path = ${key.path} and scheme = ${key.scheme}`;
     return row;
   }
 
-  /** The baseline's picture of a flag's page, by its screenshot's hash: the page with the flag off. */
-  async flagOff(flag: string, hash: string): Promise<FlagPicture | undefined> {
+  /**
+   * The baseline's picture of a flag's page in a colour scheme, by its screenshot's hash: the page with the flag off.
+   * A picture of the page in the other scheme is none of its.
+   */
+  async flagOff(flag: string, hash: string, scheme: ColorScheme): Promise<FlagPicture | undefined> {
     const [row] = await this.#sql<FlagPicture[]>`
-      select flag, stage, revision, version, path, route, shot, changed, diff from flag_pictures
-      where flag = ${flag} and stage = 'off' and shot->>'hash' = ${hash} order by taken_at desc limit 1`;
+      select flag, stage, revision, version, path, scheme, route, shot, changed, diff from flag_pictures
+      where flag = ${flag} and stage = 'off' and shot->>'hash' = ${hash} and scheme = ${scheme}
+      order by taken_at desc limit 1`;
     return row;
   }
 
@@ -212,9 +222,9 @@ export class PictureIndex {
   async recordFlagPicture(p: FlagPicture): Promise<void> {
     const sql = this.#sql;
     await sql`
-      insert into flag_pictures (flag, stage, revision, version, path, route, shot, changed, diff)
-      values (${p.flag}, ${p.stage}, ${p.revision}, ${p.version}, ${p.path}, ${p.route}, ${sql.json(p.shot as never)},
-              ${p.changed}, ${p.diff ? sql.json(p.diff as never) : null})
+      insert into flag_pictures (flag, stage, revision, version, path, scheme, route, shot, changed, diff)
+      values (${p.flag}, ${p.stage}, ${p.revision}, ${p.version}, ${p.path}, ${p.scheme}, ${p.route},
+              ${sql.json(p.shot as never)}, ${p.changed}, ${p.diff ? sql.json(p.diff as never) : null})
       on conflict do nothing`;
   }
 

@@ -14,9 +14,9 @@
  * `run` also serves the page reader for triage (`POST /v1/pages` with a path, and `GET /health`) on PORT, 8080 by
  * default; and for the line's Verify, on VERIFY_PORT, 8081 by default, runs a ticket's probe or crawl again
  * (`POST /v1/verify`, `probes/verify.ts`), and checks a feature flag at its stage with the probes, picturing its pages
- * (`POST /v1/flag-check`, `probes/flag-check.ts`), one run at a time. Given CANARY_URL, the canary Service's address, it pictures every page on
- * the stable version and on the canary while a canary runs, and compares them (`pictures/take.ts`), with requests
- * that carry `UNMEASURED` too. After each release, it deletes the pictures no release needs any more.
+ * in light and dark (`POST /v1/flag-check`, `probes/flag-check.ts`), one run at a time. Given CANARY_URL, the canary
+ * Service's address, it pictures every page on the stable version and on the canary while a canary runs, and compares
+ * them (`pictures/take.ts`), with requests that carry `UNMEASURED` too. After each release, it deletes the pictures no release needs any more.
  *
  * Settings, from the environment: APP_URL, the app's address; ARTIFACTS_DIR, the artifact store's folder (`once`
  * uses a temporary one without it); DATABASE_URL or the PG* variables, the store's Postgres, as its own role
@@ -145,10 +145,12 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
             // The probes alone, never the crawl, with the device check, as the journeys gate runs them.
             observe: (only, preview) =>
               observeApp(stable, only ?? allProbes, { store, log, limit, device: true, preview }),
-            shoot: (path, { route, version }) =>
+            shoot: (path, { route, version, scheme }) =>
               sense.withPage(async (page) => {
                 const url = new URL(path, stable);
                 if (url.origin !== new URL(stable).origin) throw new Error(`${path} is not a path on the app`);
+                // Before the page loads, so it is drawn in the scheme from the first paint.
+                await page.emulateMedia({ colorScheme: scheme });
                 await page.goto(url.href, { waitUntil: 'load' });
                 return capturePage(page, store, { route, version, maxHeight: PICTURE_HEIGHT });
               }, UNMEASURED),

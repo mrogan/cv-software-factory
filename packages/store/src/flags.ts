@@ -15,9 +15,9 @@
  *
  * Samples are never read: a sample's flag is no flag of the app's.
  */
-import { type PayloadOf, VERSIONS } from '@software-factory/events';
+import { type PayloadOf, upcast, VERSIONS } from '@software-factory/events';
 import type { Sql, TransactionSql } from 'postgres';
-import type { FlagRecord } from '../../../policy/flag-moves.ts';
+import { type FlagRecord, inBothSchemes } from '../../../policy/flag-moves.ts';
 import { askedByMartin, fromMartin } from './commands.ts';
 
 /** The role whose events of Verify's, and records of the planner's specs, are believed: the line's. */
@@ -93,11 +93,12 @@ export async function flagEvents(sql: Sql | TransactionSql, flag?: string): Prom
       seq: string;
       ts: Date;
       type: 'flag.staged' | 'flag.compared' | 'flag.checked';
+      version: number;
       work_item: string;
       payload: never;
     }[]
   >`
-    select e.seq::text as seq, e.ts, e.type, e.work_item, e.payload from events e
+    select e.seq::text as seq, e.ts, e.type, e.version, e.work_item, e.payload from events e
     where e.type in ('flag.staged', 'flag.compared', 'flag.checked') and not e.sample
       ${flag === undefined ? sql`` : sql`and e.payload->>'flag' = ${flag}`}
       and ((e.type = 'flag.staged' and e.version <= ${VERSIONS['flag.staged']} and e.work_item is not null
@@ -106,16 +107,23 @@ export async function flagEvents(sql: Sql | TransactionSql, flag?: string): Prom
         or (e.type = 'flag.checked' and e.version <= ${VERSIONS['flag.checked']} and e.appended_by = ${LINE_ROLE}
             and e.work_item is not null))
     order by e.seq`;
+  // A check read as the current version: one taken before Verify named each picture's colour scheme reads as light.
+  const current = (row: (typeof rows)[number]): PayloadOf<'flag.checked'> => {
+    const read = upcast({ type: row.type, version: row.version, payload: row.payload });
+    if (!read.ok) throw new Error(`flag.checked version ${row.version} is newer than this reader`);
+    return read.event.payload as PayloadOf<'flag.checked'>;
+  };
   const checked = rows
     .filter((row) => row.type === 'flag.checked')
     .map(
-      ({ seq, ts, work_item, payload }): StoredFlagCheck => ({
-        seq,
-        ts: ts.toISOString(),
-        workItem: work_item,
-        check: payload as PayloadOf<'flag.checked'>,
+      (row): StoredFlagCheck => ({
+        seq: row.seq,
+        ts: row.ts.toISOString(),
+        workItem: row.work_item,
+        check: current(row),
       }),
     );
+  const checks = new Map(checked.map((c) => [c.seq, c.check]));
   // The flag set as it stands is the one Martin's latest move of any flag wrote, whichever flag was asked about.
   const [latest] = await sql<{ revision: string }[]>`
     select e.payload->>'revision' as revision from events e
@@ -125,9 +133,13 @@ export async function flagEvents(sql: Sql | TransactionSql, flag?: string): Prom
   const records = rows.flatMap(({ seq, ts: at, type, work_item, payload }): StoredFlagRecord[] => {
     const ts = at.toISOString();
     if (type === 'flag.checked') {
-      // A baseline lets Checks be taken for its improvement; a check at Checks or Preview, a widening past it.
-      const check = payload as PayloadOf<'flag.checked'>;
-      if (check.stage === 'off') return [{ type, seq, ts, flag: check.flag, stage: 'off', workItem: work_item }];
+      // A baseline lets Checks be taken for its improvement, once it has each page in both colour schemes; a check at
+      // Checks or Preview, a widening past it.
+      const check = checks.get(seq) as PayloadOf<'flag.checked'>;
+      if (check.stage === 'off') {
+        const bothSchemes = inBothSchemes(check.pages);
+        return [{ type, seq, ts, flag: check.flag, stage: 'off', workItem: work_item, bothSchemes }];
+      }
       const { flag, stage, outcome, moveRevision } = check;
       return [{ type, seq, ts, flag, stage, outcome, moveRevision }];
     }

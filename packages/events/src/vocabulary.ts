@@ -249,6 +249,13 @@ export type FlagComparison = (typeof FLAG_COMPARISONS)[number];
 export const FLAG_CHECK_STAGES = ['off', 'checks', 'preview'] as const;
 export type FlagCheckStage = (typeof FLAG_CHECK_STAGES)[number];
 
+/**
+ * The colour schemes Verify pictures a flag's pages in, as the browser says it prefers (`prefers-color-scheme`): each
+ * page in both, so a change that answers to either shows.
+ */
+export const COLOR_SCHEMES = ['light', 'dark'] as const;
+export type ColorScheme = (typeof COLOR_SCHEMES)[number];
+
 /** How Verify's check of a flag at Checks or Preview came out: unsure when it had nothing to compare with. */
 export const FLAG_CHECKS = ['passed', 'failed', 'unsure'] as const;
 export type FlagCheck = (typeof FLAG_CHECKS)[number];

@@ -11,7 +11,7 @@
  *   the flag off did not keep.
  *
  * The pages are those the improvement's latest spec names (`spec.written`'s `pages`), up to six, or the front page when
- * it names none (`flags.ts`).
+ * it names none (`flags.ts`), each pictured in both colour schemes, light and dark, and compared scheme by scheme.
  */
 import type { ArtifactRef, PayloadOf, Screenshot } from '@software-factory/events';
 import type { StoredFlagCheck } from '@software-factory/store';
@@ -66,7 +66,7 @@ export function requestOf(asked: CheckAsked): FlagCheckRequest {
               ...check,
               ...(message !== undefined && { message }),
             })),
-            pictures: off.pages.map((page) => ({ path: page.page, hash: page.off })),
+            pictures: off.pages.map((page) => ({ path: page.page, scheme: page.scheme, hash: page.off })),
           }
         : null,
     }),
@@ -98,7 +98,9 @@ export function checkedDraft(asked: CheckAsked, answer: Checked): Draft {
   const { flag } = asked;
   const { version, revision, journeys } = answer;
   if (asked.stage === 'off') {
-    const pages = answer.pages.flatMap((p) => (p.off ? [{ page: p.path, route: p.route, off: p.off }] : []));
+    const pages = answer.pages.flatMap((p) =>
+      p.off ? [{ page: p.path, route: p.route, scheme: p.scheme, off: p.off }] : [],
+    );
     return {
       type: 'flag.checked',
       actor: 'factory',
@@ -146,6 +148,7 @@ export function checkedDraft(asked: CheckAsked, answer: Checked): Draft {
         pages: pages.map((p) => ({
           page: p.path,
           route: p.route,
+          scheme: p.scheme,
           ...(p.off && { off: p.off.hash }),
           on: p.on.hash,
           ...(p.changed !== undefined && { changed: p.changed }),

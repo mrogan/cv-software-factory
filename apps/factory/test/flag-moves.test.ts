@@ -10,6 +10,7 @@ import {
   type FlagNow,
   flagAction,
   flagsFrom,
+  inBothSchemes,
   moveOf,
   movesOf,
   stageWords,
@@ -161,7 +162,7 @@ describe('a move', () => {
 
   it('refuses Checks until Verify has a baseline of the improvement to compare its check there with', () => {
     expect(refused(at(off, { baseline: false }), checks)).toBe(
-      'Verify has no picture of the app with the flag off yet: Checks can be taken once it has, so the check there has something to compare with.',
+      'Verify has no picture of the app with the flag off, in light and dark, yet: Checks can be taken once it has, so the check there has something to compare with.',
     );
     expect(refused(at(off), checks)).toBeUndefined();
     // Turning back on from Everyone, Off and narrowing never wait for it.
@@ -241,7 +242,7 @@ describe('a flag as its events tell it', () => {
   it('is off once a spec names it, at the stage Martin last set, with Verify’s comparison of that move', () => {
     const flags = flagsFrom(
       [
-        { type: 'flag.checked', flag: 'delivery-dates', stage: 'off', workItem: '1316' },
+        { type: 'flag.checked', flag: 'delivery-dates', stage: 'off', workItem: '1316', bothSchemes: true },
         { type: 'flag.staged', flag: 'delivery-dates', workItem: '1316', from: off, to: checks, revision: 'r1' },
         { type: 'flag.staged', flag: 'delivery-dates', workItem: '1316', from: checks, to: share(50), revision: 'r2' },
         { type: 'flag.compared', flag: 'delivery-dates', share: 50, outcome: 'passed', moveRevision: 'r2' },
@@ -311,9 +312,41 @@ describe('a flag as its events tell it', () => {
   });
 
   it('has a baseline only for the improvement whose spec names it now', () => {
-    const records = [{ type: 'flag.checked', flag: 'dates', stage: 'off', workItem: '1316' }] as const;
+    const records = [
+      { type: 'flag.checked', flag: 'dates', stage: 'off', workItem: '1316', bothSchemes: true },
+    ] as const;
     expect(flagsFrom(records, { dates: '1316' }).dates?.baseline).toBe(true);
     expect(flagsFrom(records, { dates: '1400' }).dates?.baseline).toBeUndefined();
+  });
+
+  it('has no baseline from a run that missed a page in either colour scheme', () => {
+    const missing = [
+      { type: 'flag.checked', flag: 'dates', stage: 'off', workItem: '1316', bothSchemes: false },
+    ] as const;
+    expect(flagsFrom(missing, { dates: '1316' }).dates?.baseline).toBeUndefined();
+    // A later run with both counts, whatever came before it.
+    const retaken = [...missing, { ...missing[0], bothSchemes: true }];
+    expect(flagsFrom(retaken, { dates: '1316' }).dates?.baseline).toBe(true);
+  });
+
+  it('counts a baseline in both schemes only when each page it pictured has both', () => {
+    expect(inBothSchemes([])).toBe(true);
+    expect(
+      inBothSchemes([
+        { page: '/', scheme: 'light' },
+        { page: '/', scheme: 'dark' },
+      ]),
+    ).toBe(true);
+    // One taken before Verify named a scheme was light.
+    expect(inBothSchemes([{ page: '/' }])).toBe(false);
+    expect(inBothSchemes([{ page: '/' }, { page: '/', scheme: 'dark' }])).toBe(true);
+    expect(
+      inBothSchemes([
+        { page: '/', scheme: 'light' },
+        { page: '/', scheme: 'dark' },
+        { page: '/basket', scheme: 'dark' },
+      ]),
+    ).toBe(false);
   });
 
   it('forgets a comparison once Martin moves the flag again', () => {

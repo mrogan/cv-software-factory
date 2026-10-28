@@ -106,7 +106,11 @@ export const STORE_GRANTS = {
         'update (rollout)',
         'delete',
       ],
-      flag_pictures: ['select', 'insert (flag, stage, revision, version, path, route, shot, changed, diff)', 'delete'],
+      flag_pictures: [
+        'select',
+        'insert (flag, stage, revision, version, path, scheme, route, shot, changed, diff)',
+        'delete',
+      ],
       looks: ['select', 'insert', 'update (path, elements, seen_at)'],
       inbox: ['select (signal, triaged_at)', SIGNAL],
     },

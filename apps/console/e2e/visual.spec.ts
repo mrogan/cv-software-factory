@@ -714,13 +714,16 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
       await expect(section).toHaveScreenshot(`m07-sheet-flag-martin-${width}.png`);
     });
 
-    test('#1271’s sheet, its flag at Checks: the pages off and on', async ({ page }) => {
+    test('#1271’s sheet, its flag at Checks: the pages off and on, in light and dark', async ({ page }) => {
+      // Tall enough that the block is in the sheet whole, both schemes' rows, at every width.
+      await page.setViewportSize({ ...viewport, height: 2400 });
       await page.goto(consoleUrl({ item: '1271', sheet: true }));
       const checks = page.locator('.sheet details.rel', { hasText: /^Checks/ });
       await checks.locator('summary').click();
       await checks.scrollIntoViewIfNeeded();
       await page.evaluate(() => document.fonts.ready);
-      await expect(checks.locator('img')).toHaveCount(2);
+      // The front page, off and on, in light and then in dark.
+      await expect(checks.locator('img')).toHaveCount(4);
       for (const img of await checks.locator('img').all()) await expect(img).toHaveJSProperty('complete', true);
       await expect(checks).toHaveScreenshot(`m07-sheet-flag-checks-${width}.png`);
     });

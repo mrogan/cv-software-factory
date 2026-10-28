@@ -21,6 +21,7 @@ import {
   type FlagNow,
   type FlagRecord,
   flagsFrom,
+  inBothSchemes,
   type Move,
   movesOf,
   sameStage,
@@ -196,8 +197,10 @@ function records(events: readonly PublicEvent[]): FlagRecord[] {
     }
     if (event.type === 'flag.checked' && fromVerify(event) && event.work_item) {
       const check = event.payload;
-      if (check.stage === 'off')
-        return [{ type: 'flag.checked', flag: check.flag, stage: 'off', workItem: event.work_item }];
+      if (check.stage === 'off') {
+        const bothSchemes = inBothSchemes(check.pages);
+        return [{ type: 'flag.checked', flag: check.flag, stage: 'off', workItem: event.work_item, bothSchemes }];
+      }
       const { flag, stage, outcome, moveRevision } = check;
       return [{ type: 'flag.checked', flag, stage, outcome, moveRevision }];
     }

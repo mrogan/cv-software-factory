@@ -107,6 +107,7 @@ describe('migrations', () => {
       { version: 33, name: 'flag-stages' },
       { version: 34, name: 'flag-pictures' },
       { version: 35, name: 'improvement-requests' },
+      { version: 36, name: 'flag-picture-schemes' },
     ]);
   });
 });
@@ -209,7 +210,7 @@ describe('appending', () => {
       ...opened(item),
       id: uuid(),
       type: 'flag.checked',
-      version: 2,
+      version: 3,
       actor: 'factory',
       summary: 'last-one at Checks: could not tell',
       payload: {

@@ -1,8 +1,9 @@
 /**
  * A feature flag checked with the probes, for the line's Verify by variant (milestone 7, task 17): the probes worker,
  * which has the browser the line's image lacks, runs the journeys and the `/device` check against the stable Service,
- * and pictures the pages the improvement's spec names. Every request it makes carries the mark (`UNMEASURED`), which the
- * flag's targeting turns it on for from Checks: so with the flag at Off it sees the flag off, and from Checks on.
+ * and pictures the pages the improvement's spec names, each in both colour schemes. Every request it makes carries the
+ * mark (`UNMEASURED`), which the flag's targeting turns it on for from Checks: so with the flag at Off it sees the flag
+ * off, and from Checks on.
  *
  *     POST /v1/flag-check   { "flag": "gift-note", "stage": "checks", "revision": "r12", "pages": ["/"], "base": {...} }
  *       ->  202 while it runs; then 200 <FlagCheckAnswer>
@@ -14,7 +15,11 @@
  *   of (`have`), and the app still on it, nothing is run.
  * - **At Checks**: the journeys compared with the baseline's by the journeys gate's rule (`gates/journeys.ts`), the
  *   `/device` check among them, so a check that passed cleanly with the flag off and fails twice with it on regressed;
- *   and each page with the flag on, against the baseline's picture of it.
+ *   and each page with the flag on, against the baseline's picture of it in the same colour scheme.
+ *
+ * Each page is pictured twice, with the browser saying it prefers a light colour scheme and then a dark one
+ * (`prefers-color-scheme`), so a change that answers to either shows in its pictures. The pictures are evidence for
+ * Martin, never judged: the journeys run once, in the browser's default.
  * - **At Preview**: a probe first asks the app to preview the flag, as the console's link does, and the journeys are
  *   compared as at Checks; the `/device` check lists the preview cookie as allowed when it keeps to its contract.
  *
@@ -23,7 +28,7 @@
  * has not reached the app, or another came since) or a version that moved says the run may not have seen the stage it
  * was asked about, and nothing is judged.
  */
-import type { Screenshot } from '@software-factory/events';
+import { COLOR_SCHEMES, type ColorScheme, type Screenshot } from '@software-factory/events';
 import type { ArtifactStore } from '@software-factory/store';
 import { z } from 'zod';
 import { type Count, compareJourneys, keyOf, type Seen } from '../gates/journeys.ts';
@@ -36,7 +41,7 @@ import { PREVIEW_CHECK } from './index.ts';
 /** The header the app tells a marked request its flag set's revision in (FEATURE-FLAGS.md, "The revision"). */
 export const REVISION_HEADER = 'x-flags-revision';
 
-/** The most pages a check pictures, as `flag.checked` names them. */
+/** The most pages a check pictures, as `flag.checked` names them: each in both colour schemes. */
 export const MOST_PAGES = 6;
 /** The most checks a baseline names as not clean, as `flag.checked` takes them. */
 export const MOST_NOT_CLEAN = 200;
@@ -78,8 +83,10 @@ export const flagCheckRequest = z.strictObject({
     .strictObject({
       version,
       notClean: z.array(notClean).max(MOST_NOT_CLEAN),
-      /** Its picture of each page, by the screenshot's hash. */
-      pictures: z.array(z.strictObject({ path, hash })).max(MOST_PAGES),
+      /** Its picture of each page in each colour scheme, by the screenshot's hash. */
+      pictures: z
+        .array(z.strictObject({ path, scheme: z.enum(COLOR_SCHEMES), hash }))
+        .max(MOST_PAGES * COLOR_SCHEMES.length),
     })
     .nullable()
     .optional(),
@@ -87,9 +94,13 @@ export const flagCheckRequest = z.strictObject({
 export type FlagCheckRequest = z.infer<typeof flagCheckRequest>;
 export type NotClean = z.infer<typeof notClean>;
 
-/** A page as a check pictured it: with the flag off at Off; at Checks, on, against the baseline's picture of it. */
+/**
+ * A page as a check pictured it in a colour scheme: with the flag off at Off; at Checks, on, against the baseline's
+ * picture of it in the same scheme.
+ */
 export interface CheckedPage {
   path: string;
+  scheme: ColorScheme;
   route: string;
   off?: Screenshot;
   on?: Screenshot;
@@ -134,8 +145,11 @@ export interface FlagCheckDeps {
     only: readonly Pick<Seen, 'sense' | 'check'>[] | undefined,
     preview: string | undefined,
   ): Promise<{ version: string; seen: Seen[]; after: string | null }>;
-  /** Pictures a page of the app, with the mark: its PNG and its reference. */
-  shoot(path: string, shot: { route: string; version: string }): Promise<{ png: Uint8Array; screenshot: Screenshot }>;
+  /** Pictures a page of the app, with the mark, in a colour scheme: its PNG and its reference. */
+  shoot(
+    path: string,
+    shot: { route: string; version: string; scheme: ColorScheme },
+  ): Promise<{ png: Uint8Array; screenshot: Screenshot }>;
   index: Pick<PictureIndex, 'flagPicture' | 'flagOff' | 'recordFlagPicture'>;
   log: { warn(fields: object, message: string): void };
   /** Where the screenshots are, and the diffs go. */
@@ -245,60 +259,81 @@ async function heldOrWhy(deps: FlagCheckDeps, revision: string): Promise<string 
 }
 
 /**
- * Each page, pictured with the mark: at Off, the flag off; at Checks, on, and compared with the baseline's picture of
- * it, which the index vouches is one of the baseline's. A page pictured already for the same stage, flag set and
- * version is that picture again. A page that cannot be pictured is left out, and the run goes on.
+ * Each page in each colour scheme, pictured with the mark: at Off, the flag off; at Checks, on, and compared with the
+ * baseline's picture of it in the same scheme, which the index vouches is one of the baseline's. A page pictured
+ * already for the same stage, flag set, version and scheme is that picture again. A page that cannot be pictured in a
+ * scheme is left out of it, and the run goes on.
  */
 async function picture(deps: FlagCheckDeps, request: FlagCheckRequest, version: string): Promise<CheckedPage[]> {
   const stage = request.stage === 'off' ? 'off' : 'checks';
   const routeOf = templater(request.pages);
   const pages: CheckedPage[] = [];
   for (const path of request.pages) {
-    const key = { flag: request.flag, stage, revision: request.revision, version, path } as const;
-    const offHash = request.base?.pictures.find((p) => p.path === path)?.hash;
-    // The baseline's picture of the page, which the index vouches for: never a file the request merely names.
-    const off = stage === 'checks' && offHash ? (await deps.index.flagOff(request.flag, offHash))?.shot : undefined;
-    let taken = await deps.index.flagPicture(key);
-    if (!taken) {
-      const route = routeOf(path);
-      let shot: Awaited<ReturnType<FlagCheckDeps['shoot']>>;
-      try {
-        shot = await deps.shoot(path, { route, version });
-      } catch (error) {
-        // Left out of the answer, which names only the pages pictured; the run goes on.
-        deps.log.warn({ flag: request.flag, path, err: String(error) }, 'a page of a flag could not be pictured');
-        continue;
-      }
-      const against = off && (await bytesOf(deps.store, off.hash));
-      const comparison = against ? compare(against, shot.png) : undefined;
-      taken = {
-        ...key,
-        route,
-        shot: shot.screenshot,
-        changed: comparison ? Math.ceil(comparison.changed * 10_000) / 10_000 : null,
-        diff:
-          comparison?.diff && off
-            ? {
-                ...shot.screenshot,
-                hash: await deps.store.put(comparison.diff),
-                size: comparison.diff.byteLength,
-                width: Math.max(off.width, shot.screenshot.width),
-                height: Math.max(off.height, shot.screenshot.height),
-                boxes: [],
-              }
-            : null,
-      };
-      await deps.index.recordFlagPicture(taken);
+    for (const scheme of COLOR_SCHEMES) {
+      const page = await pictureOne(deps, request, { stage, version, path, scheme, route: routeOf(path) });
+      if (page) pages.push(page);
     }
-    pages.push({
-      path,
-      route: taken.route,
-      ...(stage === 'off' ? { off: taken.shot } : { ...(off && { off }), on: taken.shot }),
-      ...(taken.changed !== null && { changed: taken.changed }),
-      ...(taken.diff && { diff: taken.diff }),
-    });
   }
   return pages;
+}
+
+/** A page in a colour scheme, as `picture` takes it: undefined when it could not be pictured. */
+async function pictureOne(
+  deps: FlagCheckDeps,
+  request: FlagCheckRequest,
+  {
+    stage,
+    version,
+    path,
+    scheme,
+    route,
+  }: { stage: 'off' | 'checks'; version: string; path: string; scheme: ColorScheme; route: string },
+): Promise<CheckedPage | undefined> {
+  const key = { flag: request.flag, stage, revision: request.revision, version, path, scheme } as const;
+  const offHash = request.base?.pictures.find((p) => p.path === path && p.scheme === scheme)?.hash;
+  // The baseline's picture of the page in this scheme, which the index vouches for: never a file the request merely
+  // names.
+  const off =
+    stage === 'checks' && offHash ? (await deps.index.flagOff(request.flag, offHash, scheme))?.shot : undefined;
+  let taken = await deps.index.flagPicture(key);
+  if (!taken) {
+    let shot: Awaited<ReturnType<FlagCheckDeps['shoot']>>;
+    try {
+      shot = await deps.shoot(path, { route, version, scheme });
+    } catch (error) {
+      // Left out of the answer, which names only the pages pictured; the run goes on.
+      deps.log.warn({ flag: request.flag, path, scheme, err: String(error) }, 'a page of a flag could not be pictured');
+      return undefined;
+    }
+    const against = off && (await bytesOf(deps.store, off.hash));
+    const comparison = against ? compare(against, shot.png) : undefined;
+    taken = {
+      ...key,
+      route,
+      shot: shot.screenshot,
+      changed: comparison ? Math.ceil(comparison.changed * 10_000) / 10_000 : null,
+      diff:
+        comparison?.diff && off
+          ? {
+              ...shot.screenshot,
+              hash: await deps.store.put(comparison.diff),
+              size: comparison.diff.byteLength,
+              width: Math.max(off.width, shot.screenshot.width),
+              height: Math.max(off.height, shot.screenshot.height),
+              boxes: [],
+            }
+          : null,
+    };
+    await deps.index.recordFlagPicture(taken);
+  }
+  return {
+    path,
+    scheme,
+    route: taken.route,
+    ...(stage === 'off' ? { off: taken.shot } : { ...(off && { off }), on: taken.shot }),
+    ...(taken.changed !== null && { changed: taken.changed }),
+    ...(taken.diff && { diff: taken.diff }),
+  };
 }
 
 /** An artifact's bytes, or undefined when the store does not have it. */

@@ -94,7 +94,15 @@ function checked(flag: string, stage: 'checks' | 'preview', outcome: 'passed' | 
         ...common,
         stage,
         pages: [
-          { page: '/', route: '/', off: 'a'.repeat(64), on: 'b'.repeat(64), changed: 0.04, diff: 'c'.repeat(64) },
+          {
+            page: '/',
+            route: '/',
+            scheme: 'light' as const,
+            off: 'a'.repeat(64),
+            on: 'b'.repeat(64),
+            changed: 0.04,
+            diff: 'c'.repeat(64),
+          },
         ],
       }
     : { ...common, stage, device: { allowed: ['cookie preview'], kept: [] } };
@@ -128,7 +136,7 @@ describe('a flag', () => {
     const events = improvement('2016', 'unseen').events.filter((event) => event.type !== 'flag.checked');
     const { flags, needs } = viewOf(events);
     expect(flags[0]?.stops.find((stop) => stop.stage === 'checks')?.move.refused).toMatch(
-      /^Verify has no picture of the app with the flag off yet/,
+      /^Verify has no picture of the app with the flag off, in light and dark, yet/,
     );
     expect(needs[0]?.widen.refused).toMatch(/no picture of the app with the flag off/);
   });
@@ -507,7 +515,8 @@ describe('the samples’ flags', () => {
     const [, , preview, checks] = sheet?.flag?.blocks ?? [];
     expect(preview?.kind === 'staged' && preview.checked?.outcome).toBe('passed');
     expect(checks?.kind === 'staged' && checks.checked?.stage === 'checks' && checks.checked.pages).toEqual([
-      expect.objectContaining({ page: '/', changed: 0 }),
+      expect.objectContaining({ page: '/', scheme: 'light', changed: 0 }),
+      expect.objectContaining({ page: '/', scheme: 'dark', changed: 0 }),
     ]);
     expect(checks?.kind === 'staged' && checks.checked?.shots.map((shot) => shot.route)).toEqual(['/', '/']);
   });

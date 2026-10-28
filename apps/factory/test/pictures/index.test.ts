@@ -302,31 +302,44 @@ describe('a flag’s pictures', () => {
   const DAY = 24 * 60 * 60_000;
   const hash = (fill: string) => fill.repeat(64);
   /** A flag's page, its images named by the hex digit each hash repeats: the shot, and the diff at Checks. */
-  const flagPage = (stage: 'off' | 'checks', [s, d]: string, path = '/'): FlagPicture => ({
+  const flagPage = (
+    stage: 'off' | 'checks',
+    [s, d]: string,
+    path = '/',
+    scheme: 'light' | 'dark' = 'light',
+  ): FlagPicture => ({
     flag: 'gift-note',
     stage,
     revision: 'r7',
     version: NEW,
     path,
+    scheme,
     route: path,
     shot: shot(s as string, NEW),
     changed: stage === 'checks' ? 0.02 : null,
     diff: d && d !== '-' ? shot(d, NEW) : null,
   });
 
-  it('records a page once for each stage, flag set and version, and finds the baseline’s by its hash', async () => {
+  it('records a page once for each stage, flag set, version and scheme, and finds the baseline’s by its hash', async () => {
     const index = new PictureIndex(database.as.probes);
     await index.recordFlagPicture(flagPage('off', '1-'));
     await index.recordFlagPicture({ ...flagPage('off', '9-'), route: '/again' });
+    await index.recordFlagPicture(flagPage('off', '5-', '/', 'dark'));
     await index.recordFlagPicture(flagPage('checks', '23'));
-    const key = { flag: 'gift-note', revision: 'r7', version: NEW, path: '/' };
+    const key = { flag: 'gift-note', revision: 'r7', version: NEW, path: '/', scheme: 'light' } as const;
     expect(await index.flagPicture({ ...key, stage: 'off' })).toEqual(flagPage('off', '1-'));
+    expect(await index.flagPicture({ ...key, stage: 'off', scheme: 'dark' })).toEqual(
+      flagPage('off', '5-', '/', 'dark'),
+    );
     expect(await index.flagPicture({ ...key, stage: 'checks' })).toEqual(flagPage('checks', '23'));
+    expect(await index.flagPicture({ ...key, stage: 'checks', scheme: 'dark' })).toBeUndefined();
     expect(await index.flagPicture({ ...key, stage: 'off', revision: 'r8' })).toBeUndefined();
-    expect((await index.flagOff('gift-note', hash('1')))?.path).toBe('/');
-    // Only the baseline's, and only the flag's own.
-    expect(await index.flagOff('gift-note', hash('2'))).toBeUndefined();
-    expect(await index.flagOff('dark-mode', hash('1'))).toBeUndefined();
+    expect((await index.flagOff('gift-note', hash('1'), 'light'))?.path).toBe('/');
+    expect((await index.flagOff('gift-note', hash('5'), 'dark'))?.scheme).toBe('dark');
+    // Only the baseline's, only the flag's own, and only in the scheme asked for.
+    expect(await index.flagOff('gift-note', hash('2'), 'light')).toBeUndefined();
+    expect(await index.flagOff('dark-mode', hash('1'), 'light')).toBeUndefined();
+    expect(await index.flagOff('gift-note', hash('1'), 'dark')).toBeUndefined();
   });
 
   it('are artifacts the line may attach, at their size', async () => {
@@ -376,7 +389,7 @@ describe('a flag’s pictures', () => {
           revision: 'r7',
           journeys: { passed: 3, ran: 3 },
           notClean: [],
-          pages: [{ page: '/', route: '/', off: hash('1') }],
+          pages: [{ page: '/', route: '/', scheme: 'light', off: hash('1') }],
         },
         [shot('1', NEW)],
       ),
@@ -392,7 +405,7 @@ describe('a flag’s pictures', () => {
     await database.owner`update flag_pictures set taken_at = now() - interval '2 days' where path = '/'`;
     expect(await index.forgetFlagPictures(new Date(), remove)).toBe(2);
     expect(removed.sort()).toEqual([hash('2'), hash('3')]);
-    const key = { flag: 'gift-note', revision: 'r7', version: NEW };
+    const key = { flag: 'gift-note', revision: 'r7', version: NEW, scheme: 'light' } as const;
     expect(await index.flagPicture({ ...key, stage: 'off', path: '/' })).toBeDefined();
     expect(await index.flagPicture({ ...key, stage: 'checks', path: '/' })).toBeUndefined();
     expect(await index.flagPicture({ ...key, stage: 'checks', path: '/about' })).toBeDefined();

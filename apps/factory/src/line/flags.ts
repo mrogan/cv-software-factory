@@ -32,7 +32,8 @@
  *     (`PROMETHEUS_URL`, Verify's), it waits.
  *   - **Checked with the probes** (`flag-checks.ts`): while an open improvement's flag is at Off, the probes take a
  *     baseline of the stable version, once for each version and flag set it runs with: the journeys and the `/device` check, and
- *     pictures of the spec's pages, all with the flag off, since every probe request carries the mark, which the flag
+ *     pictures of the spec's pages in light and dark, all with the flag off (and again for a baseline missing a page in
+ *     either, as one taken before Verify pictured dark is), since every probe request carries the mark, which the flag
  *     is on for from Checks. At Checks and at Preview, the same again, compared with the latest baseline, once for each
  *     of Martin's moves there; at Preview a probe first asks to preview the flag. Each is asked once a pass, and the
  *     probes join the run already going; each run checks the app held the flag set Martin's latest move wrote, before
@@ -46,7 +47,7 @@ import type { EventWriter, FlagEvents, StoredFlagCheck } from '@software-factory
 import { askedByMartin, flagEvents, fromMartin, lastEnd } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
-import { flagsFrom, stageWords } from '../../../../policy/flag-moves.ts';
+import { flagsFrom, inBothSchemes, stageWords } from '../../../../policy/flag-moves.ts';
 import { FLAGS_HELD, type Share, type Stage } from '../../../../policy/flags.ts';
 import { release as RELEASE } from '../../../../policy/release.ts';
 import type { Prometheus } from '../clients/prometheus.ts';
@@ -166,8 +167,11 @@ export function flagsNext({ flags, items, only, now: at }: FlagFacts): FlagNext[
         stage: 'off',
         revision,
         move: move?.seq ?? null,
-        // Taken again for a new flag set too: another flag moved meanwhile changes what the probes see.
-        ...(taken?.check.revision === revision && { have: taken.check.version }),
+        // Taken again for a new flag set too: another flag moved meanwhile changes what the probes see; and once more
+        // when it is missing a page in a colour scheme, as every baseline taken before Verify pictured dark is.
+        ...(taken?.check.stage === 'off' &&
+          taken.check.revision === revision &&
+          inBothSchemes(taken.check.pages) && { have: taken.check.version }),
         base: null,
         pages: pagesOf(flags, flag),
       });

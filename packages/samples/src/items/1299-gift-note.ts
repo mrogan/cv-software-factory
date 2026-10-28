@@ -13,7 +13,10 @@ import { V097 } from './1302-long-words.ts';
 /** The flag the spec names. */
 const FLAG = 'gift-note';
 const REASON = 'The note box covers the basket total on a phone';
-/** The front page, which the probes picture while a spec names no pages. */
+/**
+ * The front page, which the probes picture while a spec names no pages. The probes picture it in light and in dark: the app as published sets no colour scheme of its own, so the two are
+ * the same picture.
+ */
 const HOME = shot('published/home', 'v0.9.7');
 
 export default new Item('1299', '2026-10-03T09:30:00+01:00')
@@ -94,7 +97,10 @@ export default new Item('1299', '2026-10-03T09:30:00+01:00')
       revision: 'r5',
       journeys: { passed: 24, ran: 24 },
       notClean: [],
-      pages: [{ page: '/', route: '/', off: HOME.hash }],
+      pages: [
+        { page: '/', route: '/', scheme: 'light', off: HOME.hash },
+        { page: '/', route: '/', scheme: 'dark', off: HOME.hash },
+      ],
     },
     [HOME],
   )
@@ -121,7 +127,10 @@ export default new Item('1299', '2026-10-03T09:30:00+01:00')
       outcome: 'passed',
       journeys: { base: { passed: 24, ran: 24 }, change: { passed: 24, ran: 24 } },
       regressions: [],
-      pages: [{ page: '/', route: '/', off: HOME.hash, on: HOME.hash, changed: 0 }],
+      pages: [
+        { page: '/', route: '/', scheme: 'light', off: HOME.hash, on: HOME.hash, changed: 0 },
+        { page: '/', route: '/', scheme: 'dark', off: HOME.hash, on: HOME.hash, changed: 0 },
+      ],
     },
     [HOME],
   )

@@ -480,6 +480,8 @@ body.still .sheet, body.still .scrim, body.still .reel.anim .card, body.still .r
 .criteria small.side { display: block; margin-top: 3px; font: 11px/1.3 var(--font-mono); color: var(--text-muted); }
 code.flagname { font: 12.5px var(--font-mono); padding: 1px 6px; border-radius: var(--radius-small); background: var(--surface); color: var(--text); white-space: nowrap; }
 .regress .row.pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* The mockup's stand-in for a page the browser drew in its dark colour scheme: the console shows the probes' own. */
+.vis.scheme-dark > * { filter: invert(1) hue-rotate(180deg); }
 /* A flag's stages as a slider: five stops, Off to Everyone, filled in ink to where it stands. */
 .fslider { position: relative; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 2px 0 0; touch-action: none; }
 .fslider .frail, .fslider .fill { position: absolute; top: 11px; left: 10%; height: 2px; border-radius: 1px; }
@@ -2344,10 +2346,10 @@ function flagBlocks(it) {
     `<p class="rel-end">Shipped in ${t.version} with the flag off, so nobody saw a change: release ${t.release}, promoted at ${t.released}. The flag waited for Martin to widen it.</p>`));
   if (at >= 1 || f.turnedOff) out.push(block('Checks', t.checks, 'Passed', 'ok',
     `<p class="rel-end">On for the factory’s own checks, by the header only they can send. At ${t.checked} the journeys passed with it on, 6 of 6, and the device check found nothing kept.</p>
-    <div class="regress" style="margin-top: 0"><span class="label">${t.page}, the flag off and on</span><div class="row pair">
-      <figure><div class="vis">${t.shot(false)}</div><figcaption><span>${t.page}</span><span class="mono same">flag off</span></figcaption></figure>
-      <figure><div class="vis">${t.shot(true)}</div><figcaption><span>${t.page}</span><span class="mono meant">flag on · intended</span></figcaption></figure></div>
-      <p class="pages-note">The pages the spec names, from the release and from this stage. The probes are written from the spec, blind, and know no new feature: these pictures are for Martin to judge when he widens. The spec’s criteria were proved by the pull request’s own tests, with the flag on and off.</p></div>`));
+    <div class="regress" style="margin-top: 0"><span class="label">${t.page}, the flag off and on, in light and dark</span>${['light', 'dark'].map((scheme) => `<div class="row pair">
+      <figure><div class="vis scheme-${scheme}">${t.shot(false)}</div><figcaption><span>${t.page} · ${scheme}</span><span class="mono same">flag off</span></figcaption></figure>
+      <figure><div class="vis scheme-${scheme}">${t.shot(true)}</div><figcaption><span>${t.page} · ${scheme}</span><span class="mono meant">flag on · intended</span></figcaption></figure></div>`).join('')}
+      <p class="pages-note">The pages the spec names, from the release and from this stage, each with the browser preferring a light colour scheme and then a dark one, so a change that answers to either shows. The probes are written from the spec, blind, and know no new feature: these pictures are for Martin to judge when he widens. The spec’s criteria were proved by the pull request’s own tests, with the flag on and off.</p></div>`));
   if (at >= 2 || (f.turnedOff && FLAG_TIMES[name].preview)) out.push(block('Preview', t.preview, 'Passed', 'ok',
     `<p class="rel-end">Also on for anyone who asks to preview it. At ${t.previewed} a probe asked for the preview on ${f.page}, and the device check found the preview cookie and nothing else:</p>
     <p class="words">preview=${name} · Path=/ · Max-Age=86400 · HttpOnly · SameSite=Lax</p>

@@ -2486,8 +2486,13 @@ describe('the flags’ stages', () => {
     return workItem;
   }
 
-  /** Verify's run of the flag with it off, as the line appends it, or as another role would. */
-  const baselineOf = (workItem: string, flag = FLAG, sql = db.as.line) =>
+  /** Verify's run of the flag with it off, as the line appends it, or as another role would, with the pages it took. */
+  const baselineOf = (
+    workItem: string,
+    flag = FLAG,
+    sql = db.as.line,
+    pages: Extract<PayloadOf<'flag.checked'>, { stage: 'off' }>['pages'] = [],
+  ) =>
     append(sql, [
       event(workItem, 'flag.checked', 'factory', {
         stage: 'off',
@@ -2496,7 +2501,7 @@ describe('the flags’ stages', () => {
         revision: 'none',
         journeys: { passed: 24, ran: 24 },
         notClean: [],
-        pages: [],
+        pages,
       }),
     ]);
 
@@ -2732,6 +2737,37 @@ describe('the flags’ stages', () => {
     await baselineOf(workItem, FLAG, db.as.triage);
     expect((await move(browser, off, checks)).status).toBe(409);
     await baselineOf(workItem);
+    expect((await move(browser, off, checks)).status).toBe(200);
+  });
+
+  it('refuses Checks on a baseline missing a page in either colour scheme, as one taken before dark was', async () => {
+    const workItem = await improvement(FLAG, 'improvement', false);
+    const { browser } = await signedIn();
+    const light = { page: '/', route: '/', scheme: 'light', off: '1'.repeat(64) } as const;
+    // As the store reads one taken before Verify named a scheme: its page read as light, and no dark.
+    const v2 = {
+      stage: 'off',
+      flag: FLAG,
+      version: 'v0.9.5',
+      revision: 'none',
+      journeys: { passed: 24, ran: 24 },
+      notClean: [],
+      pages: [{ page: '/', route: '/', off: '1'.repeat(64) }],
+    };
+    // Stored as the line stored it then: the writer takes only the current version now.
+    await db.as.line`
+      insert into events (id, ts, work_item, type, version, actor, summary, payload, artifacts, public, sample)
+      values (${crypto.randomUUID()}, now(), ${workItem}, 'flag.checked', 2, 'factory', 'flag.checked for the test',
+              ${db.as.line.json(v2)}, '[]', '{}', false)`;
+    expect(await move(browser, off, checks)).toMatchObject({
+      status: 409,
+      body: {
+        message: expect.stringMatching(/^Verify has no picture of the app with the flag off, in light and dark/),
+      },
+    });
+    await baselineOf(workItem, FLAG, db.as.line, [light]);
+    expect((await move(browser, off, checks)).status).toBe(409);
+    await baselineOf(workItem, FLAG, db.as.line, [light, { ...light, scheme: 'dark', off: '2'.repeat(64) }]);
     expect((await move(browser, off, checks)).status).toBe(200);
   });
 
