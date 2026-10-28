@@ -30,7 +30,7 @@ const BULGE = 0.75;
 const bez = (t: number, a: number, b: number, c: number, d: number) =>
   (1 - t) ** 3 * a + 3 * (1 - t) ** 2 * t * b + 3 * (1 - t) * t ** 2 * c + t ** 3 * d;
 const ease = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
-const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
+export const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
 
 /**
  * The route from `from` to `to`, swung `swing` pixels aside at its widest (to the right if positive, to the left if
@@ -81,7 +81,7 @@ export function swingOut(from: Point, to: Point, lo: number, hi: number): number
 }
 
 /** How far a route goes through the air, in pixels: the sum of its keyframes' steps. */
-export function length(r: Route): number {
+export function routeLength(r: Route): number {
   let sum = 0;
   for (let i = 1; i < r.points.length; i++) {
     const [a, b] = [r.points[i - 1], r.points[i]];

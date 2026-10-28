@@ -18,16 +18,17 @@ import type { PublicEvent } from '@software-factory/events';
 import { useEffect, useRef } from 'react';
 import { hear, heard, type Reaction, type Watch } from '../projection/bird.ts';
 import type { Release } from '../projection/release.ts';
-import { type Point, route, swingOut } from './flight.ts';
+import { clamp, type Point, type Route, route, swingOut } from './flight.ts';
 
 /** The bird's box in the station's drawing, whose viewBox is "0 -20 168 220", 168 wide. */
 const VB = { x: 56, y: 12, w: 36, h: 30 };
 /** Where its feet are, in the drawing: what stands on the panel's top edge. */
 const FEET = 39;
 const STATION_WIDTH = 168;
+/** How long the drawing takes to turn about in the air, as a share of the flight. */
+const TURN = 0.02;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
 const narrow = () => matchMedia('(max-width: 720px)').matches;
 
 type Mode = 'cage' | 'flying' | 'card' | 'down';
@@ -66,8 +67,8 @@ export class Flyer {
   /** Moves on when it starts again from its cage, or stops for good, so a reaction waiting on a sleep stops. */
   #life = 0;
   #anim: Animation | null = null;
-  /** The drawing turning about in the air, during a flight that turns back. */
-  #turning: Animation | null = null;
+  /** The drawing turning about, during a flight that turns back, and where in the flight it turns which way. */
+  #turning: { anim: Animation; facings: Route['turns'] } | null = null;
   #queue: (() => void)[] = [];
   /** Out for a release, but with no panel or station to stand on yet: whether it is a paper bird. */
   #waiting: boolean | undefined;
@@ -167,7 +168,7 @@ export class Flyer {
     flip.style.transform = `scaleX(${d})`;
     if (instant) {
       // The style takes the turn before the transition is back, so the transition does not play it again.
-      flip.getBoundingClientRect();
+      void getComputedStyle(flip).transform;
       flip.style.transition = '';
     }
   }
@@ -185,8 +186,8 @@ export class Flyer {
   /** Stops a walk or a pause where it is; a loop waiting on it sees the generation move on. */
   #halt() {
     this.#gen += 1;
-    this.#turning?.cancel();
-    this.#turning = null;
+    const t = this.#turning?.anim;
+    this.#turned(t ? Number(t.currentTime ?? 0) / Number(t.effect?.getComputedTiming().duration ?? 1) : 0);
     const a = this.#anim;
     if (a) {
       const m = new DOMMatrixReadOnly(getComputedStyle(this.#el).transform);
@@ -218,33 +219,39 @@ export class Flyer {
    */
   async #fly(to: Point, swing = 0): Promise<boolean> {
     const r = route({ x: this.#x, y: this.#y }, to, swing);
-    if (r.facing) this.#face(r.facing);
     const frames: Keyframe[] = r.points.map((p) => ({ transform: `translate(${p.x}px, ${p.y}px)` }));
     this.#mode = 'flying';
     this.#el.classList.add('flying');
     const flip = this.#part('.flip');
-    const last = r.turns.at(-1);
-    let turning: Animation | null = null;
-    if (flip && last) {
-      // The turns as quick flips of the drawing, each over 2% of the flight, held between them.
+    if (flip && r.turns.length) {
+      // From the way it faces now: a turn as it takes off, if it needs one, and each in the air, as quick flips of the
+      // drawing, held between them.
+      const facings = r.facing && r.facing !== this.#facing ? [{ at: 0, facing: r.facing }, ...r.turns] : r.turns;
       const keys: Keyframe[] = [{ transform: `scaleX(${this.#facing})`, offset: 0 }];
-      for (const { at, facing } of r.turns)
-        keys.push(
-          { transform: `scaleX(${-facing})`, offset: Math.max(0, at - 0.02) },
-          { transform: `scaleX(${facing})`, offset: at },
-        );
-      keys.push({ transform: `scaleX(${last.facing})`, offset: 1 });
-      turning = flip.animate(keys, { duration: r.duration, fill: 'forwards' });
-      this.#turning = turning;
-    }
+      let [was, offset] = [this.#facing, 0];
+      for (const { at, facing } of facings) {
+        const from = Math.max(offset, at - TURN);
+        offset = Math.min(1, from + TURN);
+        keys.push({ transform: `scaleX(${was})`, offset: from }, { transform: `scaleX(${facing})`, offset });
+        was = facing;
+      }
+      keys.push({ transform: `scaleX(${was})`, offset: 1 });
+      this.#turning = { anim: flip.animate(keys, { duration: r.duration, fill: 'forwards' }), facings };
+    } else if (r.facing) this.#face(r.facing);
     const landed = await this.#move(frames, { duration: r.duration, easing: 'linear' }, to);
     this.#el.classList.remove('flying');
-    if (landed && last) this.#face(last.facing, true);
-    if (turning && this.#turning === turning) {
-      turning.cancel();
-      this.#turning = null;
-    }
+    if (landed) this.#turned(1);
     return landed;
+  }
+
+  /** Ends a flight's turning about, facing the way it faced `progress` (0 to 1) through the flight. */
+  #turned(progress: number) {
+    const turning = this.#turning;
+    if (!turning) return;
+    this.#turning = null;
+    const now = turning.facings.findLast(({ at }) => at <= progress);
+    if (now) this.#face(now.facing, true);
+    turning.anim.cancel();
   }
 
   /** What arrives while it is in the air waits for it to land. */

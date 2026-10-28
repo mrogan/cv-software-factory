@@ -3,7 +3,7 @@
  * back, and is in the air about as long as on its way home from where it has walked off along the panel.
  */
 import { describe, expect, it } from 'vitest';
-import { length, route, SWING, swingOut } from '../web/src/components/flight.ts';
+import { route, routeLength, SWING, swingOut } from '../web/src/components/flight.ts';
 
 // At 1440px: the cage, where it lands on the panel just below it, and the panel's top edge from side to side.
 const cage = { x: 900, y: 40 };
@@ -30,6 +30,18 @@ describe('the flight out of the cage', () => {
     expect(out.points.at(-1)?.y).toBeCloseTo(landing.y);
   });
 
+  it('swung right, stays over the panel too', () => {
+    const [from, to] = [
+      { x: 300, y: 40 },
+      { x: 310, y: 190 },
+    ];
+    const right = route(from, to, swingOut(from, to, 200, 520));
+    const xs = right.points.map((p) => p.x);
+    expect(Math.max(...xs)).toBeGreaterThan(from.x + SWING * 0.9);
+    expect(Math.max(...xs)).toBeLessThanOrEqual(520);
+    expect(right.facing).toBe(1);
+  });
+
   it('turns about once in the air, to face the way it comes in to land', () => {
     expect(out.facing).toBe(-1);
     expect(out.turns).toHaveLength(1);
@@ -42,10 +54,10 @@ describe('the flight out of the cage', () => {
     const drop = route(cage, landing);
     const homes = [landing.x - 300, landing.x + 200, landing.x + 300].map((x) => route({ x, y: landing.y }, cage));
     // Without the swing it would be a short drop.
-    expect(length(drop)).toBeLessThan(0.6 * length(out));
+    expect(routeLength(drop)).toBeLessThan(0.6 * routeLength(out));
     for (const home of homes) {
-      expect(length(out) / length(home)).toBeGreaterThan(0.8);
-      expect(length(out) / length(home)).toBeLessThan(1.6);
+      expect(routeLength(out) / routeLength(home)).toBeGreaterThan(0.8);
+      expect(routeLength(out) / routeLength(home)).toBeLessThan(1.6);
       expect(out.duration / home.duration).toBeGreaterThan(0.9);
       expect(out.duration / home.duration).toBeLessThan(1.6);
     }
