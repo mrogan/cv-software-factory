@@ -129,6 +129,14 @@ describe('the canary bird', () => {
     expect(reactions(aborted.events).slice(1)).toEqual([undefined, { kind: 'home' }]);
   });
 
+  it('sings for a step that waited for someone and then passed', () => {
+    const waited = work('1')
+      .add(1, 'release.started', 'rollouts', started())
+      .add(4, 'canary.stepped', 'rollouts', stepped(25, 'inconclusive'))
+      .add(6, 'canary.stepped', 'rollouts', stepped(25));
+    expect(reactions(waited.events).slice(1)).toEqual([undefined, { kind: 'sing', step: 0 }]);
+  });
+
   it('leaves again for a retry, and takes no notice of another release’s events or of copies of an end', () => {
     const abort = { ...ended, by: 'martin' as const, abortedAt: '2026-10-03T09:05:00Z' };
     const one = work('1')

@@ -31,7 +31,7 @@ export interface Watch {
   release: string | undefined;
   /** Each measurement it has heard, by measure and end, which name a measurement. */
   measured: Set<string>;
-  /** The weight of each step it has heard measured. */
+  /** The weight of each step it has heard passed or failed. */
   stepped: Set<number>;
   /** How many of those steps passed: its next song has one note more. */
   sung: number;
@@ -66,11 +66,11 @@ export function hear(watch: Watch, event: PublicEvent): Reaction | undefined {
   }
   if (event.type === 'canary.stepped') {
     const { weight, analysis } = event.payload;
+    // A step that could not be judged, or that waits for someone, is no song, and may yet be judged.
+    if (analysis.phase !== 'successful' && analysis.phase !== 'failed') return undefined;
     if (watch.stepped.has(weight)) return undefined;
     watch.stepped.add(weight);
     if (analysis.phase === 'failed') return { kind: 'sour' };
-    // A step that could not be judged, or that waits for someone, is no song.
-    if (analysis.phase !== 'successful') return undefined;
     watch.sung += 1;
     return { kind: 'sing', step: watch.sung - 1 };
   }

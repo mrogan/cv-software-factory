@@ -67,6 +67,8 @@ export class Flyer {
   #life = 0;
   #anim: Animation | null = null;
   #queue: (() => void)[] = [];
+  /** Out for a release, but with no panel or station to stand on yet: whether it is a paper bird. */
+  #waiting: boolean | undefined;
 
   constructor(layer: HTMLElement, el: HTMLElement, page: Page) {
     this.#layer = layer;
@@ -242,6 +244,7 @@ export class Flyer {
     this.#halt();
     this.#life += 1;
     this.#queue = [];
+    this.#waiting = undefined;
     this.#mode = 'cage';
     this.#el.className = 'bird-fly';
     this.#face(1);
@@ -273,7 +276,11 @@ export class Flyer {
     this.#el.classList.toggle('paper', paper);
     this.#size();
     const at = this.#landing();
-    if (!at) return;
+    // Nothing to stand on yet: it perches as soon as the page has the panel and the station (`settle`).
+    if (!at) {
+      this.#waiting = paper;
+      return;
+    }
     this.#place(at);
     this.#show(true);
     this.#mode = 'card';
@@ -289,7 +296,10 @@ export class Flyer {
     this.#size();
     const at = this.#landing();
     const cage = this.#cage();
-    if (!at || !cage) return;
+    if (!at || !cage) {
+      this.#waiting = paper;
+      return;
+    }
     if (this.#still()) {
       this.#place(at);
       this.#show(true);
@@ -515,6 +525,11 @@ export class Flyer {
 
   /** Back to the cage: flown, or, still, simply there again. */
   async #home() {
+    // Out for a release it never stood on the panel for: there is nothing to fly back.
+    if (this.#mode !== 'card' && this.#mode !== 'down') {
+      this.#reset();
+      return;
+    }
     this.#halt();
     const life = this.#life;
     const cage = this.#cage();
@@ -527,6 +542,7 @@ export class Flyer {
 
   /** Where the page has moved under it (a resize, something above growing), it stands where it should again. */
   settle() {
+    if (this.#mode === 'cage' && this.#waiting !== undefined) this.perch(this.#waiting);
     if (this.#mode !== 'card' && this.#mode !== 'down') return;
     const perch = this.#perch();
     if (!perch) {
