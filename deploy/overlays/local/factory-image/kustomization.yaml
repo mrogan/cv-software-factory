@@ -10,13 +10,13 @@ resources:
 - ../../../base/analysis
 - ../../../base/scoreboard
 images:
-- digest: sha256:f12b3cc57f928453bcb26f65a62061f5e6819c0f247bd8d84f2989dd4b56fd9d
+- digest: sha256:6a0ace2cec84ff188a10d30bbf567d44268abd85de7c59ddf6f9e44b6058ec43
   name: factory
   newName: ghcr.io/the-roganator/cv-software-factory/factory
-- digest: sha256:1d7e0dc420748e002e5f6edae32bc27adc777cc59ca242252385a4e95a29962b
+- digest: sha256:5bfc9e9efb664eda08eded0290744f49f0cabaa0c9efc134773c0e10b2d71318
   name: factory-browser
   newName: ghcr.io/the-roganator/cv-software-factory/factory-browser
-- digest: sha256:554885ae40586e00219dd8bac65930fb666e06320eb223bb2a9e53dca4b7086a
+- digest: sha256:806571d72a5be0e15f8d8eaff9f6661157189e8ee0ea04a248d636f56b366733
   name: factory-runner
   newName: ghcr.io/the-roganator/cv-software-factory/factory-runner
 # The line starts runners with the runner image it is pinned to here, so its reference goes into the line's settings.
