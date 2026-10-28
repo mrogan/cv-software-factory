@@ -637,8 +637,11 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
       await context.leaveSignal(key, findingSignal(found, context.workItem, context.commit));
     }
     const dropped = planned.dropped ?? [];
+    // Once for the handback, though its effects are tried again after GitHub or the store fails.
     if (dropped.length) {
-      context.log.warn({ workItem: context.workItem, dropped }, 'the planner handed back findings that do not fit');
+      await context.once('log dropped findings', async () => {
+        context.log.warn({ workItem: context.workItem, dropped }, 'the planner handed back findings that do not fit');
+      });
     }
     const left = [
       ...(planned.findings.length ? [`${count(planned.findings.length, 'finding')} left for triage`] : []),

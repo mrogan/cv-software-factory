@@ -32,7 +32,7 @@ For an improvement, instead of a ticket and its signals:
 
 ## Its result
 
-A spec, a rejection or a question, read with Zod, each with up to five `findings`. A result the schema refuses fails the step, and the next attempt is told why. A finding is an extra for triage, so one that does not fit never costs the result: it is left out, logged, and counted in the spec's summary.
+A spec, a rejection or a question, read with Zod, each with up to five `findings`. A result the schema refuses fails the step, and the next attempt is told why. A finding is an extra for triage, so one that does not fit never costs the result: it is left out, logged once for its handback, and counted in the spec's summary.
 
 ### A spec
 

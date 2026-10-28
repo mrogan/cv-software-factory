@@ -614,17 +614,25 @@ describe('what the planner noticed outside its ticket', () => {
 
   it('logs and counts a finding left out, and writes the spec beside it', async () => {
     const warned: unknown[] = [];
+    const done = new Map<string, unknown>();
     const context = {
       workItem: '1301',
       commit: 'c'.repeat(40),
       leaveSignal: async () => {},
       log: { warn: (fields: unknown) => warned.push(fields) },
+      // As the line keeps what each write did for the handback: one done is not done again.
+      once: async (name: string, write: (again: boolean) => Promise<unknown>) => {
+        if (!done.has(name)) done.set(name, await write(false));
+        return done.get(name);
+      },
     } as unknown as EffectsContext;
     // The finding the planner handed back for #1082 on the cluster, a route of words where a path goes.
     const parsed = planner
       .schema(INPUT)
       .parse({ verdict: 'spec', spec: SPEC, findings: [finding, { ...finding, route: 'the products page' }] });
     const drafts = await planner.apply(parsed, {} as Handback, INPUT, context);
+    // Its effects tried again, as after GitHub failed, log nothing more.
+    await planner.apply(parsed, {} as Handback, INPUT, context);
     expect(drafts.map((d) => d.type)).toEqual(['spec.written']);
     expect(drafts[0]?.summary).toBe(
       'Spec written: 1 criterion, 2 paths in scope; 1 finding left for triage; 1 finding that did not fit left out',
