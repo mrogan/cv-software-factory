@@ -3,7 +3,14 @@ import { describe, expect, it } from 'vitest';
 import type { EffectsContext } from '../../src/line/agents/agent.ts';
 import { type ReviewerInput, reviewer } from '../../src/line/agents/reviewer.ts';
 import { FIXTURE_WORK_ITEM, FIXTURES } from '../../src/line/bench/fixtures.ts';
-import { answerThreads, REVIEW_CHECK, reviewInGitHub, shownLines, threadAnswers } from '../../src/line/review.ts';
+import {
+  acceptedThreads,
+  answerThreads,
+  REVIEW_CHECK,
+  reviewInGitHub,
+  shownLines,
+  threadAnswers,
+} from '../../src/line/review.ts';
 
 const input: ReviewerInput =
   FIXTURES.reviewer['cards-claimed']?.input ??
@@ -327,5 +334,26 @@ describe('a review in GitHub', () => {
       'its suggestions go back to the coder to take or decline, and then the change goes on',
     );
     expect(reviewInGitHub(approved, DIFF, at).body).toContain('Martin’s merge, and its suggestions stay for him');
+  });
+});
+
+describe('Martin’s acceptance of a held review', () => {
+  it('answers an earlier finding that blocked as accepted, though the review held it again as a suggestion', () => {
+    const blocked = { path: 'src/a.ts', line: 1, blocking: true, comment: 'Escape it.' };
+    const softened = { path: 'src/a.ts', line: 1, blocking: false, comment: 'Escaping it would be better.', holds: 1 };
+    const reviews = [
+      { pullRequest: 12, verdict: 'changes-requested' as const, note: 'Blocks.', findings: [blocked] },
+      { pullRequest: 12, verdict: 'escalated' as const, note: 'Martin decides.', findings: [softened] },
+    ];
+    const threads = acceptedThreads(
+      reviews,
+      { blocking: [], suggestions: [softened] },
+      new Date('2026-10-28T14:02:31Z'),
+      undefined,
+    );
+    expect(threads.map((t) => [t.body.split('\n')[0], t.reply.split(',')[0]])).toEqual([
+      ['**Suggestion**', 'Martin approved the change in the console at 2026-10-28 14:02 UTC'],
+      ['**Blocking**', 'Martin accepted this in the console at 2026-10-28 14:02 UTC'],
+    ]);
   });
 });

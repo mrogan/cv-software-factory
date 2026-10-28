@@ -37,7 +37,15 @@
 import { MAX_FINDINGS, PATH_CHARS, type PayloadOf } from '@software-factory/events';
 import { z } from 'zod';
 import { type Answer, LIMITS, suggestionsGoBack, type WorkItemState } from '../machine.ts';
-import { answerThreads, cites, type Finding, lineage, reviewInGitHub, threadAnswers } from '../review.ts';
+import {
+  answerThreads,
+  cites,
+  type Finding,
+  lineage,
+  reviewInGitHub,
+  suggestionsLeft,
+  threadAnswers,
+} from '../review.ts';
 import { askedOf, defineAgent, heAnswered, need, words } from './agent.ts';
 import { flagLine, side } from './coder.ts';
 import { type Asked, askedLines, askedName, askedTitle, numbered, type Signal } from './evidence.ts';
@@ -300,7 +308,7 @@ function earlierOf(state: WorkItemState): Pick<ReviewerInput, 'blocked' | 'sugge
   if (!findings) return {};
   const suggestions = findings.filter((f) => !f.blocking);
   const reasons = new Map(state.suggestionsAnswered?.declined.map((d) => [d.suggestion, d.reason]));
-  const suggested = suggestions.filter((_, i) => !reasons.has(i + 1));
+  const suggested = suggestionsLeft(findings, state.suggestionsAnswered);
   const declined = suggestions.flatMap((finding, i) => {
     const reason = reasons.get(i + 1);
     return reason === undefined ? [] : [{ finding, reason }];

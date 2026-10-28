@@ -118,6 +118,7 @@ import {
 } from '@software-factory/events';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
 import { whoAborted } from '../release/watch.ts';
+import { type Finding, suggestionsLeft } from './review.ts';
 
 /** The agents the line runs, each in a runner. */
 export type LineAgent = 'planner' | 'coder' | 'reviewer' | 'describer';
@@ -210,9 +211,10 @@ export interface WorkItemState {
   returns: { from: Stage; reason: string }[];
   /**
    * Martin's approval of a held review with threads open (`acceptedFindings`), until the line has answered them on the
-   * pull request (`review.accepted`), saying he accepted it: his words, unless they stay his.
+   * pull request (`review.accepted`), saying he accepted it: his words, unless they stay his, and which of his answers
+   * it was, counting from 0 among the work item's `hold.answered` events, so the line says when he gave it.
    */
-  accepted: { words: string | undefined } | undefined;
+  accepted: { words: string | undefined; answer: number } | undefined;
   /** Whether the describer has written up the approved change. */
   described: boolean;
   /** The hold in force, if any. */
@@ -330,6 +332,8 @@ const forgetLook = (state: WorkItemState) => Object.assign(state, { rechecked: u
 
 export function fold(events: readonly LineEvent[]): WorkItemState {
   const state = initial();
+  // Martin's answers so far, which `accepted` names its own among.
+  let answers = 0;
   for (const event of events) {
     // Anything that moves the work item on is past the answer that moved it.
     if (MOVES_ON.has(event.type)) state.answer = undefined;
@@ -459,6 +463,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         if (event.payload.for === 'wait' && state.waiting) state.waiting = { ...state.waiting, ended: true };
         break;
       case 'hold.answered': {
+        answers += 1;
         if (!state.hold) break;
         const { cause, stage } = state.hold;
         const resolution = ANSWERS[cause][event.payload.decision];
@@ -508,7 +513,7 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
           // back, if one did: the coder has nothing to do. With no review of the spec in force, the reviewer runs. The
           // review's open threads are answered first, as his acceptance.
           const { blocking, suggestions } = acceptedFindings(state);
-          if (blocking.length || suggestions.length) state.accepted = { words };
+          if (blocking.length || suggestions.length) state.accepted = { words, answer: answers - 1 };
           if (state.review) state.review = { ...state.review, verdict: 'approved' };
           state.rebuild = undefined;
         }
@@ -710,7 +715,7 @@ export type Next =
    * saying Martin accepted it in the console, with his words if they are not his alone, and resolve them: his approval
    * of the hold stood in for the reviewer's.
    */
-  | { do: 'accept'; review: number; words?: string }
+  | { do: 'accept'; review: number; answer: number; words?: string }
   /**
    * Nothing to do until something outside the line happens: the gates, Martin, the release in flight, or the work in
    * flight a spec that overlaps waits on.
@@ -922,10 +927,10 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
     case 'approved': {
       // His approval of a held review answers its open threads before the change goes on, so none stays open.
       if (s.accepted) {
-        const { words } = s.accepted;
+        const { words, answer } = s.accepted;
         return {
           stage: 'review',
-          next: { do: 'accept', review: s.reviews.length, ...(words === undefined ? {} : { words }) },
+          next: { do: 'accept', review: s.reviews.length, answer, ...(words === undefined ? {} : { words }) },
         };
       }
       const suggestions = s.review.findings.filter((f) => !f.blocking).length;
@@ -953,8 +958,6 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
   }
 }
 
-type Finding = PayloadOf<'review.submitted'>['findings'][number];
-
 /**
  * The findings of the latest review whose threads Martin's approval of its hold answers, so that he resolves none by
  * hand: what it blocked on, and its suggestions, which his approval sends on with no round of their own, less those
@@ -962,10 +965,9 @@ type Finding = PayloadOf<'review.submitted'>['findings'][number];
  */
 export function acceptedFindings(state: WorkItemState): { blocking: Finding[]; suggestions: Finding[] } {
   const findings = state.review?.findings ?? [];
-  const declined = new Set(state.suggestionsAnswered?.declined.map((d) => d.suggestion));
   return {
     blocking: findings.filter((f) => f.blocking),
-    suggestions: findings.filter((f) => !f.blocking).filter((_, i) => !declined.has(i + 1)),
+    suggestions: suggestionsLeft(findings, state.suggestionsAnswered),
   };
 }
 

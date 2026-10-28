@@ -2442,6 +2442,20 @@ describe('the line', () => {
       expect(resolved(github).slice(before)).toHaveLength(2);
     });
 
+    it('records that GitHub refused, and leaves those threads to Martin', async () => {
+      const { workItem, pass, steps, github } = await heldReview();
+      await answer(workItem, { decision: 'approved' });
+      github.refusing.set('resolveThreads', new GitHubWorkerError(403, 'refused', 'Resource not accessible.'));
+      await pass();
+      expect(await payloads(workItem, 'review.accepted')).toEqual([
+        { pullRequest: 12, review: 2, findings: 2, suggestions: 1, refused: true },
+      ]);
+      expect(await summaries(workItem, 'review.accepted')).toEqual([
+        'Martin accepted review 2 of PR #12: GitHub refused to resolve the threads of its 2 blocking findings and its suggestion, which are left for him',
+      ]);
+      expect(steps.requests.at(-1)?.agent).toBe('describer');
+    });
+
     it('leaves the threads open for the coder when he answers in words', async () => {
       const { workItem, pass, steps, github } = await heldReview();
       const before = resolved(github).length;

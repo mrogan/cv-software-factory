@@ -110,9 +110,24 @@ export function acceptedThreads(
   const said = words ? `\n\nHe said: “${words}”` : '';
   const accepted = `Martin accepted this in the console at ${when}, in place of the factory’s reviewer’s approval.${said}`;
   const unasked = `Martin approved the change in the console at ${when}, in place of the factory’s reviewer’s approval, with no round for its suggestions: this one is not taken.${said}`;
-  const answers = (findings: Finding[], reply: string) =>
-    findings.flatMap((finding) => lineage(reviews, finding).map((f) => ({ finding: f, reply })));
-  return threadAnswers([...answers(blocking, accepted), ...answers(suggestions, unasked)]);
+  // Each thread by what it was: an earlier finding that blocked, held again as a suggestion, was accepted all the same.
+  const answers = (findings: Finding[]) =>
+    findings.flatMap((finding) =>
+      lineage(reviews, finding).map((f) => ({ finding: f, reply: f.blocking ? accepted : unasked })),
+    );
+  return threadAnswers([...answers(blocking), ...answers(suggestions)]);
+}
+
+/**
+ * The suggestions among a review's findings the coder has not declined, in order: a suggestion is numbered among the
+ * findings that do not block, from 1, as the coder was given them and `suggestions.answered` names them.
+ */
+export function suggestionsLeft(
+  findings: readonly Finding[],
+  answered: PayloadOf<'suggestions.answered'> | undefined,
+): Finding[] {
+  const declined = new Set(answered?.declined.map((d) => d.suggestion));
+  return findings.filter((f) => !f.blocking).filter((_, i) => !declined.has(i + 1));
 }
 
 /** What the GitHub worker says of a request that asking again will not help: refused, gone, or not as it was. */
@@ -138,21 +153,25 @@ export async function answerThreads(
 
 /**
  * Has each thread answered and resolved, once each, in as many calls as the GitHub worker needs (`resolve`, given
- * each batch and its place). GitHub refusing it holds nothing up: what is left is Martin's to resolve by hand. The
- * GitHub worker replies on a thread only once and passes over one resolved, so asking again after a failure is safe.
+ * each batch and its place). GitHub refusing it holds nothing up: what is left is Martin's to resolve by hand, and it
+ * gives back false. The GitHub worker replies on a thread only once and passes over one resolved, so asking again
+ * after a failure is safe.
  */
 export async function resolveThreads(
   threads: ThreadAnswer[],
   resolve: (batch: ThreadAnswer[], index: number) => Promise<unknown>,
-): Promise<void> {
+): Promise<boolean> {
+  let done = true;
   const key = (c: ReviewComment) => `${c.path}:${c.line}\n${c.body}`;
   const once = threads.filter((t, i) => threads.findIndex((u) => key(u) === key(t)) === i);
   // The worker takes at most fifty threads a call: a finding held again through every review answers one each.
   for (let i = 0; i < once.length; i += THREADS_A_CALL) {
     await resolve(once.slice(i, i + THREADS_A_CALL), i / THREADS_A_CALL).catch((error: unknown) => {
       if (!(error instanceof GitHubWorkerError && REFUSED.includes(error.status))) throw error;
+      done = false;
     });
   }
+  return done;
 }
 
 /** The most threads the GitHub worker resolves in one call. */

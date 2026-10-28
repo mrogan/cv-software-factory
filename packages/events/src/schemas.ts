@@ -675,6 +675,8 @@ export const PAYLOADS = {
       findings: z.number().int().min(0).max(V.MAX_FINDINGS),
       /** How many of its suggestions went on with no round: those the coder had not declined already. */
       suggestions: z.number().int().min(0).max(V.MAX_FINDINGS),
+      /** GitHub refused to resolve some of them, which are left for Martin to resolve by hand. */
+      refused: z.literal(true).optional(),
     })
     .refine((a) => a.findings + a.suggestions > 0, 'an acceptance answers at least one thread'),
   'pull-request.merged': z.strictObject({ number: pullRequest, commit, by: z.enum(['martin', 'factory']) }),

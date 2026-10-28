@@ -925,23 +925,33 @@ export class Line {
         return;
       }
       case 'accept': {
-        // The reply says when he answered, so one asked for again after a failure reads the same, and is made once.
+        // The reply says when he gave the answer that approved it, so one asked for again after a failure reads the
+        // same, and is made once.
         const number = state.pullRequest?.number;
-        if (number === undefined) return false;
-        const at = (await this.#answeredAt(workItem)) ?? this.#o.now();
+        const at = await this.#answeredAt(workItem, next.answer);
+        if (number === undefined || !at) throw new Error('an accepted review has no pull request, or no answer');
         const accepted = acceptedFindings(state);
         const threads = acceptedThreads(state.reviews, accepted, at, next.words);
-        await resolveThreads(threads, (batch) =>
+        const resolved = await resolveThreads(threads, (batch) =>
           this.#o.github.act('resolveThreads', this.#o.repo, { number, threads: batch }, { workItem }),
         );
         const findings = accepted.blocking.length;
         const suggestions = accepted.suggestions.length;
+        const what = acceptedWords(findings, suggestions);
         await this.#append(workItem, [
           {
             type: 'review.accepted',
             actor: 'factory',
-            summary: `Martin accepted review ${next.review} of PR #${number}: ${acceptedWords(findings, suggestions)} answered and resolved`,
-            payload: { pullRequest: number, review: next.review, findings, suggestions },
+            summary: resolved
+              ? `Martin accepted review ${next.review} of PR #${number}: ${what} answered and resolved`
+              : `Martin accepted review ${next.review} of PR #${number}: GitHub refused to resolve ${what.replace(/ (is|are)$/, '')}, which are left for him`,
+            payload: {
+              pullRequest: number,
+              review: next.review,
+              findings,
+              suggestions,
+              ...(resolved ? {} : { refused: true }),
+            },
           },
         ]);
         return;
@@ -1939,13 +1949,16 @@ export class Line {
     );
   }
 
-  /** When Martin last answered a hold of the work item's, from one of his roles, as the line reads his answers. */
-  async #answeredAt(workItem: string): Promise<Date | undefined> {
+  /**
+   * When Martin gave one of his answers to the work item's holds, by its place among them from 0, as the line reads
+   * them: only from his roles.
+   */
+  async #answeredAt(workItem: string, answer: number): Promise<Date | undefined> {
     const { sql } = this.#o;
     const [row] = await sql<{ ts: Date }[]>`
       select e.ts from events e
       where e.work_item = ${workItem} and e.type = 'hold.answered' and ${fromMartin(sql, 'e')}
-      order by e.seq desc limit 1`;
+      order by e.seq offset ${answer} limit 1`;
     return row ? new Date(row.ts) : undefined;
   }
 
