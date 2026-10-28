@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -58,10 +58,10 @@ describe('make check in CI', () => {
   });
 });
 
-/** The required check's script, run with its parts' results, and `gh` answering as main's run of it would. */
+/** The required check's script, run with its parts' results, and `gh` answering as the queue's run of it would. */
 function required(
   env: { KIND: string; STATIC: string; TESTS: string; BASE?: string },
-  main: { run?: string; state?: string; fails?: number } = {},
+  queue: { run?: string; state?: string; fails?: number } = {},
 ) {
   const script = jobs.get('check')?.match(/run: \|\n((?: {10}.*\n|\s*\n)+)/)?.[1] ?? '';
   expect(script).not.toBe('');
@@ -76,11 +76,12 @@ function required(
     [
       'calls=$(($(cat "$0.calls" 2>/dev/null || echo 0) + 1)); echo "$calls" > "$0.calls"',
       '[ "$calls" -gt "$GH_FAILS" ] || exit 1',
-      'case "$*" in *"/jobs"*) printf %s "$MAIN_STATE" ;; *) printf %s "$MAIN_RUN" ;; esac',
+      'echo "$*" >> "$0.asked"',
+      'case "$*" in *"/jobs"*) printf %s "$QUEUE_STATE" ;; *) printf %s "$QUEUE_RUN" ;; esac',
     ].join('\n'),
   );
   stub('sleep', 'exit 0');
-  // At most five tries at main's run, not the script's 72: enough to outlast GH_FAILS and then give up, without the
+  // At most five tries at the queue's run, not the script's 48: enough to outlast GH_FAILS and then give up, without the
   // hundreds of processes 72 tries start, which made a test take seconds on a busy machine. Fewer, if the script asks
   // for fewer.
   stub('seq', 'n=$(($1 < 5 ? $1 : 5)); i=1; while [ "$i" -le "$n" ]; do echo "$i"; i=$((i + 1)); done');
@@ -89,46 +90,67 @@ function required(
       PATH: `${bin}:${process.env.PATH}`,
       GITHUB_REPOSITORY: 'the-roganator/cv-software-factory',
       BASE: 'abc123',
-      MAIN_RUN: main.run ?? '',
-      MAIN_STATE: main.state ?? '',
-      GH_FAILS: String(main.fails ?? 0),
+      QUEUE_RUN: queue.run ?? '',
+      QUEUE_STATE: queue.state ?? '',
+      GH_FAILS: String(queue.fails ?? 0),
       ...env,
     },
     encoding: 'utf-8',
   });
+  const log = join(bin, 'gh.asked');
+  const asked = existsSync(log) ? readFileSync(log, 'utf-8').split('\n').filter(Boolean) : [];
   rmSync(bin, { recursive: true });
-  return result.status;
+  return { status: result.status, asked };
 }
+
+const status = (...args: Parameters<typeof required>) => required(...args).status;
 
 describe('the required check', () => {
   it.each(['failure', 'cancelled', 'skipped'])('fails a pull request when a part of its tests was %s', (tests) => {
-    expect(required({ KIND: 'code', STATIC: 'success', TESTS: tests })).toBe(1);
-    expect(required({ KIND: 'deploy', STATIC: 'success', TESTS: tests })).toBe(1);
+    expect(status({ KIND: 'code', STATIC: 'success', TESTS: tests })).toBe(1);
+    expect(status({ KIND: 'deploy', STATIC: 'success', TESTS: tests })).toBe(1);
   });
 
   it('fails any pull request whose static half did not pass, a release too', () => {
-    expect(required({ KIND: 'code', STATIC: 'failure', TESTS: 'success' })).toBe(1);
+    expect(status({ KIND: 'code', STATIC: 'failure', TESTS: 'success' })).toBe(1);
     const passed = { run: '42', state: 'completed success' };
-    expect(required({ KIND: 'release', STATIC: 'cancelled', TESTS: 'skipped' }, passed)).toBe(1);
+    expect(status({ KIND: 'release', STATIC: 'cancelled', TESTS: 'skipped' }, passed)).toBe(1);
   });
 
   it('passes a pull request whose parts all passed', () => {
-    expect(required({ KIND: 'code', STATIC: 'success', TESTS: 'success' })).toBe(0);
+    expect(status({ KIND: 'code', STATIC: 'success', TESTS: 'success' })).toBe(0);
   });
 
-  it('passes a release only once main has passed it on the commit the release is made on', () => {
+  it('passes a release only once the merge queue passed it on the commit the release is made on', () => {
     const release = { KIND: 'release', STATIC: 'success', TESTS: 'skipped' };
-    expect(required(release, { run: '42', state: 'completed success' })).toBe(0);
-    expect(required(release, { run: '42', state: 'completed failure' })).toBe(1);
-    expect(required(release, { run: '42', state: 'completed cancelled' })).toBe(1);
+    expect(status(release, { run: '42', state: 'completed success' })).toBe(0);
+    expect(status(release, { run: '42', state: 'completed failure' })).toBe(1);
+    expect(status(release, { run: '42', state: 'completed cancelled' })).toBe(1);
     // Never finished, or never ran: it gives up, failed.
-    expect(required(release, { run: '42', state: 'in_progress null' })).toBe(1);
-    expect(required(release)).toBe(1);
-    expect(required({ ...release, BASE: '' }, { run: '42', state: 'completed success' })).toBe(1);
+    expect(status(release, { run: '42', state: 'in_progress null' })).toBe(1);
+    expect(status({ ...release, BASE: '' }, { run: '42', state: 'completed success' })).toBe(1);
   });
 
-  it("asks again when GitHub's API fails", () => {
+  it("reads the queue's latest run on the base, and that run's latest attempt", () => {
     const release = { KIND: 'release', STATIC: 'success', TESTS: 'skipped' };
-    expect(required(release, { run: '42', state: 'completed success', fails: 3 })).toBe(0);
+    const { status, asked } = required(release, { run: '42', state: 'completed success' });
+    expect(status).toBe(0);
+    expect(asked).toEqual([
+      'api repos/the-roganator/cv-software-factory/actions/workflows/check.yml/runs?event=merge_group&head_sha=abc123 --jq .workflow_runs[0].id // empty',
+      'api repos/the-roganator/cv-software-factory/actions/runs/42/jobs?per_page=100 --jq .jobs[] | select(.name == "lint, types, tests") | "\\(.status) \\(.conclusion)"',
+    ]);
+  });
+
+  it('fails a release at once when the queue never ran on its base', () => {
+    const { status, asked } = required({ KIND: 'release', STATIC: 'success', TESTS: 'skipped' });
+    expect(status).toBe(1);
+    // A few asks, for GitHub's list to catch up, and no more: the stub would answer five.
+    expect(asked).toHaveLength(4);
+  });
+
+  it("asks again when GitHub's API fails, and does not count a failure as no run", () => {
+    const release = { KIND: 'release', STATIC: 'success', TESTS: 'skipped' };
+    expect(status(release, { run: '42', state: 'completed success', fails: 3 })).toBe(0);
+    expect(status(release, { run: '42', state: 'completed success', fails: 4 })).toBe(0);
   });
 });

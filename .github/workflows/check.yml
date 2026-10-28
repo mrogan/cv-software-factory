@@ -4,18 +4,20 @@ name: check
 # Pull requests the factory's App opens (deploy, release) run these too, at once: no workflow opens pull requests.
 # Some are lighter (the `kind` job): the App's release and deploy pull requests, and anyone's that changes only
 # manifests, run no browser tests, and a deploy or manifests pull request's images are checked rather than built. They
-# also run on main after each merge, which is what the README's badge reports, and on the merge queue's commit for a
-# pull request, which holds the change on main as it will merge: everything runs there, whatever the pull request is.
+# also run on the merge queue's commit for a pull request, which holds the change on main as it will merge, and is the
+# very commit main moves to: everything runs there, whatever the pull request is. That run is main's test, so nothing
+# runs again on main after a merge. The README's badge reports the queue's latest run, which may be of a pull request
+# the queue turned away rather than of main.
 on:
   pull_request:
   merge_group:
     types: [checks_requested]
-  push:
-    branches: [main]
 
 permissions:
   contents: read
 
+# A pull request's newer push cancels its older run. Each of the queue's commits has a branch of its own, so no run
+# there cancels another.
 concurrency:
   group: check-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
@@ -25,7 +27,8 @@ jobs:
   # any, each tested on the exact files that change:
   # - `release` and `deploy`: the factory's App opened it and nobody has changed it, so the test is the author too, and
   #   for a release the lines that change, and that it merges into main. A release runs no tests: nothing they read
-  #   changes (scripts/release-files.test.ts), so the commit it is made on passing them on main stands for it.
+  #   changes (scripts/release-files.test.ts), so the commit it is made on passing them in the merge queue stands
+  #   for it.
   # - `manifests`: anyone's, changing only files under deploy/. No image copies anything from there
   #   (scripts/dockerfiles.test.ts), and nothing the browser tests run reads it (scripts/browser-tests.test.ts), but
   #   for the Postgres the console's run beside: a change to its pin is `code`.
@@ -134,15 +137,15 @@ jobs:
 
   # The one check the ruleset requires of `make check` (scripts/github-settings.ts), so that it need not change when it
   # is split differently. It passes when both halves passed, every part of the tests included; for a release, when the
-  # static half passed and the commit on main it is made on passed this check. It runs whatever they did, a cancelled
+  # static half passed and the commit on main it is made on passed this check in the merge queue, before it landed. It runs whatever they did, a cancelled
   # run included, since a skipped job counts as passed.
   check:
     name: lint, types, tests
     needs: [kind, static, tests]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
-    # Long enough for a release to wait for main's run of this check, which starts as the release pull request does.
-    timeout-minutes: 20
+    # Long enough for a release to wait out a re-run of the queue's run of this check on its base.
+    timeout-minutes: 15
     permissions:
       actions: read
     steps:
@@ -157,16 +160,24 @@ jobs:
           [ "$STATIC" = success ] || exit 1
           [ "$KIND" = release ] || { [ "$TESTS" = success ]; exit; }
           [ -n "$BASE" ] || exit 1
-          # This check in this workflow's latest run on the base, from its push to main. A call that fails is tried again.
-          runs="repos/$GITHUB_REPOSITORY/actions/workflows/check.yml/runs?event=push&branch=main&head_sha=$BASE"
-          for _ in $(seq 72); do
-            run=$(gh api "$runs" --jq '.workflow_runs[0].id // empty' || true)
+          # This check in this workflow's latest run on the base in the merge queue, whose commit is the one main moved
+          # to, so the run finished before the commit landed and is found at once; a run re-run is waited for, and its
+          # latest attempt read. A call that fails is tried again. A base the queue never ran on reached main some
+          # other way: GitHub's list can lag a moment behind a run, so it fails once a minute's asking finds none.
+          runs="repos/$GITHUB_REPOSITORY/actions/workflows/check.yml/runs?event=merge_group&head_sha=$BASE"
+          missing=0
+          for _ in $(seq 48); do
             state=""
-            if [ -n "$run" ]; then
-              state=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" \
-                --jq '.jobs[] | select(.name == "lint, types, tests") | "\(.status) \(.conclusion)"' || true)
+            if run=$(gh api "$runs" --jq '.workflow_runs[0].id // empty'); then
+              if [ -n "$run" ]; then
+                state=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" \
+                  --jq '.jobs[] | select(.name == "lint, types, tests") | "\(.status) \(.conclusion)"' || true)
+              else
+                missing=$((missing + 1))
+                [ "$missing" -lt 4 ] || { echo "$BASE has no run in the merge queue"; exit 1; }
+              fi
             fi
-            echo "$BASE on main: ${state:-not started}"
+            echo "$BASE in the merge queue: ${state:-not found yet}"
             case "$state" in
               'completed success') exit 0 ;;
               completed*) exit 1 ;;
@@ -359,7 +370,7 @@ jobs:
       # Each image carries the signature of build.yml on this repository's main, made with the workflow's own identity,
       # and an SBOM it attested. Every change to a pin file, the App's or anyone's, and only the pins it moves: one
       # made before images were signed stays as it is until its own deploy moves it. HEAD^1 is the base a pull request
-      # merges into, or main before the commit pushed to it.
+      # merges into, or, in the merge queue, the commit the queue's own is made on.
       - name: Check the images it moves to were signed by build.yml on main
         run: |
           identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/build.yml@refs/heads/main"
