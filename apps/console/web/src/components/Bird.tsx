@@ -126,6 +126,15 @@ export class Flyer {
     };
   }
 
+  /**
+   * Whether the page is laid out too narrow to stand on, as it is in a window made tiny for a moment (Playwright makes
+   * it 1 by 1 for a picture of something taller than the window): the station with no width, or the panel narrower
+   * than the bird.
+   */
+  #cramped(perch: { lo: number; hi: number }) {
+    return this.#station()?.getBoundingClientRect().width === 0 || perch.hi < perch.lo;
+  }
+
   /** Where it lands on the panel: under the station, or, on a phone, near the panel's right. */
   #landing(): Point | undefined {
     const perch = this.#perch();
@@ -586,7 +595,9 @@ export class Flyer {
     if (this.#mode === 'cage' && this.#waiting !== undefined) this.perch(this.#waiting);
     if (this.#mode !== 'card' && this.#mode !== 'down') return;
     const perch = this.#perch();
-    if (!perch) {
+    // Clamped into a stretch too short to stand on, it would stay where that put it once the page is back: out of
+    // sight meanwhile, it keeps its place.
+    if (!perch || this.#cramped(perch)) {
       this.#el.hidden = true;
       return;
     }

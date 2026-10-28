@@ -204,4 +204,22 @@ test.describe('the canary bird', () => {
     await onThePanel(page, bird(page));
     expect(await flights(page)).toBe(0);
   });
+
+  test('stands where it stood after the window is made tiny for a moment', async ({ page }) => {
+    // As Playwright makes it for a picture of something taller than the window, 1 by 1: the panel and the station
+    // squeezed to nothing, then back. The bird has nowhere to stand meanwhile, and keeps its place for when they are.
+    await page.setViewportSize(WIDTHS.phone);
+    await open(page, 'theme=paper&motion=off');
+    await expect(bird(page)).toBeVisible();
+    const before = await bird(page).boundingBox();
+    // Two frames at each size, so the bird hears of it.
+    const frames = () =>
+      page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+    await page.setViewportSize({ width: 1, height: 1 });
+    await frames();
+    await page.setViewportSize(WIDTHS.phone);
+    await frames();
+    await expect(bird(page)).toBeVisible();
+    expect(await bird(page).boundingBox()).toEqual(before);
+  });
 });
