@@ -137,15 +137,16 @@ jobs:
 
   # The one check the ruleset requires of `make check` (scripts/github-settings.ts), so that it need not change when it
   # is split differently. It passes when both halves passed, every part of the tests included; for a release, when the
-  # static half passed and the commit on main it is made on passed this check in the merge queue, before it landed. It runs whatever they did, a cancelled
-  # run included, since a skipped job counts as passed.
+  # static half passed and the commit on main it is made on passed this check in the merge queue, before it landed. It
+  # runs whatever they did, a cancelled run included, since a skipped job counts as passed.
   check:
     name: lint, types, tests
     needs: [kind, static, tests]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
-    # Long enough for a release to wait out a re-run of the queue's run of this check on its base.
-    timeout-minutes: 15
+    # Long enough for a release to wait out a re-run of the queue's run of this check on its base, which runs
+    # everything.
+    timeout-minutes: 20
     permissions:
       actions: read
     steps:
@@ -166,7 +167,7 @@ jobs:
           # other way: GitHub's list can lag a moment behind a run, so it fails once a minute's asking finds none.
           runs="repos/$GITHUB_REPOSITORY/actions/workflows/check.yml/runs?event=merge_group&head_sha=$BASE"
           missing=0
-          for _ in $(seq 48); do
+          for _ in $(seq 72); do
             state=""
             if run=$(gh api "$runs" --jq '.workflow_runs[0].id // empty'); then
               if [ -n "$run" ]; then
@@ -174,7 +175,7 @@ jobs:
                   --jq '.jobs[] | select(.name == "lint, types, tests") | "\(.status) \(.conclusion)"' || true)
               else
                 missing=$((missing + 1))
-                [ "$missing" -lt 4 ] || { echo "$BASE has no run in the merge queue"; exit 1; }
+                [ "$missing" -lt 5 ] || { echo "$BASE has no run in the merge queue"; exit 1; }
               fi
             fi
             echo "$BASE in the merge queue: ${state:-not found yet}"

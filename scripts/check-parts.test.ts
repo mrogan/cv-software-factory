@@ -81,10 +81,10 @@ function required(
     ].join('\n'),
   );
   stub('sleep', 'exit 0');
-  // At most five tries at the queue's run, not the script's 48: enough to outlast GH_FAILS and then give up, without the
-  // hundreds of processes 72 tries start, which made a test take seconds on a busy machine. Fewer, if the script asks
-  // for fewer.
-  stub('seq', 'n=$(($1 < 5 ? $1 : 5)); i=1; while [ "$i" -le "$n" ]; do echo "$i"; i=$((i + 1)); done');
+  // At most eight tries at the queue's run, not the script's 72: enough to outlast GH_FAILS and the script's asks for a
+  // run that is not there, and then give up, without the hundreds of processes 72 tries start, which made a test take
+  // seconds on a busy machine. Fewer, if the script asks for fewer.
+  stub('seq', 'n=$(($1 < 8 ? $1 : 8)); i=1; while [ "$i" -le "$n" ]; do echo "$i"; i=$((i + 1)); done');
   const result = spawnSync('bash', ['-eo', 'pipefail', '-c', script], {
     env: {
       PATH: `${bin}:${process.env.PATH}`,
@@ -144,8 +144,8 @@ describe('the required check', () => {
   it('fails a release at once when the queue never ran on its base', () => {
     const { status, asked } = required({ KIND: 'release', STATIC: 'success', TESTS: 'skipped' });
     expect(status).toBe(1);
-    // A few asks, for GitHub's list to catch up, and no more: the stub would answer five.
-    expect(asked).toHaveLength(4);
+    // Five asks, a minute, for GitHub's list to catch up, and no more: the stub's loop would ask eight times.
+    expect(asked).toHaveLength(5);
   });
 
   it("asks again when GitHub's API fails, and does not count a failure as no run", () => {

@@ -123,6 +123,16 @@ describe('every use of mise in CI', () => {
     expect([...versions][0]).toMatch(/^\d{4}\.\d+\.\d+$/);
   });
 
+  it("is cached on main for each set of tools check.yml installs, which runs on no branch of main's", () => {
+    const sets = (text: string) => [...text.matchAll(/^ +install_args: (.+)$/gm)].map(([, tools = '']) => tools);
+    const check = new Set(sets(read('.github/workflows/check.yml')));
+    const cache = read('.github/workflows/toolchain-cache.yml');
+    const warmed = /^ +tools:\n((?: +- .+\n)+)/m.exec(cache)?.[1]?.match(/(?<=- ).+/g) ?? [];
+    expect(check.size).toBeGreaterThan(0);
+    expect(warmed.sort()).toEqual([...check].sort());
+    expect(sets(cache)).toEqual(['${{ matrix.tools }}']);
+  });
+
   it('checks out mise.lock beside mise.toml, so a sparse checkout installs from the lock too', () => {
     for (const [file, text] of workflows) {
       for (const [, indent] of text.matchAll(/^( +)mise\.toml$/gm)) {

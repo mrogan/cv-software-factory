@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest';
 /*
  * A release pull request runs no tests (check.yml's `release` kind): it changes only the changelog, the release
  * manifest and the version line of package.json, and nothing the tests run reads any of them, so the commit on main
- * it is made on, which passed the tests in the merge queue before it landed, stands for it. Its static half still runs, and its JSON is linted there.
+ * it is made on, which passed the tests in the merge queue before it landed, stands for it. Its static half still
+ * runs, and its JSON is linted there.
  */
 
 /** The tracked files that match, or none: `git grep` exits 1 when nothing does. */
