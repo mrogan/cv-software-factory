@@ -151,6 +151,7 @@ describe('the required check', () => {
   it("asks again when GitHub's API fails, and does not count a failure as no run", () => {
     const release = { KIND: 'release', STATIC: 'success', TESTS: 'skipped' };
     expect(status(release, { run: '42', state: 'completed success', fails: 3 })).toBe(0);
-    expect(status(release, { run: '42', state: 'completed success', fails: 4 })).toBe(0);
+    // More failures than the asks it allows for a missing run.
+    expect(status(release, { run: '42', state: 'completed success', fails: 6 })).toBe(0);
   });
 });

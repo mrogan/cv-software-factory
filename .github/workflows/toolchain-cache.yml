@@ -2,13 +2,14 @@
 # caches and main's, and check.yml runs on pull requests and the merge queue alone, so without this each of their
 # branches would install the toolchain from scratch, and keep a copy that only it can read in the repository's 10 GB.
 # mise-action keys its cache by the tools it is asked for and the files that pin them (scripts/toolchain.test.ts holds
-# this list to check.yml's), so it runs when those move, weekly in case the cache was evicted, and by hand.
+# this list to check.yml's), so it runs when those move, weekly in case the cache was evicted, and by hand: on main
+# alone, since a run elsewhere would save a cache only its own branch could read.
 name: toolchain cache
 
 on:
   push:
     branches: [main]
-    paths: [mise.toml, mise.lock, .github/workflows/toolchain-cache.yml]
+    paths: [mise.toml, mise.lock, .github/workflows/check.yml, .github/workflows/toolchain-cache.yml]
   schedule:
     - cron: '41 4 * * 1'
   workflow_dispatch:
@@ -23,6 +24,7 @@ concurrency:
 jobs:
   cache:
     name: toolchain cache (${{ matrix.tools }})
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     strategy:
