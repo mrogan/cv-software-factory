@@ -863,8 +863,9 @@ export class Line {
         // deleted now keeps the row where it is, to try again on a later pass, before anything is said.
         await this.#dropVolume(workItem);
         if (!this.#volumeGone.has(workItem)) return false;
-        // The row ends just after: only a crash, or a store that fails, in between would say it twice. An issue that
-        // is gone, or that the App may not change, leaves nothing to say, and the hand-over goes on.
+        // The row ends just after, so a crash, or a store that fails, in between asks again: the GitHub worker says
+        // nothing an issue says already, word for word. An issue that is gone, or that the App may not change, leaves
+        // nothing to say, and the hand-over goes on.
         if (item.issue) {
           const flag = state.spec?.flag;
           await this.#o.github

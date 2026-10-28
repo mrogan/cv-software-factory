@@ -654,6 +654,48 @@ describe('closing a pull request', () => {
   });
 });
 
+describe('commenting on an issue', () => {
+  it('says each thing once: asked again, after a failure or a restart, it says nothing more', async () => {
+    const comments: { body: string }[] = [{ body: 'Something said before.' }];
+    let failPost = 1;
+    const { github, sent } = client([
+      { method: 'GET', path: /^\/repos\/.+\/issues\/31\/comments/, answer: () => ({ body: comments }) },
+      {
+        method: 'POST',
+        path: `/repos/${REPO}/issues/31/comments`,
+        answer: ({ body }) => {
+          if (failPost-- > 0) return { status: 422, body: { message: 'Validation Failed' } };
+          comments.push(body as { body: string });
+          return { status: 201, body: {} };
+        },
+      },
+    ]);
+    const actions = new LiveActions(github);
+    await expect(actions.comment(REPO, 31, 'Released behind its flag.')).rejects.toThrow();
+    await actions.comment(REPO, 31, 'Released behind its flag.');
+    await actions.comment(REPO, 31, 'Released behind its flag.');
+    await actions.comment(REPO, 31, 'Something said before.');
+    expect(
+      calls(sent)
+        .filter((s) => s.method === 'POST')
+        .map((s) => s.body),
+    ).toEqual([{ body: 'Released behind its flag.' }, { body: 'Released behind its flag.' }]);
+    expect(comments.map((c) => c.body)).toEqual(['Something said before.', 'Released behind its flag.']);
+  });
+
+  it('records what a dry run would have said on an issue once', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
+    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    await actions.comment(REPO, 31, 'Released behind its flag.');
+    await actions.comment(REPO, 31, 'Released behind its flag.');
+    await actions.comment(REPO, 32, 'Released behind its flag.');
+    const records = await Promise.all(
+      (await readdir(dir)).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),
+    );
+    expect(records.map((r) => r.args.number).sort()).toEqual([31, 32]);
+  });
+});
+
 describe('reopening an issue in a dry run', () => {
   it('records the issue it would have reopened, with what it would have said on it', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
@@ -780,7 +822,7 @@ describe('the worker over HTTP', () => {
     });
     const { github: keyless } = client([], [], { keyless: true });
     close?.();
-    const readOnly = await (await serve(keyless))('/v1/actions/comment', { repo: REPO, number: 1, body: 'hi' });
+    const readOnly = await (await serve(keyless))('/v1/actions/openIssue', { repo: REPO, title: 'hi', body: 'hi' });
     expect(readOnly).toMatchObject({ status: 503, body: { error: 'read-only' } });
   });
 
