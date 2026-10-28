@@ -184,6 +184,12 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose, app, admin
     title.current?.focus({ preventScroll: true });
   }, [card.number]);
 
+  // An answered card leaves the sheet with the button that had focus: the title takes it, so the sheet keeps it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs as what waits on Martin changes
+  useEffect(() => {
+    if (document.activeElement === document.body) title.current?.focus({ preventScroll: true });
+  }, [sheet.needs.hold?.hold, sheet.needs.flag?.flag]);
+
   const close = () => {
     if (!motion) return onClose();
     setRisen(false);

@@ -39,7 +39,8 @@ const flags = (page: Page) => page.locator('article.controls .ctl-group.flags');
 const flag = (page: Page, name: string) =>
   flags(page).locator('.flag', { has: page.locator('code', { hasText: name }) });
 const slider = (page: Page, name: string) => flag(page, name).getByRole('group', { name: new RegExp(`^${name}:`) });
-const dialog = (page: Page) => page.getByRole('dialog');
+/** A confirmation: the browser's own `<dialog>`, over Controls or over the sheet, which is a dialog itself. */
+const dialog = (page: Page) => page.locator('dialog');
 
 async function open(page: Page, as: 'visitor' | 'martin', at = END, extra: readonly RawEvent[] = []) {
   await adminService(page, as, extra);

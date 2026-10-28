@@ -153,6 +153,8 @@ test('Martin answers from a work item’s sheet as from Needs you, his passkey a
     await expect.poll(async () => (await answers('1334')).map((a) => a.payload.decision)).toEqual(['approved']);
     await expect(waits).toHaveCount(0);
     await expect(sheet).toBeVisible();
+    // Its button went with it: the sheet's title takes focus, so the sheet keeps it, and Escape closes it.
+    await expect(sheet.getByRole('heading', { level: 2 })).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(sheet).toHaveCount(0);
     await expect(card(page, '1334')).toHaveCount(0);
