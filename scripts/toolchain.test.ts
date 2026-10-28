@@ -130,6 +130,7 @@ describe('every use of mise in CI', () => {
     const warmed = /^ +tools:\n((?: +- .+\n)+)/m.exec(cache)?.[1]?.match(/(?<=- ).+/g) ?? [];
     expect(check.size).toBeGreaterThan(0);
     expect(warmed.sort()).toEqual([...check].sort());
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, as the workflow writes it.
     expect(sets(cache)).toEqual(['${{ matrix.tools }}']);
   });
 
