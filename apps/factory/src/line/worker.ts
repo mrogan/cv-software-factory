@@ -91,6 +91,8 @@ import {
   type EventWriter,
   fromMartin,
   IgnoredCommands,
+  LINE_ROLE,
+  lastEnd,
   latestControls,
   lineStopped,
   sendSignal,
@@ -856,17 +858,24 @@ export class Line {
         return;
       }
       case 'hand-over': {
-        // The row ends just after: only a crash, or a store that fails, in between would say it twice.
+        // The row ends just after: only a crash, or a store that fails, in between would say it twice. An issue that
+        // is gone, or that the App may not change, leaves nothing to say, and the hand-over goes on.
         if (item.issue) {
           const flag = state.spec?.flag;
-          await this.#o.github.act(
-            'comment',
-            this.#o.repo,
-            { number: item.issue, body: handOverComment(workItem, flag, next.release.version) },
-            { workItem },
-          );
+          await this.#o.github
+            .act(
+              'comment',
+              this.#o.repo,
+              { number: item.issue, body: handOverComment(workItem, flag, next.release.version) },
+              { workItem },
+            )
+            .catch((error) => {
+              if (!(error instanceof GitHubWorkerError && ISSUE_GONE.includes(error.status))) throw error;
+              this.#o.log.warn({ workItem, issue: item.issue, err: error }, 'the issue cannot be commented on');
+            });
         }
-        await this.#o.steps.finish(workItem);
+        // Gone at its merge, as a rule: one that cannot be deleted now is logged, and never says the comment again.
+        await this.#dropVolume(workItem);
         this.#o.log.info({ workItem, release: next.release.release }, 'handed a released improvement to its flag');
         return;
       }
@@ -1778,13 +1787,17 @@ export class Line {
   }
 
   /**
-   * A work item's events, upcast, and the last of them by its place in the store: Martin's answers only from his roles.
+   * A work item's events, upcast, and the last of them by its place in the store: Martin's answers only from his roles,
+   * and the planner's specs only as the line recorded them (or from before the store recorded who appended each), so
+   * no other worker can put a spec in front of Martin's approval, or the coder.
    */
   async #raw(workItem: string): Promise<{ raw: { type: string; payload: unknown }[]; last: number }> {
     const { sql } = this.#o;
     const rows = await sql<RawEvent[]>`
       select e.seq, e.type, e.version, e.payload from events e
-      where e.work_item = ${workItem} and ${fromMartin(sql, 'e')} order by e.seq`;
+      where e.work_item = ${workItem} and ${fromMartin(sql, 'e')}
+        and (e.type <> 'spec.written' or e.appended_by is null or e.appended_by = ${LINE_ROLE})
+      order by e.seq`;
     const raw = rows.flatMap((row) => {
       const read = upcast({ ...row, seq: Number(row.seq) });
       return read.ok ? [{ type: read.event.type, payload: read.event.payload }] : [];
@@ -1829,7 +1842,8 @@ export class Line {
 
   /** For each work item, when it last closed, or null while it is open, or reopened since. */
   async #closedAt(workItems: readonly string[]): Promise<Record<string, { closedAt: string } | null>> {
-    const rows = await this.#o.sql<{ work_item: string; type: string; ts: Date }[]>`
+    const sql = this.#o.sql;
+    const rows = await sql<{ work_item: string; type: string; ts: Date }[]>`
       select distinct on (work_item) work_item, type, ts from events
       where work_item = any(${workItems as string[]}) and type in ('work-item.closed', 'work-item.reopened')
       order by work_item, seq desc`;
@@ -1837,6 +1851,14 @@ export class Line {
     for (const row of rows) {
       if (row.type === 'work-item.closed') closed[row.work_item] = { closedAt: new Date(row.ts).toISOString() };
     }
+    // An improvement handed over to its flag stays open, for the flag pass, while its row on the line has ended: its
+    // change is released, so a wait on it is over then. Not a reopened ticket's ended row, which comes back.
+    const handedOver = await sql<{ work_item: string; moved_at: Date }[]>`
+      select l.work_item, l.moved_at from line l
+      where l.work_item = any(${workItems as string[]}) and l.stage = 'ended'
+        and ${lastEnd(sql, 'l.work_item')} is distinct from 'work-item.reopened'
+        and exists (select 1 from events r where r.work_item = l.work_item and r.type = 'improvement.requested')`;
+    for (const row of handedOver) closed[row.work_item] ??= { closedAt: new Date(row.moved_at).toISOString() };
     return closed;
   }
 

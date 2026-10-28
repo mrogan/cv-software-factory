@@ -1592,6 +1592,21 @@ describe('an improvement Martin asked for', () => {
     expect(specHold([...holding, approve, pushed(), spec]).hold.cause).toBe('spec');
   });
 
+  it('holds a spec written while the last was held afresh: his answer to the old card approves nothing', () => {
+    const swapped: LineEvent = {
+      type: 'spec.written',
+      payload: { ...(spec.payload as PayloadOf<'spec.written'>), scope: ['src/'] },
+    };
+    const events = [requested, spec, held('spec', 'plan'), swapped];
+    expect(specHold(events).hold.cause).toBe('spec');
+    expect(specHold([...events, approve]).hold.cause).toBe('spec');
+    expect(decide([...events, held('spec', 'plan'), approve], facts).next).toEqual({
+      do: 'step',
+      agent: 'coder',
+      round: 1,
+    });
+  });
+
   it('waits on overlapping work until it closes, with no look again, and goes on to the hold', () => {
     const overlaps = [{ workItem: '1028', files: ['src/search.ts'] }];
     expect(decide([requested, spec], { ...facts, overlaps }).next).toMatchObject({ do: 'wait-on' });

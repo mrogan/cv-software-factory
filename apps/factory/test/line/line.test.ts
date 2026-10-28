@@ -297,6 +297,58 @@ describe('the line', () => {
     expect(await types(workItem)).not.toContain('verification.finished');
   });
 
+  /** An improvement Martin asked for, as the admin service opens it. */
+  async function improvement(): Promise<string> {
+    const workItem = await nextWorkItem(database.admin);
+    await martin.append([
+      event(workItem, 'work-item.opened', { kind: 'improvement', title: 'Delivery dates', sample: false }, 'martin'),
+      event(workItem, 'improvement.requested', { words: 'Delivery dates.', steppedUp: true }, 'martin'),
+    ]);
+    return workItem;
+  }
+
+  it('takes an improvement’s spec only as the line recorded it', async () => {
+    const workItem = await improvement();
+    await database.owner`insert into line (work_item, stage, issue) values (${workItem}, 'plan', 41)`;
+    // A spec another worker appended: the line plans it as if there were none.
+    await new EventWriter(database.as.triage, {
+      kind: 'real',
+      artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))),
+    }).append(event(workItem, 'spec.written', SPEC, 'planner'));
+    const { pass, steps } = line({ planner: () => 'fails' });
+    await pass();
+    expect(steps.requests.map((r) => r.agent)).toEqual(['planner']);
+    expect(await types(workItem)).not.toContain('hold.started');
+  });
+
+  it('hands an improvement over when its issue is gone, and ends a wait on it', async () => {
+    const workItem = await improvement();
+    const release = { release: '6d8f9c7b54', version: 'v0.9.4', previous: 'v0.9.3', watched: true, dryRun: false };
+    const image = { digest: `sha256:${'c'.repeat(64)}`, signed: true, admitted: true };
+    await events.append([
+      event(workItem, 'spec.written', { ...SPEC, flag: 'delivery-dates' }, 'planner'),
+      event(workItem, 'pull-request.merged', { number: 12, commit: 'c'.repeat(40), by: 'martin' }, 'martin'),
+      event(workItem, 'release.started', { ...release, image, steps: null }, 'rollouts'),
+      event(workItem, 'release.promoted', release, 'rollouts'),
+    ]);
+    await database.owner`insert into line (work_item, stage, issue) values (${workItem}, 'release', 41)`;
+    // Another improvement, waiting on this one's files.
+    const waiting = await improvement();
+    await events.append([
+      event(waiting, 'spec.written', SPEC, 'planner'),
+      event(waiting, 'wait.started', { on: [workItem], files: ['src/search.ts'], reason: 'Waits' }),
+    ]);
+    await database.owner`insert into line (work_item, stage, issue) values (${waiting}, 'waiting', 42)`;
+    const { pass, github } = line();
+    github.refusing.set('comment', new GitHubWorkerError(404, 'not-found', 'Not Found'));
+    await pass();
+    expect(await stage(workItem)).toBe('ended');
+    expect(await types(workItem)).not.toContain('work-item.closed');
+    await pass();
+    // The improvement it waited on is released, and open: the wait is over, and its spec is held for Martin.
+    expect((await payloads(waiting, 'hold.started')).at(-1)).toMatchObject({ cause: 'spec' });
+  });
+
   it('carries a ticket through plan, build, gates, review and description to Martin’s merge', async () => {
     const workItem = await ticket();
     const probes = new FakeProbes({ outcome: 'cleared', version: 'v0.9.4', runs: ['passed', 'passed'] });

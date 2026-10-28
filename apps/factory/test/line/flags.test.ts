@@ -698,6 +698,14 @@ describe('the flag pass, against the store', () => {
     expect((await flagEvents(database.as.line)).records).toEqual([]);
   });
 
+  it('takes a flag’s pages from the spec that names it last, which may name none', async () => {
+    await improvement('dates', 'improvement', { pages: ['/products/blue-mug'] });
+    const later = await improvement('dates');
+    const { named, pages } = await flagEvents(database.as.line);
+    expect(named.dates).toBe(later);
+    expect(pages).toEqual({});
+  });
+
   it('names a flag only for an improvement Martin asked for, with the pages its spec names', async () => {
     const asked = await improvement('dates', 'improvement', { pages: ['/products/blue-mug'] });
     await improvement('plain');

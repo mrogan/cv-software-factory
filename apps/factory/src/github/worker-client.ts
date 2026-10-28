@@ -15,7 +15,9 @@ import {
   WORK_ITEM_HEADER,
 } from './server.ts';
 
-/** What GitHub says of an issue that is gone (deleted or moved) or that the App may not change: asking again won't help. */
+/**
+ * What GitHub says of an issue that is gone (deleted or moved) or that the App may not change: asking again won't help.
+ */
 export const ISSUE_GONE = [403, 404, 410];
 
 export class GitHubWorkerError extends Error {

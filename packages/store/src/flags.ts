@@ -127,7 +127,12 @@ export async function flagEvents(sql: Sql | TransactionSql, flag?: string): Prom
   });
   return {
     named: Object.fromEntries(named.map((row) => [row.flag, row.work_item])),
-    pages: Object.fromEntries(named.flatMap((row) => (Array.isArray(row.pages) ? [[row.flag, row.pages]] : []))),
+    // From the same spec as `named`, the latest to name each flag: one that names no pages leaves none of an earlier's.
+    pages: Object.fromEntries(
+      Object.entries(Object.fromEntries(named.map((row) => [row.flag, row.pages]))).flatMap(([flag, pages]) =>
+        Array.isArray(pages) && pages.length ? [[flag, pages]] : [],
+      ),
+    ),
     records,
     checked,
     revision: latest?.revision ?? null,

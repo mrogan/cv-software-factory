@@ -1848,6 +1848,16 @@ describe('the line’s controls', () => {
     await append(db.operator, [
       event(unasked, 'work-item.opened', 'martin', { kind: 'improvement', title: 'Gift notes', sample: false }),
     ]);
+    // A worker's ticket on it does not make it a ticket either: the line's queue judges it by its opening too.
+    await append(db.as.triage, [
+      event(unasked, 'ticket.opened', 'triage', {
+        title: 'A ticket on an improvement',
+        category: 'errors',
+        severity: 'broken',
+        fingerprint: { route: '/', class: 'server-error' },
+        traces: [],
+      }),
+    ]);
     const { browser, passkey } = await signedIn();
     expect((await stepUp(browser, passkey)).status).toBe(200);
     expect(await browser.post('/admin/line/controls', { take: { kind: 'just-one', workItem: unasked } })).toMatchObject(

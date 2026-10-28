@@ -73,8 +73,8 @@
  * rule for each cause and each answer. An answer in words to one of triage's holds leaves it standing
  * (`WORDS_LEAVE_HELD`): only his approval or his rejection settles those.
  *
- * An improvement Martin asked for (`improvement.requested`, the console's "+") comes onto the line as a ticket does, and
- * goes the same way to his merge, with three differences. Its spec is held for his approval before any code, every
+ * An improvement Martin asked for (`improvement.requested`, the console's "+") comes onto the line as a ticket does,
+ * and goes the same way to his merge, with three differences. Its spec is held for his approval before any code, every
  * spec of it, rewritten or not, whatever its risks: an improvement widens what the app does. It has no signal, so no
  * sense looks at it again, and a wait on overlapping work ends when that work closes. And once a release that carries
  * it is promoted, the line hands it over (`hand-over`): its change is in the app behind its flag, off, and the flag
@@ -154,7 +154,8 @@ export interface WorkItemState {
   ticket: PayloadOf<'ticket.opened'> | undefined;
   /**
    * Martin's request, when the work item is an improvement he asked for: the line reads it only from his roles, and
-   * takes the work item only when he opened it too (`queue.ts`). A request makes it an improvement, whatever else it has.
+   * takes the work item only when he opened it too (`queue.ts`). A request makes it an improvement, whatever else it
+   * has.
    */
   request: PayloadOf<'improvement.requested'> | undefined;
   spec: PayloadOf<'spec.written'> | undefined;
@@ -324,6 +325,10 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         state.spec = event.payload;
         state.latestScope = event.payload.scope;
         state.specApproved = false;
+        // A hold on the spec before is a hold on what Martin read: his answer to it says nothing of this one, which
+        // is held afresh if it needs him. His approval of the old card, appended after, finds no hold, and approves
+        // nothing.
+        if (state.hold?.cause === 'spec') state.hold = undefined;
         // A new spec is checked against the work in flight again.
         state.waiting = undefined;
         state.respecified = state.pullRequest !== undefined;
@@ -516,7 +521,8 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
  * Work sent back to Plan starts a fresh pass: the planner writes a new spec, and the coder's first round opens a new
  * pull request, with its own gates, review, merge and release. Only the ticket or the request, the hold, Martin's
  * answers, the verifications that persisted and the reopenings carry over: the planner should not forget an answer,
- * nor a fix that did not work or did not last. So do the ticket's signals, and the last scope, which still says what it is about.
+ * nor a fix that did not work or did not last. So do the ticket's signals, and the last scope, which still says what
+ * it is about.
  */
 function startAgain(state: WorkItemState): void {
   const { ticket, request, hold, answer, answers, persisted, reopened, persistedBefore, closed } = state;

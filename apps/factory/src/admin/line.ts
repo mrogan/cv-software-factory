@@ -216,7 +216,9 @@ async function openWork(tx: TransactionSql, workItem: string): Promise<boolean> 
   const [row] = await tx`
     select 1 from events t
     where t.work_item = ${workItem} and not t.sample
-      and (t.type = 'ticket.opened'
+      and ((t.type = 'ticket.opened'
+            and not exists (select 1 from events o where o.work_item = t.work_item and o.type = 'work-item.opened'
+                            and o.payload->>'kind' = 'improvement'))
            or (t.type = 'improvement.requested' and t.appended_by = any(${MARTINS_ROLES})
                and exists (select 1 from events o
                            where o.work_item = t.work_item and o.type = 'work-item.opened'
