@@ -8,6 +8,7 @@
  * and the bird hops for each, but a measure is never sour twice for the same measurement.
  */
 import type { PublicEvent } from '@software-factory/events';
+import { measurementOf } from './release.ts';
 
 export type Reaction =
   /** A release started: the bird leaves its cage for the Canary panel, as a paper bird for a dry run. */
@@ -29,7 +30,7 @@ export type Reaction =
 export interface Watch {
   /** The release it is out for, while that is in flight; undefined while it is in its cage. */
   release: string | undefined;
-  /** Each measurement it has heard, by measure and end, which name a measurement. */
+  /** Each measurement it has heard, by its measure and its end, as the Canary panel keeps them (`measurementOf`). */
   measured: Set<string>;
   /** The weight of each step it has heard passed or failed. */
   stepped: Set<number>;
@@ -59,9 +60,9 @@ export function hear(watch: Watch, event: PublicEvent): Reaction | undefined {
     return undefined;
   if (event.payload.release !== watch.release) return undefined;
   if (event.type === 'canary.measuring') {
-    const heard = event.payload.measures.filter((m) => !watch.measured.has(`${m.name}|${m.at}`));
+    const heard = event.payload.measures.filter((m) => !watch.measured.has(measurementOf(m)));
     if (!heard.length) return undefined;
-    for (const m of heard) watch.measured.add(`${m.name}|${m.at}`);
+    for (const m of heard) watch.measured.add(measurementOf(m));
     return heard.some((m) => m.phase === 'failed') ? { kind: 'sour' } : { kind: 'hop' };
   }
   if (event.type === 'canary.stepped') {

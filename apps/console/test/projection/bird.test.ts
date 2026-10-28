@@ -5,6 +5,7 @@
 import type { PayloadOf, PublicEvent } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { caged, hear, heard, type Reaction } from '../../web/src/projection/bird.ts';
+import { lookVerdict, releases } from '../../web/src/projection/release.ts';
 import { END, SAMPLES, work } from './support.ts';
 
 const started = (release = 'r1', dryRun = false): PayloadOf<'release.started'> => ({
@@ -108,6 +109,11 @@ describe('the canary bird', () => {
       { kind: 'sour' },
       undefined,
     ]);
+    // The Canary panel keeps each measurement as the bird hears it: the failed latency once.
+    const [r] = releases(events, [], one.at(3.5));
+    if (!r) throw new Error('No release');
+    expect(r.looks.flatMap((l) => l.measures.map((m) => m.name))).toEqual(['errors', 'latency']);
+    expect(lookVerdict(r, 'latency').words).toBe('50 ms over · 1 of 2');
   });
 
   it('keels over at a rollback, and goes home quietly from an abort or an analysis error', () => {
