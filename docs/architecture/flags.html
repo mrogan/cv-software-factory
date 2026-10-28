@@ -228,7 +228,7 @@ const STEPS = [
     tags: { flags: 'dark-mode: preview', preview: '?preview=dark-mode' },
     who: { visitors: 'unlit', preview: 'lit', gen: 'unlit', checks: 'lit' },
     body: `
-<p>At Preview, anyone who asks for a preview sees dark mode. The console's "Preview it" opens the shop with <code>?preview=dark-mode</code>, and the shop remembers it for a day in a cookie on that one browser. Widening from here on needs Martin's passkey again.</p>
+<p>At Preview, anyone who asks for a preview sees dark mode. The console's "Preview it" opens the shop with <code>?preview=dark-mode</code>, and the shop remembers it for a day in a cookie on that one browser. Every move past Checks, to Preview or to Share, needs Martin's passkey again.</p>
 <p>It is harmless: they asked for it, they see a feature already deployed, and only in their own browser. Everyone else sees the old look. Each stage keeps the ones before it, so the checks still see it too.</p>
 <p><b>What Verify does.</b> One check asks for the preview, as the console's link does, and the rest run with its cookie. The stage passes only if the device check finds the preview cookie, kept as its contract says, and nothing else the baseline did not keep.</p>
 <p>The preview cookie is the only thing flags ever keep on a visitor's device, and only because they asked, which is why neither the shop nor the console needs a cookie banner. Preview is the one stage Martin may skip, from Checks straight to Share.</p>
@@ -238,7 +238,7 @@ const STEPS = [
     title: 'Share: the comparison',
     tab: 'Share',
     nodes: ['visitors', 'gen', 'traefik', 'stable', 'verify', 'flagd', 'flags', 'console'],
-    edges: { vis: 'unlit', gen: 'half', ts: 'half', sv: 'req', ...SET },
+    edges: { vis: 'unlit', gen: 'half', ts: 'half', ...SET },
     tags: { flags: 'dark-mode: share 50%', gen: 'signed ids' },
     who: { visitors: 'unlit', preview: 'lit', gen: 'half', checks: 'lit' },
     body: `
@@ -255,7 +255,7 @@ const STEPS = [
     title: 'A canary and a share take turns',
     tab: 'Canary + share',
     nodes: ['gen', 'traefik', 'argo', 'stable', 'canary', 'verify', 'flagd', 'flags'],
-    edges: { gen: 'half', argo: 'req', ts: 'half', tc: 'half', canv: 'req', sv: 'req', fs: 'set', fc: 'set', ff: 'set' },
+    edges: { gen: 'half', argo: 'req', ts: 'half', tc: 'half', canv: 'req', fs: 'set', fc: 'set', ff: 'set' },
     tags: { traefik: 'split two ways', flags: 'dark-mode: share 50%', canary: 'another fix' },
     who: { visitors: 'unlit', preview: 'lit', gen: 'half', checks: 'lit' },
     body: `
@@ -297,7 +297,7 @@ const STEPS = [
     who: { visitors: 'unlit', preview: 'unlit', gen: 'unlit', checks: 'unlit' },
     body: `
 <p>At any stage Martin can turn a flag off, with a reason and no passkey. The admin service changes the switchboard, flagd sees it within seconds and tells the app, and everyone, previewers included, is back on the old look: no new version, no deploy, no rollback. Then the admin service asks each of the app's pods which switchboard it holds, and Martin's phone hears if one has not taken the change within a minute.</p>
-<p><b>If flagd itself fails,</b> the app carries on with its own copy of the switchboard. But then an "off" could not reach it, so once its copy has gone a minute without word from flagd, the app treats every flag as off.</p>
+<p><b>If flagd itself fails,</b> the app carries on with its own copy of the switchboard. But then an "off" could not reach it, so once its copy has gone a minute without word from flagd (two, if the connection died silently), the app treats every flag as off.</p>
 <p><b>What it closes.</b> Turned off below Everyone, the work item closes as <b>turned off</b>, and its issue as not planned, with Martin's reason; the flag stays off for it. Turned off from Everyone, the work item stays verified and nothing more closes, and Martin may switch it straight back on. Either way it is not a rollback: no code moved.</p>
 <details><summary>In the docs</summary><p><a href="${DOCS}/RELEASE-AND-VERIFY.md#off">Off</a>; <a href="${DOCS}/FEATURE-FLAGS.md#failing-off">failing off</a>; <a href="${DOCS}/ADMIN-SERVICE.md#whether-the-app-holds-the-flags">whether the app holds the flags</a>.</p></details>`,
   },
@@ -311,7 +311,7 @@ const STEPS = [
     body: `
 <p>The switches are production state kept outside Git, so each is guarded:</p>
 <ul>
-<li><b>Only the admin service writes <code>flags</code>,</b> and only in the five stages' fixed shapes. The cluster refuses anything else, and refuses deleting it.</li>
+<li><b>Only the admin service writes <code>flags</code>,</b> and the cluster holds each of its writes to the five stages' fixed shapes, and refuses deleting <code>flags</code>. A flag set there by hand in any other shape is turned off at the admin service's next write.</li>
 <li><b>flagd only reads it,</b> and lives in a namespace of its own, which nothing the app's repository deploys can reach.</li>
 <li><b>Argo CD makes the switchboard empty and leaves its switches alone,</b> or every merge would turn every flag off.</li>
 <li><b>Only Martin can stage a flag or ask for an improvement:</b> both are admin events, which no worker's role may append. Asking for an improvement and approving its spec take his passkey again and reach his phone.</li>

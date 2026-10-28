@@ -115,7 +115,7 @@ A first-class factory capability, though not the centre of the visitor demo.
   - **Preview:** those, and browsers that ask to preview it. A probe asks, and nothing may be kept on the device but the preview cookie.
   - **Share:** those, and a share of the traffic generator's requests, chosen by an id the generator signs. Verify compares the flag's two sides on errors and latency, from the generator's own figures, with the canary's thresholds. A canary and a share take turns, and one flag is at Share at a time.
   - **Everyone:** only once the comparison has passed. It closes the improvement as verified.
-- Off is a kill switch, at any stage, with no deploy and no rollback; below Everyone it closes the improvement as turned off. Widening needs the passkey again, but from Off to Checks; narrowing and Off never do. Every flag fails off once the app has been without flagd for a minute. A flag keeps nothing on a visitor's device but the preview cookie of one who asks for it. A flag's state is never a visitor's to change.
+- Off is a kill switch, at any stage, with no deploy and no rollback; below Everyone it closes the improvement as turned off. Widening needs the passkey again, but from Off to Checks; narrowing and Off never do. Every flag fails off once the app has been without flagd for a minute, or two when its connection died silently. A flag keeps nothing on a visitor's device but the preview cookie of one who asks for it. A flag's state is never a visitor's to change.
 
 ### 4.3 Autonomy
 
