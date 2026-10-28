@@ -40,6 +40,7 @@
  *     (`PROBES_URL`, Verify's), it waits.
  * - **With just one** (`only`), it acts on that work item alone.
  */
+import { VERSIONS } from '@software-factory/events';
 import { redactSecrets } from '@software-factory/events/public';
 import type { EventWriter, FlagEvents, StoredFlagCheck } from '@software-factory/store';
 import { askedByMartin, flagEvents, fromMartin, lastEnd } from '@software-factory/store';
@@ -353,8 +354,8 @@ export class FlagPass {
 
   /**
    * Closes an improvement Martin widened to Everyone as verified, and its issue as completed, saying so: the issue
-   * first, as for a turned-off one. Martin may have moved the flag since the pass read it, or while GitHub answered:
-   * then it closes nothing, and the next pass decides afresh.
+   * first, as for a turned-off one. Martin may have moved the flag since the pass read it: then it closes nothing, and
+   * the next pass decides afresh.
    */
   async #verified(next: Extract<FlagNext, { do: 'verified' }>): Promise<void> {
     const { flag, workItem } = next;
@@ -374,8 +375,8 @@ export class FlagPass {
       this.#o.log.warn({ workItem, flag, err: error }, 'could not close a verified improvement’s issue');
       return;
     }
-    // Martin may have turned it off while GitHub answered: then the next pass closes it as turned off instead.
-    if (!(await this.#latest(next))) return;
+    // Once its issue says so, the close is recorded even if Martin has turned the flag off since: it was on for
+    // everyone, held a minute, and an Off after a verified close closes nothing more, so the two never disagree.
     const ts = this.#o.now().toISOString();
     const drafts = [
       {
@@ -402,7 +403,8 @@ export class FlagPass {
   async #latest(next: Extract<FlagNext, { do: 'verified' }>): Promise<boolean> {
     const [row] = await this.#o.sql<{ seq: string }[]>`
       select e.seq::text as seq from events e
-      where e.type = 'flag.staged' and e.payload->>'flag' = ${next.flag} and not e.sample and e.work_item is not null
+      where e.type = 'flag.staged' and e.version <= ${VERSIONS['flag.staged']} and e.payload->>'flag' = ${next.flag}
+        and not e.sample and e.work_item is not null
         and e.appended_by is not null and ${fromMartin(this.#o.sql, 'e')}
       order by e.seq desc limit 1`;
     return row?.seq === next.move.seq;
