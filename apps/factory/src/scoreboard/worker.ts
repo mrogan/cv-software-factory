@@ -76,7 +76,12 @@ export async function readScoreEvents(sql: Sql): Promise<ScoreEvent[]> {
   >`
     select ts, work_item, type, version,
            case when type = 'signal.received' then '{}'::jsonb else payload end as payload
-    from events where type in ${sql(SCORE_TYPES)} and work_item is not null order by seq`;
+    from events e where type in ${sql(SCORE_TYPES)} and work_item is not null
+      -- A work item opened as an improvement has no ticket, whatever is appended to it.
+      and not (e.type = 'ticket.opened'
+               and exists (select 1 from events o where o.work_item = e.work_item and o.type = 'work-item.opened'
+                           and o.payload->>'kind' = 'improvement'))
+    order by seq`;
   return rows.map((row) => {
     if (row.type === 'signal.received') return { ts: row.ts.toISOString(), work_item: row.work_item, type: row.type };
     const read = upcast(row);

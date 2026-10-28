@@ -858,6 +858,10 @@ export class Line {
         return;
       }
       case 'hand-over': {
+        // Its volume first, gone at its merge as a rule: an ended row is never taken up again, so one that cannot be
+        // deleted now keeps the row where it is, to try again on a later pass, before anything is said.
+        await this.#dropVolume(workItem);
+        if (!this.#volumeGone.has(workItem)) return false;
         // The row ends just after: only a crash, or a store that fails, in between would say it twice. An issue that
         // is gone, or that the App may not change, leaves nothing to say, and the hand-over goes on.
         if (item.issue) {
@@ -874,8 +878,6 @@ export class Line {
               this.#o.log.warn({ workItem, issue: item.issue, err: error }, 'the issue cannot be commented on');
             });
         }
-        // Gone at its merge, as a rule: one that cannot be deleted now is logged, and never says the comment again.
-        await this.#dropVolume(workItem);
         this.#o.log.info({ workItem, release: next.release.release }, 'handed a released improvement to its flag');
         return;
       }
@@ -1857,7 +1859,10 @@ export class Line {
       select l.work_item, l.moved_at from line l
       where l.work_item = any(${workItems as string[]}) and l.stage = 'ended'
         and ${lastEnd(sql, 'l.work_item')} is distinct from 'work-item.reopened'
-        and exists (select 1 from events r where r.work_item = l.work_item and r.type = 'improvement.requested')`;
+        and exists (select 1 from events r where r.work_item = l.work_item and r.type = 'improvement.requested'
+                    and not r.sample and r.appended_by = any(${MARTINS_ROLES}))
+        and exists (select 1 from events o where o.work_item = l.work_item and o.type = 'work-item.opened'
+                    and o.payload->>'kind' = 'improvement' and not o.sample and o.appended_by = any(${MARTINS_ROLES}))`;
     for (const row of handedOver) closed[row.work_item] ??= { closedAt: new Date(row.moved_at).toISOString() };
     return closed;
   }

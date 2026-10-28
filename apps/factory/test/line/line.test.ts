@@ -321,7 +321,7 @@ describe('the line', () => {
     expect(await types(workItem)).not.toContain('hold.started');
   });
 
-  it('hands an improvement over when its issue is gone, and ends a wait on it', async () => {
+  it('hands an improvement over once its volume is gone, when its issue is gone too, and ends a wait on it', async () => {
     const workItem = await improvement();
     const release = { release: '6d8f9c7b54', version: 'v0.9.4', previous: 'v0.9.3', watched: true, dryRun: false };
     const image = { digest: `sha256:${'c'.repeat(64)}`, signed: true, admitted: true };
@@ -339,7 +339,12 @@ describe('the line', () => {
       event(waiting, 'wait.started', { on: [workItem], files: ['src/search.ts'], reason: 'Waits' }),
     ]);
     await database.owner`insert into line (work_item, stage, issue) values (${waiting}, 'waiting', 42)`;
-    const { pass, github } = line();
+    const { pass, github, steps } = line();
+    // Its volume cannot be deleted yet, as the pass reads the merge and as it hands over: it stays, and says nothing.
+    steps.finishFails = 2;
+    await pass();
+    expect(await stage(workItem)).not.toBe('ended');
+    expect(github.acts.filter((a) => a.action === 'comment')).toEqual([]);
     github.refusing.set('comment', new GitHubWorkerError(404, 'not-found', 'Not Found'));
     await pass();
     expect(await stage(workItem)).toBe('ended');
