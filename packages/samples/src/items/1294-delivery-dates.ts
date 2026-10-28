@@ -23,6 +23,11 @@ export default new Item('1294', '2026-10-03T07:50:00+01:00')
     sample: true,
     category: 'improvement',
   })
+  .at('0:00', 'improvement.requested', 'martin', 'Martin asked for an improvement: Delivery dates on each product', {
+    words:
+      'Delivery dates on each product. Each product page should say when an order placed today would arrive, counting only the days we dispatch on.',
+    steppedUp: true,
+  })
   .calls('planner', '0:20', '3:30', { calls: 3, input: 39_000, output: 3_100, cached: 0.3 })
   .at('3:40', 'spec.written', 'planner', `Spec: four acceptance criteria, behind the ${FLAG} flag`, {
     outcome: `Each product page says when an order placed today would arrive, behind the ${FLAG} flag`,

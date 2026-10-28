@@ -153,17 +153,23 @@ export const ACCESS = {
     routes: ['POST /admin/passkeys/:id/revoke'],
   },
 
-  // Needs you: each answer names the hold the card showed. Approving is one route, and is one of the two below by the
-  // stored hold's cause, never the request's: the admin service asks for the passkey again for a guardrail's.
+  // Needs you: each answer names the hold the card showed. Approving is one route, and is one of the three below by the
+  // stored hold's cause and the stored work item's kind, never the request's: the admin service asks for the passkey
+  // again for a guardrail's, and for an improvement's spec, which sets the line building something new.
   'hold.approve': {
     ...admin(
-      'Approve a hold: as `hold.approve-guardrail`, with the passkey again, when its cause is a guardrail, and with ' +
-        'nothing more when it is not',
+      'Approve a hold: as `hold.approve-guardrail`, with the passkey again, when its cause is a guardrail; as ' +
+        '`hold.approve-improvement-spec`, with the passkey again, when it holds an improvement’s spec; and with ' +
+        'nothing more otherwise',
     ),
     server: 'admin',
     routes: ['POST /admin/holds/:workItem/approve'],
   },
   'hold.approve-guardrail': admin(`Approve a hold whose cause is a guardrail (${GUARDRAIL_HOLDS.join(', ')})`, true),
+  'hold.approve-improvement-spec': admin(
+    'Approve the spec of an improvement (a `spec` hold on a work item of kind improvement), so the line builds it',
+    true,
+  ),
   'hold.reject': { ...admin('Reject a hold'), server: 'admin', routes: ['POST /admin/holds/:workItem/reject'] },
   'hold.answer': {
     ...admin('Answer a hold in words'),
@@ -232,6 +238,14 @@ export const ACCESS = {
     ),
     server: 'admin',
     routes: ['POST /admin/flags/:flag/stage'],
+  },
+
+  // The "+": an improvement widens what the line does, so asking for one needs the passkey again, as approving its spec
+  // does. The work item's kind and title are the admin service's; only Martin's words come from the request.
+  'improvement.request': {
+    ...admin('Ask for an improvement, in your own words: the line plans it, and holds its spec for you', true),
+    server: 'admin',
+    routes: ['POST /admin/improvements'],
   },
 
   // Models and spend, within policy (`settings.ts`). A save is one route, and is each of the four below that it does:

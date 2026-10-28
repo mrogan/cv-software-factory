@@ -70,7 +70,8 @@ export const ANSWERS: Record<HoldCause, Record<HoldAnswer, Resolution>> = {
   // Triage's: a suggestion never comes onto the line, nor does a defect only the planner has seen until Martin approves
   // it, nor a burst's problems, or those seen while what their sense reads was not healthy, until he lets them through.
   // Triage then opens their tickets, and the line carries each on from there as any other. Triage closes a suggestion
-  // he rejects; approving one means nothing yet (Part B makes it an improvement).
+  // he rejects. A suggestion never starts work, so approving one does nothing: Martin, having read one, asks for the
+  // improvement himself with the console's "+", in his own words (spec 5.3: a report only ever leads to a defect fix).
   suggestion: { approved: 'wait', rejected: 'close', answered: 'wait' },
   finding: { approved: 'carry-on', rejected: 'close', answered: 'wait' },
   burst: { approved: 'carry-on', rejected: 'close', answered: 'wait' },

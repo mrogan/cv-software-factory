@@ -356,7 +356,7 @@ const command = (type: EventType, workItem: string | null = '3200'): NewEvent =>
   }) as NewEvent;
 
 /** Martin's commands that are on a work item: the rest are the line's. */
-const ON_WORK_ITEM: readonly EventType[] = ['hold.answered', 'flag.staged'];
+const ON_WORK_ITEM: readonly EventType[] = ['hold.answered', 'flag.staged', 'improvement.requested'];
 
 /** A payload for each of Martin's commands that has one to give. */
 const PAYLOADS: Partial<Record<EventType, object>> = {
@@ -391,7 +391,17 @@ const PAYLOADS: Partial<Record<EventType, object>> = {
     revision: 'r3',
     steppedUp: true,
   },
+  'improvement.requested': { words: 'Show when an order would arrive on each product page.', steppedUp: true },
 };
+
+/** A work item of kind improvement, opened as Martin asks for one. */
+const improvement = (workItem: string, kind: 'improvement' | 'defect-fix' = 'improvement'): NewEvent =>
+  ({
+    ...opened(workItem),
+    actor: 'martin',
+    summary: 'Martin asked for an improvement from the console',
+    payload: { kind, title: 'Delivery dates on each product', sample: true, category: 'improvement' },
+  }) as NewEvent;
 
 const writer = (sql: Sql) => new EventWriter(sql, { kind: 'sample', artifacts });
 
@@ -433,6 +443,28 @@ describe("Martin's commands", () => {
     await expect(writer(db.admin).append(opened('3201'))).rejects.toThrow('row-level security');
     await writer(db.operator).append(opened('3201'));
     expect(MARTINS_ROLES.sort()).toEqual(['factory_admin', 'factory_enrol', 'factory_operator']);
+  });
+
+  it('open an improvement, with its request, and no worker can open one', async () => {
+    // The admin service numbers it as triage does, and appends its opening and his request together.
+    const [number] = await db.admin<{ next: string }[]>`select nextval('work_items')::text as next`;
+    const workItem = number?.next ?? '';
+    await writer(db.admin).append([improvement(workItem), command('improvement.requested', workItem)]);
+    // A work item of any other kind is the workers' to open, never the admin service's.
+    await expect(writer(db.admin).append(improvement('3211', 'defect-fix'))).rejects.toThrow('row-level security');
+    let n = 3220;
+    for (const [name, sql] of Object.entries(db.as)) {
+      await expect(writer(sql).append(improvement(String(++n))), name).rejects.toThrow('row-level security');
+    }
+    // His command line opens anything, the samples' improvements among them.
+    await writer(db.operator).append(improvement('3212'));
+    expect(
+      (
+        await db.owner<{ appended_by: string }[]>`
+        select appended_by from events where type = 'work-item.opened' and payload->>'kind' = 'improvement'
+        order by seq`
+      ).map((row) => row.appended_by),
+    ).toEqual(['factory_admin', 'factory_operator']);
   });
 
   it('carry the role that appended them, which the store sets and no client may', async () => {

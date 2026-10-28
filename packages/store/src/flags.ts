@@ -7,14 +7,18 @@
  *   none of his, and an event stored before the store recorded who appended each says nothing of who did.
  * - **Verify's comparisons:** `flag.compared`, appended by the line's role.
  * - **Verify's checks with the probes:** `flag.checked`, appended by the line's role, at Off, Checks and Preview.
- * - **Which flag is whose:** the latest spec the line's role wrote for each improvement, and the flag it names; of two
- *   improvements whose latest specs name the same flag, the later spec's.
+ * - **Which flag is whose:** the latest spec the line's role wrote for each improvement, and the flag and the pages it
+ *   names; of two improvements whose latest specs name the same flag, the later spec's. An improvement is one Martin
+ *   asked for: its opening and its request (`improvement.requested`) both appended by one of his roles, as row
+ *   security lets no other (0035_improvement-requests.sql). A work item a worker opened as an improvement before then,
+ *   or one with no request, names no flag.
  *
  * Samples are never read: a sample's flag is no flag of the app's.
  */
 import { type PayloadOf, VERSIONS } from '@software-factory/events';
 import type { Sql, TransactionSql } from 'postgres';
 import type { FlagRecord } from '../../../policy/flag-moves.ts';
+import { MARTINS_ROLES } from '../../../policy/store-grants.ts';
 import { fromMartin } from './commands.ts';
 
 /** The role whose events of Verify's, and records of the planner's specs, are believed: the line's. */
@@ -37,6 +41,8 @@ export interface StoredFlagCheck {
 export interface FlagEvents {
   /** Each flag an improvement's latest spec names, and that improvement's work item. */
   named: Record<string, string>;
+  /** The pages that spec names, by its flag: none for a spec that names none, whose pages are the front page. */
+  pages: Record<string, string[]>;
   /** Martin's moves, and Verify's comparisons, checks and baselines, oldest first. */
   records: StoredFlagRecord[];
   /** Verify's checks with the probes, the baselines with the flag off too, oldest first. */
@@ -47,9 +53,9 @@ export interface FlagEvents {
 
 /** What the store says of the flags, or of one flag alone. */
 export async function flagEvents(sql: Sql | TransactionSql, flag?: string): Promise<FlagEvents> {
-  const named = await sql<{ work_item: string; flag: string }[]>`
+  const named = await sql<{ work_item: string; flag: string; pages: string[] | null }[]>`
     with specs as (
-      select distinct on (s.work_item) s.work_item, s.seq, s.payload->>'flag' as flag
+      select distinct on (s.work_item) s.work_item, s.seq, s.payload->>'flag' as flag, s.payload->'pages' as pages
       from events s
       where s.type = 'spec.written' and s.appended_by = ${LINE_ROLE} and s.work_item is not null and not s.sample
         ${
@@ -60,10 +66,12 @@ export async function flagEvents(sql: Sql | TransactionSql, flag?: string): Prom
         }
       order by s.work_item, s.seq desc
     )
-    select p.work_item, p.flag from specs p
+    select p.work_item, p.flag, p.pages from specs p
     where p.flag is not null ${flag === undefined ? sql`` : sql`and p.flag = ${flag}`}
       and exists (select 1 from events o where o.type = 'work-item.opened' and o.work_item = p.work_item
-                  and o.payload->>'kind' = 'improvement' and not o.sample)
+                  and o.payload->>'kind' = 'improvement' and not o.sample and o.appended_by = any(${MARTINS_ROLES}))
+      and exists (select 1 from events r where r.type = 'improvement.requested' and r.work_item = p.work_item
+                  and not r.sample and r.appended_by = any(${MARTINS_ROLES}))
     order by p.seq`;
   const rows = await sql<
     {
@@ -119,6 +127,7 @@ export async function flagEvents(sql: Sql | TransactionSql, flag?: string): Prom
   });
   return {
     named: Object.fromEntries(named.map((row) => [row.flag, row.work_item])),
+    pages: Object.fromEntries(named.flatMap((row) => (Array.isArray(row.pages) ? [[row.flag, row.pages]] : []))),
     records,
     checked,
     revision: latest?.revision ?? null,

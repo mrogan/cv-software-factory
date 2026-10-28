@@ -242,7 +242,7 @@ const where = (batch: readonly NewEvent[], i: number) => {
 };
 
 /** The next work item's number, from the store's sequence: 1000 for the first in a real store. */
-export async function nextWorkItem(sql: Sql): Promise<string> {
+export async function nextWorkItem(sql: Sql | TransactionSql): Promise<string> {
   const [row] = await sql<{ next: string }[]>`select nextval('work_items')::text as next`;
   if (!row) throw new Error('The store gave no work item number');
   return row.next;

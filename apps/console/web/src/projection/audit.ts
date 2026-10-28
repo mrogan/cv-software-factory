@@ -21,7 +21,15 @@ import {
 import { stageWords } from '../../../../../policy/flag-moves.ts';
 import { CAP_NAMES, type CapField, changesBetween, inForce } from '../../../../../policy/settings.ts';
 import type { Profile } from '../../../../../policy/spend.ts';
-import { CONTROL_STEP_UP, FLAG_STEP_UP, FRESH_MINUTES, GUARDRAIL_HOLDS, SETTINGS_STEP_UP, STEP_UP } from '../access.ts';
+import {
+  CONTROL_STEP_UP,
+  FLAG_STEP_UP,
+  FRESH_MINUTES,
+  GUARDRAIL_HOLDS,
+  IMPROVEMENT_STEP_UP,
+  SETTINGS_STEP_UP,
+  STEP_UP,
+} from '../access.ts';
 import { changeWords, clock, dayLabel, modelTitle, money, tokens } from '../format.ts';
 import { changeAction } from './controls.ts';
 import { startOfDay } from './line.ts';
@@ -153,6 +161,8 @@ function raises(profile: Profile, saved: Settings): boolean {
 /** Every event up to t as a row, newest first. */
 export function auditRows(events: readonly PublicEvent[], t: number, profile: Profile): AuditRow[] {
   const causes = new Map<string, HoldCause>();
+  // The work items opened as improvements, whose spec Martin approves with his passkey again.
+  const improvements = new Set<string>();
   // Whose words a work item's report is: a visitor's, or the planner's finding.
   const reporters = new Map<string, string>();
   let steppedUp: number | undefined;
@@ -161,10 +171,12 @@ export function auditRows(events: readonly PublicEvent[], t: number, profile: Pr
     const at = Date.parse(event.ts);
     if (!(at <= t)) continue;
     if (event.type === 'hold.started') causes.set(event.id, event.payload.cause);
+    if (event.type === 'work-item.opened' && event.payload.kind === 'improvement' && event.work_item)
+      improvements.add(event.work_item);
     if (event.type === 'admin.stepped-up') steppedUp = at;
     if (event.type === 'signal.received' && event.payload.report && event.work_item)
       reporters.set(event.work_item, event.payload.sense === 'planner' ? PLANNER_WROTE : VISITOR_WROTE);
-    const asks = askedForPasskey(event, causes, profile);
+    const asks = askedForPasskey(event, causes, improvements, profile);
     const parts: string[] = [];
     let withheld: string | undefined;
 
@@ -245,7 +257,12 @@ export function auditRows(events: readonly PublicEvent[], t: number, profile: Pr
 const plural = (n: number) => `${n} ${n === 1 ? 'question' : 'questions'}`;
 
 /** Whether the access table asks for Martin's passkey again for what this event records (`policy/access.ts`). */
-function askedForPasskey(event: PublicEvent, causes: Map<string, HoldCause>, profile: Profile): boolean {
+function askedForPasskey(
+  event: PublicEvent,
+  causes: Map<string, HoldCause>,
+  improvements: Set<string>,
+  profile: Profile,
+): boolean {
   switch (event.type) {
     case 'release.controlled':
       return STEP_UP[event.payload.action];
@@ -262,9 +279,16 @@ function askedForPasskey(event: PublicEvent, causes: Map<string, HoldCause>, pro
     case 'flag.staged': {
       return FLAG_STEP_UP[event.payload.action];
     }
+    case 'improvement.requested':
+      return IMPROVEMENT_STEP_UP['improvement.request'];
     case 'hold.answered': {
+      // A guardrail's hold, or an improvement's spec (`IMPROVEMENT_STEP_UP`).
       const cause = event.payload.hold ? causes.get(event.payload.hold) : undefined;
-      return event.payload.decision === 'approved' && cause !== undefined && GUARDRAIL_HOLDS.includes(cause);
+      return (
+        event.payload.decision === 'approved' &&
+        cause !== undefined &&
+        (GUARDRAIL_HOLDS.includes(cause) || (cause === 'spec' && improvements.has(event.work_item ?? '')))
+      );
     }
     default:
       return false;

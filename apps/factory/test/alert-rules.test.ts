@@ -267,6 +267,8 @@ describe('the alerts to Martin', () => {
       'auto-merge-on',
       'autonomy-tightened',
       'flag-widened',
+      'improvement-approved',
+      'improvement-requested',
       'line-started',
       'new-work-on',
       'release-control',

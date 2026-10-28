@@ -11,11 +11,12 @@
  * - `passkey-enrolled` and `passkey-revoked`;
  * - `setting-changed`: every `settings.changed`;
  * - the actions the access table marks as needing the passkey again, each as the action it is: `release-control` (a
- *   `release.controlled` that promotes or retries), `guardrail-approved` (a `hold.answered`
- *   approving a hold whose cause is a guardrail, read from the hold it answers: the latest on its work item before it,
- *   which is the hold the line takes it to answer, so an approval counts as what it does),
- *   and `line-started`. Giving the passkey again (`admin.stepped-up`) is not counted: each action it lets the session
- *   take is, and the audit log keeps the event;
+ *   `release.controlled` that promotes or retries), `guardrail-approved` (a `hold.answered` approving a hold whose
+ *   cause is a guardrail, read from the hold it answers: the latest on its work item before it, which is the hold the
+ *   line takes it to answer, so an approval counts as what it does), `improvement-requested` (every
+ *   `improvement.requested`), `improvement-approved` (a `hold.answered` approving a `spec` hold, read as above, on a
+ *   work item opened as an improvement, whoever opened it), and `line-started`. Giving the passkey again
+ *   (`admin.stepped-up`) is not counted: each action it lets the session take is, and the audit log keeps the event;
  * - `line-stopped`: every `line.stopped`, which tightens and so needs no passkey again, but which Martin is still told of;
  * - every change of the line's controls (`controls.changed`), as the access table's action it is, told from the
  *   stored change's before and after alone (`policy/line.ts`): `autonomy-loosened` and `autonomy-tightened`,
@@ -67,6 +68,8 @@ export const SECURITY_KINDS = [
   'flag-widened',
   'flag-narrowed',
   'flag-off',
+  'improvement-requested',
+  'improvement-approved',
 ] as const;
 export type SecurityKind = (typeof SECURITY_KINDS)[number];
 
@@ -88,6 +91,7 @@ const TYPES = [
   'line.stopped',
   'controls.changed',
   'flag.staged',
+  'improvement.requested',
   'hold.started',
 ] as const;
 
@@ -104,6 +108,8 @@ export interface Stored {
   change?: unknown;
   /** A move of a flag's stage: the stages before and after. */
   staged?: unknown;
+  /** For an answer, whether its work item was opened as an improvement. */
+  improvement?: boolean | null;
 }
 
 /** The kind each move of a flag's stage counts as, by the access table's action it is. */
@@ -178,10 +184,12 @@ export function countAs(event: Stored): { kind: SecurityKind } | { hold: HoldCau
     }
     case 'release.controlled':
       return STEPPED_UP_CONTROLS.includes(event.action as ReleaseControl) ? { kind: 'release-control' } : null;
+    case 'improvement.requested':
+      return { kind: 'improvement-requested' };
     case 'hold.answered':
-      return event.decision === 'approved' && (GUARDRAIL_HOLDS as readonly string[]).includes(event.cause ?? '')
-        ? { kind: 'guardrail-approved' }
-        : null;
+      if (event.decision !== 'approved') return null;
+      if ((GUARDRAIL_HOLDS as readonly string[]).includes(event.cause ?? '')) return { kind: 'guardrail-approved' };
+      return event.cause === 'spec' && event.improvement ? { kind: 'improvement-approved' } : null;
     case 'hold.started':
       return {
         hold: (HOLD_CAUSES as readonly string[]).includes(event.cause ?? '') ? (event.cause as HoldCause) : 'unknown',
@@ -217,6 +225,7 @@ export async function readOn(sql: Sql, tally: Tally): Promise<Tally> {
       decision: string | null;
       change: unknown;
       staged: unknown;
+      improvement: boolean | null;
       hold_version: number | null;
       hold_payload: Record<string, unknown> | null;
     }[]
@@ -226,6 +235,10 @@ export async function readOn(sql: Sql, tally: Tally): Promise<Tally> {
            e.payload->'change' as change,
            case when e.type = 'flag.staged' then jsonb_build_object('from', e.payload->'from', 'to', e.payload->'to')
            end as staged,
+           case when e.type = 'hold.answered' then exists (
+             select 1 from events o
+             where o.work_item = e.work_item and o.type = 'work-item.opened' and o.payload->>'kind' = 'improvement')
+           end as improvement,
            h.version as hold_version, h.payload as hold_payload
     from upto
     left join events e
@@ -246,6 +259,7 @@ export async function readOn(sql: Sql, tally: Tally): Promise<Tally> {
       decision: row.decision,
       change: row.change,
       staged: row.staged,
+      improvement: row.improvement,
       cause: causeOf(row),
     });
     if (counted && 'kind' in counted) next.kinds[counted.kind] += 1;

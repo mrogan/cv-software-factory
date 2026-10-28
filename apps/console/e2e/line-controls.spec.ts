@@ -284,7 +284,7 @@ test('Martin tightens and loosens autonomy, turns a switch, and widens and narro
     await panel.getByLabel('Work item #').fill('#1329');
     await panel.getByRole('button', { name: 'Set' }).click();
     // A sample's ticket is none the line takes.
-    await expect(panel.getByRole('alert')).toHaveText('#1329 has no open ticket for the line to take.');
+    await expect(panel.getByRole('alert')).toHaveText('#1329 has no open ticket or improvement for the line to take.');
     await panel.getByRole('button', { name: 'Cancel' }).click();
     await expect(take.getByRole('button', { name: 'The next few' })).toHaveAttribute('aria-pressed', 'true');
   });

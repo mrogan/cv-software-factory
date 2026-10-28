@@ -83,3 +83,12 @@ export const FLAG_STEP_UP: Record<FlagAction, boolean> = {
   'flag.narrow': false,
   'flag.off': false,
 };
+
+/**
+ * Asking for an improvement (`improvement.request`) and approving an improvement's spec
+ * (`hold.approve-improvement-spec`) both ask for the passkey again: each sets the line building something new.
+ */
+export const IMPROVEMENT_STEP_UP = {
+  'improvement.request': true,
+  'hold.approve-improvement-spec': true,
+} as const;

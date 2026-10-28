@@ -11,19 +11,24 @@ import type { Sql, TransactionSql } from 'postgres';
 import { ENROLMENT_CODE, PASSKEYS, STEP_UP } from '../../../../policy/access.ts';
 import { sha256 } from './secrets.ts';
 
-/** The events the admin service appends, all of them Martin's. */
+/**
+ * The events the admin service appends, all of them Martin's: his commands, and the opening of the improvement his
+ * request opens, the one work item it opens.
+ */
 export type AdminEvent =
   | 'admin.signed-in'
   | 'admin.signed-out'
   | 'admin.stepped-up'
   | 'controls.changed'
   | 'flag.staged'
+  | 'improvement.requested'
   | 'line.started'
   | 'line.stopped'
   | 'passkey.enrolled'
   | 'passkey.revoked'
   | 'release.controlled'
-  | 'settings.changed';
+  | 'settings.changed'
+  | 'work-item.opened';
 
 /** A session that is live: not ended, not expired, and its passkey not revoked. */
 export interface Session {

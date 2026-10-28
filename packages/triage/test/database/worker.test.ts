@@ -512,7 +512,7 @@ describe('triage', () => {
     const [held] = await writer<{ work_item: string; payload: { cause: string } }[]>`
       select work_item, payload from events where type = 'hold.started' order by seq desc limit 1`;
     expect(held?.payload.cause).toBe('suggestion');
-    // His words leave it waiting, and his approval means nothing until improvements do; his rejection closes it.
+    // His words leave it waiting, and his approval does nothing, as a suggestion never starts work; his rejection closes it.
     const suggestion = held?.work_item ?? '';
     const answer = (decision: 'approved' | 'rejected' | 'answered') =>
       martin.append({
