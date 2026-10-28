@@ -3,7 +3,7 @@
  * release that carries two work items has its events on each, and is one release here. The Canary panel draws the
  * newest; the Release station takes its figure from the one in flight.
  */
-import type { PayloadOf, PublicEvent, ReleaseControl } from '@software-factory/events';
+import { measurementOf, type PayloadOf, type PublicEvent, type ReleaseControl } from '@software-factory/events';
 import { STEP_UP } from '../access.ts';
 import { shortVersion } from '../format.ts';
 import type { ItemState } from './items.ts';
@@ -594,9 +594,6 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
     return { ...release, ...place, weight: end ? end.weight : place.weight, end };
   });
 }
-
-/** A measurement of the background analysis, by its measure and its own end, as the line knows it. */
-export const measurementOf = (m: { name: string; at: string }) => `${m.name}|${Date.parse(m.at)}`;
 
 /**
  * The oldest a look can be when the line records it: Argo Rollouts keeps a measure's last ten measurements, the
