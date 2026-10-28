@@ -15,7 +15,7 @@
  * its notes fade in place.
  */
 import type { PublicEvent } from '@software-factory/events';
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { hear, heard, type Reaction, type Watch } from '../projection/bird.ts';
 import type { Release } from '../projection/release.ts';
 import { clamp, type Point, type Route, route, swingOut } from './flight.ts';
@@ -299,6 +299,7 @@ export class Flyer {
   /** On the panel already, as the page opens on a release in flight: no flight. */
   perch(paper: boolean) {
     this.#reset();
+    this.#clear();
     this.#paper = paper;
     this.#el.classList.toggle('paper', paper);
     this.#size();
@@ -317,6 +318,8 @@ export class Flyer {
   /** A release started: it leaves the cage for the panel. */
   async #leave(paper: boolean) {
     this.#reset();
+    // A song or a puff of feathers from the release before has no place in this one.
+    this.#clear();
     const life = this.#life;
     this.#paper = paper;
     this.#el.classList.toggle('paper', paper);
@@ -327,7 +330,8 @@ export class Flyer {
       this.#waiting = paper;
       return;
     }
-    if (this.#still()) {
+    // Still, it is simply on the panel, fading in there if it may move at all.
+    const appear = () => {
       this.#place(at);
       this.#show(true);
       if (this.#page.motion())
@@ -337,6 +341,9 @@ export class Flyer {
         });
       this.#mode = 'card';
       this.#flush();
+    };
+    if (this.#still()) {
+      appear();
       return;
     }
     // In the air from the moment it stirs, so what arrives now waits for it to land.
@@ -348,6 +355,11 @@ export class Flyer {
       { duration: 260 },
     ).finished;
     if (life !== this.#life) return;
+    // Motion switched off as it stirred: it never takes off.
+    if (this.#still()) {
+      appear();
+      return;
+    }
     // The cage is just above where it lands: it swings out over the line and back, rather than drop straight down.
     const perch = this.#perch();
     const landed = await this.#fly(at, perch ? swingOut(cage, at, perch.lo, perch.hi) : 0);
@@ -588,8 +600,15 @@ export class Flyer {
     if (this.#mode === 'card') void this.#pace();
   }
 
-  /** Motion switched on or off: it stops where it is, or walks again. */
+  /**
+   * Motion switched on or off: it stops where it is, or walks again. Switched off in the air, it is where it was going
+   * at once (the flight's own end, so what follows a landing follows), and a flight switched on stays as it was.
+   */
   motion() {
+    if (this.#mode === 'flying') {
+      if (this.#still()) this.#anim?.finish();
+      return;
+    }
     if (this.#mode !== 'card') return;
     this.#halt();
     if (!this.#still()) void this.#pace();
@@ -599,6 +618,11 @@ export class Flyer {
   stop() {
     this.#reset();
     this.#life += 1;
+    this.#clear();
+  }
+
+  /** Takes away the notes and feathers still in the air. */
+  #clear() {
     for (const el of this.#layer.querySelectorAll('.bird-note, .bird-feather')) el.remove();
   }
 
@@ -703,8 +727,9 @@ export function Bird({ events, live, release, motion, onOut }: BirdProps) {
   const page = useRef({ motion, weight: release?.weight ?? 0, onOut });
   page.current = { motion, weight: release?.weight ?? 0, onOut };
 
+  // Before the page is painted, so a release in flight never shows its bird in the cage for a frame.
   // biome-ignore lint/correctness/useExhaustiveDependencies: what the page holds as it opens is read once
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!layer.current || !el.current) return;
     const bird = new Flyer(layer.current, el.current, {
       motion: () => page.current.motion,

@@ -165,6 +165,35 @@ test.describe('the canary bird', () => {
     expect(await flights(page)).toBe(0);
   });
 
+  test('takes the last release’s notes away when the next one starts', async ({ page }) => {
+    await open(page);
+    await expect(bird(page)).toBeVisible();
+    // The trill is still in the air as the next release starts.
+    await send(page, promoted);
+    await expect(page.locator('.bird-layer .bird-note').first()).toBeAttached({ timeout: 10_000 });
+    await send(page, next(false));
+    // Gone as it takes off again, a moment after, where the trill's own would last two seconds more.
+    await expect(bird(page)).toHaveClass(/flying/);
+    expect(await page.locator('.bird-layer .bird-note').count()).toBe(0);
+  });
+
+  test('is where it was going at once when motion is switched off in the air', async ({ page }) => {
+    await open(page);
+    await send(page, promoted);
+    await expect(bird(page)).toBeHidden({ timeout: 10_000 });
+    await send(page, next(false));
+    // The flight out takes about two seconds: switched off, it lands in a moment, and does not walk.
+    await expect(bird(page)).toHaveClass(/flying/);
+    await page
+      .locator('header.top')
+      .getByRole('group', { name: 'Motion' })
+      .getByRole('button', { name: 'STILL' })
+      .click();
+    await expect(bird(page)).not.toHaveClass(/flying/, { timeout: 500 });
+    await onThePanel(page, bird(page));
+    await expect(bird(page)).not.toHaveClass(/walking/);
+  });
+
   test('never flies on a phone, where the panel is a screen away from the station', async ({ page }) => {
     await page.setViewportSize(WIDTHS.phone);
     await open(page);
