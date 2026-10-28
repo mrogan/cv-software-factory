@@ -69,37 +69,43 @@ export async function prepare(env = process.env, write = (line: string) => conso
   } else {
     await settleTimes(dir);
   }
-  const pnpmEnv = { ...env, ...OWN_PNPM, COREPACK_ENABLE_DOWNLOAD_PROMPT: '0', CI: 'true' };
-  const runs = (await exec('pnpm', ['--version'], { cwd: dir, env: pnpmEnv })).stdout.trim();
+  const pnpmEnv = { ...env, ...OWN_PNPM, CI: 'true' };
+  const runs = (await exec('pnpm', [OWN_PNPM_FLAG, '--version'], { cwd: dir, env: pnpmEnv })).stdout.trim();
   const named = await namedPnpm(dir);
   log('runs its own pnpm', { pnpm: runs, packageManager: named ?? null });
   samePnpmMajor(named, runs);
-  await exec('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts', '--ignore-pnpmfile', '--reporter=silent'], {
-    cwd: dir,
-    env: pnpmEnv,
-    maxBuffer: 64 * 1024 * 1024,
-  });
+  const install = ['install', '--frozen-lockfile', '--ignore-scripts', '--ignore-pnpmfile', '--reporter=silent'];
+  await exec('pnpm', [OWN_PNPM_FLAG, ...install], { cwd: dir, env: pnpmEnv, maxBuffer: 64 * 1024 * 1024 });
   log('installed the dependencies');
 }
 
 /**
- * pnpm runs as itself, and does not switch to the version a checkout's `packageManager` names, which it would fetch.
- * The image sets the same for both pods; the step sets it again, so that on a host, as the bench runs it, the pnpm it
- * names is the pnpm that installs.
+ * pnpm runs as itself, and does not switch to the version a checkout names, which it would fetch. The image sets the
+ * same for both pods; the step sets it again, so that on a host, as the bench runs it, the pnpm it names is the pnpm
+ * that installs, and gives it on the command line too, which no setting of the checkout's own can override.
  */
 const OWN_PNPM = { npm_config_manage_package_manager_versions: 'false' };
+const OWN_PNPM_FLAG = '--config.manage-package-manager-versions=false';
 
-/** The pnpm version a checkout's `packageManager` names, if it names pnpm. */
+/**
+ * The pnpm version a checkout names, if it names pnpm: by `packageManager`, or by `devEngines.packageManager`, whose
+ * version may be a range.
+ */
 export async function namedPnpm(dir: string): Promise<string | undefined> {
-  const manager = await readFile(join(dir, 'package.json'), 'utf8')
-    .then((text) => (JSON.parse(text) as { packageManager?: unknown }).packageManager)
+  const manifest = await readFile(join(dir, 'package.json'), 'utf8')
+    .then((text) => JSON.parse(text) as { packageManager?: unknown; devEngines?: { packageManager?: unknown } })
     .catch(() => undefined);
-  return typeof manager === 'string' ? /^pnpm@(\d+\.\d+\.\d+[^+]*)/.exec(manager)?.[1] : undefined;
+  if (typeof manifest?.packageManager === 'string') {
+    return /^pnpm@(\d+\.\d+\.\d+[^+]*)/.exec(manifest.packageManager)?.[1];
+  }
+  const engines = [manifest?.devEngines?.packageManager].flat() as { name?: unknown; version?: unknown }[];
+  const pnpm = engines.find((engine) => engine?.name === 'pnpm');
+  return typeof pnpm?.version === 'string' ? pnpm.version : undefined;
 }
 
 /** Fails, saying so, when the pnpm a checkout names is of another major than the one that runs. */
 export function samePnpmMajor(named: string | undefined, runs: string): void {
-  const major = (version: string) => version.split('.')[0];
+  const major = (version: string) => /\d+/.exec(version)?.[0];
   if (!named || major(named) === major(runs)) return;
   throw new Error(
     `The checkout asks for pnpm ${named}, and the runner runs pnpm ${runs}: pnpm moves to a new major in both ` +

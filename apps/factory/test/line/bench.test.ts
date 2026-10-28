@@ -92,7 +92,7 @@ describe('the bench', () => {
     });
     expect(seen.home).toEqual([]);
     expect(existsSync(join(dir, 'home', '.claude.json'))).toBe(false);
-    // None of the developer's own environment reaches the agent but where to find its tools.
+    // None of the developer's own environment reaches the agent but where to find its tools, and pnpm held to itself.
     expect(Object.keys(seen.agent ?? {}).sort()).toEqual([
       'ANTHROPIC_API_KEY',
       'ANTHROPIC_BASE_URL',
@@ -102,6 +102,7 @@ describe('the bench', () => {
       'PATH',
       'RUNNER_STEP',
       'WORK',
+      'npm_config_manage_package_manager_versions',
     ]);
     // The prompt names the fixture's work item; the token, and so the spend it is capped by, one of the run's own.
     expect(step.prompt).toContain(`#${FIXTURE_WORK_ITEM}`);

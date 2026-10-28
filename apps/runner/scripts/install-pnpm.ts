@@ -62,11 +62,15 @@ async function main([lockFile, folder]: string[]): Promise<number> {
     return 2;
   }
   const release = lockedPnpm(readFileSync(lockFile, 'utf-8'), platformOf());
-  const archive = join(mkdtempSync(join(tmpdir(), 'pnpm-')), 'pnpm.tar.gz');
+  const temporary = mkdtempSync(join(tmpdir(), 'pnpm-'));
+  const archive = join(temporary, 'pnpm.tar.gz');
   writeFileSync(archive, await download(release));
   mkdirSync(folder, { recursive: true });
   execFileSync('tar', ['--extract', '--gzip', '--no-same-owner', '--file', archive, '--directory', folder]);
-  rmSync(archive);
+  rmSync(temporary, { recursive: true });
+  // The executable is at the release's root, and is the version locked.
+  const runs = execFileSync(join(folder, 'pnpm'), ['--version'], { encoding: 'utf-8' }).trim();
+  if (runs !== release.version) throw new Error(`${release.url} holds pnpm ${runs}, not ${release.version}`);
   console.log(`pnpm ${release.version}, from ${release.url}, checked against mise.lock`);
   return 0;
 }

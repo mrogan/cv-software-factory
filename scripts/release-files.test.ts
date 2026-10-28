@@ -40,6 +40,8 @@ describe('the files a release changes', () => {
       'apps/factory/test/line/compare.test.ts',
       // A checkout's packageManager, for the pnpm it asks for, and not its version line.
       'apps/runner/src/prepare.ts',
+      // package.json's packageManager, beside mise.lock's pnpm, and not its version line.
+      'apps/runner/test/install-pnpm.test.ts',
       // A package.json of its own, written for a scratch copy.
       'apps/runner/test/prepare.test.ts',
       // Invented work items, whose changed files are named and whose releases have versions.
