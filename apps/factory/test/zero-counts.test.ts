@@ -179,7 +179,8 @@ describe('the counts', () => {
   /**
    * Waiting for nothing is shown by order, not by the clock: with the timers held, so that no timeout can ever fire,
    * the send has settled by the next turn of the event loop. A send that waited on its timeout, or on a flush that
-   * goes out to a collector, would still be pending then.
+   * goes out to a collector, would still be pending then. `setImmediate` stays real: held too, the turn would never
+   * come and the test would time out rather than fail.
    */
   it('send nothing, and wait for nothing, with no SDK started', async () => {
     exporter.reset();
