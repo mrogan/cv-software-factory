@@ -86,5 +86,6 @@ The line deletes a step's Jobs as the step ends, so it reads their pods' logs fi
 - **The bench.** `factory line bench <agent> <fixture>` runs one agent's step on a developer's machine, on a fixture of invented work (`line/bench/fixtures.ts`), against a gateway on the host. It runs the runner's own two steps, with no network fence, and:
   - fences a coder's patch as the line does, sending one it refuses back;
   - commits a reviewer's change on the base as the pull request's head;
+  - gives a planner's replan what the line would: its answers, last spec and why it came back, folded from a work item's events as the line folds them, at the commit the line plans from, the pull request's base once it has one;
   - works in a fixed folder in the developer's own cache, with a home emptied each run and none of the developer's environment but `PATH`, so a second run replays from the cassettes.
 - **Spend.** Each bench run, and each smoke run, caps its spend as a work item of its own.

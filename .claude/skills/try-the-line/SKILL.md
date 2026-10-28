@@ -1,6 +1,6 @@
 ---
 name: try-the-line
-description: Try the line or one agent on the Mac — the bench, the local cluster with unmerged images, a soak, stopping the line or reaching a cap — and undo it all afterwards. Use before changing the local cluster for a run, and when watching or checking one.
+description: Try the line or one agent on the Mac — the bench, the local cluster with unmerged images or a stack of them, a fix on a work item held for it, a soak, stopping the line or reaching a cap — and undo it all afterwards. Use before changing the local cluster for a run, and when watching or checking one.
 ---
 
 # Trying the line on the Mac
@@ -10,6 +10,8 @@ Three ways in, from smallest: one agent's step on the **bench**, with no cluster
 The local cluster is `k3d-software-factory`, and it is disposable. Unmerged code is tried there on images built locally, not merged first; merging stays Martin's call. Pushing, opening pull requests and filing issues still need his yes.
 
 The helpers are in `bin/` beside this file: `k` is kubectl on the local cluster, `argocd-core` is Argo CD's CLI on it (`--core`, with no login), `q` is psql on its store, `poll` and `watch` follow a run, and `trace.js` prints a step's conversation.
+
+**Which model.** A try runs on Claude: it is faster, and Martin has agreed to its spend for tries. Qwen is for what runs unattended, a night's soak, and for a run that must spend nothing (`soak-check --no-spend`). Note what a try on Claude cost (`bin/poll`, or the bench's own `model_calls`), and say so.
 
 ## Before you change anything
 
@@ -26,13 +28,14 @@ To change the cluster in auto mode, Martin may add `Bash(kubectl --context k3d-s
    docker run -d --name sf-bench-pg -e POSTGRES_USER=factory -e POSTGRES_PASSWORD=factory -e POSTGRES_DB=factory -p 127.0.0.1:5433:5432 "$(awk '/image:/{print $2}' deploy/base/postgres/statefulset.yaml)"
    DATABASE_URL=postgres://factory:factory@127.0.0.1:5433/factory LINE_PASSWORD=line GATEWAY_PASSWORD=gateway node packages/store/src/migrate.ts
    ```
-2. A gateway on Qwen (LM Studio on 127.0.0.1:1234):
+2. A gateway on Claude:
    ```sh
    PGHOST=127.0.0.1 PGPORT=5433 PGDATABASE=factory PGUSER=factory_gateway PGPASSWORD=gateway \
-     GATEWAY_MODE=replay-record CASSETTES_DIR=/tmp/bench-cassettes ALL_LOCAL=true PORT=8180 OTEL_SDK_DISABLED=true \
+     GATEWAY_MODE=replay-record CASSETTES_DIR=/tmp/bench-cassettes PORT=8180 OTEL_SDK_DISABLED=true \
+     ANTHROPIC_API_KEY="$(security find-generic-password -s anthropic-api-key -w)" \
      node apps/factory/src/cli.ts gateway &
    ```
-   For Claude, drop `ALL_LOCAL` and add `ANTHROPIC_API_KEY="$(security find-generic-password -s anthropic-api-key -w)"`: it costs money. For replay only, `GATEWAY_MODE=replay`.
+   For Qwen (LM Studio on 127.0.0.1:1234), which spends nothing, drop the key and add `ALL_LOCAL=true`. For replay only, `GATEWAY_MODE=replay`.
 3. The step: `GATEWAY_URL=http://localhost:8180 PGHOST=127.0.0.1 PGPORT=5433 PGDATABASE=factory PGUSER=factory_line PGPASSWORD=line node apps/factory/src/cli.ts line bench coder off-by-one`.
 
 A step run again replays every call. A tool that prints a time the cassette key does not know ends a replay at that call: add a pattern to `UNSTEADY` in `gateway/agent-cassettes.ts`. Only cassettes made from invented work may be committed.
@@ -58,12 +61,24 @@ The line runs in the cluster only: its agent pods may reach only the gateway and
 4. **Dry run first**, before anything else can act: `GITHUB_DRY_RUN=true` on `github`, and `LINE_MODE=dry-run` on `line`, with `LINE_TAKE` removed. Optionally `GITHUB_DRY_RUN_CHECKS_SECONDS` and `GITHUB_DRY_RUN_MERGE_SECONDS` to go round faster.
 5. **Point** `line` (its container, its `runner-image` initContainer and `RUNNER_IMAGE`), `gateway` and `github` at the new images with `kubectl set image` and `set env`. Every `set env` in these steps names its container: `-c line`, `-c gateway`, `-c github`, `-c console`. Without `-c` it writes every container, the line's `runner-image` init container included, and Argo CD never removes a field it does not own, so a `RUNNER_IMAGE` or `LINE_MODE` left there outlives the run and fails `make admission-ready`. Undoing one takes the same `-c`: `bin/k -n factory set env deployment/line -c line NAME-`.
 6. **Migrations:** compare `select * from schema_migrations` with `packages/store/migrations`; if the branch adds one, run a copy of the `migrate` Job on its console image.
-7. **The model:** `ALL_LOCAL=true` on `gateway`, `line` and `console` for Qwen, on none of them for Claude. The gateway and the line must match, since the line sets a step's bounds from it; the console's settings page says from it that every agent is on the local model. Stop the line before switching, so no step straddles the change.
-8. **The work item:** `LINE_ONLY=<number>` on `line`, chosen by the line's own rule (the oldest open ticket of the highest severity not yet on the line), skipping duplicates of a defect already fixed. Never answer a hold in Martin's name to get one moving: take the next ticket instead.
+7. **The model:** none of them has `ALL_LOCAL` for Claude, a try's model; `ALL_LOCAL=true` on `gateway`, `line` and `console` for Qwen, a soak's. The gateway and the line must match, since the line sets a step's bounds from it; the console's settings page says from it that every agent is on the local model. Stop the line before switching, so no step straddles the change.
+8. **The work item:** `LINE_ONLY=<number>` on `line`, chosen by the line's own rule (the oldest open ticket of the highest severity not yet on the line), skipping duplicates of a defect already fixed. Never answer a hold in Martin's name to get one moving: take the next ticket instead. The one exception is below, a fix tried on the work item held for it.
 
 Run one work item at a time: two steps on one LM Studio halve its speed. The dry-run GitHub worker keeps its pull requests in memory, so a restart forgets them and reuses their numbers, issues included. `make stop-the-line` and `make start-the-line` need `KUBECTL="kubectl --context k3d-software-factory"`, and a stopped line also stops triage.
 
 **The smoke run** posts to the line's step API (root `AGENTS.md`) with `"round"`: a job's name, and so its token, is used once, so each smoke run on the same commit needs a new round.
+
+## A stack of unmerged branches
+
+A task of several pull requests is tried together, before review (the implement skill's Try before review), from branches with no pull request yet:
+
+- **Build from the top branch**, which holds every branch below it: `factory` and `factory-runner` from its head, as above, in its worktree, never in the main checkout. Build `console` too if any branch in the stack changed it, and run the `migrate` copy (step 6) if any adds a migration: compare against every branch, not only the top one's own diff (`git diff origin/main...<top branch> --stat`).
+- **A fault** goes back to the branch it belongs in, and the branches above take it by merges, bottom first. Build again from the top branch's new head, with a new tag (the tag is its short sha), point the deployments at it, and try again; `docker rmi` the tags each try leaves behind, or leave them for the undo list.
+- **Undo** is the same as for one branch: the list at the end covers every image the try used, whichever branch it was built from.
+
+## A fix tried on a work item held for it
+
+A fix to what happens after a hold (a replan, say) is tried best on the real work item that is held for it, as the fault was found on: point `LINE_ONLY` at it, run the images that carry the fix, and have its hold answered. That answer is Martin's, given in the console with his passkey: put it in the one sitting the try batches his part into, with what to answer and what to look for after, or answer it in the console signed in as him, when he has handed it to you for that run. Never write the answer to the store yourself. Then follow the step it starts, and record which work item it was and what the line did with it for the undo list, since a dry run's events stay on it.
 
 ## Stopping the line, and a cap
 
@@ -103,5 +118,6 @@ Copy this into `scratch/` at the start:
 - [ ] The Claude Console workspace's limit back where it was, if Martin lowered it.
 - [ ] The bench's Postgres removed (`docker rm -f sf-bench-pg`), its Claude spend noted.
 - [ ] Anything outward made for the run (a label, pull requests made to try a gate) listed for Martin.
+- [ ] A held work item answered for the try: which, how, and what the line did with it, for Martin.
 - [ ] The store: the dry run's events stay on the work items it took, with its made-up pull request and issue numbers. Say which, for Martin to keep or clear.
 ```

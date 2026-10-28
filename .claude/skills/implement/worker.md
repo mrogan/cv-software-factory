@@ -48,6 +48,8 @@ Keep the change to what the work needs, and give each file a line in its own sec
 
 ## Steps
 
+A brief that says build-only stops after step 3, as [Build-only](#build-only) says; one that says to finish a branch already built starts there too.
+
 1. **Worktree.** `worktree.sh <key> <type>/<short-name>` makes it from `origin/main` and prints its path; a third argument, `origin/<branch below>`, makes it from that branch instead, for a pull request in a [stack](#stacks). Work and commit only there.
 2. **Triage.** Read the issue or the brief, and the code it names. Stop and report `skipped`, with a one-paragraph reason, if:
    - it is invalid, already done, or duplicates an open issue or pull request;
@@ -64,6 +66,16 @@ Keep the change to what the work needs, and give each file a line in its own sec
 
 Never merge, approve, or push to `main`, and never enqueue a pull request or a stack. Keep the worktree: it stays until Martin merges.
 
+## Build-only
+
+Work that changes what runs on the cluster is tried there before anyone reviews it (the implement skill's [Try before review](SKILL.md#try-before-review)). When your brief says build-only:
+
+- Do steps 1 to 3: the worktree (stacked on the branch below, as [Stacks](#stacks) says), triage, and the implementation, with its tests and `make check` green. Commit, `git fetch origin`, merge the branch from `origin` if it is there, and push it, so the branch above yours can be made from it and the orchestrator can build its images.
+- Then stop: no code review or security review, no note, no `/visual-pr`, no pull request, no Copilot. Report `built`, with the branch and its pushed head, and `none` for `pr`, `stack`, `checks` and `threads`: `verify.sh` has nothing to check yet.
+- A fault the try found comes back to you, or to a new worker on your worktree, build-only again: `git fetch origin` and merge the branch from `origin` first, since the orchestrator may have merged the branch below into it, fix it with a test that shows it, push, and report `built` again.
+
+When your brief says the try has passed and you are to finish a branch already built, the worktree and the branch exist: take the worktree as your own (`worktree.sh` would refuse, so do not run it), `git fetch origin` and merge the branch from `origin`, and the branch below if it changed, as step 7 says. Read what is on the branch, the fixes the try sent back included, and check `make check` passes again. Then do steps 4 to 8 as for any pull request: both reviews of the whole branch, the note, which says what the try showed, `/visual-pr`, the pull request, Copilot, the checks and `verify.sh`, and report `pr-open`.
+
 ## Stacks
 
 A stack is for pull requests that build on each other's unmerged work, and only for that: independent work branches from `origin/main`. Stacks work with the merge queue and the review gate in both repositories ([ADR 0014](../../../docs/architecture/adr/0014-merge-queue-and-review-gate.md)); there is nothing to check first. A stack never spans the two.
@@ -74,12 +86,12 @@ A stack is for pull requests that build on each other's unmerged work, and only 
 
 ## Report
 
-State only what command output showed you, and say plainly when a step was not finished. Report, and nothing more; repeat `pr` to `head` for a second pull request:
+State only what command output showed you, and say plainly when a step was not finished. Report, and nothing more; repeat `pr` to `head` for a second pull request. For `built`, `pr`, `stack`, `checks` and `threads` are `none`:
 
 ```
 item:      #<n> | <slug>
-outcome:   pr-open | split | skipped | blocked | incomplete
-pr:        #<n> <url>
+outcome:   pr-open | built | split | skipped | blocked | incomplete
+pr:        #<n> <url>, or none for built
 stack:     <its number and the pull requests in it, bottom first, or none>
 branch:    <name>
 head:      <short sha of the pushed HEAD>
