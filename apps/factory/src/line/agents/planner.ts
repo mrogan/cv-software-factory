@@ -20,6 +20,14 @@
  * coder's, whose first step is a failing test. On Qwen, planners that reproduced it found the cause in a few minutes
  * and spent the rest of their 30 to 45 doing so.
  *
+ * An improvement Martin asked for is planned from his words, through the redactor, and his answers, with no signal:
+ * where the change goes, not a diagnosis, since nothing is broken. Its spec goes behind a flag of its own, which the
+ * app reads with `request.flag`, off until he turns it on; so the schema holds it to a title, a fresh flag (none
+ * another improvement named, `flagsTaken`), the pages it changes, and criteria on each side of the flag, each from
+ * his words (`improvementProblems`). It rejects a change that needs a protected path, the app's flag context among
+ * them, or that would keep anything on a visitor's device. A ticket's prompt is word for word as it was before
+ * improvements, so its recordings still replay.
+ *
  * The planner has the checkout's tools, but nothing it changes leaves the sandbox: the line reads only its result,
  * and the coder's step starts from a fresh checkout. Its scope is held to the line's rules here, by the schema: a
  * plain path in the repository, never naming the workflows, the deployment, or a path the app's CODEOWNERS gives
@@ -33,7 +41,17 @@ import { PAYLOADS } from '@software-factory/events/schemas';
 import { z } from 'zod';
 import { NEVER, plainPath, protectedWords } from '../../github/paths.ts';
 import { askedOf, count, defineAgent, holdDraft, words } from './agent.ts';
-import { type Asked, askedLines, askedName, askedTitle, numbered, routeOf, type Signal, seen } from './evidence.ts';
+import {
+  type Asked,
+  askedLines,
+  askedTitle,
+  numbered,
+  type Request,
+  routeOf,
+  type Signal,
+  seen,
+  ticketLines,
+} from './evidence.ts';
 
 export interface PlannerInput {
   workItem: string;
@@ -54,6 +72,11 @@ export interface PlannerInput {
   reopened?: PayloadOf<'work-item.reopened'>[];
   /** Why the planner's last attempt failed, such as a scope its schema refused, so it does not hand that back again. */
   failure?: string | null | undefined;
+  /**
+   * For an improvement, the flags other improvements Martin asked for have named, open or closed: a closed one's code
+   * stays in the app behind its flag, off, so its name is never given to another change.
+   */
+  flagsTaken?: readonly string[] | undefined;
 }
 
 /** What is wrong with a scope entry, if anything: it must be a plain path in the repository, and keep out of the protected paths. */
@@ -141,24 +164,9 @@ export function quoteProblem(from: string, quote: string, sources: Sources): str
  * The spec, with a scope of plain paths that keeps out of the protected paths, and every criterion naming what in the
  * ticket's evidence it comes from, and quoting the words there that ask for it.
  */
-const specWithin = (protectedPaths: readonly string[], sources: Sources, improvement: boolean) =>
+const specWithin = (protectedPaths: readonly string[], sources: Sources, improvement: Improvement | undefined) =>
   PAYLOADS['spec.written'].superRefine((spec, ctx) => {
-    // An improvement ships behind its flag, off, and Verify pictures the pages it changes: its spec names both, or the
-    // line would hand over a change with nothing to widen or turn off.
-    if (improvement && spec.flag === undefined) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['flag'],
-        message: 'an improvement’s spec names the flag its change goes behind',
-      });
-    }
-    if (improvement && spec.pages === undefined) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['pages'],
-        message: 'an improvement’s spec names the pages its change shows on',
-      });
-    }
+    if (improvement) improvementProblems(spec, improvement, ctx);
     spec.scope.forEach((entry, i) => {
       const problem = scopeProblem(entry, protectedPaths);
       if (problem) ctx.addIssue({ code: 'custom', path: ['scope', i], message: problem });
@@ -176,6 +184,42 @@ const specWithin = (protectedPaths: readonly string[], sources: Sources, improve
       }
     });
   });
+
+/** What an improvement's spec is held to beyond a fix's: the flags it may not take. */
+export interface Improvement {
+  /** The flags other improvements have named. */
+  flagsTaken: readonly string[];
+}
+
+/**
+ * What an improvement's spec must have that a fix's need not. It ships behind a flag of its own, off, and Verify
+ * pictures the pages it changes: so it names its title, its flag, a fresh one, and its pages, or the line would hand
+ * over a change with nothing to widen or turn off. Each criterion holds on one side of the flag, and there is one on
+ * each: with it on, the change; with it off, the app as it was, which is what keeps the change off until Martin
+ * widens it. Each comes from what Martin asked: his request, or his answer.
+ */
+function improvementProblems(spec: PayloadOf<'spec.written'>, { flagsTaken }: Improvement, ctx: z.RefinementCtx) {
+  const issue = (path: (string | number)[], message: string) => ctx.addIssue({ code: 'custom', path, message });
+  if (spec.title === undefined) issue(['title'], 'an improvement’s spec names it, in a few words');
+  if (spec.flag === undefined) issue(['flag'], 'an improvement’s spec names the flag its change goes behind');
+  else if (flagsTaken.includes(spec.flag)) {
+    issue(['flag'], `another improvement has named ${spec.flag}: give this one a flag of its own`);
+  }
+  if (spec.pages === undefined) issue(['pages'], 'an improvement’s spec names the pages its change shows on');
+  spec.criteria.forEach((criterion, i) => {
+    if (criterion.withFlag === undefined) {
+      issue(['criteria', i, 'withFlag'], 'each criterion of an improvement says the side of its flag: on or off');
+    }
+    if (criterion.from && !/\b(request|answer)/i.test(criterion.from)) {
+      issue(['criteria', i, 'from'], 'an improvement’s criterion is from the request, or from Martin’s answer');
+    }
+  });
+  for (const side of ['on', 'off'] as const) {
+    if (!spec.criteria.some((c) => c.withFlag === side)) {
+      issue(['criteria'], `an improvement’s spec has a criterion with its flag ${side}`);
+    }
+  }
+}
 
 /** The most findings one plan leaves triage. */
 export const MAX_PLANNER_FINDINGS = 5;
@@ -221,11 +265,14 @@ const findings = z.array(finding).max(MAX_PLANNER_FINDINGS).default([]);
 export const plannerResult = (
   protectedPaths: readonly string[] = NEVER,
   sources: Sources = NOTHING,
-  { improvement = false }: { improvement?: boolean } = {},
+  improvement?: Improvement,
 ) =>
   z.discriminatedUnion('verdict', [
     z.strictObject({ verdict: z.literal('spec'), spec: specWithin(protectedPaths, sources, improvement), findings }),
-    /** The ticket cannot be made testable, is not a defect in the app, or needs a fix the line may not make. */
+    /**
+     * The ticket cannot be made testable, is not a defect in the app, or needs a fix the line may not make; or the
+     * improvement needs a change the line may not make.
+     */
     z.strictObject({ verdict: z.literal('reject'), reason: words(300), findings }),
     /** Something about what the app should do that only Martin can say. */
     z.strictObject({ verdict: z.literal('question'), question: words(300), findings }),
@@ -270,11 +317,100 @@ export function findingSignal(
   };
 }
 
+/** A fix's plan: the ticket, what the senses saw and what came of fixes before, to a diagnosis and a spec. */
+function ticketPrompt(input: PlannerInput, ticket: PayloadOf<'ticket.opened'>): string {
+  const { workItem, signals, protectedPaths, answers, persisted = [], reopened = [], failure } = input;
+  return [
+    `Plan the fix for ticket #${workItem}: ${ticket.title}.`,
+    ...ticketLines(ticket, signals),
+    ...(signals.length ? ['', 'What the senses saw, by number:', ...numbered(signals)] : []),
+    ...(answers.length ? ['', 'Martin was asked, and answered:', ...answers.map((a) => `- ${answered(a)}`)] : []),
+    ...(persisted.length
+      ? [
+          '',
+          'A fix for this ticket was merged and released before, and the signal persisted:',
+          ...persisted.map(
+            (v) => `- The ${v.sense ?? 'sense'} still saw “${v.check}” on ${v.version ?? 'the new version'}.`,
+          ),
+          'Find out why that fix did not clear it before you plan another.',
+        ]
+      : []),
+    ...(reopened.length
+      ? [
+          '',
+          'A fix for this ticket was verified in production before, and the defect came back:',
+          ...reopened.map((r) => `- The ${r.sense} saw “${r.check}” again on ${r.version}.`),
+          'Find out what brought it back, and what let it through, before you plan another fix.',
+        ]
+      : []),
+    ...(failure ? ['', `Your last attempt at this plan failed: ${failure}. Do not hand back the same again.`] : []),
+    '',
+    'Find the cause in the repository: start from the route, and read the code that serves it and its tests. Stop as soon as you can name the code at fault and say why it does what the evidence shows: that diagnosis is all the plan needs, and most plans need a dozen tool calls or fewer.',
+    'Do not reproduce the defect: start no server, send no requests, write no scripts, and run no tests. The coder’s first step is a failing test that reproduces it, and your criteria say what that test shows. You plan; the coder fixes. Change nothing: no change of yours leaves this checkout.',
+    '',
+    'A fix does what the ticket’s evidence asks, and no more. The app is full of other defects: anything else you notice that is wrong with it, or that it could do better, goes in `findings`, never in the spec. Triage judges each one as it judges a visitor’s report; it opens no ticket on your word alone. Leave `findings` empty when you noticed nothing else.',
+    '',
+    'Then write the result, one of three, each with its `findings`:',
+    '1. {"verdict":"spec","spec":{"outcome","criteria":[{"given","when","expect","from","quote"}],"scope":[],"risks":[],"rollout"},"findings":[{"page","route","text"}]}, the spec the coder will be held to:',
+    ...SPEC_TEMPLATE.map((line) => `   ${line}`),
+    `2. {"verdict":"reject","reason"} when you cannot make it testable: the cause is not in this repository, or you cannot find the defect the evidence shows, or no test could tell the fix from the defect. Reject it too when the fix needs a path no scope may name: ${protectedWords(protectedPaths).join(', ')}. The reason is one or two short sentences for Martin, at most 300 characters, naming the file or what is missing.`,
+    '3. {"verdict":"question","question"} when the fix turns on what the app should do, which only Martin can say: one question he can answer in a line, at most 300 characters.',
+    `\`findings\`: at most ${MAX_PLANNER_FINDINGS}, each with \`page\`, a page of the app that shows it, as the path a visitor opens, without its query (\`/\` when it shows on none); \`route\`, the route that serves that page, as the app’s code names it, such as \`/products/:slug\`; and \`text\`, what is wrong or could be better, in a sentence or two of at most 300 characters, with the query if it shows only with one.`,
+  ].join('\n');
+}
+
+/** What each risk tag says of an improvement's change. */
+const IMPROVEMENT_RISK_MEANINGS: Record<(typeof RISKS)[number], string> = {
+  ...RISK_MEANINGS,
+  'out-of-scope': 'it changes behaviour beyond what Martin asked',
+};
+
+/** The spec an improvement is held to: a fix's, with its title, its flag, its pages and each criterion's side. */
+const improvementTemplate = (flagsTaken: readonly string[]) => [
+  '- `title`: what the work item is, in a few words, at most 120 characters, such as "Sort the products by price". It names the work item from here on, in place of the one made from Martin’s first sentence.',
+  '- `outcome`: one sentence, what a visitor sees once the flag is on.',
+  `- \`flag\`: the name of the flag the change goes behind: lower-case letters and digits, in words joined by hyphens, at most 100 characters, such as \`sort-by-price\`. A fresh one, which no other change uses: never \`flag-set-revision\`${flagsTaken.length ? `, and none of these, which other improvements have named: ${flagsTaken.map((f) => `\`${f}\``).join(', ')}` : ''}.`,
+  '- `pages`: one to six pages of the app a visitor opens to see the change, each as the path from the root without a query, such as `/products/blue-mug` for a product’s page: Verify takes pictures of them with the flag off and on.',
+  '- `criteria`: one to twelve acceptance criteria, each an object of `given`, `when`, `expect` (the then), `withFlag`, `from` and `quote`, in a sentence each. A criterion says what a visitor or a caller of the code sees, not how the code changes. `withFlag` is the side of the flag it holds on: `on` for what the change does, `off` for what stays as it is now. Give at least one of each: one `off` criterion says that, with the flag off, the pages are exactly as they are now. Each is a test the coder can write with the repository’s own tests, with the flag as its side says: an `on` criterion fails at this commit and passes once the change is in; an `off` one passes at both. `from` names what above asks for it: `the request`, or `Martin’s answer`. `quote` copies, word for word, the words there that ask for it: two or more, in one unbroken stretch with nothing left out, at most 200 characters; the line refuses a spec whose quote is not in what its criterion names. A criterion Martin did not ask for does not belong in the spec, however much better it would make the app.',
+  '- `scope`: the files the coder may change, its tests among them, and no more than the change needs: a path from the top of the repository, a folder ending in `/`, or a pattern with `*`.',
+  `- \`risks\`: a list of tags, each exactly one of these words, for what the change itself does; usually it is empty. ${RISKS.map((r) => `${r}: ${IMPROVEMENT_RISK_MEANINGS[r]}`).join('; ')}.`,
+  '- `rollout`: a sentence or two on what Martin should look for on the pages as he turns the flag on.',
+  `Every string is a plain sentence or a path, at most ${PATH_CHARS} characters (the rollout 300).`,
+];
+
+/**
+ * An improvement's plan: Martin's words, to where the change goes in the app and a spec behind a flag of its own. Not
+ * a diagnosis, since nothing is wrong, and nothing built or tried: the coder builds it, test first.
+ */
+function requestPrompt(input: PlannerInput, request: Request): string {
+  const { workItem, protectedPaths, answers, failure, flagsTaken = [] } = input;
+  return [
+    `Plan improvement #${workItem}: ${request.title}.`,
+    `Martin asked for it in his own words: “${request.words}”`,
+    ...(answers.length ? ['', 'Martin was asked, and answered:', ...answers.map((a) => `- ${answered(a)}`)] : []),
+    ...(failure ? ['', `Your last attempt at this plan failed: ${failure}. Do not hand back the same again.`] : []),
+    '',
+    'Nothing is broken: this is a change Martin wants. Find where it goes in the repository: start from the pages it shows on, and read the code that serves them and its tests. Stop as soon as you can say which code changes and what a visitor will see: that is all the plan needs, and most plans need a dozen tool calls or fewer.',
+    'Do not build it or try it: start no server, send no requests, write no scripts, and run no tests. The coder builds it, test first, and your criteria say what those tests show. You plan; the coder builds. Change nothing: no change of yours leaves this checkout.',
+    '',
+    "The change ships behind a feature flag of its own, off. The app asks whether a flag is on with `await request.flag('name')`, as AGENTS.md says, and a flag the flag service does not name is off: so the change reaches nobody until Martin turns its flag on, a stage at a time. With the flag off, the app does exactly what it does now.",
+    '',
+    'The change does what Martin asked, and no more. The app is full of other things that are wrong with it: anything you notice, or anything else it could do better, goes in `findings`, never in the spec. Triage judges each one as it judges a visitor’s report; it opens no ticket on your word alone. Leave `findings` empty when you noticed nothing else.',
+    '',
+    'Then write the result, one of three, each with its `findings`:',
+    '1. {"verdict":"spec","spec":{"title","outcome","flag","pages":[],"criteria":[{"given","when","expect","withFlag","from","quote"}],"scope":[],"risks":[],"rollout"},"findings":[{"page","route","text"}]}, the spec the coder will be held to, which Martin approves before any code is written:',
+    ...improvementTemplate(flagsTaken).map((line) => `   ${line}`),
+    `2. {"verdict":"reject","reason"} when the line may not make the change. Reject it when it needs a path no scope may name, the app’s flag context among them: ${protectedWords(protectedPaths).join(', ')}. Reject it when it would keep anything on a visitor’s device, such as a cookie or anything in the browser’s storage: nothing goes there that a visitor did not ask for, and what may is decided outside this repository. Reject it too when no test could tell the change from the app as it is. The reason is one or two short sentences for Martin, at most 300 characters, naming the file or what is in the way.`,
+    '3. {"verdict":"question","question"} when what Martin asked could mean more than one thing, and the spec turns on which: one question he can answer in a line, at most 300 characters.',
+    `\`findings\`: at most ${MAX_PLANNER_FINDINGS}, each with \`page\`, a page of the app that shows it, as the path a visitor opens, without its query (\`/\` when it shows on none); \`route\`, the route that serves that page, as the app’s code names it, such as \`/products/:slug\`; and \`text\`, what is wrong or could be better, in a sentence or two of at most 300 characters, with the query if it shows only with one.`,
+  ].join('\n');
+}
+
 export const planner = defineAgent<PlannerInput, PlannerResult>({
   agent: 'planner',
   maxTurns: 30,
   deadlineSeconds: 15 * 60,
-  input: async ({ workItem, state, commit, failure, ticket, request, signals, read }) => ({
+  input: async ({ workItem, state, commit, failure, ticket, request, signals, read, flagsTaken }) => ({
     workItem,
     asked: await askedOf({ state, ticket, request }),
     signals: await signals(),
@@ -283,47 +419,16 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
     persisted: state.persisted,
     reopened: state.reopened.filter((r) => !r.dryRun),
     failure,
+    ...(state.request ? { flagsTaken: await flagsTaken() } : {}),
   }),
   schema: (input) =>
-    plannerResult(input.protectedPaths, sourcesOf(input), { improvement: input.asked.kind === 'request' }),
-  prompt: ({ workItem, asked, signals, protectedPaths, answers, persisted = [], reopened = [], failure }) =>
-    [
-      `Plan the ${asked.kind === 'ticket' ? 'fix' : 'change'} for ${askedName(asked, workItem)}: ${askedTitle(asked)}.`,
-      ...askedLines(asked, signals),
-      ...(signals.length ? ['', 'What the senses saw, by number:', ...numbered(signals)] : []),
-      ...(answers.length ? ['', 'Martin was asked, and answered:', ...answers.map((a) => `- ${answered(a)}`)] : []),
-      ...(persisted.length
-        ? [
-            '',
-            'A fix for this ticket was merged and released before, and the signal persisted:',
-            ...persisted.map(
-              (v) => `- The ${v.sense ?? 'sense'} still saw “${v.check}” on ${v.version ?? 'the new version'}.`,
-            ),
-            'Find out why that fix did not clear it before you plan another.',
-          ]
-        : []),
-      ...(reopened.length
-        ? [
-            '',
-            'A fix for this ticket was verified in production before, and the defect came back:',
-            ...reopened.map((r) => `- The ${r.sense} saw “${r.check}” again on ${r.version}.`),
-            'Find out what brought it back, and what let it through, before you plan another fix.',
-          ]
-        : []),
-      ...(failure ? ['', `Your last attempt at this plan failed: ${failure}. Do not hand back the same again.`] : []),
-      '',
-      'Find the cause in the repository: start from the route, and read the code that serves it and its tests. Stop as soon as you can name the code at fault and say why it does what the evidence shows: that diagnosis is all the plan needs, and most plans need a dozen tool calls or fewer.',
-      'Do not reproduce the defect: start no server, send no requests, write no scripts, and run no tests. The coder’s first step is a failing test that reproduces it, and your criteria say what that test shows. You plan; the coder fixes. Change nothing: no change of yours leaves this checkout.',
-      '',
-      'A fix does what the ticket’s evidence asks, and no more. The app is full of other defects: anything else you notice that is wrong with it, or that it could do better, goes in `findings`, never in the spec. Triage judges each one as it judges a visitor’s report; it opens no ticket on your word alone. Leave `findings` empty when you noticed nothing else.',
-      '',
-      'Then write the result, one of three, each with its `findings`:',
-      '1. {"verdict":"spec","spec":{"outcome","criteria":[{"given","when","expect","from","quote"}],"scope":[],"risks":[],"rollout"},"findings":[{"page","route","text"}]}, the spec the coder will be held to:',
-      ...SPEC_TEMPLATE.map((line) => `   ${line}`),
-      `2. {"verdict":"reject","reason"} when you cannot make it testable: the cause is not in this repository, or you cannot find the defect the evidence shows, or no test could tell the fix from the defect. Reject it too when the fix needs a path no scope may name: ${protectedWords(protectedPaths).join(', ')}. The reason is one or two short sentences for Martin, at most 300 characters, naming the file or what is missing.`,
-      '3. {"verdict":"question","question"} when the fix turns on what the app should do, which only Martin can say: one question he can answer in a line, at most 300 characters.',
-      `\`findings\`: at most ${MAX_PLANNER_FINDINGS}, each with \`page\`, a page of the app that shows it, as the path a visitor opens, without its query (\`/\` when it shows on none); \`route\`, the route that serves that page, as the app’s code names it, such as \`/products/:slug\`; and \`text\`, what is wrong or could be better, in a sentence or two of at most 300 characters, with the query if it shows only with one.`,
-    ].join('\n'),
+    plannerResult(
+      input.protectedPaths,
+      sourcesOf(input),
+      input.asked.kind === 'request' ? { flagsTaken: input.flagsTaken ?? [] } : undefined,
+    ),
+  prompt: (input) =>
+    input.asked.kind === 'ticket' ? ticketPrompt(input, input.asked.ticket) : requestPrompt(input, input.asked.request),
   apply: async (planned, _handback, _input, context) => {
     // A finding is known by where it is and what it says, so the same one handed back by a later plan, after a
     // question or a replan, is not left again.

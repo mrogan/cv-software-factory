@@ -1,8 +1,8 @@
 # Describer
 
-An agent: describes the fix once review approves it. Part of the [factory plane](README.md#agents).
+An agent: describes the fix, or the improvement, once review approves it. Part of the [factory plane](README.md#agents).
 
-- **Reads:** the ticket's public view and what the senses saw, the spec, the final diff and the coder's commit messages, and the review thread, round by round.
+- **Reads:** the ticket's public view and what the senses saw, or Martin's request, the spec, the final diff and the coder's commit messages, and the review thread, round by round.
 - **Produces:** the pull request's title and description, and the work item's summary (`work-item.summarised`).
 - **v1:** `line/agents/describer.ts`, in a [runner](AGENT-RUNNERS.md) at the pull request's head with its base beside it, with a fresh context, 30 turns and 15 minutes.
 
@@ -22,16 +22,18 @@ Martin's own `/visual-pr` follows the same skill, so the line's descriptions are
 Read with Zod:
 
 - **the description,** written as a Markdown file beside its result;
-- **the title,** a Conventional Commit of 80 characters at most;
+- **the title,** a Conventional Commit of 80 characters at most, of type `feat` for an improvement;
 - **the summary:** a title, two lines for the card, and the paragraph at the top of the sheet. It says what happened, never where the work item stands, since nothing writes it again as the work item moves on: the console says where it stands, and ends the story once it closes.
 
 The squash commit takes the description as its message, so the schema refuses:
 
-- a closing keyword before an issue, which would close the ticket's issue on merge rather than once the fix is verified;
+- a closing keyword before an issue, which would close the ticket's issue on merge rather than once the fix is verified, or an improvement's, which stays open while Martin turns its flag on;
 - an @mention outside code;
 - a folded section that would not render, read line by line (`line/agents/folds.ts`): GitHub shows the Markdown in a `<details>` as text unless a blank line ends the HTML before it.
 
 A refused result runs the step again, told why.
+
+An improvement's description says what Martin asked for, what the change adds behind which flag and on which pages, which test shows each criterion and on which side of the flag, and that it ships off: nobody sees it until Martin turns the flag on. Its pull request waits for his merge in every autonomy mode.
 
 ## What the line does with it
 

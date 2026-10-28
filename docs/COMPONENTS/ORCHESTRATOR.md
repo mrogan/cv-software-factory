@@ -91,7 +91,7 @@ Martin asks for an improvement with the console's "+" ([admin service](ADMIN-SER
 
 - **Only one he asked for.** The line takes an improvement only when its opening and his request were both appended by one of his roles. Row security lets no other role append either. A work item's kind comes from that opening, so a ticket appended to his improvement does not make it a ticket. An improvement a worker opened, or one with no request, never comes onto the line.
 - **Its order.** It waits behind every open ticket not yet taken, whatever their ages: a defect in the app goes before something new. Improvements go oldest first.
-- **Its spec names its flag and its pages.** The planner's schema refuses an improvement's spec that names no flag or no pages.
+- **Its spec names its flag and its pages.** The planner's schema refuses an improvement's spec without its title, a flag of its own, its pages, and criteria on each side of the flag ([planner](PLANNER.md#an-improvements-spec)).
 - **Its spec waits for Martin.** Every spec of an improvement is held for his approval before any code (cause `spec`, kind `approval`), whatever its risks and in every autonomy mode. A spec written again is held again, even one written while the last was held: his answer to the old card approves nothing. The line reads a spec only as its own role recorded it. Approving it takes the passkey again ([admin service](ADMIN-SERVICE.md)). Rejecting closes the work item, and answering sends his words to the planner.
 - **No sense looks at it.** It has no signal, so a hold never looks again, and a wait on overlapping work ends when that work closes.
 - **Its merge waits for Martin** in every mode, and its hold says so.

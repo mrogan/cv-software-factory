@@ -14,6 +14,9 @@
  * questions a reviewer there expects answered, not headings to fill. The description is Markdown, so the agent writes
  * it as a file of its own beside the result, not inside the JSON.
  *
+ * An improvement's description says what Martin asked for, what the change adds behind which flag and on which pages,
+ * and that it ships off; its title is a feature's, and its issue stays open past the merge, while he turns the flag on.
+ *
  * The line publishes the description as the agent wrote it, and the squash commit takes it as its message, so the
  * schema refuses what would act from the App's account: a closing keyword, which would close the ticket's issue on
  * merge, before the fix is verified in production, and an @mention, which would notify someone. It refuses a folded
@@ -26,8 +29,18 @@ import type { PayloadOf, Stage } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
 import { z } from 'zod';
 import { cites } from '../review.ts';
-import { answerOf, askedOf, closesAnIssue, commitTitle, defineAgent, mentions, need, words } from './agent.ts';
-import { refersTo } from './coder.ts';
+import {
+  answerOf,
+  askedOf,
+  closesAnIssue,
+  commitTitle,
+  defineAgent,
+  mentions,
+  need,
+  titleFor,
+  words,
+} from './agent.ts';
+import { flagLine, refersTo, side } from './coder.ts';
 import { type Asked, askedLines, askedName, askedTitle, type Signal, seen } from './evidence.ts';
 import { unrenderedFolds } from './folds.ts';
 
@@ -53,18 +66,23 @@ export interface DescriberInput {
   failure?: string | null | undefined;
 }
 
-export const describerResult = z.strictObject({
-  /** The pull request's title, and so its squash commit's headline. */
-  title: commitTitle,
-  /** Its description, in Markdown: written by the agent as a file of its own, and read into the result. */
-  body: words(30_000)
-    .refine((body) => !closesAnIssue(body), 'no closing keyword before an issue: the issue closes once verified')
-    .refine((body) => !mentions(body), 'no @mention outside code: it would notify someone from the App’s account')
-    .superRefine((body, ctx) => {
-      for (const message of unrenderedFolds(body)) ctx.addIssue({ code: 'custom', message });
-    }),
-  summary: PAYLOADS['work-item.summarised'],
-});
+/** The describer's result, with the title its work item's pull request takes: a fix's, or an improvement's. */
+export const describerResultFor = (title: z.ZodType<string>) =>
+  z.strictObject({
+    /** The pull request's title, and so its squash commit's headline. */
+    title,
+    /** Its description, in Markdown: written by the agent as a file of its own, and read into the result. */
+    body: words(30_000)
+      .refine((body) => !closesAnIssue(body), 'no closing keyword before an issue: the issue closes once verified')
+      .refine((body) => !mentions(body), 'no @mention outside code: it would notify someone from the App’s account')
+      .superRefine((body, ctx) => {
+        for (const message of unrenderedFolds(body)) ctx.addIssue({ code: 'custom', message });
+      }),
+    summary: PAYLOADS['work-item.summarised'],
+  });
+
+/** A fix's describer's result. */
+export const describerResult = describerResultFor(commitTitle);
 
 export type DescriberResult = z.infer<typeof describerResult>;
 
@@ -101,8 +119,9 @@ function prompt(input: DescriberInput): string {
     '',
     'The spec the change is held to:',
     `Outcome: ${spec.outcome}`,
+    ...(asked.kind === 'request' ? [flagLine(spec)] : []),
     'Acceptance criteria:',
-    ...spec.criteria.map((c, i) => `${i + 1}. Given ${c.given}, when ${c.when}, then ${c.expect}.`),
+    ...spec.criteria.map((c, i) => `${i + 1}. Given ${c.given}, when ${c.when}, then ${c.expect}.${side(c)}`),
     `Scope: ${spec.scope.join(', ')}.`,
     `Risks the planner tagged: ${spec.risks.length ? spec.risks.join(', ') : 'none'}.`,
     `Rollout: ${spec.rollout}`,
@@ -118,20 +137,45 @@ function prompt(input: DescriberInput): string {
       : []),
     'The gates and the reviewer have passed the change: do not run the tests, start the app, send it requests or change anything. Read what you need to explain it, and no more.',
     '',
-    'Write three things.',
-    '',
-    '1. The pull request’s description, with the visual-pr skill, which says how. It replaces the draft’s, which held the spec: give a reviewer what they need of the spec, such as which test shows each criterion, not the spec again. Mention a suggestion the review left only if the change leaves it unanswered. The line adds the line that refers to the ticket’s issue, so leave that out, and write no closing keyword before an issue (“Fixes #12”): the issue closes once the fix is verified in production, not on merge. Mention nobody with an @ outside code.',
-    '',
-    '2. The pull request’s title: a Conventional Commit of at most 80 characters, such as "fix(cart): count the last item". It becomes the squash commit’s headline. Keep the coder’s if it says what the change does.',
-    '',
-    '3. The work item’s summary, for the factory’s console. Anyone may read it, someone who has never seen a pull request among them, so write plain sentences with no Markdown and no code. It says what happened, never where the work item stands now, such as that it waits for Martin’s merge: the work item moves on, and the console says where it stands.',
-    '- `title`: what was wrong, as a visitor would see it, in a few words, at most 120 characters, such as "Prices lose a digit of pence".',
-    '- `description`: two short sentences for the work item’s card, at most 260 characters: what was wrong, and what the fix does.',
-    '- `story`: one paragraph, at most 1200 characters, in the past tense: what the senses saw, what the planner’s spec asked for, how the coder wrote a failing test and then the fix, and what the gates and the reviewer said in each round.',
-    '',
-    'Then write the result, {"title","summary":{"title","description","story"}}, and the description as its own file: the system prompt says where each goes.',
+    ...(asked.kind === 'request' ? improvementWriting(spec) : FIX_WRITING),
   ].join('\n');
 }
+
+/** What the describer writes of a fix. */
+const FIX_WRITING = [
+  'Write three things.',
+  '',
+  '1. The pull request’s description, with the visual-pr skill, which says how. It replaces the draft’s, which held the spec: give a reviewer what they need of the spec, such as which test shows each criterion, not the spec again. Mention a suggestion the review left only if the change leaves it unanswered. The line adds the line that refers to the ticket’s issue, so leave that out, and write no closing keyword before an issue (“Fixes #12”): the issue closes once the fix is verified in production, not on merge. Mention nobody with an @ outside code.',
+  '',
+  '2. The pull request’s title: a Conventional Commit of at most 80 characters, such as "fix(cart): count the last item". It becomes the squash commit’s headline. Keep the coder’s if it says what the change does.',
+  '',
+  '3. The work item’s summary, for the factory’s console. Anyone may read it, someone who has never seen a pull request among them, so write plain sentences with no Markdown and no code. It says what happened, never where the work item stands now, such as that it waits for Martin’s merge: the work item moves on, and the console says where it stands.',
+  '- `title`: what was wrong, as a visitor would see it, in a few words, at most 120 characters, such as "Prices lose a digit of pence".',
+  '- `description`: two short sentences for the work item’s card, at most 260 characters: what was wrong, and what the fix does.',
+  '- `story`: one paragraph, at most 1200 characters, in the past tense: what the senses saw, what the planner’s spec asked for, how the coder wrote a failing test and then the fix, and what the gates and the reviewer said in each round.',
+  '',
+  'Then write the result, {"title","summary":{"title","description","story"}}, and the description as its own file: the system prompt says where each goes.',
+];
+
+/**
+ * What the describer writes of an improvement: what Martin asked for, what changes behind which flag, and the pages.
+ * Its issue stays open past the merge, while Martin turns the flag on, and its pull request waits for his merge in
+ * every autonomy mode.
+ */
+const improvementWriting = (spec: PayloadOf<'spec.written'>) => [
+  'Write three things.',
+  '',
+  `1. The pull request’s description, with the visual-pr skill, which says how. It replaces the draft’s, which held the spec: say what Martin asked for, what the change adds behind the flag \`${spec.flag ?? 'its-flag'}\`, and on which pages, and give a reviewer what they need of the spec, such as which test shows each criterion, and with the flag on or off, not the spec again. Say that the change ships off: nobody sees it until Martin turns the flag on from the factory’s console, a stage at a time, and with the flag off the app is as it was. Mention a suggestion the review left only if the change leaves it unanswered. The line adds the line that refers to the improvement’s issue, so leave that out, and write no closing keyword before an issue (“Closes #12”): the issue stays open after the merge, while Martin turns the flag on. Mention nobody with an @ outside code.`,
+  '',
+  '2. The pull request’s title: a Conventional Commit of type feat, of at most 80 characters, such as "feat(products): sort the list by price". It becomes the squash commit’s headline. Keep the coder’s if it says what the change does.',
+  '',
+  '3. The work item’s summary, for the factory’s console. Anyone may read it, someone who has never seen a pull request among them, so write plain sentences with no Markdown and no code. It says what happened, never where the work item stands now, such as that it waits for Martin’s merge: the work item moves on, and the console says where it stands.',
+  '- `title`: what the change adds, as a visitor would see it, in a few words, at most 120 characters, such as "Products sort by price".',
+  '- `description`: two short sentences for the work item’s card, at most 260 characters: what Martin asked for, and what the change does behind its flag.',
+  '- `story`: one paragraph, at most 1200 characters, in the past tense: what Martin asked for, what the planner’s spec asked of the change and the flag it named, how the coder wrote tests with the flag on and off and then the change, and what the gates and the reviewer said in each round.',
+  '',
+  'Then write the result, {"title","summary":{"title","description","story"}}, and the description as its own file: the system prompt says where each goes.',
+];
 
 export const describer = defineAgent<DescriberInput, DescriberResult>({
   agent: 'describer',
@@ -155,7 +199,7 @@ export const describer = defineAgent<DescriberInput, DescriberResult>({
       failure,
     };
   },
-  schema: () => describerResult,
+  schema: ({ asked }) => describerResultFor(titleFor(asked)),
   prompt,
   apply: async (described, _handback, { pullRequest: number }, context) => {
     const pr = await context.read('pullRequest', { number });

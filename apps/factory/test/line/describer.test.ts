@@ -79,4 +79,38 @@ describe('the describer', () => {
       expect(describerResult.safeParse(wrong).success).toBe(false);
     }
   });
+
+  describe('of an improvement', () => {
+    const coded =
+      FIXTURES.coder['delivery-dates']?.input ??
+      (() => {
+        throw new Error('The coder has no delivery-dates fixture.');
+      })();
+    const improvement: DescriberInput = {
+      ...input,
+      asked: coded.asked,
+      signals: [],
+      spec: coded.spec,
+      title: 'feat(products): show when each product would arrive',
+    };
+    const prompt = describer.prompt(improvement);
+
+    it('says what Martin asked for, what changes behind which flag and on which pages, and that it ships off', () => {
+      expect(prompt).toContain('the factory’s change for improvement #999999999');
+      expect(prompt).toContain('The request: Delivery dates on each product.');
+      expect(prompt).toContain('Flag: delivery-dates. Pages it shows on: /products/doorstop.');
+      expect(prompt).toContain('what the change adds behind the flag `delivery-dates`, and on which pages');
+      expect(prompt).toContain('Say that the change ships off');
+      expect(prompt).toContain('the issue stays open after the merge, while Martin turns the flag on');
+      expect(prompt).not.toMatch(/the ticket|defect|verified in production/);
+    });
+
+    it('takes a feature’s title, closing no issue', () => {
+      const ok = { title: 'feat(products): show when each one arrives', body: 'Adds delivery dates.', summary };
+      expect(describer.schema(improvement).safeParse(ok).success).toBe(true);
+      expect(describer.schema(improvement).safeParse({ ...ok, title: 'fix(products): dates' }).success).toBe(false);
+      expect(describer.schema(improvement).safeParse({ ...ok, body: 'Closes #12' }).success).toBe(false);
+      expect(describer.schema(input).safeParse(ok).success).toBe(false);
+    });
+  });
 });

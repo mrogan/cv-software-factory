@@ -91,6 +91,7 @@ import {
   askedByMartin,
   byMartin,
   type EventWriter,
+  flagEvents,
   fromMartin,
   IgnoredCommands,
   LINE_ROLE,
@@ -1557,6 +1558,8 @@ export class Line {
       ticket: () => this.#publicTicket(workItem, state),
       request: () => this.#publicRequest(workItem),
       signals: () => this.#signals(workItem),
+      flagsTaken: async () =>
+        Object.entries((await flagEvents(this.#o.sql)).named).flatMap(([flag, on]) => (on === workItem ? [] : [flag])),
       read: (read, args) => this.#o.github.read(read, this.#o.repo, args),
     };
   }

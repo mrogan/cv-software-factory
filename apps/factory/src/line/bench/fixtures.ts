@@ -5,14 +5,14 @@
  * A fixture for a step that reads a change (the reviewer's, the describer's) has the change too: a coder's patch,
  * which the bench commits on the base as the pull request's head.
  *
- * Every fixture is invented: a ticket, a spec or a pull request no visitor wrote. A cassette recorded from one holds
- * only that and the app's public code.
+ * Every fixture is invented: a ticket, a request, a spec or a pull request that neither a visitor nor Martin wrote. A
+ * cassette recorded from one holds only that and the app's public code.
  */
 import type { PayloadOf } from '@software-factory/events';
 import { protectedFrom } from '../../github/paths.ts';
 import { SMOKE_SCOPE, SMOKE_SEED } from '../../runners/smoke.ts';
 import type { AgentDefinition } from '../agents/agent.ts';
-import type { Signal } from '../agents/evidence.ts';
+import type { Request, Signal } from '../agents/evidence.ts';
 import type { AGENTS } from '../agents/index.ts';
 import type { LineAgent } from '../machine.ts';
 
@@ -421,6 +421,70 @@ diff --git a/test/pages-product.test.ts b/test/pages-product.test.ts
      expect(textOf(body)).toContain('Item 5 Department Garden Stock 1 in stock');
 `;
 
+/**
+ * The app's main once it could ask whether a feature flag is on (`request.flag`), which an improvement's change goes
+ * behind; and its CODEOWNERS there, which gives Martin the flag context too, copied by hand as `APP_CODEOWNERS` is.
+ */
+const APP_WITH_FLAGS = '7417f5b14ca34e2c13adb5dc8511a45aada30294';
+const APP_WITH_FLAGS_PROTECTED = protectedFrom(`${APP_CODEOWNERS}\n/src/flags/ @mrogan`);
+
+/** An improvement Martin might ask for, in his own words, as its public views have it. */
+const DELIVERY_REQUEST: Request = {
+  title: 'Delivery dates on each product',
+  words:
+    'Delivery dates on each product. On a product’s page, under its stock, say when it would arrive if ordered today: three working days on, written like Thursday 1 October. A product with none in stock says nothing about delivery.',
+};
+
+/** The names other improvements have given their flags, which a fresh one may not take. */
+const FLAGS_TAKEN = ['sort-by-price', 'gift-note'];
+
+/** A spec for the delivery dates, as the planner might write one: invented, like the request. */
+const DELIVERY_SPEC: PayloadOf<'spec.written'> = {
+  title: 'Delivery dates on each product',
+  outcome:
+    'With the flag on, the page of a product in stock says when it would arrive if ordered today, three working days on.',
+  flag: 'delivery-dates',
+  pages: ['/products/doorstop'],
+  criteria: [
+    {
+      given: 'a product with stock, and today is Monday 28 September 2026',
+      when: 'a visitor opens its page',
+      expect: 'under its stock, the page says it would arrive on Thursday 1 October',
+      withFlag: 'on',
+      from: 'the request',
+      quote: 'say when it would arrive if ordered today',
+    },
+    {
+      given: 'a product with stock, and today is Friday 2 October 2026',
+      when: 'a visitor opens its page',
+      expect: 'the page says it would arrive on Wednesday 7 October, counting no Saturday or Sunday',
+      withFlag: 'on',
+      from: 'the request',
+      quote: 'three working days on',
+    },
+    {
+      given: 'a product with none in stock',
+      when: 'a visitor opens its page',
+      expect: 'the page says nothing about delivery',
+      withFlag: 'on',
+      from: 'the request',
+      quote: 'A product with none in stock says nothing about delivery',
+    },
+    {
+      given: 'a product with stock',
+      when: 'a visitor opens its page',
+      expect: 'the page is as it is now, with no word of delivery',
+      withFlag: 'off',
+      from: 'the request',
+      quote: 'Delivery dates on each product',
+    },
+  ],
+  scope: ['src/pages/product.ts', 'src/delivery.ts', 'test/pages-product.test.ts', 'test/delivery.test.ts'],
+  risks: [],
+  rollout:
+    'Ships off. With the flag on, a product’s page in stock shows its delivery date under its stock, and one with none in stock shows none.',
+};
+
 export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
   planner: {
     'wrong-price': {
@@ -517,6 +581,18 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
         answers: [],
       },
     },
+    'delivery-dates': {
+      about: 'an improvement Martin asked for in his own words: a delivery date on each product’s page',
+      commit: APP_WITH_FLAGS,
+      input: {
+        workItem: FIXTURE_WORK_ITEM,
+        asked: { kind: 'request', request: DELIVERY_REQUEST },
+        signals: [],
+        protectedPaths: APP_WITH_FLAGS_PROTECTED,
+        answers: [],
+        flagsTaken: FLAGS_TAKEN,
+      },
+    },
   },
   coder: {
     'off-by-one': {
@@ -592,6 +668,18 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
         spec: CARDS_SPEC,
         round: 1,
         protectedPaths: APP_PROTECTED,
+      },
+    },
+    'delivery-dates': {
+      about: 'an improvement from a spec like the planner’s: a delivery date on each product’s page, behind its flag',
+      commit: APP_WITH_FLAGS,
+      input: {
+        workItem: FIXTURE_WORK_ITEM,
+        asked: { kind: 'request', request: DELIVERY_REQUEST },
+        signals: [],
+        spec: DELIVERY_SPEC,
+        round: 1,
+        protectedPaths: APP_WITH_FLAGS_PROTECTED,
       },
     },
   },
