@@ -18,6 +18,12 @@
  *     no rollback: the code stays in the app, off. Closed once, as the work item is then closed;
  *     a flag turned back on from Everyone after it closed stays on, on a closed work item, and turning it off again
  *     closes nothing more.
+ *   - **At Everyone**: a flag Martin widened to Everyone closes the improvement it was staged on as verified, and its
+ *     issue as completed, saying it is on for everyone, once the app has had the minute to hold his move that a
+ *     comparison at Share waits for too (`FLAGS_HELD`). Everyone is reached only once Verify's comparison at Share
+ *     passed (`policy/flag-moves.ts`), so the close judges nothing of its own. The flag stays Martin's: the store
+ *     takes its events on the closed improvement, and turning it off then closes nothing more, nor does turning it
+ *     back on.
  *   - **At Share**: a flag Martin set at the share stage has its two sides compared on the traffic generator's own
  *     requests (`compare.ts`), from a minute after his move, the time the app has to hold it (`FLAGS_HELD`), less every
  *     canary's time in flight, as the line recorded its releases, padded by how often it reads them. Until the window is
@@ -67,6 +73,8 @@ export interface FlagFacts {
   items: Readonly<Record<string, FlagItem>>;
   /** The one work item the line acts on, or null for every one. */
   only: string | null;
+  /** Now, in milliseconds: a move to Everyone closes its improvement only once the app has had time to hold it. */
+  now: number;
 }
 
 /** What the pass does for a flag. */
@@ -79,6 +87,13 @@ export type FlagNext =
       from: Stage | null;
       /** Martin's reason, from his move. */
       reason: string;
+    }
+  | {
+      do: 'verified';
+      flag: string;
+      workItem: string;
+      /** Martin's move to Everyone: its place in the store. */
+      move: { seq: string };
     }
   | {
       do: 'compare';
@@ -113,7 +128,7 @@ export function itemsAsked(flags: FlagEvents): string[] {
 const after = (seq: string, than: string) => BigInt(seq) > BigInt(than);
 
 /** What the pass does for each flag, given the flags' state: a pure function, so a test drives it with records. */
-export function flagsNext({ flags, items, only }: FlagFacts): FlagNext[] {
+export function flagsNext({ flags, items, only, now: at }: FlagFacts): FlagNext[] {
   const told = flagsFrom(flags.records, flags.named);
   const next: FlagNext[] = [];
   const revision = flags.revision ?? 'none';
@@ -154,15 +169,24 @@ export function flagsNext({ flags, items, only }: FlagFacts): FlagNext[] {
     if (!workItem || (only !== null && workItem !== only)) continue;
     const item = items[workItem];
     if (!item?.improvement || item.sample) continue;
+    /** Whether this pass closes the work item already, for another of its flags: it closes once. */
+    const closing = next.some((n) => (n.do === 'close' || n.do === 'verified') && n.workItem === workItem);
     // Turned off, at any stage: Martin's last move went to Off, on this work item. It closes once, whichever of its
     // flags was turned off.
-    if (
-      now.last?.to.stage === 'off' &&
-      !item.closed &&
-      !next.some((n) => n.do === 'close' && n.workItem === workItem)
-    ) {
+    if (now.last?.to.stage === 'off' && !item.closed && !closing) {
       const reason = (move?.type === 'flag.staged' && move.reason) || NO_REASON;
       next.push({ do: 'close', flag, workItem, from: now.last.from, reason });
+    }
+    // At Everyone, once the app has had its minute to hold Martin's move there: the improvement is shipped, and closes
+    // once, as verified. A flag back on from Everyone is on a work item closed already, and closes nothing.
+    if (
+      now.last?.to.stage === 'everyone' &&
+      !item.closed &&
+      move?.type === 'flag.staged' &&
+      at - Date.parse(move.ts) >= FLAGS_HELD.takeSeconds * 1000 &&
+      !closing
+    ) {
+      next.push({ do: 'verified', flag, workItem, move: { seq: move.seq } });
     }
     // At Share, and not yet compared since Martin's move there: a move clears the comparison before it. On a closed
     // work item too: a flag turned off from Everyone may go back on, be narrowed to Share and wait on a comparison.
@@ -246,8 +270,9 @@ export class FlagPass {
     const asked = itemsAsked(flags);
     if (!asked.length) return;
     const items = await this.#items(asked);
-    for (const next of flagsNext({ flags, items, only })) {
+    for (const next of flagsNext({ flags, items, only, now: this.#o.now().getTime() })) {
       if (next.do === 'close') await this.#close(next);
+      else if (next.do === 'verified') await this.#verified(next);
       else if (next.do === 'check') {
         await this.#check(next).catch((error: unknown) =>
           this.#o.log.warn(
@@ -309,9 +334,7 @@ export class FlagPass {
   async #closeIssue(next: Extract<FlagNext, { do: 'close' }>): Promise<void> {
     const { github, repo } = this.#o;
     if (!github || !repo) return;
-    const [row] = await this.#o.sql<{ issue: number | null }[]>`
-      select issue from line where work_item = ${next.workItem}`;
-    const issue = row?.issue;
+    const issue = await this.#issueOf(next.workItem);
     if (!issue) return;
     const comment = [
       `Martin turned \`${next.flag}\` off, from ${stageWords(next.from)}: ${redactSecrets(next.reason)}`,
@@ -319,6 +342,58 @@ export class FlagPass {
       `The change stays in the app, behind its flag, off. The factory’s improvement #${next.workItem} is closed.`,
     ].join('\n');
     await closeIssue(github, repo, { number: issue, reason: 'not_planned', comment }, next.workItem, this.#o.log);
+  }
+
+  /**
+   * Closes an improvement Martin widened to Everyone as verified, and its issue as completed, saying so: the issue
+   * first, as for a turned-off one. Martin may have moved the flag since the pass read it: then it waits for the next.
+   */
+  async #verified(next: Extract<FlagNext, { do: 'verified' }>): Promise<void> {
+    const { flag, workItem } = next;
+    const latest = (await flagEvents(this.#o.sql, flag)).records.findLast((r) => r.type === 'flag.staged');
+    if (latest?.seq !== next.move.seq) return;
+    try {
+      const issue = await this.#issueOf(workItem);
+      const { github, repo } = this.#o;
+      if (issue && github && repo) {
+        const comment = [
+          `Martin widened \`${flag}\` to Everyone: it is on for every visitor, after Verify compared its two sides at Share.`,
+          '',
+          `The factory’s improvement #${workItem} is closed as verified. Turning the flag off is still one move in the console, and reaches the app in seconds.`,
+        ].join('\n');
+        await closeIssue(github, repo, { number: issue, reason: 'completed', comment }, workItem, this.#o.log);
+      }
+    } catch (error) {
+      this.#o.log.warn({ workItem, flag, err: error }, 'could not close a verified improvement’s issue');
+      return;
+    }
+    const ts = this.#o.now().toISOString();
+    const drafts = [
+      {
+        type: 'work-item.closed' as const,
+        actor: 'factory' as const,
+        summary: `Closed: ${flag} is on for everyone`,
+        payload: {
+          outcome: 'verified' as const,
+          reason: `Martin widened ${flag} to Everyone, after Verify's comparison at Share passed`,
+        },
+      },
+    ];
+    try {
+      await this.#o.events.append(drafts.map((draft) => asEvent(workItem, draft, ts)));
+    } catch (error) {
+      this.#o.log.warn({ workItem, flag, err: error }, 'could not close a verified improvement');
+      return;
+    }
+    countRecorded(drafts);
+    this.#o.log.info({ workItem, flag }, 'closed an improvement whose flag is on for everyone');
+  }
+
+  /** The issue the line opened for a work item, if it did. */
+  async #issueOf(workItem: string): Promise<number | null> {
+    const [row] = await this.#o.sql<{ issue: number | null }[]>`
+      select issue from line where work_item = ${workItem}`;
+    return row?.issue ?? null;
   }
 
   /**

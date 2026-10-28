@@ -61,6 +61,8 @@ const staged = (
 });
 
 const open: FlagItem = { improvement: true, sample: false, closed: false };
+/** A day after the first move, by when the app has long held every move. */
+const LATER = Date.parse('2026-10-28T09:00:00Z');
 
 /** The flags' events as the store tells them, with no checks and no revision unless given. */
 const told = (
@@ -79,7 +81,7 @@ describe('what the flag pass decides', () => {
   };
 
   it.each([CHECKS, PREVIEW, SHARE, EVERYONE])('closes the improvement turned off from %o, with the reason', (at) => {
-    expect(flagsNext({ flags: offFrom(at), items: { '7': open }, only: null })).toEqual([
+    expect(flagsNext({ flags: offFrom(at), items: { '7': open }, only: null, now: LATER })).toEqual([
       { do: 'close', flag: 'dates', workItem: '7', from: at, reason: 'Wrong on Sundays' },
     ]);
   });
@@ -91,19 +93,21 @@ describe('what the flag pass decides', () => {
   });
 
   it('closes nothing already closed, so nothing twice: not a flag turned back on and off again', () => {
-    expect(flagsNext({ flags: offFrom(EVERYONE), items: { '7': { ...open, closed: true } }, only: null })).toEqual([]);
+    expect(
+      flagsNext({ flags: offFrom(EVERYONE), items: { '7': { ...open, closed: true } }, only: null, now: LATER }),
+    ).toEqual([]);
   });
 
   it('closes nothing but an open improvement of the factory’s own', () => {
     const flags = offFrom(CHECKS);
-    expect(flagsNext({ flags, items: { '7': { ...open, improvement: false } }, only: null })).toEqual([]);
-    expect(flagsNext({ flags, items: { '7': { ...open, sample: true } }, only: null })).toEqual([]);
-    expect(flagsNext({ flags, items: {}, only: null })).toEqual([]);
+    expect(flagsNext({ flags, items: { '7': { ...open, improvement: false } }, only: null, now: LATER })).toEqual([]);
+    expect(flagsNext({ flags, items: { '7': { ...open, sample: true } }, only: null, now: LATER })).toEqual([]);
+    expect(flagsNext({ flags, items: {}, only: null, now: LATER })).toEqual([]);
   });
 
   it('closes nothing for a flag on, or turned off and widened again', () => {
     const closing = (flags: FlagEvents) =>
-      flagsNext({ flags, items: { '7': open }, only: null }).filter((next) => next.do === 'close');
+      flagsNext({ flags, items: { '7': open }, only: null, now: LATER }).filter((next) => next.do === 'close');
     expect(closing(told({ dates: '7' }, [staged('dates', '7', OFF, CHECKS)]))).toEqual([]);
     const again = offFrom(CHECKS);
     again.records.push(staged('dates', '7', OFF, CHECKS));
@@ -115,14 +119,14 @@ describe('what the flag pass decides', () => {
       staged('dates', '7', CHECKS, OFF, 'No'),
       staged('old', '7', CHECKS, OFF, 'Nor this'),
     ]);
-    expect(flagsNext({ flags, items: { '7': open }, only: null })).toHaveLength(1);
+    expect(flagsNext({ flags, items: { '7': open }, only: null, now: LATER })).toHaveLength(1);
   });
 
   it('compares a flag at Share, once for each move there, and nothing at any other stage', () => {
     const records = [staged('dates', '7', OFF, CHECKS), staged('dates', '7', CHECKS, SHARE)];
     const move = records[1] as StoredFlagRecord;
     const flags = told({ dates: '7' }, records);
-    expect(flagsNext({ flags, items: { '7': open }, only: null })).toEqual([
+    expect(flagsNext({ flags, items: { '7': open }, only: null, now: LATER })).toEqual([
       {
         do: 'compare',
         flag: 'dates',
@@ -141,22 +145,67 @@ describe('what the flag pass decides', () => {
       moveRevision: `r${move.seq}`,
     };
     expect(
-      flagsNext({ flags: { ...flags, records: [...records, compared] }, items: { '7': open }, only: null }),
+      flagsNext({ flags: { ...flags, records: [...records, compared] }, items: { '7': open }, only: null, now: LATER }),
     ).toEqual([]);
     // A narrower share is a move of its own, compared afresh.
     const narrowed = [...records, compared, staged('dates', '7', SHARE, { stage: 'share', share: 25 })];
-    expect(flagsNext({ flags: { ...flags, records: narrowed }, items: { '7': open }, only: null })).toMatchObject([
-      { do: 'compare', share: 25 },
-    ]);
+    expect(
+      flagsNext({ flags: { ...flags, records: narrowed }, items: { '7': open }, only: null, now: LATER }),
+    ).toMatchObject([{ do: 'compare', share: 25 }]);
     const checks = { ...flags, records: [records[0] as StoredFlagRecord] };
-    expect(flagsNext({ flags: checks, items: { '7': open }, only: null }).filter((n) => n.do === 'compare')).toEqual(
-      [],
-    );
+    expect(
+      flagsNext({ flags: checks, items: { '7': open }, only: null, now: LATER }).filter((n) => n.do === 'compare'),
+    ).toEqual([]);
     // On a closed work item too: a flag back on from Everyone after it closed may be narrowed to Share, and Everyone
     // waits on the comparison.
-    expect(flagsNext({ flags, items: { '7': { ...open, closed: true } }, only: null })).toMatchObject([
+    expect(flagsNext({ flags, items: { '7': { ...open, closed: true } }, only: null, now: LATER })).toMatchObject([
       { do: 'compare' },
     ]);
+  });
+
+  describe('at Everyone', () => {
+    /** A flag widened a stage at a time to Everyone, and the time the app has held that move from. */
+    const atEveryone = () => {
+      const records = [
+        staged('dates', '7', OFF, CHECKS),
+        staged('dates', '7', CHECKS, SHARE),
+        staged('dates', '7', SHARE, EVERYONE),
+      ];
+      const move = records[2] as StoredFlagRecord;
+      return { flags: told({ dates: '7' }, records), move, held: Date.parse(move.ts) + 60_000 };
+    };
+
+    it('closes the improvement as verified once the app has had its minute to hold the move, and not before', () => {
+      const { flags, move, held } = atEveryone();
+      expect(flagsNext({ flags, items: { '7': open }, only: null, now: held - 1 })).toEqual([]);
+      expect(flagsNext({ flags, items: { '7': open }, only: null, now: held })).toEqual([
+        { do: 'verified', flag: 'dates', workItem: '7', move: { seq: move.seq } },
+      ]);
+    });
+
+    it('closes nothing closed already: not again after Off, nor back on to Everyone', () => {
+      const { flags } = atEveryone();
+      const closed = { '7': { ...open, closed: true } };
+      expect(flagsNext({ flags, items: closed, only: null, now: LATER })).toEqual([]);
+      flags.records.push(staged('dates', '7', EVERYONE, OFF, 'Wrong on Sundays'));
+      expect(flagsNext({ flags, items: closed, only: null, now: LATER })).toEqual([]);
+      flags.records.push(staged('dates', '7', OFF, EVERYONE));
+      expect(flagsNext({ flags, items: closed, only: null, now: LATER })).toEqual([]);
+    });
+
+    it('closes nothing but an open improvement of the factory’s own, and respects just one', () => {
+      const { flags } = atEveryone();
+      expect(flagsNext({ flags, items: { '7': { ...open, sample: true } }, only: null, now: LATER })).toEqual([]);
+      expect(flagsNext({ flags, items: { '7': { ...open, improvement: false } }, only: null, now: LATER })).toEqual([]);
+      expect(flagsNext({ flags, items: { '7': open }, only: '8', now: LATER })).toEqual([]);
+      expect(flagsNext({ flags, items: { '7': open }, only: '7', now: LATER })).toMatchObject([{ do: 'verified' }]);
+    });
+
+    it('closes a work item once, whether another of its flags is at Everyone or turned off', () => {
+      const { flags } = atEveryone();
+      flags.records.push(staged('old', '7', CHECKS, OFF, 'No'));
+      expect(flagsNext({ flags, items: { '7': open }, only: null, now: LATER })).toHaveLength(1);
+    });
   });
 
   it('with just one, acts on that work item alone', () => {
@@ -165,9 +214,9 @@ describe('what the flag pass decides', () => {
       staged('wrap', '8', CHECKS, OFF, 'Nor this'),
     ]);
     const items = { '7': open, '8': open };
-    expect(flagsNext({ flags, items, only: '8' }).map((next) => next.workItem)).toEqual(['8']);
-    expect(flagsNext({ flags, items, only: '9' })).toEqual([]);
-    expect(flagsNext({ flags, items, only: null }).map((next) => next.workItem)).toEqual(['7', '8']);
+    expect(flagsNext({ flags, items, only: '8', now: LATER }).map((next) => next.workItem)).toEqual(['8']);
+    expect(flagsNext({ flags, items, only: '9', now: LATER })).toEqual([]);
+    expect(flagsNext({ flags, items, only: null, now: LATER }).map((next) => next.workItem)).toEqual(['7', '8']);
   });
 });
 
@@ -188,9 +237,9 @@ describe('which checks of a flag the pass asks the probes for', () => {
   it('pictures the pages its spec names, the first six, or the front page when it names none', () => {
     const pages = ['/products/blue-mug', '/basket', '/a', '/b', '/c', '/d', '/e'];
     const flags = told({ dates: '7' }, [], { revision: 'r3' });
-    expect(flagsNext({ flags: { ...flags, pages: { dates: pages } }, items: { '7': open }, only: null })).toMatchObject(
-      [{ do: 'check', stage: 'off', pages: pages.slice(0, 6) }],
-    );
+    expect(
+      flagsNext({ flags: { ...flags, pages: { dates: pages } }, items: { '7': open }, only: null, now: LATER }),
+    ).toMatchObject([{ do: 'check', stage: 'off', pages: pages.slice(0, 6) }]);
     const staged = told({ dates: '7' }, [
       {
         type: 'flag.staged',
@@ -204,27 +253,29 @@ describe('which checks of a flag the pass asks the probes for', () => {
       },
     ]);
     expect(
-      flagsNext({ flags: { ...staged, pages: { dates: ['/basket'] } }, items: { '7': open }, only: null }),
+      flagsNext({ flags: { ...staged, pages: { dates: ['/basket'] } }, items: { '7': open }, only: null, now: LATER }),
     ).toMatchObject([{ do: 'check', stage: 'checks', pages: ['/basket'] }]);
-    expect(flagsNext({ flags: staged, items: { '7': open }, only: null })).toMatchObject([{ pages: ['/'] }]);
+    expect(flagsNext({ flags: staged, items: { '7': open }, only: null, now: LATER })).toMatchObject([
+      { pages: ['/'] },
+    ]);
   });
 
   it('takes a baseline at Off, on an open improvement, of each version the probes have not seen it on', () => {
     const flags = told({ dates: '7' }, [], { revision: 'r3' });
-    expect(flagsNext({ flags, items: { '7': open }, only: null })).toEqual([
+    expect(flagsNext({ flags, items: { '7': open }, only: null, now: LATER })).toEqual([
       { do: 'check', flag: 'dates', workItem: '7', stage: 'off', revision: 'r3', move: null, base: null, pages: ['/'] },
     ]);
     const taken = { ...flags, checked: [baseline('a'.repeat(40)), { ...baseline('b'.repeat(40)) }] };
     for (const c of taken.checked) c.check.revision = 'r3';
-    expect(flagsNext({ flags: taken, items: { '7': open }, only: null })).toMatchObject([
+    expect(flagsNext({ flags: taken, items: { '7': open }, only: null, now: LATER })).toMatchObject([
       { do: 'check', stage: 'off', have: 'b'.repeat(40) },
     ]);
     // Another flag moved since: a new flag set, so the same version is taken again.
-    expect(flagsNext({ flags: { ...taken, revision: 'r4' }, items: { '7': open }, only: null })[0]).not.toHaveProperty(
-      'have',
-    );
+    expect(
+      flagsNext({ flags: { ...taken, revision: 'r4' }, items: { '7': open }, only: null, now: LATER })[0],
+    ).not.toHaveProperty('have');
     // Before Martin's first move of any flag, the app holds no flag set.
-    expect(flagsNext({ flags: told({ dates: '7' }, []), items: { '7': open }, only: null })).toMatchObject([
+    expect(flagsNext({ flags: told({ dates: '7' }, []), items: { '7': open }, only: null, now: LATER })).toMatchObject([
       { revision: 'none' },
     ]);
   });
@@ -236,18 +287,20 @@ describe('which checks of a flag the pass asks the probes for', () => {
       { ...open, sample: true },
       { ...open, improvement: false },
     ]) {
-      expect(flagsNext({ flags, items: { '7': item }, only: null })).toEqual([]);
+      expect(flagsNext({ flags, items: { '7': item }, only: null, now: LATER })).toEqual([]);
     }
-    expect(flagsNext({ flags, items: { '7': open }, only: '8' })).toEqual([]);
+    expect(flagsNext({ flags, items: { '7': open }, only: '8', now: LATER })).toEqual([]);
     const turnedOff = told({ dates: '7' }, [
       staged('dates', '7', OFF, CHECKS),
       staged('dates', '7', CHECKS, OFF, 'No'),
     ]);
-    expect(flagsNext({ flags: turnedOff, items: { '7': open }, only: null })).toMatchObject([{ do: 'close' }]);
+    expect(flagsNext({ flags: turnedOff, items: { '7': open }, only: null, now: LATER })).toMatchObject([
+      { do: 'close' },
+    ]);
     // Turned off on an earlier improvement, and named by this one's spec: this one's baseline.
     const reused = told({ dates: '9' }, [staged('dates', '7', CHECKS, OFF, 'No')]);
     expect(
-      flagsNext({ flags: reused, items: { '7': { ...open, closed: true }, '9': open }, only: null }),
+      flagsNext({ flags: reused, items: { '7': { ...open, closed: true }, '9': open }, only: null, now: LATER }),
     ).toMatchObject([{ do: 'check', stage: 'off', workItem: '9', move: reused.records[0]?.seq }]);
   });
 
@@ -255,7 +308,7 @@ describe('which checks of a flag the pass asks the probes for', () => {
     const toChecks = staged('dates', '7', OFF, CHECKS);
     const base = baseline();
     const flags = told({ dates: '7' }, [toChecks], { checked: [base], revision: 'r9' });
-    expect(flagsNext({ flags, items: { '7': open }, only: null })).toEqual([
+    expect(flagsNext({ flags, items: { '7': open }, only: null, now: LATER })).toEqual([
       {
         do: 'check',
         flag: 'dates',
@@ -270,25 +323,29 @@ describe('which checks of a flag the pass asks the probes for', () => {
     ]);
     // A check that names an earlier move is none of this one's, however late it came.
     const stale = { ...flags, checked: [base, check('7', { stage: 'checks', moveRevision: 'r0' })] };
-    expect(flagsNext({ flags: stale, items: { '7': open }, only: null })).toMatchObject([{ stage: 'checks' }]);
+    expect(flagsNext({ flags: stale, items: { '7': open }, only: null, now: LATER })).toMatchObject([
+      { stage: 'checks' },
+    ]);
     const done = { ...flags, checked: [base, check('7', { stage: 'checks', moveRevision: toChecks.revision })] };
-    expect(flagsNext({ flags: done, items: { '7': open }, only: null })).toEqual([]);
+    expect(flagsNext({ flags: done, items: { '7': open }, only: null, now: LATER })).toEqual([]);
     // Preview is a move of its own; a check at Checks before it is not one at Preview.
     const toPreview = staged('dates', '7', CHECKS, PREVIEW);
     const previewed = { ...done, records: [toChecks, toPreview] };
-    expect(flagsNext({ flags: previewed, items: { '7': open }, only: null })).toMatchObject([
+    expect(flagsNext({ flags: previewed, items: { '7': open }, only: null, now: LATER })).toMatchObject([
       { do: 'check', stage: 'preview', move: toPreview.seq, base },
     ]);
     // Back to Checks from Preview: checked again, as it is a move.
     const back = { ...previewed, records: [toChecks, toPreview, staged('dates', '7', PREVIEW, CHECKS)] };
-    expect(flagsNext({ flags: back, items: { '7': open }, only: null })).toMatchObject([{ stage: 'checks' }]);
+    expect(flagsNext({ flags: back, items: { '7': open }, only: null, now: LATER })).toMatchObject([
+      { stage: 'checks' },
+    ]);
     // Another improvement's baseline, which reused the flag's name, is none of this one's.
     const theirs = told({ dates: '7' }, [toChecks], { checked: [{ ...base, workItem: '6' }] });
-    expect(flagsNext({ flags: theirs, items: { '7': open }, only: null })).toMatchObject([{ base: null }]);
+    expect(flagsNext({ flags: theirs, items: { '7': open }, only: null, now: LATER })).toMatchObject([{ base: null }]);
     // With no baseline, it is still checked, against none.
-    expect(flagsNext({ flags: told({ dates: '7' }, [toChecks]), items: { '7': open }, only: null })).toMatchObject([
-      { stage: 'checks', base: null },
-    ]);
+    expect(
+      flagsNext({ flags: told({ dates: '7' }, [toChecks]), items: { '7': open }, only: null, now: LATER }),
+    ).toMatchObject([{ stage: 'checks', base: null }]);
   });
 });
 
@@ -669,6 +726,61 @@ describe('the flag pass, against the store', () => {
     now += 30_000;
     await pass();
     expect(await closes(workItem)).toHaveLength(1);
+  });
+
+  it('closes an improvement at Everyone as verified once the app has had its minute, and its issue as completed', async () => {
+    const workItem = await improvement('wrap');
+    await database.owner`insert into line (work_item, stage, issue) values (${workItem}, 'ended', 42)`;
+    await move(workItem, 'wrap', SHARE, EVERYONE);
+    const github = new FakeGitHub();
+    const { pass } = line({ github });
+    await pass();
+    expect(await closes(workItem)).toEqual([]);
+    now += 60_000;
+    await pass();
+    expect(await closes(workItem)).toEqual([
+      {
+        actor: 'factory',
+        appended_by: 'factory_line',
+        summary: 'Closed: wrap is on for everyone',
+        payload: {
+          outcome: 'verified',
+          reason: "Martin widened wrap to Everyone, after Verify's comparison at Share passed",
+        },
+      },
+    ]);
+    expect(github.acts.filter((a) => a.action === 'closeIssue')).toEqual([
+      {
+        action: 'closeIssue',
+        args: {
+          number: 42,
+          reason: 'completed',
+          comment: expect.stringMatching(/^Martin widened `wrap` to Everyone: it is on for every visitor/),
+        },
+      },
+    ]);
+    // The flag stays Martin's: off, and back on, on the closed improvement, close nothing more.
+    await move(workItem, 'wrap', EVERYONE, OFF, 'Wrapped the wrong way');
+    now += 30_000;
+    await pass();
+    await move(workItem, 'wrap', OFF, EVERYONE);
+    now += 90_000;
+    await pass();
+    expect((await closes(workItem)).map((c) => c.payload.outcome)).toEqual(['verified']);
+    expect(github.acts.filter((a) => a.action === 'closeIssue')).toHaveLength(1);
+  });
+
+  it('closes nothing at Everyone for a move a role not Martin’s appended', async () => {
+    const workItem = await improvement('forged');
+    await database.owner`alter table events disable row level security`;
+    try {
+      await move(workItem, 'forged', SHARE, EVERYONE, undefined, database.as.line);
+    } finally {
+      await database.owner`alter table events enable row level security`;
+    }
+    now += 60_000;
+    await line().pass();
+    expect(await closes(workItem)).toEqual([]);
   });
 
   it('reads the flags no oftener than every thirty seconds', async () => {

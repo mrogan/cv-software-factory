@@ -238,6 +238,60 @@ describe('appending', () => {
     );
   });
 
+  it('accepts Martin’s moves of an improvement’s flag after it closes as verified at Everyone, and of no ticket', async () => {
+    const staged = (item: string, from: string, to: string, action: string): NewEvent<'flag.staged'> =>
+      ({
+        ...opened(item),
+        id: uuid(),
+        type: 'flag.staged',
+        version: 1,
+        actor: 'martin',
+        summary: `Martin moved last-one from ${from} to ${to}`,
+        payload: {
+          flag: 'last-one',
+          from: from === 'share' ? { stage: from, share: 50 } : { stage: from },
+          to: { stage: to },
+          action,
+          revision: `r${uuid().slice(0, 4)}`,
+          ...(to === 'off' && { reason: 'Wrong when there are two' }),
+          steppedUp: action !== 'flag.off',
+        },
+      }) as NewEvent<'flag.staged'>;
+    const verified = (item: string): NewEvent<'work-item.closed'> => ({
+      ...opened(item),
+      id: uuid(),
+      type: 'work-item.closed',
+      version: 2,
+      actor: 'factory',
+      summary: 'Closed: last-one is on for everyone',
+      payload: {
+        outcome: 'verified',
+        reason: "Martin widened last-one to Everyone, after Verify's comparison at Share passed",
+      },
+    });
+    // An improvement and Martin's moves are his commands, which only his roles may append.
+    const martin = new EventWriter(database.admin, { kind: 'sample', artifacts });
+    const item = nextItem();
+    await martin.append({
+      ...opened(item),
+      actor: 'martin',
+      payload: { kind: 'improvement', title: 'Last one in stock', sample: true },
+    });
+    await martin.append(staged(item, 'share', 'everyone', 'flag.widen'));
+    await samples().append(verified(item));
+    // Off, and straight back on, on the closed improvement; and nothing else.
+    await martin.append(staged(item, 'everyone', 'off', 'flag.off'));
+    await martin.append(staged(item, 'off', 'everyone', 'flag.back-on'));
+    await expect(samples().append(report(item))).rejects.toThrow(`work item ${item} is closed`);
+
+    // Not on a ticket closed as verified, which is no improvement.
+    const ticket = nextItem();
+    await samples().append([opened(ticket), verified(ticket)]);
+    await expect(martin.append(staged(ticket, 'everyone', 'off', 'flag.off'))).rejects.toThrow(
+      `work item ${ticket} is closed`,
+    );
+  });
+
   it('reopens only a closed work item, which then takes events again until it closes again', async () => {
     const item = nextItem();
     const close: NewEvent<'work-item.closed'> = {

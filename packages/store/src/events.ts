@@ -17,7 +17,10 @@ import type { JSONValue, Sql, TransactionSql } from 'postgres';
 import type { ArtifactStore } from './artifacts.ts';
 import { fromMartin } from './commands.ts';
 
-/** A flag's own events, which a work item closed as turned off still takes: the flag outlives the close. */
+/**
+ * A flag's own events, which an improvement closed as turned off or as verified still takes: the flag outlives the
+ * close.
+ */
 const FLAG_TYPES: ReadonlySet<string> = new Set(['flag.staged', 'flag.compared', 'flag.checked']);
 
 /** An append the store refused, with every reason it found. Nothing in the batch was stored. */
@@ -139,32 +142,41 @@ export class EventWriter {
 
   /**
    * A work item opens once, before anything else happens to it, and nothing but its summary follows its close, until
-   * it reopens; nothing, that is, but a flag's own events on a work item closed as turned off (Martin's moves, and the
-   * line's judgements of them), as a flag outlives that close: one turned off from Everyone may go straight back on,
-   * and be narrowed and compared again, on the work item it was staged on. Only a closed work item reopens. The last of
-   * its closes and reopenings says whether it is closed.
+   * it reopens; nothing, that is, but a flag's own events (Martin's moves, and the line's judgements of them) on a work
+   * item closed as turned off, or on an improvement closed as verified, as a flag outlives those closes: one on for
+   * everyone may be turned off and go straight back on, and be narrowed and compared again, on the work item it was
+   * staged on. A work item closed any other way, a ticket verified among them, takes nothing more. Only a closed work
+   * item reopens. The last of its closes and reopenings says whether it is closed, and how.
    */
   async #checkSequence(tx: TransactionSql, batch: readonly NewEvent[]): Promise<string[]> {
     const items = [...new Set(batch.flatMap((event) => (event.work_item ? [event.work_item] : [])))];
     const known = items.length
-      ? await tx<{ work_item: string; opened: boolean; closed: boolean; turned_off: boolean }[]>`
+      ? await tx<
+          { work_item: string; opened: boolean; improvement: boolean; closed: boolean; outcome: string | null }[]
+        >`
           select work_item,
                  bool_or(type = 'work-item.opened') as opened,
+                 coalesce(bool_or(type = 'work-item.opened' and payload->>'kind' = 'improvement'), false)
+                   as improvement,
                  coalesce((array_agg(type order by seq desc)
                    filter (where type in ('work-item.closed', 'work-item.reopened')))[1] = 'work-item.closed', false)
                    as closed,
-                 coalesce((array_agg(payload->>'outcome' order by seq desc)
-                   filter (where type in ('work-item.closed', 'work-item.reopened')))[1] = 'turned-off', false)
-                   as turned_off
+                 (array_agg(payload->>'outcome' order by seq desc)
+                   filter (where type in ('work-item.closed', 'work-item.reopened')))[1] as outcome
           from events where work_item in ${tx(items)} group by work_item`
       : [];
     const state = new Map(
-      known.map((row) => [row.work_item, { opened: row.opened, closed: row.closed, turnedOff: row.turned_off }]),
+      known.map((row) => [
+        row.work_item,
+        { opened: row.opened, closed: row.closed, flagsOutlive: flagsOutlive(row.improvement, row.outcome) },
+      ]),
     );
+    /** Whether each work item in the batch is an improvement, by its opening, stored or in the batch. */
+    const improvement = new Map(known.map((row) => [row.work_item, row.improvement]));
     const problems: string[] = [];
     for (const [i, event] of batch.entries()) {
       if (event.work_item === null) continue;
-      const item = state.get(event.work_item) ?? { opened: false, closed: false, turnedOff: false };
+      const item = state.get(event.work_item) ?? { opened: false, closed: false, flagsOutlive: false };
       const at = where(batch, i);
       if (event.type === 'work-item.opened') {
         if (item.opened) problems.push(`${at}: work item ${event.work_item} is already open`);
@@ -172,6 +184,7 @@ export class EventWriter {
           problems.push(`${at}: this writer appends ${this.#options.kind === 'sample' ? 'samples' : 'real work'} only`);
         }
         item.opened = true;
+        improvement.set(event.work_item, event.payload.kind === 'improvement');
       } else if (!item.opened) {
         problems.push(`${at}: work item ${event.work_item} has not been opened`);
       } else if (event.type === 'work-item.reopened') {
@@ -179,20 +192,24 @@ export class EventWriter {
       } else if (
         item.closed &&
         event.type !== 'work-item.summarised' &&
-        !(item.turnedOff && FLAG_TYPES.has(event.type))
+        !(item.flagsOutlive && FLAG_TYPES.has(event.type))
       ) {
         problems.push(`${at}: work item ${event.work_item} is closed`);
       }
       if (event.type === 'work-item.closed') {
         item.closed = true;
-        item.turnedOff = event.payload.outcome === 'turned-off';
+        item.flagsOutlive = flagsOutlive(improvement.get(event.work_item) ?? false, event.payload.outcome);
       }
-      if (event.type === 'work-item.reopened') item.closed = item.turnedOff = false;
+      if (event.type === 'work-item.reopened') item.closed = item.flagsOutlive = false;
       state.set(event.work_item, item);
     }
     return problems;
   }
 }
+
+/** Whether a work item closed with this outcome still takes its flags' events: turned off, or a verified improvement. */
+const flagsOutlive = (improvement: boolean, outcome: string | null): boolean =>
+  outcome === 'turned-off' || (improvement && outcome === 'verified');
 
 interface StoredRow {
   seq: string;
