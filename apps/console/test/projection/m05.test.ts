@@ -517,6 +517,13 @@ describe('a fix sent back by the gates and then by the reviewer', () => {
       },
     ];
     expect(projectSheet(replanned, '1325', end)?.roundsNow.next).toBeUndefined();
+    // And back at Build in the new pass, the coder at work before its first push: no round 3 from the pass before.
+    const coding = events.find((e) => e.type === 'model.called' && e.actor === 'coder');
+    if (!coding) throw new Error('expected #1325 to have the coder’s call');
+    const rebuilding = [...replanned, { ...coding, id: `${coding.id}-again`, ts: '2026-10-06T14:25:00.000Z' }];
+    const later = Date.parse('2026-10-06T14:25:00Z');
+    expect(projectSheet(rebuilding, '1325', later)?.card.segments[3]).toBe('now');
+    expect(projectSheet(rebuilding, '1325', later)?.roundsNow.next).toBeUndefined();
   });
 
   it('says which step of the last round is in hand: its gates, then its review', () => {

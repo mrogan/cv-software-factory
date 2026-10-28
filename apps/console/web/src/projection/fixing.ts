@@ -199,15 +199,25 @@ export interface RoundsNow {
 export function roundsNow(item: ItemState, list: readonly Attempt[]): RoundsNow {
   const last = list.at(-1);
   const inHand = (stage: Stage) => item.stage === stage && item.outcome === 'in-progress';
+  // A return to Plan or a reopening starts a new pass, whose first round is round 1 again: only this pass's own return
+  // and push count.
+  const pass = item.events.findLastIndex(startsPass);
+  const since = (found: (event: PublicEvent) => boolean) => item.events.findLastIndex(found) > pass;
+  const returnedNow = since((event) => event.type === 'work.returned' && event.payload.to === 'build');
+  const pushedNow = since((event) => event.type === 'pull-request.pushed' && event.actor === 'coder');
   const next =
-    // At Build still: a return to Plan or a reopening since starts a new pass, whose first round is round 1 again.
-    last?.returned && !last.returned.declined && item.closedAt === undefined && item.stage === 'build'
+    last?.returned && !last.returned.declined && returnedNow && item.closedAt === undefined && item.stage === 'build'
       ? { attempt: last.attempt + 1, building: inHand('build') }
       : undefined;
   // The line records no start for a review, only the reviewer's call as it ends: a round whose gates passed is the
   // reviewer's from then, while the work item is in hand at Gates or Review.
   const reviewing =
-    !!last && !last.returned && !last.review && last.gates?.state === 'passed' && (inHand('gates') || inHand('review'));
+    !!last &&
+    pushedNow &&
+    !last.returned &&
+    !last.review &&
+    last.gates?.state === 'passed' &&
+    (inHand('gates') || inHand('review'));
   return { next, reviewing };
 }
 
