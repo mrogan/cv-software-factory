@@ -54,6 +54,8 @@ const flagName = z
   .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'a flag name, such as delivery-dates')
   .refine((name) => name !== 'flag-set-revision', "the flag set's revision is no feature flag");
 const flagShare = z.literal(V.FLAG_SHARES);
+/** A colour scheme the browser says it prefers, as Verify pictures a flag's pages in each. */
+const colorScheme = z.enum(V.COLOR_SCHEMES);
 /** A flag's stage: the share stage with its share, any other alone (`policy/flags.ts`). */
 const flagStage = z.discriminatedUnion('stage', [
   z.strictObject({ stage: z.enum(['off', 'checks', 'preview', 'everyone']) }),
@@ -547,7 +549,7 @@ export const PAYLOADS = {
     risks: z.array(z.enum(V.RISKS)).max(V.RISKS.length),
     rollout: text(300),
     flag: flagName.optional(),
-    /** The app's pages the change shows on, by path, as many as Verify pictures (`flag.checked` keeps six). */
+    /** The app's pages the change shows on, by path, as many as Verify pictures (`flag.checked` keeps six, in two schemes). */
     pages: z.array(page).min(1).max(6).optional(),
   }),
   /** A change pushed for review: a new pull request, or another attempt on one that was sent back. */
@@ -1208,7 +1210,8 @@ export const PAYLOADS = {
    * Verify checked a flag with the probes (task 17), on the improvement's work item, against the stable Service, whose
    * every probe request carries the mark and so sees the flag on from Checks; each run saw the flag set Martin's latest
    * move wrote (`revision`), before and after. The journeys and the `/device` check, and pictures of the spec's pages
-   * (the front page, while a spec names none), the screenshots the event's artifacts:
+   * (the front page, while a spec names none), each in both colour schemes, light and dark, as the browser says it
+   * prefers, the screenshots the event's artifacts:
    *
    * - `off`, the baseline: once for each stable version while the flag is at Off, the run the later stages compare with.
    *   It names each check that did not pass cleanly, as the journeys gate's base.
@@ -1230,7 +1233,8 @@ export const PAYLOADS = {
       journeys: journeysCount,
       /** Each check that failed, or could not tell: the checks a later stage's regressions are not counted on. */
       notClean: z.array(journeyCheck).max(200),
-      pages: z.array(z.strictObject({ page: route, route, off: sha256 })).max(6),
+      /** Each page, in each colour scheme. */
+      pages: z.array(z.strictObject({ page: route, route, scheme: colorScheme, off: sha256 })).max(12),
     }),
     z.strictObject({
       stage: z.literal('checks'),
@@ -1244,7 +1248,9 @@ export const PAYLOADS = {
             /** The page's path. */
             page: route,
             route,
-            /** The page with the flag off, from the run compared with: none without one. */
+            /** The colour scheme the browser said it preferred: each page is pictured in both. */
+            scheme: colorScheme,
+            /** The page with the flag off, in the same scheme, from the run compared with: none without one. */
             off: sha256.optional(),
             on: sha256,
             /** The share of pixels that differ from the page with the flag off, and where: no diff when none do. */
@@ -1252,7 +1258,7 @@ export const PAYLOADS = {
             diff: sha256.optional(),
           }),
         )
-        .max(6),
+        .max(12),
     }),
     z.strictObject({
       stage: z.literal('preview'),

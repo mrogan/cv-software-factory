@@ -19,7 +19,9 @@
  *   be, and while another flag is at Share: one at a time, so each comparison varies one thing.
  * - **Checks** waits for Verify's baseline of the improvement, its run with the flag off (`flag.checked` at Off), so the
  *   check at Checks has something to compare with: without one it could never tell, and from Checks only Off is lower,
- *   which closes the work item.
+ *   which closes the work item. A baseline counts only once it has each page it pictured in both colour schemes, light
+ *   and dark, so the pages at Checks have both to be compared with: one taken before Verify pictured dark is taken
+ *   again.
  * - **Past Checks, and past Preview,** waits for Verify's check of the flag at that stage with the probes
  *   (`flag.checked`) of Martin's latest move of it, so each stage is checked before the flag goes past it: from
  *   Checks, Preview and Share are refused while it is still checking, when it failed, and when it could not tell; from
@@ -56,7 +58,7 @@ export interface FlagNow {
   checked?: { stage: CheckedStage; outcome: FlagCheck };
   /**
    * Whether Verify has a picture of the app with it off (a baseline) for the improvement whose spec names it, which a
-   * check at Checks is compared with.
+   * check at Checks is compared with: each page it pictured, in both colour schemes.
    */
   baseline?: boolean;
 }
@@ -189,7 +191,7 @@ function refusalOf(
   // A check at Checks with nothing to compare with could never tell, and Checks can't go back to Off without closing
   // the work item: so Checks waits for the baseline.
   if (action === 'flag.to-checks' && !now.baseline) {
-    return 'Verify has no picture of the app with the flag off yet: Checks can be taken once it has, so the check there has something to compare with.';
+    return 'Verify has no picture of the app with the flag off, in light and dark, yet: Checks can be taken once it has, so the check there has something to compare with.';
   }
   const skips = rank(to.stage) - rank(from.stage) > 1;
   const skipsPreview = from.stage === 'checks' && to.stage === 'share';
@@ -236,7 +238,14 @@ export type FlagRecord =
   | { type: 'flag.staged'; flag: string; workItem: string; from: Stage | null; to: Stage; revision: string }
   | { type: 'flag.compared'; flag: string; share: Share; outcome: FlagComparison; moveRevision: string }
   | { type: 'flag.checked'; flag: string; stage: CheckedStage; outcome: FlagCheck; moveRevision: string }
-  | { type: 'flag.checked'; flag: string; stage: 'off'; workItem: string };
+  | {
+      type: 'flag.checked';
+      flag: string;
+      stage: 'off';
+      workItem: string;
+      /** Whether it pictured each page in both colour schemes (`inBothSchemes`, in the events' vocabulary). */
+      bothSchemes: boolean;
+    };
 
 /**
  * Each flag as Martin's stages and Verify's comparisons and checks tell it, from their events oldest first (only those
@@ -246,7 +255,7 @@ export type FlagRecord =
  * A judgement counts only for the move it judged: the one whose revision it names, while that move is Martin's latest
  * of the flag. Each write of the flag set has a revision of its own, so a comparison or check started for an earlier
  * move, and appended after a later one, never counts for the later one. A baseline counts for the improvement it was
- * taken for, whatever Martin has done since.
+ * taken for, whatever Martin has done since, once it has each of its pages in both colour schemes.
  */
 export function flagsFrom(
   records: readonly FlagRecord[],
@@ -267,7 +276,9 @@ export function flagsFrom(
       flags[flag] = { stage: to, ...(spec && { workItem: spec }), stagedOn: workItem, last: { from, to } };
       moved.set(flag, revision);
     } else if (record.type === 'flag.checked' && record.stage === 'off') {
-      baselines.set(record.flag, (baselines.get(record.flag) ?? new Set()).add(record.workItem));
+      // A baseline missing a page's dark picture (or its light one) is no baseline for that side of the page.
+      if (record.bothSchemes)
+        baselines.set(record.flag, (baselines.get(record.flag) ?? new Set()).add(record.workItem));
     } else if (!now || moved.get(record.flag) !== record.moveRevision) {
       // A judgement of no move, or of one Martin has made another since.
     } else if (record.type === 'flag.compared') {

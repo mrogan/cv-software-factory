@@ -67,7 +67,7 @@ export const VERSIONS = {
   // its checks with the probes at Off, Checks and Preview
   'flag.staged': 1,
   'flag.compared': 2,
-  'flag.checked': 2,
+  'flag.checked': 3,
   // Martin's request for an improvement, in his own words (the admin service), with the work item it opens
   'improvement.requested': 1,
 } as const;

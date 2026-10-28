@@ -5,7 +5,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type NewEvent, type PayloadOf, type Screenshot, VERSIONS } from '@software-factory/events';
+import { COLOR_SCHEMES, type NewEvent, type PayloadOf, type Screenshot, VERSIONS } from '@software-factory/events';
 import { validate } from '@software-factory/events/schemas';
 import {
   DiskArtifacts,
@@ -279,10 +279,67 @@ describe('which checks of a flag the pass asks the probes for', () => {
     expect(
       flagsNext({ flags: { ...taken, revision: 'r4' }, items: { '7': open }, only: null, now: LATER })[0],
     ).not.toHaveProperty('have');
+    // A baseline missing a page's dark picture, as every one taken before Verify pictured dark is, is taken again on
+    // the same version; one with no pages is missing none.
+    const light = {
+      ...taken,
+      checked: [
+        check('7', {
+          stage: 'off',
+          version: 'b'.repeat(40),
+          revision: 'r3',
+          journeys: { passed: 3, ran: 4 },
+          notClean: [],
+          pages: [{ page: '/', route: '/', scheme: 'light', off: '1'.repeat(64) }],
+        }),
+      ],
+    };
+    expect(flagsNext({ flags: light, items: { '7': open }, only: null, now: LATER })[0]).not.toHaveProperty('have');
+    // Once only: taken again and still missing a scheme (a page the probes cannot picture in dark), it is not taken a
+    // third time on the same version and flag set.
+    const again = { ...light, checked: [...light.checked, { ...(light.checked[0] as StoredFlagCheck), seq: '99' }] };
+    expect(flagsNext({ flags: again, items: { '7': open }, only: null, now: LATER })).toMatchObject([
+      { do: 'check', stage: 'off', have: 'b'.repeat(40) },
+    ]);
     // Before Martin's first move of any flag, the app holds no flag set.
     expect(flagsNext({ flags: told({ dates: '7' }, []), items: { '7': open }, only: null, now: LATER })).toMatchObject([
       { revision: 'none' },
     ]);
+  });
+
+  it('checks at Checks against the latest baseline with both schemes, as the hold counted, over a later one without', () => {
+    const page = (scheme: 'light' | 'dark') => ({ page: '/', route: '/', scheme, off: '1'.repeat(64) });
+    const both = check('7', {
+      stage: 'off',
+      version: 'a'.repeat(40),
+      journeys: { passed: 3, ran: 4 },
+      notClean: [],
+      pages: [page('light'), page('dark')],
+    });
+    const lightOnly = check('7', {
+      stage: 'off',
+      version: 'b'.repeat(40),
+      journeys: { passed: 3, ran: 4 },
+      notClean: [],
+      pages: [page('light')],
+    });
+    const staged = told({ dates: '7' }, [
+      {
+        type: 'flag.staged',
+        seq: String(++seq),
+        ts: '2026-10-27T10:00:00.000Z',
+        flag: 'dates',
+        workItem: '7',
+        from: OFF,
+        to: CHECKS,
+        revision: 'r5',
+      },
+    ]);
+    const next = (checked: StoredFlagCheck[]) =>
+      flagsNext({ flags: { ...staged, checked }, items: { '7': open }, only: null, now: LATER });
+    expect(next([both, lightOnly])).toMatchObject([{ do: 'check', stage: 'checks', base: both }]);
+    // With none in both schemes, the latest.
+    expect(next([lightOnly])).toMatchObject([{ do: 'check', stage: 'checks', base: lightOnly }]);
   });
 
   it('takes no baseline of a closed work item, a sample, a defect, or a flag turned off on its own work item', () => {
@@ -377,7 +434,10 @@ describe('the flag.checked the pass records', () => {
       revision: 'r1',
       journeys: { passed: 9, ran: 10 },
       notClean: [{ sense: 'probe', check: 'search', route: '/search', failed: true }],
-      pages: [{ page: '/', route: '/', off: '1'.repeat(64) }],
+      pages: [
+        { page: '/', route: '/', scheme: 'light', off: '1'.repeat(64) },
+        { page: '/', route: '/', scheme: 'dark', off: '4'.repeat(64) },
+      ],
     },
   };
   const asked = (stage: 'off' | 'checks' | 'preview', withBase = true): CheckAsked => ({
@@ -397,7 +457,10 @@ describe('the flag.checked the pass records', () => {
     notClean: [],
     regressions: [],
     device: { allowed: [], kept: [] },
-    pages: [{ path: '/', route: '/', off: shot('1'), on: shot('2'), changed: 0.04, diff: shot('3') }],
+    pages: [
+      { path: '/', scheme: 'light', route: '/', off: shot('1'), on: shot('2'), changed: 0.04, diff: shot('3') },
+      { path: '/', scheme: 'dark', route: '/', off: shot('4'), on: shot('4'), changed: 0 },
+    ],
     ...more,
   });
   const valid = (draft: ReturnType<typeof checkedDraft>) => {
@@ -421,7 +484,10 @@ describe('the flag.checked the pass records', () => {
       base: {
         version: 'a'.repeat(40),
         notClean: [{ sense: 'probe', check: 'search', route: '/search', failed: true }],
-        pictures: [{ path: '/', hash: '1'.repeat(64) }],
+        pictures: [
+          { path: '/', scheme: 'light', hash: '1'.repeat(64) },
+          { path: '/', scheme: 'dark', hash: '4'.repeat(64) },
+        ],
       },
     });
     expect(requestOf(asked('checks', false)).base).toBeNull();
@@ -441,7 +507,10 @@ describe('the flag.checked the pass records', () => {
         answer({
           journeys: { passed: 9, ran: 10 },
           notClean: [{ sense: 'probe', check: 'search', route: '/search', failed: true, message: 'No results' }],
-          pages: [{ path: '/', route: '/', off: shot('1') }],
+          pages: [
+            { path: '/', scheme: 'light', route: '/', off: shot('1') },
+            { path: '/', scheme: 'dark', route: '/', off: shot('4') },
+          ],
         }),
       ),
     );
@@ -450,9 +519,12 @@ describe('the flag.checked the pass records', () => {
       payload: {
         stage: 'off',
         notClean: [{ check: 'search', message: 'No results' }],
-        pages: [{ off: '1'.repeat(64) }],
+        pages: [
+          { scheme: 'light', off: '1'.repeat(64) },
+          { scheme: 'dark', off: '4'.repeat(64) },
+        ],
       },
-      artifacts: [shot('1')],
+      artifacts: [shot('1'), shot('4')],
     });
   });
 
@@ -465,9 +537,13 @@ describe('the flag.checked the pass records', () => {
         against: 'a'.repeat(40),
         outcome: 'passed',
         journeys: { base: { passed: 9, ran: 10 }, change: { passed: 10, ran: 10 } },
-        pages: [{ page: '/', off: '1'.repeat(64), on: '2'.repeat(64), changed: 0.04, diff: '3'.repeat(64) }],
+        pages: [
+          { page: '/', scheme: 'light', off: '1'.repeat(64), on: '2'.repeat(64), changed: 0.04, diff: '3'.repeat(64) },
+          { page: '/', scheme: 'dark', off: '4'.repeat(64), on: '4'.repeat(64), changed: 0 },
+        ],
       },
-      artifacts: [shot('1'), shot('2'), shot('3')],
+      // Each screenshot once: in dark the page is the same with the flag on as off, and differs nowhere.
+      artifacts: [shot('1'), shot('2'), shot('3'), shot('4')],
     });
     expect((draft.payload as { reason?: string }).reason).toBeUndefined();
   });
@@ -1140,18 +1216,27 @@ describe('the flag pass, against the store', () => {
           running.delete(key);
           if (request.have === app.version) return { kind: 'have', version: app.version };
           if (!app.holds) return { kind: 'not-held', version: app.version, message: 'The app holds the flag set r0' };
-          const picture = shot((++fill).toString(16), app.version);
-          await index.recordFlagPicture({
-            flag: request.flag,
-            stage: request.stage === 'off' ? 'off' : 'checks',
-            revision: request.revision,
-            version: app.version,
-            path: '/',
-            route: '/',
-            shot: picture,
-            changed: null,
-            diff: null,
-          });
+          const pictures =
+            request.stage === 'preview'
+              ? []
+              : COLOR_SCHEMES.map((scheme) => ({
+                  scheme,
+                  picture: shot((++fill).toString(16), app.version),
+                }));
+          for (const { scheme, picture } of pictures) {
+            await index.recordFlagPicture({
+              flag: request.flag,
+              stage: request.stage === 'off' ? 'off' : 'checks',
+              revision: request.revision,
+              version: app.version,
+              path: '/',
+              scheme,
+              route: '/',
+              shot: picture,
+              changed: null,
+              diff: null,
+            });
+          }
           const regressions = app.regress
             ? [{ sense: 'probe' as const, check: 'home/device', route: '/', failed: true, message: 'Kept a cookie.' }]
             : [];
@@ -1163,10 +1248,12 @@ describe('the flag pass, against the store', () => {
             notClean: [{ sense: 'probe', check: 'search', route: '/search', failed: true }],
             ...(request.stage !== 'off' && request.base && { regressions }),
             device: { allowed: request.stage === 'preview' ? ['cookie preview'] : [], kept: [] },
-            pages:
-              request.stage === 'preview'
-                ? []
-                : [{ path: '/', route: '/', ...(request.stage === 'off' ? { off: picture } : { on: picture }) }],
+            pages: pictures.map(({ scheme, picture }) => ({
+              path: '/',
+              scheme,
+              route: '/',
+              ...(request.stage === 'off' ? { off: picture } : { on: picture }),
+            })),
           };
         },
       };
@@ -1198,8 +1285,16 @@ describe('the flag pass, against the store', () => {
         {
           appended_by: 'factory_line',
           summary: 'dates with the flag off, on 1111111: 4 of 5 checks passed',
-          payload: { stage: 'off', version: V1, revision: 'none', pages: [{ page: '/', off: '1'.repeat(64) }] },
-          artifacts: [{ hash: '1'.repeat(64) }],
+          payload: {
+            stage: 'off',
+            version: V1,
+            revision: 'none',
+            pages: [
+              { page: '/', scheme: 'light', off: '1'.repeat(64) },
+              { page: '/', scheme: 'dark', off: '2'.repeat(64) },
+            ],
+          },
+          artifacts: [{ hash: '1'.repeat(64) }, { hash: '2'.repeat(64) }],
         },
       ]);
       // The same version again: the probes say so, and nothing more is recorded.
@@ -1223,7 +1318,13 @@ describe('the flag pass, against the store', () => {
       expect(asked.filter((r) => r.stage === 'checks').at(-1)?.base).toMatchObject({
         version: V2,
         notClean: [{ check: 'search' }],
+        pictures: [
+          { path: '/', scheme: 'light', hash: '3'.repeat(64) },
+          { path: '/', scheme: 'dark', hash: '4'.repeat(64) },
+        ],
       });
+      // Each scheme's page with the flag on.
+      expect(recorded[2]?.payload).toMatchObject({ pages: [{ scheme: 'light' }, { scheme: 'dark' }] });
       expect(asked.filter((r) => r.stage === 'off' && r.revision !== 'none')).toEqual([]);
     });
 

@@ -12,7 +12,8 @@ export const FLAG = 'delivery-dates';
 
 /**
  * The front page, which the probes picture while a spec names no pages, with the flag off and on. The change is to the
- * product pages, so it is the same to the pixel.
+ * product pages, so it is the same to the pixel. The probes picture it in light and in dark: the app as published sets no colour scheme of its own, so the two are
+ * the same picture.
  */
 const HOME = shot('published/home', 'v0.9.5');
 
@@ -129,7 +130,10 @@ export default new Item('1294', '2026-10-03T07:50:00+01:00')
         },
         { sense: 'probe', check: 'contact-sends', route: '/contact', failed: false, message: 'took longer than 120 s' },
       ],
-      pages: [{ page: '/', route: '/', off: HOME.hash }],
+      pages: [
+        { page: '/', route: '/', scheme: 'light', off: HOME.hash },
+        { page: '/', route: '/', scheme: 'dark', off: HOME.hash },
+      ],
     },
     [HOME],
   )
@@ -156,7 +160,10 @@ export default new Item('1294', '2026-10-03T07:50:00+01:00')
       outcome: 'passed',
       journeys: { base: { passed: 22, ran: 24 }, change: { passed: 22, ran: 24 } },
       regressions: [],
-      pages: [{ page: '/', route: '/', off: HOME.hash, on: HOME.hash, changed: 0 }],
+      pages: [
+        { page: '/', route: '/', scheme: 'light', off: HOME.hash, on: HOME.hash, changed: 0 },
+        { page: '/', route: '/', scheme: 'dark', off: HOME.hash, on: HOME.hash, changed: 0 },
+      ],
     },
     [HOME],
   )

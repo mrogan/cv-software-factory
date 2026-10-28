@@ -11,7 +11,7 @@
  * A flag shows once its release is out, or once Martin has staged it. Waiting for Martin to widen, it is a card in
  * Needs you, but while Verify is still checking it at Checks or Preview, or comparing its two sides at Share.
  */
-import type { PayloadOf, PublicEvent, Screenshot } from '@software-factory/events';
+import { inBothSchemes, type PayloadOf, type PublicEvent, type Screenshot } from '@software-factory/events';
 import {
   type Around,
   type Check,
@@ -196,8 +196,10 @@ function records(events: readonly PublicEvent[]): FlagRecord[] {
     }
     if (event.type === 'flag.checked' && fromVerify(event) && event.work_item) {
       const check = event.payload;
-      if (check.stage === 'off')
-        return [{ type: 'flag.checked', flag: check.flag, stage: 'off', workItem: event.work_item }];
+      if (check.stage === 'off') {
+        const bothSchemes = inBothSchemes(check.pages);
+        return [{ type: 'flag.checked', flag: check.flag, stage: 'off', workItem: event.work_item, bothSchemes }];
+      }
       const { flag, stage, outcome, moveRevision } = check;
       return [{ type: 'flag.checked', flag, stage, outcome, moveRevision }];
     }

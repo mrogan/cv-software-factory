@@ -6,7 +6,10 @@
 import { commitFor, Item } from '../build.ts';
 import { changed, shot } from '../captures.ts';
 
-/** The front page the probes picture while a spec names no pages, with the flag off and on: the same to the pixel. */
+/**
+ * The front page the probes picture while a spec names no pages, with the flag off and on: the same to the pixel. The probes picture it in light and in dark: the app as published sets no colour scheme of its own, so the two are
+ * the same picture.
+ */
 const HOME_OFF = shot('published/home', 'v0.9.0');
 const HOME_ON = shot('last-one/home', 'v0.9.0');
 
@@ -119,7 +122,10 @@ export default new Item('1271', '2026-10-01T10:05:00+01:00')
       revision: 'none',
       journeys: { passed: 24, ran: 24 },
       notClean: [],
-      pages: [{ page: '/', route: '/', off: HOME_OFF.hash }],
+      pages: [
+        { page: '/', route: '/', scheme: 'light', off: HOME_OFF.hash },
+        { page: '/', route: '/', scheme: 'dark', off: HOME_OFF.hash },
+      ],
     },
     [HOME_OFF],
   )
@@ -146,7 +152,24 @@ export default new Item('1271', '2026-10-01T10:05:00+01:00')
       outcome: 'passed',
       journeys: { base: { passed: 24, ran: 24 }, change: { passed: 24, ran: 24 } },
       regressions: [],
-      pages: [{ page: '/', route: '/', off: HOME_OFF.hash, on: HOME_ON.hash, changed: changed('last-one/home') }],
+      pages: [
+        {
+          page: '/',
+          route: '/',
+          scheme: 'light',
+          off: HOME_OFF.hash,
+          on: HOME_ON.hash,
+          changed: changed('last-one/home'),
+        },
+        {
+          page: '/',
+          route: '/',
+          scheme: 'dark',
+          off: HOME_OFF.hash,
+          on: HOME_ON.hash,
+          changed: changed('last-one/home'),
+        },
+      ],
     },
     [HOME_OFF, HOME_ON],
   )

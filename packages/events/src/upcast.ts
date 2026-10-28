@@ -167,7 +167,15 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
   // check at Checks or Preview, never said, so it reads as judging no move (`none`, no write's revision), and counts
   // for none: the move is judged afresh. A version 1 baseline, at Off, judges no move, and reads as it was.
   'flag.compared': { 1: (payload) => ({ ...payload, moveRevision: 'none' }) },
-  'flag.checked': { 1: (payload) => (payload.stage === 'off' ? payload : { ...payload, moveRevision: 'none' }) },
+  // Version 3 pictures each page in both colour schemes, and names each picture's: a version 2 check took the
+  // browser's default, light, so each of its pages reads as light.
+  'flag.checked': {
+    1: (payload) => (payload.stage === 'off' ? payload : { ...payload, moveRevision: 'none' }),
+    2: (payload) =>
+      Array.isArray(payload.pages)
+        ? { ...payload, pages: payload.pages.map((page: Record<string, unknown>) => ({ ...page, scheme: 'light' })) }
+        : payload,
+  },
 };
 
 export const CATALOGUE: Catalogue = { versions: VERSIONS, upcasters: UPCASTERS };

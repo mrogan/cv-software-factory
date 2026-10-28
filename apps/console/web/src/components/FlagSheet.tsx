@@ -5,9 +5,9 @@
  * and a visitor's is read-only.
  *
  * What Verify finds at each stage comes in its own events: at Checks, the journeys' result with the flag on, against
- * a run with it off, and the probes' pictures of the pages off and on, with where they differ; at Preview, the same,
- * and what the device check found when a probe asked for the preview (`flag.checked`); at Share, its comparison of the
- * two sides (`flag.compared`). Until Verify has judged, a block says what it waits for.
+ * a run with it off, and the probes' pictures of the pages off and on, in light and dark, with where they differ; at
+ * Preview, the same, and what the device check found when a probe asked for the preview (`flag.checked`); at Share, its
+ * comparison of the two sides (`flag.compared`). Until Verify has judged, a block says what it waits for.
  */
 import { Suspense, useState } from 'react';
 import type { Admin } from '../admin.ts';
@@ -53,19 +53,20 @@ const percentOf = (share: number) =>
   share < 0.0001 ? 'under 0.01%' : `${(share * 100).toFixed(share < 0.01 ? 2 : 1)}%`;
 
 /**
- * The pages a check pictured, each side by side with the flag off and on, and where they differ when they do: for
- * Martin to judge, since no probe knows a new feature.
+ * The pages a check pictured, each side by side with the flag off and on, and where they differ when they do: a row for
+ * each page in each colour scheme, light then dark, as the check took them, for Martin to judge, since no probe knows a
+ * new feature.
  */
 function CheckedPages({ checked }: { checked: Checked & { stage: 'checks' } }) {
   return (
     <div className="regress flag-pages">
-      <span className="label">The pages, the flag off and on</span>
+      <span className="label">The pages, the flag off and on, in light and dark</span>
       {checked.pages.map((page) => {
         const off = shotOf(checked, page.off);
         const on = shotOf(checked, page.on);
         const diff = shotOf(checked, page.diff);
         return (
-          <div className={`row ${diff ? 'trio' : 'pair'}`} key={page.page}>
+          <div className={`row ${diff ? 'trio' : 'pair'}`} key={`${page.page} ${page.scheme}`}>
             <figure>
               <div className="vis">
                 {off ? (
@@ -78,7 +79,9 @@ function CheckedPages({ checked }: { checked: Checked & { stage: 'checks' } }) {
                 )}
               </div>
               <figcaption>
-                <span>{page.page}</span>
+                <span>
+                  {page.page} · {page.scheme}
+                </span>
                 <span className="mono">flag off{off && ` · ${shortVersion(off.version)}`}</span>
               </figcaption>
             </figure>
@@ -94,7 +97,9 @@ function CheckedPages({ checked }: { checked: Checked & { stage: 'checks' } }) {
                 )}
               </div>
               <figcaption>
-                <span>{page.page}</span>
+                <span>
+                  {page.page} · {page.scheme}
+                </span>
                 <span className={`mono change ${page.changed ? 'changed' : 'same'}`}>
                   flag on ·{' '}
                   {page.changed === undefined
@@ -108,10 +113,15 @@ function CheckedPages({ checked }: { checked: Checked & { stage: 'checks' } }) {
             {diff && (
               <figure>
                 <div className="vis">
-                  <Shot shot={diff} alt={`Where ${page.page} differs with the flag on, marked on the page`} />
+                  <Shot
+                    shot={diff}
+                    alt={`Where ${page.page}, in ${page.scheme}, differs with the flag on, marked on the page`}
+                  />
                 </div>
                 <figcaption>
-                  <span>{page.page}</span>
+                  <span>
+                    {page.page} · {page.scheme}
+                  </span>
                   <span className="mono">where they differ</span>
                 </figcaption>
               </figure>

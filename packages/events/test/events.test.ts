@@ -15,7 +15,7 @@ import {
 import { formatLog, parseLog } from '../src/log-format.ts';
 import { PUBLIC_VIEWS, publicView, redactSecrets } from '../src/public.ts';
 import { REQUEST_TITLE, requestTitle } from '../src/request.ts';
-import { validate, validateSignal } from '../src/schemas.ts';
+import { PAYLOADS, validate, validateSignal } from '../src/schemas.ts';
 import type { NewEvent, PublicEvent } from '../src/types.ts';
 import { type Catalogue, upcast } from '../src/upcast.ts';
 import { ADMIN_TYPES, EVENT_TYPES, VERSIONS } from '../src/versions.ts';
@@ -703,12 +703,35 @@ describe('upcasting the real catalogue', () => {
     const checked = { stage: 'checks', flag: 'gift-note', version: 'v0.9.7', revision: 'r7', outcome: 'passed' };
     expect(upcast({ type: 'flag.checked', version: 1, payload: checked })).toMatchObject({
       ok: true,
-      event: { version: 2, payload: { ...checked, moveRevision: 'none' } },
+      event: { version: 3, payload: { ...checked, moveRevision: 'none' } },
     });
     const baseline = { stage: 'off', flag: 'gift-note', version: 'v0.9.7', revision: 'r5' };
     const read = upcast({ type: 'flag.checked', version: 1, payload: baseline });
-    expect(read).toMatchObject({ ok: true, event: { version: 2, payload: baseline } });
+    expect(read).toMatchObject({ ok: true, event: { version: 3, payload: baseline } });
     expect(read.ok && 'moveRevision' in read.event.payload).toBe(false);
+  });
+
+  it("reads a version 2 check of a flag's pages as pictured in light, the browser's default then", () => {
+    const hash = (c: string) => c.repeat(64);
+    const baseline = {
+      stage: 'off',
+      flag: 'dark-mode',
+      version: 'v0.9.7',
+      revision: 'r5',
+      journeys: { passed: 4, ran: 4 },
+      notClean: [],
+      pages: [{ page: '/', route: '/', off: hash('a') }],
+    };
+    const read = upcast({ type: 'flag.checked', version: 2, payload: baseline });
+    expect(read).toMatchObject({
+      ok: true,
+      event: { version: 3, payload: { pages: [{ page: '/', route: '/', scheme: 'light', off: hash('a') }] } },
+    });
+    expect(read.ok && PAYLOADS['flag.checked'].safeParse(read.event.payload).success).toBe(true);
+    const preview = { stage: 'preview', flag: 'dark-mode', version: 'v0.9.7', revision: 'r6', moveRevision: 'r6' };
+    expect(upcast({ type: 'flag.checked', version: 2, payload: preview })).toMatchObject({
+      event: { version: 3, payload: preview },
+    });
   });
 
   it('reads a version 1 hold as the cause its kind and stage imply, and as unknown where they imply none', () => {

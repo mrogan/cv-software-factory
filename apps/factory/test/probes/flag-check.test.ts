@@ -1,17 +1,19 @@
 /**
  * A feature flag checked with the probes (Verify by variant): the baseline taken only for a version it was not taken
  * of, the journeys compared with it by the journeys gate's twice rule, the `/device` check among them, the preview
- * asked for at Preview, the pictures off and on, and a run that may not have seen its stage judging nothing. And the
- * server that answers for it, asked and polled as a verification is.
+ * asked for at Preview, the pictures off and on in light and dark, and a run that may not have seen its stage judging
+ * nothing. And the server that answers for it, asked and polled as a verification is.
  */
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Screenshot } from '@software-factory/events';
+import { type Screenshot, VERSIONS } from '@software-factory/events';
+import { validate } from '@software-factory/events/schemas';
 import { DiskArtifacts } from '@software-factory/store';
 import { listenLocal } from '@software-factory/testing';
 import { describe, expect, it } from 'vitest';
 import type { Seen } from '../../src/gates/journeys.ts';
+import { type CheckAsked, checkedDraft, requestOf } from '../../src/line/flag-checks.ts';
 import { ProbesClient } from '../../src/line/verify.ts';
 import type { FlagPicture } from '../../src/pictures/index.ts';
 import {
@@ -37,8 +39,12 @@ function app(runs: Run[] = [], { revisions = ['r7'], version = V1 } = {}) {
   const pictures: FlagPicture[] = [];
   const asked: { only: readonly Pick<Seen, 'sense' | 'check'>[] | undefined; preview: string | undefined }[] = [];
   const shots: string[] = [];
+  const schemes: string[] = [];
   const seenRevisions: string[] = [];
-  /** The page with the flag on is blue at the top where with it off it is white. */
+  /**
+   * The page with the flag on is blue at the top where with it off it is white. In dark, it is grey with the flag off,
+   * and with it on is half blue, half white: every pixel differs.
+   */
   let flagOn = false;
   const seeOf = (run: Run): Seen[] =>
     ['home', 'home/console', 'home/device', 'search', 'search/device'].map((check) => ({
@@ -64,9 +70,17 @@ function app(runs: Run[] = [], { revisions = ['r7'], version = V1 } = {}) {
       const seen = seeOf(run).filter((s) => !only || only.some((o) => o.check === s.check));
       return { version, seen, after: run.version ?? version };
     },
-    shoot: async (path, { route, version }) => {
+    shoot: async (path, { route, version, scheme }) => {
       shots.push(path);
-      const bytes = flagOn ? png(40, 30, { x: 0, y: 0, width: 40, height: 3, rgb: [0, 0, 255] }) : png(40, 30);
+      schemes.push(scheme);
+      const bytes =
+        scheme === 'dark'
+          ? flagOn
+            ? png(40, 30, { x: 0, y: 0, width: 40, height: 15, rgb: [0, 0, 255] })
+            : png(40, 30, { x: 0, y: 0, width: 40, height: 30, rgb: [30, 30, 30] })
+          : flagOn
+            ? png(40, 30, { x: 0, y: 0, width: 40, height: 3, rgb: [0, 0, 255] })
+            : png(40, 30);
       const hash = await store.put(bytes);
       const screenshot: Screenshot = {
         kind: 'screenshot',
@@ -89,9 +103,11 @@ function app(runs: Run[] = [], { revisions = ['r7'], version = V1 } = {}) {
             p.stage === key.stage &&
             p.revision === key.revision &&
             p.version === key.version &&
-            p.path === key.path,
+            p.path === key.path &&
+            p.scheme === key.scheme,
         ),
-      flagOff: async (flag, hash) => pictures.find((p) => p.flag === flag && p.stage === 'off' && p.shot.hash === hash),
+      flagOff: async (flag, hash, scheme) =>
+        pictures.find((p) => p.flag === flag && p.stage === 'off' && p.shot.hash === hash && p.scheme === scheme),
       recordFlagPicture: async (picture) => void pictures.push(picture),
     },
     store,
@@ -102,6 +118,7 @@ function app(runs: Run[] = [], { revisions = ['r7'], version = V1 } = {}) {
     pictures,
     asked,
     shots,
+    schemes,
     seenRevisions,
     turnOn: () => {
       flagOn = true;
@@ -117,15 +134,22 @@ const off = (more: Partial<FlagCheckRequest> = {}): FlagCheckRequest => ({
   ...more,
 });
 
+/** A draft as the store would take it: a whole event, at the current version, with its artifacts. */
+const valid = (draft: ReturnType<typeof checkedDraft>) => {
+  const event = { id: crypto.randomUUID(), ts: new Date().toISOString(), work_item: '7', ...draft };
+  expect(validate({ ...event, version: VERSIONS[draft.type], artifacts: draft.artifacts ?? [] })).toEqual({ ok: true });
+  return draft;
+};
+
 const checked = (answer: FlagCheckAnswer) => {
   if (answer.kind !== 'checked') throw new Error(`Not checked: ${JSON.stringify(answer)}`);
   return answer;
 };
 
 describe('a flag’s baseline, at Off', () => {
-  it('runs the journeys with the device check, and pictures each page with the flag off', async () => {
+  it('runs the journeys with the device check, and pictures each page with the flag off, light and dark', async () => {
     const run = { failing: ['search'], troubled: ['home/console'] };
-    const { deps, pictures, asked } = app([run, run]);
+    const { deps, pictures, asked, schemes } = app([run, run]);
     const answer = checked(await flagCheck(deps, off()));
     expect(answer).toMatchObject({ version: V1, revision: 'r7', journeys: { passed: 3, ran: 5 } });
     expect(answer.notClean).toEqual([
@@ -134,8 +158,15 @@ describe('a flag’s baseline, at Off', () => {
     ]);
     expect(answer.regressions).toBeUndefined();
     expect(asked.map((a) => a.only?.map((o) => o.check))).toEqual([undefined, ['home/console', 'search']]);
-    expect(answer.pages).toEqual([{ path: '/', route: '/', off: pictures[0]?.shot }]);
-    expect(pictures).toMatchObject([{ flag: 'gift-note', stage: 'off', revision: 'r7', version: V1, changed: null }]);
+    expect(answer.pages).toEqual([
+      { path: '/', scheme: 'light', route: '/', off: pictures[0]?.shot },
+      { path: '/', scheme: 'dark', route: '/', off: pictures[1]?.shot },
+    ]);
+    expect(schemes).toEqual(['light', 'dark']);
+    expect(pictures).toMatchObject([
+      { flag: 'gift-note', stage: 'off', revision: 'r7', version: V1, scheme: 'light', changed: null },
+      { flag: 'gift-note', stage: 'off', revision: 'r7', version: V1, scheme: 'dark', changed: null },
+    ]);
   });
 
   it('runs a check that did not pass cleanly again, and counts one that passes then as passed', async () => {
@@ -189,7 +220,7 @@ describe('a flag at Checks and Preview', () => {
       base: {
         version: base.version,
         notClean: base.notClean,
-        pictures: base.pages.flatMap((p) => (p.off ? [{ path: p.path, hash: p.off.hash }] : [])),
+        pictures: base.pages.flatMap((p) => (p.off ? [{ path: p.path, scheme: p.scheme, hash: p.off.hash }] : [])),
       },
     });
     return { ...it, base, request };
@@ -214,29 +245,59 @@ describe('a flag at Checks and Preview', () => {
     ).toEqual(['home', 'home/device']);
   });
 
-  it('pictures each page with the flag on against the baseline’s picture of it', async () => {
+  it('pictures each page with the flag on against the baseline’s picture of it in the same scheme', async () => {
     const { deps, request, base, pictures } = await baselined([{}]);
     const answer = checked(await flagCheck(deps, request('checks')));
     expect(answer.regressions).toEqual([]);
-    const [page] = answer.pages;
-    expect(page?.off).toEqual(base.pages[0]?.off);
-    expect(page?.on?.hash).not.toBe(page?.off?.hash);
-    expect(page?.changed).toBe(0.1);
-    expect(page?.diff).toMatchObject({ width: 40, height: 30, boxes: [] });
-    expect(pictures.map((p) => p.stage)).toEqual(['off', 'checks']);
-    // Asked again for the same flag set and version, the page is the same picture.
+    const [light, dark] = answer.pages;
+    expect(light).toMatchObject({ scheme: 'light', off: base.pages[0]?.off, changed: 0.1 });
+    expect(dark).toMatchObject({ scheme: 'dark', off: base.pages[1]?.off, changed: 1 });
+    expect(light?.on?.hash).not.toBe(light?.off?.hash);
+    expect(light?.diff).toMatchObject({ width: 40, height: 30, boxes: [] });
+    expect(dark?.diff?.hash).not.toBe(light?.diff?.hash);
+    expect(pictures.map((p) => [p.stage, p.scheme])).toEqual([
+      ['off', 'light'],
+      ['off', 'dark'],
+      ['checks', 'light'],
+      ['checks', 'dark'],
+    ]);
+    // Asked again for the same flag set and version, each page is the same picture.
     const again = checked(await flagCheck(deps, request('checks')));
     expect(again.pages).toEqual(answer.pages);
-    expect(pictures).toHaveLength(2);
+    expect(pictures).toHaveLength(4);
+  });
+
+  it('never compares a page with the baseline’s picture of it in the other scheme', async () => {
+    const { deps, request } = await baselined([{}]);
+    const asked = request('checks');
+    if (!asked.base) throw new Error('No baseline');
+    // The request names the light picture as the dark one: the index vouches for neither as the dark page.
+    const [light] = asked.base.pictures;
+    const crossed = {
+      ...asked,
+      base: { ...asked.base, pictures: [{ path: '/', scheme: 'dark' as const, hash: light?.hash ?? '' }] },
+    };
+    const answer = checked(await flagCheck(deps, crossed));
+    expect(answer.pages.map((p) => [p.scheme, p.off !== undefined])).toEqual([
+      ['light', false],
+      ['dark', false],
+    ]);
   });
 
   it('compares with no picture the baseline did not take, and pictures nothing at Preview', async () => {
     const { deps, request, shots } = await baselined([{}, {}]);
     const { base } = request('checks');
     if (!base) throw new Error('No baseline');
-    const unknown = { ...request('checks'), base: { ...base, pictures: [{ path: '/', hash: 'e'.repeat(64) }] } };
+    const unknown = {
+      ...request('checks'),
+      base: { ...base, pictures: [{ path: '/', scheme: 'light' as const, hash: 'e'.repeat(64) }] },
+    };
     const answer = checked(await flagCheck(deps, unknown));
-    expect(answer.pages).toEqual([expect.objectContaining({ path: '/', on: expect.any(Object) })]);
+    expect(answer.pages).toEqual([
+      expect.objectContaining({ path: '/', scheme: 'light', on: expect.any(Object) }),
+      expect.objectContaining({ path: '/', scheme: 'dark', on: expect.any(Object) }),
+    ]);
+    expect(answer.pages[1]?.off).toBeUndefined();
     expect(answer.pages[0]?.off).toBeUndefined();
     expect(answer.pages[0]?.changed).toBeUndefined();
     const before = shots.length;
@@ -296,6 +357,53 @@ describe('the server that answers for a flag’s check', () => {
       expect(await client.flagCheck(off({ have: V2 }))).toBeNull();
     } finally {
       gate.resolve();
+      await close();
+    }
+  });
+
+  it('gives the line, through its own client, the answers of a real run, which make events the store takes', async () => {
+    // The probes' own run, at Off and then at Checks, served and read as in the cluster: nothing between them faked.
+    const probes = app([{}, {}, {}]);
+    const { base, close } = await serve((request) => flagCheck(probes.deps, request));
+    try {
+      const client = new ProbesClient(base);
+      // Asked as the line's pass asks, again until the run has answered.
+      const ask = async (request: FlagCheckRequest) => {
+        for (let pass = 0; pass < 100; pass++) {
+          const answer = await client.flagCheck(request);
+          if (answer) return checked(answer);
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        throw new Error('The run never answered');
+      };
+      const offAsked: CheckAsked = {
+        flag: 'gift-note',
+        workItem: '7',
+        stage: 'off',
+        revision: 'r7',
+        move: null,
+        base: null,
+        pages: ['/'],
+      };
+      const baseline = checkedDraft(offAsked, await ask(requestOf(offAsked)));
+      expect(valid(baseline).payload).toMatchObject({ pages: [{ scheme: 'light' }, { scheme: 'dark' }] });
+      probes.turnOn();
+      const checksAsked: CheckAsked = {
+        ...offAsked,
+        stage: 'checks',
+        move: '8',
+        moveRevision: 'r7',
+        base: { seq: '6', ts: new Date().toISOString(), workItem: '7', check: baseline.payload as never },
+      };
+      const draft = checkedDraft(checksAsked, await ask(requestOf(checksAsked)));
+      expect(valid(draft).payload).toMatchObject({
+        outcome: 'passed',
+        pages: [
+          { scheme: 'light', changed: 0.1 },
+          { scheme: 'dark', changed: 1 },
+        ],
+      });
+    } finally {
       await close();
     }
   });
