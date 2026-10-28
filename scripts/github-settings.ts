@@ -65,7 +65,10 @@ export const REVIEW_ENVIRONMENT: KeyEnvironment = { name: 'review', key: 'REVIEW
  */
 export const DRIFT_CHECK_ENVIRONMENT: KeyEnvironment = { name: 'drift-check', key: 'DRIFT_CHECK_APP_PRIVATE_KEY' };
 
-/** Each repository's environments that hold a key: the only places a workflow finds a secret. */
+/**
+ * Each repository's environments that hold a key, the only ones its workflows may read a secret from
+ * (scripts/workflows.test.ts). `--check` reads these, and not the repository's own secrets or other environments.
+ */
 export const ENVIRONMENTS: Record<string, KeyEnvironment[]> = {
   'the-roganator/cv-software-factory': [REVIEW_ENVIRONMENT, DRIFT_CHECK_ENVIRONMENT],
   'the-roganator/cv-worlds-worst-website': [REVIEW_ENVIRONMENT],

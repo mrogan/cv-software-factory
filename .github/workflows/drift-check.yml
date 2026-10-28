@@ -2,12 +2,13 @@
 # rulesets and key environments and fails if any differs from what the script makes them, or a ruleset was added beside
 # them. A failed run reaches Martin as any failed scheduled run does, by GitHub's email.
 #
-# Who may bypass a ruleset, an environment's branch policies and the names of its secrets are shown only to a reader
-# with an admin's view, which no workflow token has. The job reads them as the drift check App, installed on both
-# repositories, which may read administration, environments and Actions and nothing else (APPS.driftCheck in
-# scripts/github-settings.ts), so it can change nothing it checks. Its key is the secret DRIFT_CHECK_APP_PRIVATE_KEY
-# and its Client ID the variable DRIFT_CHECK_APP_CLIENT_ID, both in the `drift-check` environment, which only main may
-# use. Until both are there, the run fails, saying so.
+# Rulesets, environments' branch policies and the names of their secrets need an admin's read, which no workflow token
+# has. The job reads them as the drift check App, installed on both repositories, which may read administration,
+# environments and Actions and nothing else (APPS.driftCheck in scripts/github-settings.ts), so it can change nothing
+# it checks. Its key is the secret DRIFT_CHECK_APP_PRIVATE_KEY and its Client ID the variable DRIFT_CHECK_APP_CLIENT_ID,
+# both in the `drift-check` environment, which only main may use. Until both are there, the run fails, saying so. If
+# GitHub shows who may bypass a ruleset only to a reader who may change it, the check says it cannot see them, and
+# fails, rather than read them as nobody.
 #
 # Only `schedule` and `workflow_dispatch` start it, so it never runs for a pull request, and a dispatch from any other
 # branch is refused the environment. It checks out main's copy of the script and the toolchain's pins, and nothing

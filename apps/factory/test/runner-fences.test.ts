@@ -21,7 +21,7 @@ interface Peer {
   ipBlock?: { cidr: string; except?: string[] };
 }
 interface Rule {
-  ports?: { protocol?: string; port?: number }[];
+  ports?: { protocol?: string; port?: number | string; endPort?: number }[];
 }
 type Policy = Manifest & {
   kind: 'NetworkPolicy';
@@ -50,19 +50,46 @@ function selects(selector: Selector | undefined, labels: Labels): boolean {
 }
 
 const NAMESPACE = 'kubernetes.io/metadata.name';
-/** A peer and its ports, in a line: `factory/gateway TCP/8080`. */
-const reach = (peer: Peer, rule: Rule) => {
-  const where = peer.ipBlock
-    ? `${peer.ipBlock.cidr} except ${(peer.ipBlock.except ?? []).join(' ')}`
-    : `${peer.namespaceSelector?.matchLabels?.[NAMESPACE] ?? '(own namespace)'}/${Object.values(peer.podSelector?.matchLabels ?? {}).join(',') || '*'}`;
-  return `${where} ${(rule.ports ?? []).map((p) => `${p.protocol ?? 'TCP'}/${p.port}`).join(' ')}`.trim();
+
+/** A selector's labels, `name=gateway` for the usual name label, and `*` for every pod. */
+const labelsOf = (selector: Selector | undefined) => {
+  if (selector?.matchExpressions?.length) throw new Error('This test reads matchLabels alone');
+  const named = Object.entries(selector?.matchLabels ?? {}).map(
+    ([key, value]) => `${key === 'app.kubernetes.io/name' ? 'name' : key}=${value}`,
+  );
+  return named.join(',') || '*';
 };
+
+/** A rule's ports, `TCP/8080`; no ports is every port, and a range or a named port is refused rather than misread. */
+const portsOf = (rule: Rule) => {
+  if (!rule.ports?.length) return ['every port'];
+  return rule.ports.map((p) => {
+    if (p.endPort !== undefined || typeof p.port !== 'number') throw new Error('This test reads single numbered ports');
+    return `${p.protocol ?? 'TCP'}/${p.port}`;
+  });
+};
+
+/**
+ * A peer and its ports, in a line: `factory/name=gateway TCP/8080`. A rule with no peers is every address, and reads
+ * as `anywhere`.
+ */
+const reach = (peer: Peer | undefined, rule: Rule) => {
+  const where = !peer
+    ? 'anywhere'
+    : peer.ipBlock
+      ? [peer.ipBlock.cidr, ...(peer.ipBlock.except?.length ? ['except', ...peer.ipBlock.except] : [])].join(' ')
+      : `${peer.namespaceSelector ? (peer.namespaceSelector.matchLabels?.[NAMESPACE] ?? labelsOf(peer.namespaceSelector)) : '(own namespace)'}/${labelsOf(peer.podSelector)}`;
+  return `${where} ${portsOf(rule).join(' ')}`;
+};
+
+/** A rule's peers, or `[undefined]` for a rule that names none, which Kubernetes reads as everywhere. */
+const peersOf = (peers: Peer[] | undefined) => (peers?.length ? peers : [undefined]);
 
 /** Every place a pod with these labels in `runners` may reach, from each policy that selects it. */
 const egressOf = (policies: Policy[], labels: Labels) =>
   policies
     .filter((p) => selects(p.spec.podSelector, labels))
-    .flatMap((p) => (p.spec.egress ?? []).flatMap((rule) => (rule.to ?? []).map((peer) => reach(peer, rule))));
+    .flatMap((p) => (p.spec.egress ?? []).flatMap((rule) => peersOf(rule.to).map((peer) => reach(peer, rule))));
 
 const profiles = () => {
   const byOverlay = new Map<string, Policy[]>();
@@ -102,7 +129,10 @@ describe('the runners’ fences, in every profile', () => {
   it('let the agent pod reach the gateway and the line’s handback alone, with no DNS', () => {
     for (const [overlay, policies] of all) {
       const runners = policies.filter((p) => p.metadata.namespace === 'runners');
-      expect(egressOf(runners, AGENT), overlay).toEqual(['factory/gateway TCP/8080', 'factory/line TCP/8081']);
+      expect(egressOf(runners, AGENT), overlay).toEqual([
+        'factory/name=gateway TCP/8080',
+        'factory/name=line TCP/8081',
+      ]);
     }
   });
 
@@ -110,7 +140,7 @@ describe('the runners’ fences, in every profile', () => {
     for (const [overlay, policies] of all) {
       const runners = policies.filter((p) => p.metadata.namespace === 'runners');
       expect(egressOf(runners, PREPARE).sort(), overlay).toEqual(
-        ['kube-system/kube-dns UDP/53 TCP/53', `0.0.0.0/0 except ${PRIVATE.join(' ')} TCP/443`].sort(),
+        ['kube-system/k8s-app=kube-dns UDP/53 TCP/53', `0.0.0.0/0 except ${PRIVATE.join(' ')} TCP/443`].sort(),
       );
     }
   });
@@ -119,19 +149,43 @@ describe('the runners’ fences, in every profile', () => {
     for (const [overlay, policies] of all) {
       const fromRunners = policies.flatMap((p) =>
         (p.spec.ingress ?? []).flatMap((rule) =>
-          (rule.from ?? [])
-            .filter((peer) => peer.namespaceSelector && selects(peer.namespaceSelector, { [NAMESPACE]: 'runners' }))
+          peersOf(rule.from)
+            // A rule open to every peer, an address block, or a namespace selector that picks runners lets them in.
+            .filter(
+              (peer) =>
+                !peer ||
+                peer.ipBlock ||
+                (peer.namespaceSelector && selects(peer.namespaceSelector, { [NAMESPACE]: 'runners' })),
+            )
             .map((peer) => ({
-              to: `${p.metadata.namespace}/${Object.values(p.spec.podSelector.matchLabels ?? {}).join(',')}`,
-              ports: (rule.ports ?? []).map((port) => `${port.protocol ?? 'TCP'}/${port.port}`),
-              agent: selects(peer.podSelector, AGENT),
-              prepare: selects(peer.podSelector, PREPARE),
+              to: `${p.metadata.namespace}/${labelsOf(p.spec.podSelector)}`,
+              from: reach(peer, rule),
+              agent: !peer || !!peer.ipBlock || selects(peer.podSelector, AGENT),
+              prepare: !peer || !!peer.ipBlock || selects(peer.podSelector, PREPARE),
             })),
         ),
       );
       expect(fromRunners, overlay).toEqual([
-        { to: 'factory/gateway', ports: ['TCP/8080'], agent: true, prepare: false },
-        { to: 'factory/line', ports: ['TCP/8081'], agent: true, prepare: false },
+        {
+          to: 'factory/name=gateway',
+          from: 'runners/factory.mrogan.dev/runner=agent TCP/8080',
+          agent: true,
+          prepare: false,
+        },
+        {
+          to: 'factory/name=line',
+          from: 'runners/factory.mrogan.dev/runner=agent TCP/8081',
+          agent: true,
+          prepare: false,
+        },
+        // The API server's calls to Kyverno's webhook, from the node's private address. A runner's pod is on one too,
+        // and its own fence keeps it from Kyverno, as from everything else the tests above do not name.
+        ...['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'].map((cidr) => ({
+          to: 'kyverno/app.kubernetes.io/component=admission-controller',
+          from: `${cidr} TCP/9443`,
+          agent: true,
+          prepare: true,
+        })),
       ]);
     }
   });
@@ -143,5 +197,12 @@ describe('reading a fence', () => {
     expect(selects({ matchLabels: { 'factory.mrogan.dev/runner': 'agent' } }, AGENT)).toBe(true);
     expect(selects({ matchLabels: { 'factory.mrogan.dev/runner': 'agent' } }, PREPARE)).toBe(false);
     expect(() => selects({ matchExpressions: [{ key: 'a', operator: 'Exists' }] }, AGENT)).toThrow();
+  });
+
+  it('reads a rule with no peers as anywhere, and no ports as every port, and refuses a range', () => {
+    expect(peersOf(undefined).map((peer) => reach(peer, {}))).toEqual(['anywhere every port']);
+    expect(peersOf([]).map((peer) => reach(peer, { ports: [{ port: 443 }] }))).toEqual(['anywhere TCP/443']);
+    expect(() => portsOf({ ports: [{ port: 8080, endPort: 65535 }] })).toThrow();
+    expect(() => portsOf({ ports: [{ port: 'http' }] })).toThrow();
   });
 });

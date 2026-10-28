@@ -6,7 +6,12 @@ import { describe, expect, it } from 'vitest';
  * No model decides a merge (spec 6, guardrail 5): the code that decides whether a change may merge, the app's gates,
  * the line's reading of the checks and the review gate, cannot reach a model. Walked through their static imports,
  * none reaches the gateway, a model client, Jev or the agents, and none imports a package outside the few named
- * here, so a model provider's SDK cannot arrive unseen. A type-only import runs nothing, and is not followed.
+ * here, so a model provider's SDK cannot arrive unseen. A type-only import runs nothing, and is not followed; a module
+ * loaded any way a walk cannot follow (`import()`, `require`, `createRequire`, `getBuiltinModule`) fails the test.
+ *
+ * This proves what the code imports, not where it sends a request: a `fetch` to the gateway's address would not be
+ * seen here. The line, which runs line/gates.ts, has no route to the gateway (its fence, NETWORK-POLICIES.md), and the
+ * app's gates and the review gate run in GitHub Actions, given no model's key.
  */
 const ROOT = resolve(import.meta.dirname, '..');
 
@@ -59,14 +64,18 @@ function workspace(): Map<string, string> {
 
 /** The modules a source file imports at run time: every static import and re-export but type-only ones. */
 function importsOf(source: string): { specifiers: string[]; dynamic: boolean } {
-  const statements = source.matchAll(/^[ \t]*(?:import|export)\s+(type\s+)?[^'";]*?\bfrom\s+['"]([^'"]+)['"]/gm);
-  const sideEffects = source.matchAll(/^[ \t]*import\s+['"]([^'"]+)['"]/gm);
+  // Anywhere on a line, so a second statement after a first is read; one in a comment or a string is read too, which
+  // can only add to what the walk must allow.
+  const statements = source.matchAll(/\b(?:import|export)\s+(type\s+)?[^'";]*?\bfrom\s+['"]([^'"]+)['"]/g);
+  const sideEffects = source.matchAll(/\bimport\s+['"]([^'"]+)['"]/g);
   return {
     specifiers: [
       ...[...statements].filter((m) => !m[1]).map((m) => m[2] ?? ''),
       ...[...sideEffects].map((m) => m[1] ?? ''),
     ],
-    dynamic: /(?<![\w.])import\s*\(/.test(source.replace(/typeof import\(/g, '')),
+    dynamic: /(?<![\w.])import\s*\(|\brequire\s*\(|\bcreateRequire\b|\bgetBuiltinModule\b/.test(
+      source.replace(/typeof import\(/g, ''),
+    ),
   };
 }
 
@@ -145,6 +154,13 @@ describe('the walk', () => {
     ].join('\n');
     expect(importsOf(source)).toEqual({ specifiers: ['./a.ts', './d.ts', './e.ts', './g.ts'], dynamic: false });
     expect(importsOf("const m = await import('openai');").dynamic).toBe(true);
+    expect(importsOf("const sdk = createRequire(import.meta.url)('openai');").dynamic).toBe(true);
+    expect(importsOf("const sdk = require('openai');").dynamic).toBe(true);
+    expect(importsOf("const x = process.getBuiltinModule('node:http');").dynamic).toBe(true);
+    expect(importsOf("import { a } from './a.ts'; import { b } from 'openai';").specifiers).toEqual([
+      './a.ts',
+      'openai',
+    ]);
     expect(importsOf('type T = typeof import("./t.ts");').dynamic).toBe(false);
   });
 });

@@ -19,13 +19,22 @@ const WITH_A_SECRET: Record<string, string[]> = {
   'review.yml': ['workflow_run', 'workflow_call'],
 };
 
+/** The files each of those checks out: the toolchain's pins and its one script. */
+const CHECKED_OUT: Record<string, string[]> = {
+  'drift-check.yml': ['mise.toml', 'mise.lock', 'scripts/github-settings.ts'],
+  'review.yml': ['mise.toml', 'mise.lock', 'scripts/review-gate.ts'],
+};
+
 interface Step {
+  name?: string;
   uses?: string;
   run?: string;
   with?: Record<string, unknown>;
 }
 interface Job {
   'runs-on'?: unknown;
+  env?: Record<string, unknown>;
+  name?: string;
   uses?: string;
   environment?: string | { name: string };
   secrets?: unknown;
@@ -45,23 +54,32 @@ const workflows = files.map((file) => ({ file, workflow: read(file) }));
 const triggers = ({ on }: Workflow) => (typeof on === 'string' ? [on] : Array.isArray(on) ? on : Object.keys(on));
 
 /**
- * The runner labels a job's `runs-on` may name: a label, or an expression that chooses between quoted labels (a
- * matrix's), every one of which must be hosted. A list or a group is a self-hosted runner's way, and names none.
+ * The runner labels a job's `runs-on` may name: a label, or an expression that chooses between quoted labels by a
+ * matrix's value (`matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04'`), every one of which must be
+ * hosted. Any other expression could name a runner from an input or a variable, and a list or a group is a self-hosted
+ * runner's way: neither names a label here.
  */
 function labels(runsOn: unknown): string[] | undefined {
   if (typeof runsOn !== 'string') return undefined;
   const inside = runsOn.match(/^\$\{\{(.*)\}\}$/s)?.[1];
   if (inside === undefined) return [runsOn];
-  // The values it chooses between, each after && or ||, and not those it compares with.
-  const quoted = [...inside.matchAll(/(?:&&|\|\|)\s*'([^']*)'/g)].map((m) => m[1] ?? '');
+  const choices = inside.replace(/matrix\.\w+\s*==\s*'[^']*'/g, '');
+  if (choices.replace(/'[^']*'|&&|\|\||[()\s]/g, '') !== '') return undefined;
+  const quoted = [...choices.matchAll(/'([^']*)'/g)].map((m) => m[1] ?? '');
   return quoted.length ? quoted : undefined;
 }
 
-/** The secrets a job names, and whether it hands them on to a workflow it calls. */
+/**
+ * The secrets a job names in its expressions, the workflow's env included, and whether it hands them on to a workflow
+ * it calls. One read other than by name (`secrets['X']`, `toJSON(secrets)`) is `(not by name)`.
+ */
 function secretsOf(workflow: Workflow, job: Job): { names: string[]; passed: boolean } {
   const text = JSON.stringify([workflow.env ?? {}, { ...job, secrets: undefined }]);
-  const names = [...new Set([...text.matchAll(/\bsecrets\.(\w+)/g)].map((m) => m[1] ?? ''))];
-  return { names, passed: job.secrets !== undefined };
+  const expressions = [...text.matchAll(/\$\{\{(.*?)\}\}/gs)].map((m) => m[1] ?? '');
+  const names = expressions.flatMap((e) =>
+    [...e.matchAll(/\bsecrets\b(\.(\w+))?/g)].map((m) => m[2] ?? '(not by name)'),
+  );
+  return { names: [...new Set(names)], passed: job.secrets !== undefined };
 }
 
 /** An Actions expression, as a workflow writes one. */
@@ -86,8 +104,8 @@ describe('every workflow', () => {
     for (const { file, workflow } of workflows) {
       for (const [id, job] of Object.entries(workflow.jobs)) {
         if (job['runs-on'] === undefined) {
-          // A call to a workflow, which is one of these when it is ours.
-          expect(job.uses, `${file}: ${id}`).toBeDefined();
+          // A call to a workflow of this repository's, which is one of these, each read here in its turn.
+          expect(job.uses ?? '', `${file}: ${id}`).toMatch(/^\.\/\.github\/workflows\/[\w-]+\.ya?ml$/);
           continue;
         }
         const named = labels(job['runs-on']);
@@ -137,7 +155,13 @@ describe('every workflow', () => {
       expect(options.ref, file).toBe(expression('job.workflow_sha'));
       expect([undefined, expression('job.workflow_repository')], file).toContain(options.repository);
       expect(options['persist-credentials'], file).toBe(false);
-      expect(String(options['sparse-checkout'] ?? '').trim().length, file).toBeGreaterThan(0);
+      expect(
+        String(options['sparse-checkout'] ?? '')
+          .trim()
+          .split('\n'),
+        file,
+      ).toEqual(CHECKED_OUT[file]);
+      expect(options['sparse-checkout-cone-mode'], file).toBe(false);
       // Nor fetches anything else in a step of its own, or reads a pull request's head.
       for (const step of steps) {
         expect(step.run ?? '', file).not.toMatch(/\bgit\b|\bgh (pr|repo) (checkout|clone)\b/);
@@ -165,6 +189,8 @@ describe('reading a workflow', () => {
     ]);
     expect(labels(expression("matrix.arch == 'arm64' && 'self-hosted' || 'ubuntu-24.04'"))).toContain('self-hosted');
     expect(labels(expression('matrix.runner'))).toBeUndefined();
+    expect(labels(expression("matrix.runner || 'ubuntu-24.04'"))).toBeUndefined();
+    expect(labels(expression("'ubuntu-24.04' || inputs.runner"))).toBeUndefined();
     expect(labels(['self-hosted', 'linux'])).toBeUndefined();
     expect(labels({ group: 'ours' })).toBeUndefined();
   });
@@ -174,6 +200,9 @@ describe('reading a workflow', () => {
     const workflow: Workflow = { on: 'push', jobs: {} };
     expect(secretsOf(workflow, job({ steps: [{ run: `echo ${expression('secrets.A')}` }] })).names).toEqual(['A']);
     expect(secretsOf({ ...workflow, env: { B: expression('secrets.B') } }, job({})).names).toEqual(['B']);
+    expect(secretsOf(workflow, job({ env: { C: expression("secrets['C']") } })).names).toEqual(['(not by name)']);
+    expect(secretsOf(workflow, job({ env: { D: expression('toJSON(secrets)') } })).names).toEqual(['(not by name)']);
+    expect(secretsOf(workflow, job({ steps: [{ name: 'Keep the secrets.txt', run: 'true' }] })).names).toEqual([]);
     expect(secretsOf(workflow, job({ uses: './x.yml', secrets: 'inherit' })).passed).toBe(true);
     expect(secretsOf(workflow, job({ steps: [{ run: `echo ${expression('github.token')}` }] }))).toEqual({
       names: [],
