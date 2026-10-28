@@ -32,7 +32,7 @@
  * whatever the limit: it is one the line took already, and its defect is in the app. It is taken back once for each reopening, from wherever its row was
  * (ended, or not yet ended when it reopened), and until then the line hands it to nobody.
  */
-import { askedByMartin, lastEnd, openedAsImprovement } from '@software-factory/store';
+import { askedByMartin, byMartin, lastEnd, openedAsImprovement } from '@software-factory/store';
 import type { JSONValue, Sql } from 'postgres';
 import type { Take } from '../../../../policy/line.ts';
 import type { Handback } from '../runners/steps.ts';
@@ -199,7 +199,7 @@ export class Queue {
         select t.work_item, 'plan' from events t
         where not t.sample ${only ? tx`and t.work_item = ${only}` : tx``}
           and ((t.type = 'ticket.opened' and not ${openedAsImprovement(tx, 't.work_item')})
-               or (t.type = 'improvement.requested' and ${askedByMartin(tx, 't.work_item')}))
+               or (t.type = 'improvement.requested' and ${byMartin(tx, 't')} and ${askedByMartin(tx, 't.work_item')}))
           and ${lastEnd(tx, 't.work_item')} is distinct from 'work-item.closed'
           and not exists (select 1 from line l where l.work_item = t.work_item)
         order by case t.type when 'ticket.opened' then 0 else 1 end,

@@ -1771,7 +1771,7 @@ export class Line {
       select o.public->'payload'->>'title' as title, r.public->'payload'->>'words' as words
       from events r join events o on o.work_item = r.work_item and o.type = 'work-item.opened'
       where r.work_item = ${workItem} and r.type = 'improvement.requested' and ${byMartin(sql, 'r')}
-        and o.payload->>'kind' = 'improvement' and ${byMartin(sql, 'o')} and ${askedByMartin(sql, 'r.work_item')}
+        and o.payload->>'kind' = 'improvement' and ${byMartin(sql, 'o')}
       order by r.seq limit 1`;
     if (!row) throw new StepFailed('The work item has no request of Martin’s');
     return row;

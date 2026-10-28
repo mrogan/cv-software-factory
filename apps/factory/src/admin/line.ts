@@ -34,6 +34,7 @@ import { AUTONOMY } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
 import {
   askedByMartin,
+  byMartin,
   lastEnd,
   latestControls,
   lineStopped,
@@ -224,7 +225,7 @@ async function openWork(tx: TransactionSql, workItem: string): Promise<boolean> 
     select 1 from events t
     where t.work_item = ${workItem} and not t.sample
       and ((t.type = 'ticket.opened' and not ${openedAsImprovement(tx, 't.work_item')})
-           or (t.type = 'improvement.requested' and ${askedByMartin(tx, 't.work_item')}))
+           or (t.type = 'improvement.requested' and ${byMartin(tx, 't')} and ${askedByMartin(tx, 't.work_item')}))
       and ${lastEnd(tx, 't.work_item')} is distinct from 'work-item.closed'
     limit 1`;
   return row !== undefined;
