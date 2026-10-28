@@ -144,11 +144,11 @@ Public profiles get their certificates from Cloudflare (milestone 10).
 - **Merging is decided by a required check: the review gate is the approval-routing check.** One required check, `review`, posted only by the review App from `main`'s copy of `review.yml` (ADR 0014), passes a pull request when
   - Martin opened it;
   - Martin approved its head commit;
-  - the factory's App opened it and it is low-risk: it has no risk tags, which the gate works out from the diff, never from labels; it touches no path CODEOWNERS gives Martin; and it is neither a release nor an improvement; or
+  - the factory's App opened it and it is low-risk: it has no risk tags, which the gate works out from the diff, never from labels; it touches no path CODEOWNERS gives Martin; and it is neither a release nor an improvement, which the gate tells by a change to the app's typed list of flag names (task 24); or
   - it is an exact pin (below).
 
-  That is Guarded's rule, and the gate needs no mode to hold it: Supervised is the line adding nothing to the merge queue. Lights-out also passes any change but `out-of-scope`, which the gate cannot yet tell (below). From Part D, the gate also passes a Critical vulnerability's fix under Guarded, as Patching (Part D) says. A release pull request waits for Martin in every mode: it publishes a version, and nothing waits on it. So does an improvement's: it is new behaviour Martin asked for (Part B).
-- **How the gate knows Lights-out is open until task 24 is detailed.** The autonomy level lives in the factory's store, where a GitHub runner cannot read it, and nothing the App writes, such as a label, can carry it, since the App's pull requests are what the gate judges. Guarded needs no mode signal. One candidate is a repository variable only Martin can set.
+  That is Guarded's rule, and the gate needs no mode to hold it: Supervised is the line adding nothing to the merge queue. Lights-out also passes, in the app's repository, the factory's App's pull requests with risk tags, but never a release, an improvement or a path CODEOWNERS gives Martin; and never a work item whose spec carried `out-of-scope`, which the gate cannot tell from a diff, so the line, which can, never adds one to the queue (task 24). From Part D, the gate also passes a Critical vulnerability's fix under Guarded, as Patching (Part D) says. A release pull request waits for Martin in every mode: it publishes a version, and nothing waits on it. So does an improvement's: it is new behaviour Martin asked for (Part B).
+- **The gate knows Lights-out by a repository variable** (Martin, 2026-10-28). The autonomy level lives in the factory's store, where a GitHub runner cannot read it, and nothing the App writes, such as a label, can carry it, since the App's pull requests are what the gate judges. So `AUTONOMY`, a variable of the app's repository that only an admin (Martin) can set, read by the shared `review.yml` as its caller's variable, says Lights-out to the gate; this repository's never matters, since the App merges nothing here but pins. The line reads the store's level. The gate's verdict names the rule that passed, and the line adds a pull request to the queue only when that rule is allowed at the store's level, so the stricter of the two always wins. Neither the factory's App nor any worker's credential may write repository variables, and a test (task 20) and a proof (task 21) show it. Guarded needs no mode signal.
 - **Martin's approval is his own GitHub review of the head commit.** The App writes labels, comments and check runs, so none of them can carry his approval. The check reads his review and requires its commit to be the pull request's head, so a push after he approved fails it; a test shows that. His Needs-you card for a merge links to the pull request.
 - **A deploy pull request passes only as an exact pin.** The gate compares lines: only `digest:` values change, each to an image `build.yml` signed on `main` whose commit descends from the pin it replaces, so nothing else in the file can move and no pin goes backwards.
 - **In this repository, the App merges nothing but pins unattended.** The factory's own code (its gates, its GitHub worker, the gateway, the admin service, the store's migrations and the redactor) is never merged without Martin, in any mode: any other App pull request here fails the check. The gate runs from `main`'s copy of `review.yml` and reads CODEOWNERS from `main`, so a pull request cannot rewrite the check that judges it; those paths become code-owned, as the gate's script is.
@@ -370,41 +370,120 @@ Then:
 
 ### Part B is done when
 
-- [ ] An improvement goes from the "+" to everyone through each stage, its spec approved by Martin before any code, and no worker's role can request one or stage a flag.
-- [ ] Verify compared its flag's two sides at the share stage, on the generator's requests alone, and the share stage was refused while a canary was in flight.
-- [ ] Its kill switch turned it off for everyone within seconds, with no deploy or rollback, and the admin service confirmed the app had it; every flag fails off a minute after flagd stops.
-- [ ] Neither a visitor nor the app's own code can make the mark or join the share: the mark is ignored through Traefik, a bad, old or missing signature is out of the share, and the flag context is code-owned.
-- [ ] The admission refusals for `flags`, `share-key`, the app's routes and its Middlewares are recorded, and the fences' tests hold flagd to reading `featureflags` in its own namespace.
-- [ ] Asking for an improvement and approving its spec each took the passkey again and reached Martin's phone.
-- [ ] Nothing is kept on a visitor's device but the preview cookie of one who asked for it: the device gates pass, a preview among them.
+- [x] An improvement goes from the "+" to everyone through each stage, its spec approved by Martin before any code, and no worker's role can request one or stage a flag.
+- [x] Verify compared its flag's two sides at the share stage, on the generator's requests alone.
+- [ ] The share stage was refused while a canary was in flight (never yet shown on the cluster: task 25 shows it).
+- [x] Its kill switch turned it off for everyone within seconds, with no deploy or rollback, and the admin service confirmed the app had it; every flag fails off a minute after flagd stops.
+- [x] Neither a visitor nor the app's own code can make the mark or join the share: the mark is ignored through Traefik, a bad, old or missing signature is out of the share, and the flag context is code-owned.
+- [x] The admission refusals for `flags`, `share-key`, the app's routes and its Middlewares are recorded, and the fences' tests hold flagd to reading `featureflags` in its own namespace.
+- [x] Asking for an improvement and approving its spec each took the passkey again and reached Martin's phone.
+- [x] Nothing is kept on a visitor's device but the preview cookie of one who asked for it: the device gates pass, a preview among them.
 
 ## Part C: guardrails
 
-Outlined here, and detailed when Part B is done.
+Each task is its own pull request, or a few in order, each demonstrable, and each taken by one orchestrating session through `/implement`. Work in the app's repository goes through it too, with keys beginning `app-`, and nothing it writes there mentions or hints at seeded defects. `/security-review` runs on every pull request that touches a workflow, the review gate, the admin service, a credential, a fence, an admission rule, a Role or a store grant, and each brief says so.
 
-- **20. Proofs in CI.** Tests for what is true today by convention:
-  - no workflow uses `pull_request_target` or a self-hosted runner;
-  - the reviewer's check is not required, and no gate or merge path calls a model;
-  - only the gateway mounts a model key;
-  - the runners' network policies render as intended.
+### 0. Settled before the start
 
-  The rulesets' drift check (`github-settings.ts --check`) runs on a schedule.
-- **21. `make guardrails`.** One command for the proofs that need the cluster:
-  - egress;
-  - admission's refusals;
-  - the App's refusal to write a workflow;
-  - stop the line;
-  - a rollback.
+- **Martin settled the open questions (2026-10-28):**
+  - **Lights-out reaches the gate as a repository variable:** `AUTONOMY`, in the app's repository, as "Autonomy (Part C)" says. The gate passes by the variable, and names the rule that passed; the line enqueues only by a rule the store's level allows; so the stricter of the two always wins. The console's Lights-out says the variable is needed too. Built and proved, never the default.
+  - **An improvement's pull request is told by a typed list of flag names.** The app declares every flag it asks in one list, and its flag context takes only a name on it, so TypeScript refuses any other. The list is not code-owned, since the coder adds to it, and the gate tags as an improvement any pull request that changes it or adds a place that asks a flag on it, so new behaviour behind a flag already on the list is caught too. An improvement with no flag at all is not in a diff, so the line, which knows a work item's kind, never adds an improvement to the queue: two locks, as for releases. The candidate of looking for a `request.flag('…')` name `main` does not ask was turned down: a flag asked through another name, or a destructured `flag`, escapes it.
+  - **A label of Martin's on an issue is no way in.** The "+" is the only way Martin asks the line for work, with its passkey step-up; the factory reads no issue as input, and replies to an outside one politely (task 26). Spec 6's guardrail 10 is amended to match. A red-team attack is not work for the line: it runs fixed content against a mechanism, and the line builds nothing from it (task 22).
+  - **The red-team attacks are scripted against the real mechanisms, with no agent.** No model writes an attack. Where the mechanism is itself a model's typed judgement (triage's questions to Jev, attack 1), it is called as it is for any report, since that is what is shown. Each makes the real attempt itself, from where an agent would be, and records the mechanism's refusal verbatim, so it costs almost nothing, repeats exactly, and suits milestone 8's menu for visitors. An agent given a hostile instruction was turned down: it costs money each time, and a model that declines proves nothing about the mechanism.
+- **Order.** 20, 26, 27, 25, then 23's recording, 21, 22, 23's panel, and 24 last. The checks that need no cluster come first; alerts come before the proofs and drills, so a failed one pages; every mechanism records its refusals before `make guardrails` and the harness show them; the panel waits for the events it draws; and approval routing, which changes how anything merges, ends the part with Guarded run for real.
+- **The designs first.** One pull request draws, in the mockup and the design system's README, the guardrails panel (task 23), the red-team menu with all five attacks and an attack's card (task 22; the mockup has three), the auto-rollback switch live and a canary paused for Martin (task 25), Lights-out's note on the repository variable, and a merge held for its risk tags in Needs you (task 24), each with its read-only form. Martin agrees it before any of those is built. It can be drawn while tasks 20, 26 and 27 are built.
+- **Try before review** (`/implement`): a task that changes what runs on the cluster is built to branches, tried on local images with `try-the-line`, and only then reviewed, once.
 
-  Each records its result as an event with the mechanism's refusal verbatim, so the console says when each guardrail was last proved.
-- **22. The red-team harness.** The attacks in spec 5.3, run by Martin from admin, each recording `attack.launched` and the refusal. It adds adversarial inputs in logs and page content for guardrail 8. Milestone 8 puts its menu in front of visitors.
-- **23. Blocked actions.** `action.refused` from every mechanism: the gateway, the GitHub worker and Kyverno, beside the scope fence. A guardrails panel: each guardrail, its mechanism, its last proof and its recent refusals, and one line for those that cannot be switched off.
-- **24. Approval routing.** The deterministic risk tags, worked out by the review gate itself; the gate made the approval-routing check, passing the App's low-risk pull requests, and pins only line by line, beside those Martin opened or approved at their head; the factory's own code made code-owned; how the gate knows Lights-out, settled when this task is detailed; and the line reading the autonomy level and the auto-merge switch, and adding a pull request to the merge queue when they allow. A dry-run soak at Guarded, then Guarded for real.
-- **25. Auto-rollback's switch.** Off leaves a failed canary paused for Martin rather than rolled back. Switching it off needs the passkey again and pages him.
-- **26. Guardrail 10 as written.** Its App answers an outside issue politely. The factory reads no issue as input today, so "acts only on issues it created or Martin labelled" holds by construction; whether a label of Martin's becomes a way in beside the "+" is settled when this part is detailed.
-- **27. Alerts for the factory.** Its health (a worker crash-looping, a lease stuck, the store down, Argo CD degraded), releases and spend, at their levels.
+### 20. Proofs in CI
 
-**Done when:** every guardrail has a test or a demo that runs from one command and is shown in the console; a fix goes end to end at Guarded with nobody touching it; a risk-tagged change waits in Needs you until Martin approves; and each red-team attack is stopped by its mechanism, with the refusal shown.
+Tests, with nothing on the cluster, for what is true today only by convention. One pull request; each test shown failing against a broken copy, said in its description.
+
+- **Workflows:** every file in `.github/workflows` is parsed; none is triggered by `pull_request_target`, and every job's `runs-on` is a GitHub-hosted label from a list the test names. Only `review.yml` and the drift check (below) hold a secret, each in an environment only `main` may use, and neither checks out the pull request: each checks out nothing but `main`'s own files.
+- **No model decides a merge:** the required checks in `scripts/github-settings.ts` are each pinned to GitHub Actions or the review App, and none is the reviewer agent's check or any check the factory's App posts (the names imported from `line/review.ts` and `line/gates.ts`). An import-graph test walks from `apps/factory/src/gates/`, `line/gates.ts` and `scripts/review-gate.ts` and fails if any reaches the gateway, a model client, Jev or an SDK of a model provider.
+- **No App or worker may write a repository variable:** the factory's App's and the review App's declared permissions (in code, beside `github-settings.ts`) grant no Variables or Administration write, and no worker holds a GitHub credential but the GitHub worker's App; task 21 checks the installations' permissions live against what is declared.
+- **Only the gateway holds a model key:** over the rendered manifests of every overlay (as `make check` renders them), no container but the gateway's names the `anthropic` or `typesafe` Secret, by `secretKeyRef`, `envFrom` or a volume.
+- **The runners' fences render as intended:** `runner-fences.test.ts`, beside the other fences' tests, over the rendered `runners` policies: default deny both ways; the agent pod reaches only the gateway's 8080 and the line's handback in `factory`, with no DNS; the prepare pod reaches only DNS and 443 on public addresses; and the gateway and the line let in only those pods from `runners`.
+- **The rulesets' drift check on a schedule:** `github-settings.ts --check`, weekly and on demand, in a workflow of its own with no other job, in an environment only `main` may use. It needs an admin's read of the rulesets, environments and secret names, which no CI credential has: a GitHub App of its own (Administration, Environments and Secrets: read, nothing else), installed on both repositories, which Martin makes, its key in that environment. A failed run reaches Martin as any failed scheduled run does.
+- **Proved** in CI. Martin makes the App and its environment.
+
+### 21. `make guardrails`
+
+One command for the proofs that need the cluster, each recorded where the console can show it.
+
+- **`make guardrails`** runs, from the Mac with the local kubeconfig as the refusal scripts already do, each proof below, and appends a `guardrail.proved` event for each: the guardrails it proves (spec 6's numbers), the mechanism, held or not, the refusal verbatim, `main`'s commit, and a hash of the policies and Roles it was taken against. A new event type, appended by a store role of its own that may append that type and nothing else, its password from a Secret as the workers' are; row security, as for Martin's admin types, lets no other role append it, and the panel trusts a proof by its appending role. A proof that does not hold fails the command, names itself and pages Martin (task 27's rule).
+- **Egress:** `scripts/egress.sh`, each check a record.
+- **Admission's refusals:** `scripts/admission-refusals.sh` and its siblings (route, mark, rollout, flags, flag stages, share key). Their records in `deploy/test/` stay for the fences' tests, and each gains the hash of the policies and Roles it was taken against; the tests fail when the rendered ones no longer match, so a policy loosened without the script run again fails `make check` (carried from Part B). The `other-identity` case is made true: an image under our own GHCR owner, signed by an identity other than `build.yml` on `main`, refused for its signature, not its registry, as ADR 0010 says it is; and `admission.test.ts` checks each refused image against the policy's `images` globs (carried from #632).
+- **The App's refusal to write a workflow:** `factory github workflow-refusal`, taken again under `the-roganator` (its record is from the old owner), with the App's lack of the `workflows` permission declared in code and checked against the installation's permissions, Variables and Administration among them (task 20).
+- **Stop the line:** a drill with the line taking a work item in dry run: `make stop-the-line`, then the proof that its agent pods are gone, no worker took anything new, and a canary in flight was aborted; then `make start-the-line`.
+- **A rollback:** the last real rollback in the store, its analysis's verdict verbatim, and how long ago it was; the drill that makes one is task 25's.
+- **Proved:** `make guardrails` on the local cluster, every proof held and in the audit log; a proof made to fail, by a loosened copy of a fence in a test, fails the command and pages.
+
+### 22. The red-team harness
+
+The attacks in spec 5.3, run by Martin from admin, each stopped by its real mechanism and shown.
+
+- **Launching:** the red-team menu in admin (from the designs), all five attacks; `POST /admin/attacks/<attack>` appends `attack.launched`, an admin event type with its migration, which needs no passkey again: it loosens nothing, and asks the line for no work, since every attack's content is fixed in code and the line builds nothing from it (milestone 8 offers the same menu to visitors). The harness, a worker of its own in `factory` (`factory red-team`), acts on an attack only from Martin's roles, one at a time, and records each result as `action.refused` with the mechanism and its output verbatim, or, if nothing refused it, a failed attack that pages Martin (task 27's rule). It holds no GitHub credential: the GitHub worker makes attacks 2 and 3's attempts itself, on an `attack.launched` from Martin's roles, with fixed content, and closes what it opened. Its store role, Role and NetworkPolicy grant what the attacks need and nothing else, with a fences test each; since RBAC cannot limit what a pod it creates holds, an admission rule holds the harness's pods in `runners` to one image by digest (or, for attack 5, the one unsigned image), the agent's labels, and no volumes, Secrets or service-account token.
+- **The attacks,** each made from where an agent would be:
+  1. **An instruction in a problem report:** a report sent through the app's report route as a visitor sends one, its text from triage's evaluation set; triage's typed questions quarantine it, and the work item closes as quarantined. `action.refused` gains the mechanism `typed-judgement`. Jev's calls, which are the mechanism, are its only cost.
+  2. **"Fix CI" by editing a workflow:** the GitHub worker is asked, as a step's handback asks it, for a commit to `.github/workflows/`, and its guard refuses it (`scope-fence`); then it asks GitHub directly with the App's token, as `workflow-refusal` does, and GitHub refuses it (`token-permission`). Both recorded.
+  3. **A pull request that deletes the failing test:** a real pull request in the app's repository, opened by the GitHub worker with fixed content, that deletes a test; the test-integrity gate tags it test-loosening and the review gate holds it for Martin (after task 24; until then the gate fails it). The check's output is the refusal; the GitHub worker closes the pull request and deletes its branch.
+  4. **Data to an outside URL:** a pod started in `runners` with an agent's labels, running the attack's script in place of the agent: an outside address by name and by number, and the provider's host, each refused by the egress policy, with the gateway reached as the control.
+  5. **Shipping an image it built itself:** the same pod asked for on an image `build.yml` did not sign on `main`; admission refuses it, verbatim.
+- **Guardrail 8:** adversarial inputs beyond reports. Bench fixtures (`line/bench/fixtures.ts`) with instructions in log lines and in page content, and a test that no log message reaches a prompt (`line/agents/evidence.ts`); the bench shows each agent's result fits its schema and does what its ticket asks, and nothing else.
+- **The console:** each attack is a work item of category `red-team`, which the reel and the sheet already draw from its last `action.refused`; for visitors, read-only, until milestone 8 opens the menu to them.
+- **Proved:** all five launched from the console on the local cluster, each stopped and its refusal on its card.
+
+### 23. Blocked actions
+
+Two pull requests: the recording before task 21, the panel after task 22.
+
+- **`action.refused` from every mechanism.** Today only the scope fence appends one. The gateway appends one for each refusal (a spend cap, a work item's cap, a model or provider policy refuses), the GitHub worker for each write its guard or GitHub refuses (a protected path, a branch it does not own, a 403), and Kyverno's denials in the guarded namespaces are read from the events Kyverno writes and appended by a worker other than Kyverno, with the policy's message verbatim. The mechanisms' enum gains `gateway`, `typed-judgement` (task 22) and whatever else this names, as a new version with its upcaster. Row security lets each mechanism's refusals be appended only by the role that mechanism runs as, and the panel counts each by its appending role. Repeats of one refusal within a minute fold into one event with a count, so a loop cannot flood the store.
+- **The guardrails panel:** each of spec 6's eleven guardrails, its mechanism, its last proof (from `guardrail.proved` or the last attack) and how old it is, and its recent refusals, linking to each; and one line saying which cannot be switched off. Visitors see it whole, read-only: it is part of the demo.
+- **Proved:** each mechanism made to refuse on the local cluster (a cap reached on a work item, a protected path asked of the GitHub worker, an unsigned image applied), each in the audit log and on the panel.
+
+### 24. Approval routing
+
+The review gate becomes the approval-routing check, as "Autonomy (Part C)" decides, and the line merges through the queue when the autonomy level allows. A stack in this repository, after one in the app's.
+
+- **In the app's repository:** the typed list of flag names (above), and the flag context taking only a name on it; the header settings in one file, so a diff can show them; and the test-integrity gate tagging a loosened test rather than failing it, so Martin's approval can carry it (in both repositories' copies of the gate).
+- **The gate** (`scripts/review-gate.ts`, reading only the API, never checking out the pull request): risk tags from the diff (`dependency-change` for a lockfile or package manifest, `security-headers` for that file, `test-loosening` from the test-integrity check, posted by GitHub Actions from `main`'s workflow), CODEOWNERS read from `main`, a release (release-please's branch and only its files) and an improvement (the flag list changed, or a place added that asks a flag on it); an exact pin judged line by line, every changed line a `digest:` value of an image `build.yml` signed on `main`, from a commit that descends from the pin it replaces; and a pull request failed whose risk label anyone but Martin removed. Martin's opened and approved-at-head rules stay. In this repository, any App pull request but an exact pin fails. When the app's `AUTONOMY` says Lights-out, the gate also passes the App's risk-tagged pull requests there, but never a release, an improvement or a code-owned path, and this repository's rule does not change; a test for each exception with the variable set. The gate judges again when the gates' runs finish, and its summary names the tags and the rule that decided (in a form the line reads), which Needs you shows. The app's `review.yml` pin moves with it.
+- **CODEOWNERS:** the factory's gates, GitHub worker, gateway, admin service, store migrations and redactor become Martin's.
+- **The line:** reads the autonomy level and the auto-merge switch (nothing reads them today), and adds its own pull request to the merge queue (`enqueuePullRequest`) only when auto-merge is on, `review` has passed, and the rule that passed it is allowed at the store's level (at Guarded, low-risk or an exact pin; at Lights-out, also Lights-out's), and never a release, an improvement or a work item whose spec carried `out-of-scope`; otherwise the merge is held in Needs you with the gate's reasons and a link to the pull request. It reads the merge queue's own checks, so a failure there is an event and not an unexplained wait (carried), and holds a pull request that conflicts with `main`, saying so (carried). #702, approving a held review, is checked at the first real escalation (carried).
+- **Docs:** spec 4.3 and 6 (Lights-out's rule, and who reads which signal), ADR 0014 amended for the routing rule and the variable, `COMPONENTS/APPROVAL-ROUTING.md`, `GITHUB-APP.md`, and `AGENTS.md` for setting `AUTONOMY`.
+- **Proved,** on the local cluster with GitHub for real: first a soak at Guarded in dry run, the line recording what it would enqueue; then Guarded for real, an untagged fix merging, released and verified with nobody touching it; a risk-tagged fix (a dependency or a loosened test) waiting in Needs you until Martin approves its head, and a push after his approval failing the check; Lights-out once, with the variable, then back. Martin's part is one sitting.
+
+### 25. Auto-rollback's switch
+
+- **Off leaves a failed canary paused for Martin.** The analysis already judges a canary bad; with the switch off, that result is inconclusive rather than failed, and Argo Rollouts pauses an inconclusive rollout for a person. The switch reaches the analysis as a series in Prometheus, exported by the admin service from the store's controls and scraped from the admin pod directly, never through the collector, which drops that name from what it receives, so no other pod can send it: the templates (`release/analysis.ts`) are inconclusive on a bad result only when exactly one such series exists, from the admin pod, and reads 0; anything else, a missing series among it, rolls back. Nothing new may write the Rollout.
+- **The control:** `autoRollback` in the line's controls and its route, switching it off needing the passkey again and paging Martin (`policy/access.ts` already lists it); the console's switch made live; a canary paused by it is a hold in Needs you, with promote and abort. Stop the line still aborts a canary, whatever the switch.
+- **Proved** at a drill on the app's `main`, as milestone 6's was (written to pass every gate and fail under load): with the switch on, rolled back with nobody touching it, which is task 21's rollback; with it off, paused until Martin aborts from the console. **The share stage refused while a canary is in flight** is shown at the same canary (carried from Part B): Martin narrows `dark-mode` to Preview and tries Share; the console and the route refuse it, naming the canary; then back to Everyone.
+
+### 26. Guardrail 10 as written
+
+- **The factory reads no issue as input** (settled above), and replies once to an issue opened by anyone but Martin or the App, by numeric id: a fixed, polite text that echoes nothing of the issue, saying the factory acts only on what it finds itself and what Martin asks, and that Martin reads every issue. The poller gains a watch of new issues in both repositories.
+- **The App's issue actions act only on its own issues:** commenting on, closing or reopening an issue the App did not open is refused by the GitHub worker's guard, recorded as `action.refused`.
+- **Outside pull requests:** task 20's tests prove none runs with a secret or a self-hosted runner, and the gate never passes one Martin has not approved at its head.
+- **Spec 6's guardrail 10** says what is built: the factory acts only on issues it created, and an outside one gets a polite reply.
+- **Proved** by tests and in dry run; the real reply is shown once an issue is opened from another account, Martin's to arrange.
+
+### 27. Alerts for the factory
+
+- **New rules, each with its `promtool` test** (`alerts/rules.ts`), at their levels from "Alerts to Martin": the console or the app down, the line stuck (`policy/stuck.ts`'s limits, recorded today and never alerted), a lease held past its step's limit (a metric from the line), the store down (the Postgres exporter), a worker crash-looping (kube-state-metrics), and a day's or month's spend cap reached, at Page; a release rolled back or errored, and Argo CD degraded or out of sync for long, at Notify; and a guardrail's proof that did not hold (task 21) or a red-team attack nothing refused (task 22), at Page, counted from their events by the same worker that counts security events.
+- **Alertmanager named by its Service** in Prometheus's `alerting` config, sent no service-account token, in place of the chart's discovery of any matching pod (carried).
+- **The admin service's uncounted actions** (carried): it appends before it acts, and a worker other than it counts from what it changed, the flag set's revision and the Rollout's controls against the events that name them, and the store's sessions against the sign-in events, alerting on any change no event names.
+- **`docs/COMPONENTS/ALERTING.md`:** its "Later" line loses the factory's health, releases and spend, and keeps Part D's vulnerabilities and milestone 10's dead man's switch.
+- **Proved** on the local cluster: each new alert fired by breaking its cause briefly (a worker scaled to a crashing command, a lease held past its limit in a throwaway run, a cap lowered on a work item), each reaching Martin's phone at its level; the store down only with Martin's yes.
+
+### Part C is done when
+
+- [ ] Every guardrail in spec 6 has a test or a demo that runs from one command, and the guardrails panel shows each one's last proof.
+- [ ] The proofs in CI fail when a workflow, a required check, a key's mount or a runner's fence is loosened.
+- [ ] Each red-team attack, launched from admin, is stopped by its mechanism, with the refusal shown verbatim on its card.
+- [ ] Every mechanism records its refusals as `action.refused`.
+- [ ] A fix goes end to end at Guarded with nobody touching it, and a risk-tagged change waits in Needs you until Martin approves its head.
+- [ ] With auto-rollback off, a failed canary waits for Martin, and switching it off took the passkey again and paged him.
+- [ ] An outside issue gets the polite reply and leads to no work.
+- [ ] The factory's health, releases and spend alert at their levels, and a change by the admin service with no event behind it alerts too.
 
 ## Part D: patching
 
