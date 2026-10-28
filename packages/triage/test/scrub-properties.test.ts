@@ -175,33 +175,46 @@ describe('what leaves the cluster of a report, whatever the text', () => {
   });
 });
 
-/** The least time of a few, so one pause for garbage collection does not count as the code's. */
-function timeOf(text: string): number {
-  let least = Number.POSITIVE_INFINITY;
-  for (let i = 0; i < 3; i++) {
-    const started = performance.now();
+/**
+ * The least processor time each of two texts takes to scrub, of five tries taken in turn, so one pause for garbage
+ * collection does not count as the code's. It is the time this process spent working, not the time on the clock: on a
+ * busy runner the long text, which takes a few tens of milliseconds, would be taken off the processor nearly every
+ * time and the short one often not, which looks like time growing faster than the text.
+ */
+function timesOf(short: string, long: string): [number, number] {
+  const time = (text: string) => {
+    const started = process.cpuUsage();
     scrub(text);
-    least = Math.min(least, performance.now() - started);
+    const { user, system } = process.cpuUsage(started);
+    return (user + system) / 1000;
+  };
+  let [leastShort, leastLong] = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
+  for (let i = 0; i < 5; i++) {
+    leastShort = Math.min(leastShort, time(short));
+    leastLong = Math.min(leastLong, time(long));
   }
-  return least;
+  return [leastShort, leastLong];
 }
 
 describe('the time scrubbing takes', () => {
   /**
    * A hostile text is a short piece of what the scanning turns on (`@`, dots, digits, separators, the letters of an
    * address) repeated. Eight times the length must take about eight times as long: a pass that went back over the
-   * text would take sixty-four. The bound is three times the linear one, with a millisecond for the clock, so a busy
-   * runner does not fail it and a quadratic pass still does.
+   * text would take sixty-four. The short text is 64,000 characters, which takes a millisecond or more where the piece
+   * gives the scanning work, so the clock's grain is small beside it. The bound is three times the linear one, in
+   * milliseconds, with two for the pieces that give it next to none, so a busy runner does not fail it and a quadratic
+   * pass still does. Fifty pieces keep the test to a second or two.
    */
   const unit = fc.string({ unit: chars("@.a1 -!'(:x\n"), minLength: 1, maxLength: 8 });
 
-  it('grows with the length of the text, however hostile', () => {
+  it('grows with the length of the text, however hostile', { timeout: 30_000 }, () => {
     fc.assert(
       fc.property(unit, (piece) => {
-        const short = piece.repeat(Math.ceil(8_000 / piece.length));
-        const long = short.repeat(8);
-        expect(timeOf(long)).toBeLessThan(24 * timeOf(short) + 1);
+        const short = piece.repeat(Math.ceil(64_000 / piece.length));
+        const [shortTime, longTime] = timesOf(short, short.repeat(8));
+        expect(longTime).toBeLessThan(24 * shortTime + 2);
       }),
+      { numRuns: 50 },
     );
   });
 });
