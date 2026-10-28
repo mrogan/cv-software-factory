@@ -19,13 +19,14 @@ const named = (pattern: string, ...paths: string[]) => {
 describe('the files a release changes', () => {
   it('are named, but in prose, only where they are released or checked, never read from the checkout', () => {
     expect(named('CHANGELOG\\.md|release-please-manifest', ':!*.md', ':!scripts/release-files.test.ts')).toEqual([
-      // The kind job, which tells a release by them.
-      '.github/workflows/check.yml',
       // release-please, which reads the manifest from main through GitHub's API.
       'apps/factory/src/github/releases.ts',
       // Biome leaves the manifest as release-please writes it.
       'biome.json',
       'release-please-config.json',
+      // The kind job, which tells a release by them.
+      'scripts/check-kind.sh',
+      'scripts/check-kind.test.ts',
     ]);
   });
 
@@ -48,6 +49,10 @@ describe('the files a release changes', () => {
       // Invented work items, whose changed files are named and whose releases have versions.
       'packages/samples/src/items/1262-pino.ts',
       'packages/samples/src/items/1276-otel-rollback.ts',
+      // The kind job, which tells a release by the version line of package.json's change, and a package.json of its
+      // own, written for a scratch repository to try it on.
+      'scripts/check-kind.sh',
+      'scripts/check-kind.test.ts',
       // flagd's evaluation library's own package.json, as for the test above.
       'scripts/flagd-sides.ts',
       // package.json's packageManager, beside mise.lock's pnpm, and not its version line.

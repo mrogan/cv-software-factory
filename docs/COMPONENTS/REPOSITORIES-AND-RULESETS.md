@@ -14,7 +14,7 @@ Both public repositories are the organisation `the-roganator`'s, since GitHub of
 |---|---|---|
 | `main` | Pull requests only, squash merges, required checks, `review` among them, linear and signed history, the merge queue | Nobody |
 
-There is no rule that a branch be up to date with `main`: the queue tests each pull request on `main` as it will be, with those ahead of it, on a commit of its own, and every required check runs there too. Each is squashed, every one of a group must pass, up to five are tested at once, and a group whose checks say nothing within the hour leaves the queue. GitHub's own review rule is not used: the queue admits only a pull request that meets every rule, so review is a check it can wait for.
+There is no rule that a branch be up to date with `main`: the queue tests each pull request on `main` as it will be, with those ahead of it, on a commit of its own, and every required check runs there too: in full, but for the factory's App's deploy, which runs there as light as on its pull request ([ADR 0005](../architecture/adr/0005-images-deploy-through-pull-requests.md)). Each is squashed, every one of a group must pass, up to five are tested at once, and a group whose checks say nothing within the hour leaves the queue. GitHub's own review rule is not used: the queue admits only a pull request that meets every rule, so review is a check it can wait for.
 
 ## The review gate
 

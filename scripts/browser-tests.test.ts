@@ -294,7 +294,7 @@ describe("the manifests kind's exception", () => {
   it('is the file the Postgres beside the browser tests is pinned in', () => {
     const file = read('scripts/ci-images.sh').match(/grep -oE "\$PIN" (\S+)/)?.[1];
     expect(file).toBe(POSTGRES);
-    expect(read(CHECK)).toContain(`grep -qxF '${POSTGRES}'`);
+    expect(read('scripts/check-kind.sh')).toContain(`grep -qxF '${POSTGRES}'`);
   });
 
   it('names a file that is there', () => {

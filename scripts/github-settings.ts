@@ -100,7 +100,9 @@ export const rules = (requiredChecks: string[]) => ({
  * commit on main is one whose checks passed. A run of the checks takes about five minutes, and a chain of their jobs
  * at most about forty, so a group whose checks say nothing within the hour is taken out of the queue. Up to five are
  * tested at once, each on main with the ones ahead of it, and a pull request merges as soon as its checks pass, with
- * no wait for others to group with: there are seldom more than a few, and each run is a full one.
+ * no wait for others to group with: there are seldom more than a few, and each run is a full one but the factory's
+ * App's deploy's. That run's tests stand on the run of the entry ahead of it, or of main (check.yml's `kind` job), which
+ * holds because each entry is one pull request's squashed change on the one ahead, and each must pass its own checks.
  */
 export const MERGE_QUEUE = {
   merge_method: 'SQUASH',
