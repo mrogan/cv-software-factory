@@ -1,0 +1,184 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
+import { ENVIRONMENTS, KEY_BRANCH } from './github-settings.ts';
+
+/**
+ * Every workflow, as GitHub reads it (spec 6, guardrails 1 and 2): none runs a pull request's code where a secret is,
+ * none runs on a machine of its own, and only two hold a secret, each from an environment only main may use, and each
+ * checking out nothing but main's own files.
+ */
+const DIR = '.github/workflows';
+
+/** The GitHub-hosted runners the jobs run on. Anything else, a self-hosted runner above all, is refused. */
+const HOSTED = ['ubuntu-24.04', 'ubuntu-24.04-arm'];
+
+/** The workflows that hold a secret, and what starts each: nothing a pull request can start. */
+const WITH_A_SECRET: Record<string, string[]> = {
+  'drift-check.yml': ['schedule', 'workflow_dispatch'],
+  'review.yml': ['workflow_run', 'workflow_call'],
+};
+
+interface Step {
+  uses?: string;
+  run?: string;
+  with?: Record<string, unknown>;
+}
+interface Job {
+  'runs-on'?: unknown;
+  uses?: string;
+  environment?: string | { name: string };
+  secrets?: unknown;
+  steps?: Step[];
+}
+interface Workflow {
+  on: string | string[] | Record<string, unknown>;
+  env?: Record<string, unknown>;
+  jobs: Record<string, Job>;
+}
+
+const read = (file: string) => parse(readFileSync(`${DIR}/${file}`, 'utf-8')) as Workflow;
+const files = readdirSync(DIR).filter((f) => /\.ya?ml$/.test(f));
+const workflows = files.map((file) => ({ file, workflow: read(file) }));
+
+/** What starts a workflow, by event name, however `on:` is written. */
+const triggers = ({ on }: Workflow) => (typeof on === 'string' ? [on] : Array.isArray(on) ? on : Object.keys(on));
+
+/**
+ * The runner labels a job's `runs-on` may name: a label, or an expression that chooses between quoted labels (a
+ * matrix's), every one of which must be hosted. A list or a group is a self-hosted runner's way, and names none.
+ */
+function labels(runsOn: unknown): string[] | undefined {
+  if (typeof runsOn !== 'string') return undefined;
+  const inside = runsOn.match(/^\$\{\{(.*)\}\}$/s)?.[1];
+  if (inside === undefined) return [runsOn];
+  // The values it chooses between, each after && or ||, and not those it compares with.
+  const quoted = [...inside.matchAll(/(?:&&|\|\|)\s*'([^']*)'/g)].map((m) => m[1] ?? '');
+  return quoted.length ? quoted : undefined;
+}
+
+/** The secrets a job names, and whether it hands them on to a workflow it calls. */
+function secretsOf(workflow: Workflow, job: Job): { names: string[]; passed: boolean } {
+  const text = JSON.stringify([workflow.env ?? {}, { ...job, secrets: undefined }]);
+  const names = [...new Set([...text.matchAll(/\bsecrets\.(\w+)/g)].map((m) => m[1] ?? ''))];
+  return { names, passed: job.secrets !== undefined };
+}
+
+/** An Actions expression, as a workflow writes one. */
+const expression = (inside: string) => `\${{ ${inside} }}`;
+
+const environmentOf = (job: Job) => (typeof job.environment === 'string' ? job.environment : job.environment?.name);
+
+describe('every workflow', () => {
+  it('is read: each file parses, and has triggers and jobs', () => {
+    expect(files.length).toBeGreaterThan(5);
+    for (const { file, workflow } of workflows) {
+      expect(triggers(workflow).length, file).toBeGreaterThan(0);
+      expect(Object.keys(workflow.jobs ?? {}).length, file).toBeGreaterThan(0);
+    }
+  });
+
+  it('never runs on pull_request_target, which runs with secrets on a pull request’s behalf', () => {
+    for (const { file, workflow } of workflows) expect(triggers(workflow), file).not.toContain('pull_request_target');
+  });
+
+  it('runs every job on a GitHub-hosted runner the test names, or calls a workflow that does', () => {
+    for (const { file, workflow } of workflows) {
+      for (const [id, job] of Object.entries(workflow.jobs)) {
+        if (job['runs-on'] === undefined) {
+          // A call to a workflow, which is one of these when it is ours.
+          expect(job.uses, `${file}: ${id}`).toBeDefined();
+          continue;
+        }
+        const named = labels(job['runs-on']);
+        expect(named, `${file}: ${id}`).toBeDefined();
+        for (const label of named ?? []) expect(HOSTED, `${file}: ${id}`).toContain(label);
+      }
+    }
+  });
+
+  it('holds a secret only in drift-check.yml and review.yml, started by nothing a pull request starts', () => {
+    const holding = workflows.filter(({ workflow }) =>
+      Object.values(workflow.jobs).some((job) => {
+        const { names, passed } = secretsOf(workflow, job);
+        return names.length > 0 || passed;
+      }),
+    );
+    expect(holding.map(({ file }) => file).sort()).toEqual(Object.keys(WITH_A_SECRET).sort());
+    for (const { file, workflow } of holding) {
+      expect(triggers(workflow).sort(), file).toEqual([...(WITH_A_SECRET[file] ?? [])].sort());
+      expect(workflow.env, file).toBeUndefined();
+    }
+  });
+
+  it('holds each secret in a job that uses its environment, which only main may use, and only that one’s key', () => {
+    const environments = ENVIRONMENTS['the-roganator/cv-software-factory'] ?? [];
+    for (const file of Object.keys(WITH_A_SECRET)) {
+      const workflow = read(file);
+      for (const [id, job] of Object.entries(workflow.jobs)) {
+        const { names, passed } = secretsOf(workflow, job);
+        expect(passed, `${file}: ${id}`).toBe(false);
+        if (!names.length) continue;
+        const environment = environments.find((e) => e.name === environmentOf(job));
+        // github-settings.ts limits each of these to main (KEY_BRANCH), and --check fails if one is not.
+        expect(environment, `${file}: ${id}`).toBeDefined();
+        expect(KEY_BRANCH).toBe('main');
+        expect(names, `${file}: ${id}`).toEqual([environment?.key]);
+      }
+    }
+  });
+
+  it('checks out nothing but main’s own files where a secret is: its sparse copy at the workflow’s commit', () => {
+    for (const file of Object.keys(WITH_A_SECRET)) {
+      const steps = Object.values(read(file).jobs).flatMap((job) => job.steps ?? []);
+      const checkouts = steps.filter((s) => s.uses?.startsWith('actions/checkout@'));
+      expect(checkouts, file).toHaveLength(1);
+      const options = checkouts[0]?.with ?? {};
+      expect(options.ref, file).toBe(expression('job.workflow_sha'));
+      expect([undefined, expression('job.workflow_repository')], file).toContain(options.repository);
+      expect(options['persist-credentials'], file).toBe(false);
+      expect(String(options['sparse-checkout'] ?? '').trim().length, file).toBeGreaterThan(0);
+      // Nor fetches anything else in a step of its own, or reads a pull request's head.
+      for (const step of steps) {
+        expect(step.run ?? '', file).not.toMatch(/\bgit\b|\bgh (pr|repo) (checkout|clone)\b/);
+      }
+      expect(readFileSync(`${DIR}/${file}`, 'utf-8'), file).not.toMatch(
+        /head_sha|\.head\.(sha|ref)|pull_request\.head/,
+      );
+    }
+  });
+
+  it('gives the token nothing in the drift check, whose reads are the App’s', () => {
+    const workflow = read('drift-check.yml') as Workflow & { permissions?: unknown };
+    expect(workflow.permissions).toEqual({});
+    expect(Object.keys(workflow.jobs)).toEqual(['drift-check']);
+    expect(Object.values(workflow.jobs).every((job) => !('permissions' in job))).toBe(true);
+  });
+});
+
+describe('reading a workflow', () => {
+  it('finds the labels a runs-on names, and none in a list or a group', () => {
+    expect(labels('ubuntu-24.04')).toEqual(['ubuntu-24.04']);
+    expect(labels(expression("matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04'"))).toEqual([
+      'ubuntu-24.04-arm',
+      'ubuntu-24.04',
+    ]);
+    expect(labels(expression("matrix.arch == 'arm64' && 'self-hosted' || 'ubuntu-24.04'"))).toContain('self-hosted');
+    expect(labels(expression('matrix.runner'))).toBeUndefined();
+    expect(labels(['self-hosted', 'linux'])).toBeUndefined();
+    expect(labels({ group: 'ours' })).toBeUndefined();
+  });
+
+  it('finds every way a job names a secret: in a step, its env, the workflow’s env, or handed to a call', () => {
+    const job = (body: Partial<Job>): Job => ({ 'runs-on': 'ubuntu-24.04', ...body });
+    const workflow: Workflow = { on: 'push', jobs: {} };
+    expect(secretsOf(workflow, job({ steps: [{ run: `echo ${expression('secrets.A')}` }] })).names).toEqual(['A']);
+    expect(secretsOf({ ...workflow, env: { B: expression('secrets.B') } }, job({})).names).toEqual(['B']);
+    expect(secretsOf(workflow, job({ uses: './x.yml', secrets: 'inherit' })).passed).toBe(true);
+    expect(secretsOf(workflow, job({ steps: [{ run: `echo ${expression('github.token')}` }] }))).toEqual({
+      names: [],
+      passed: false,
+    });
+    expect(triggers({ on: ['push', 'pull_request_target'], jobs: {} })).toContain('pull_request_target');
+  });
+});

@@ -68,7 +68,7 @@ Everything is denied in and out, then each pod is allowed what it needs.
 
 - Only the line may call the probes' verify port, as only triage may call their page reader.
 - Each pod that reads telemetry reaches the [read-only proxy](TELEMETRY.md#reading-it) on the ports of the backends it reads, and none of the backends: a policy allows a port, not a path, and on those ports the backends take writes too.
-- The runners' pods are fenced as [their page](AGENT-RUNNERS.md) says.
+- The runners' pods are fenced as [their page](AGENT-RUNNERS.md) says. `apps/factory/test/runner-fences.test.ts` reads each profile's rendered policies, with the pods labelled as the line makes them, and fails unless `runners` denies both ways, the agent pod reaches the gateway's 8080 and the line's 8081 alone, with no DNS, the prepare pod DNS and 443 on public addresses alone, and only the gateway and the line let a runner in, the agent pod alone.
 
 ## `kyverno`
 

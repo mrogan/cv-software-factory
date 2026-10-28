@@ -1,0 +1,71 @@
+# The settings' drift check: weekly, and by hand, `scripts/github-settings.ts --check` reads both public repositories'
+# rulesets and key environments and fails if any differs from what the script makes them, or a ruleset was added beside
+# them. A failed run reaches Martin as any failed scheduled run does, by GitHub's email.
+#
+# Who may bypass a ruleset, an environment's branch policies and the names of its secrets are shown only to a reader
+# with an admin's view, which no workflow token has. The job reads them as the drift check App, installed on both
+# repositories, which may read administration, environments and Actions and nothing else (APPS.driftCheck in
+# scripts/github-settings.ts), so it can change nothing it checks. Its key is the secret DRIFT_CHECK_APP_PRIVATE_KEY
+# and its Client ID the variable DRIFT_CHECK_APP_CLIENT_ID, both in the `drift-check` environment, which only main may
+# use. Until both are there, the run fails, saying so.
+#
+# Only `schedule` and `workflow_dispatch` start it, so it never runs for a pull request, and a dispatch from any other
+# branch is refused the environment. It checks out main's copy of the script and the toolchain's pins, and nothing
+# else.
+name: drift check
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: drift-check
+  cancel-in-progress: false
+
+jobs:
+  drift-check:
+    name: drift check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: drift-check
+    env:
+      # Whether the App's key and Client ID are here: a step's condition cannot read a secret, only this.
+      HAS_APP: ${{ secrets.DRIFT_CHECK_APP_PRIVATE_KEY != '' && vars.DRIFT_CHECK_APP_CLIENT_ID != '' }}
+    steps:
+      - name: Refuse to pass without the App
+        if: env.HAS_APP != 'true'
+        run: |
+          echo "::error::The drift-check environment needs the drift check App's key (DRIFT_CHECK_APP_PRIVATE_KEY) and Client ID (DRIFT_CHECK_APP_CLIENT_ID): without them nothing can read the settings, so nothing was checked."
+          exit 1
+      # This workflow's own commit, main's: the script and the toolchain's pins, nothing else.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ job.workflow_sha }}
+          sparse-checkout: |
+            mise.toml
+            mise.lock
+            scripts/github-settings.ts
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          version: 2026.10.17
+          install_args: node
+      # One token for both repositories, with only the reads the check makes.
+      - id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.DRIFT_CHECK_APP_CLIENT_ID }}
+          private-key: ${{ secrets.DRIFT_CHECK_APP_PRIVATE_KEY }}
+          owner: the-roganator
+          repositories: cv-software-factory,cv-worlds-worst-website
+          permission-actions: read
+          permission-administration: read
+          permission-environments: read
+      - name: Compare the live settings with the script's
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: node scripts/github-settings.ts --check

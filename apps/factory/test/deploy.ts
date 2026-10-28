@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import { readdirSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -77,4 +79,23 @@ export async function manifests<M extends Manifest = Manifest>(): Promise<
     }
   }
   return all;
+}
+
+/**
+ * Every manifest each profile's overlay renders, as `make check` renders them with `kustomize build` and Argo CD
+ * deploys them: what the cluster is given, overlays' patches applied, rather than the files as written.
+ */
+export function rendered<M extends Manifest = Manifest>(): { overlay: string; manifest: M }[] {
+  const overlays = readdirSync(join(DEPLOY, 'overlays'), { withFileTypes: true }).filter((d) => d.isDirectory());
+  return overlays.flatMap(({ name: overlay }) =>
+    parseAllDocuments(
+      execFileSync('kustomize', ['build', join(DEPLOY, 'overlays', overlay)], {
+        encoding: 'utf-8',
+        maxBuffer: 64 * 1024 * 1024,
+      }),
+    )
+      .map((doc) => doc.toJS() as M | null)
+      .filter((manifest): manifest is M => !!manifest?.kind)
+      .map((manifest) => ({ overlay, manifest })),
+  );
 }

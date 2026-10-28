@@ -102,7 +102,7 @@ import {
   lineStopped,
   sendSignal,
 } from '@software-factory/store';
-import { uuidFrom } from '@software-factory/triage';
+import { uuidFrom } from '@software-factory/triage/events';
 import type { Logger } from 'pino';
 import type { JSONValue, Sql } from 'postgres';
 import { type Controls, controlsInForce } from '../../../../policy/line.ts';
