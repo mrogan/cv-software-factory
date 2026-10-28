@@ -537,10 +537,11 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
     }
     // A look lands on each work item the release carries, not always in the same pass, and not always grouped the same
     // way: the line may have read one work item's between two of the analysis's writes. Each measurement is kept once,
-    // by its measure and its own end, as the line keeps them, whatever look it came in.
+    // by its measure and its own end, as the line keeps them, whatever look it came in. A dry run has no canary to
+    // look at, so it keeps none.
     if (event.type === 'canary.measuring') {
       const r = byId.get(event.payload.release);
-      if (!r || r.end) continue;
+      if (!r || r.end || r.dryRun) continue;
       const { weight, figures } = event.payload;
       const measures = event.payload.measures.filter((m) => !r.seen.has(measurementOf(m)));
       if (!measures.length) continue;
