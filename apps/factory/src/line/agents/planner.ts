@@ -93,8 +93,10 @@ function scopeProblem(entry: string, protectedPaths: readonly string[]): string 
  * its number from 1, and Martin's answers with what he was asked. A criterion's quote is looked for here.
  */
 export interface Sources {
-  /** The ticket, or Martin's request. */
-  ticket: string;
+  /** Which the work item has: a ticket, or Martin's request. A criterion may name only the one it has. */
+  kind: Asked['kind'];
+  /** The ticket, or Martin's request, as the prompt tells it. */
+  asked: string;
   signals: string[];
   answers: string;
 }
@@ -108,13 +110,14 @@ export const sourcesOf = ({
   signals,
   answers,
 }: Pick<PlannerInput, 'asked' | 'signals' | 'answers'>): Sources => ({
-  ticket: [askedTitle(asked), ...askedLines(asked, signals)].join('\n'),
+  kind: asked.kind,
+  asked: [askedTitle(asked), ...askedLines(asked, signals)].join('\n'),
   signals: signals.map((signal) => seen(signal).join('\n')),
   answers: answers.map(answered).join('\n'),
 });
 
 /** No sources at all: every quote is refused. */
-const NOTHING: Sources = { ticket: '', signals: [], answers: '' };
+const NOTHING: Sources = { kind: 'ticket', asked: '', signals: [], answers: '' };
 
 /**
  * Words as a quote is matched: in one case, with one kind of apostrophe and quotation mark, and one space between
@@ -139,7 +142,8 @@ const within = (words: string, source: string) => {
  */
 export function quoteProblem(from: string, quote: string, sources: Sources): string | undefined {
   const named: string[] = [];
-  if (/\b(ticket|request)\b/i.test(from)) named.push(sources.ticket);
+  // A ticket's criterion names the ticket, and an improvement's the request: never the one the work item has not.
+  if ((sources.kind === 'ticket' ? /\bticket\b/i : /\brequest\b/i).test(from)) named.push(sources.asked);
   // `signal 2`, `signals 1 and 2`, `signals 1, 3`, `signal #2`
   for (const [, list = ''] of from.matchAll(/\bsignals?\s*((?:#?\d+(?:\s*(?:,|and|&|\+|-|–)\s*)?)+)/gi)) {
     for (const [n] of list.matchAll(/\d+/g)) {
@@ -152,7 +156,11 @@ export function quoteProblem(from: string, quote: string, sources: Sources): str
     if (!sources.answers) return 'Martin has answered nothing yet';
     named.push(sources.answers);
   }
-  if (!named.length) return 'from names the ticket, a signal by its number, or Martin’s answer';
+  if (!named.length) {
+    return sources.kind === 'ticket'
+      ? 'from names the ticket, a signal by its number, or Martin’s answer'
+      : 'from names the request, or Martin’s answer';
+  }
   const words = unquoted(quote);
   if (words.split(' ').length < 2) return 'a quote is the words that ask for the criterion: two or more of them';
   if (!named.some((source) => within(words, source)))

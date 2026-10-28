@@ -205,6 +205,7 @@ describe('an improvement’s spec', () => {
     ]);
     expect(from({ ...on, from: 'the ticket' })).toEqual([
       'an improvement’s criterion is from the request, or from Martin’s answer',
+      'from names the request, or Martin’s answer',
     ]);
   });
 
@@ -614,6 +615,8 @@ describe('the words each criterion quotes', () => {
     expect(problem('signal 2', 'new error pattern')?.message).toBe('there is no signal 2');
     expect(problem('Martin’s answer', 'new error pattern')?.message).toBe('Martin has answered nothing yet');
     expect(problem('the code', 'new error pattern')?.message).toMatch(/^from names the ticket/);
+    // Only an improvement has a request: a ticket's criterion that names one names nothing it has.
+    expect(problem('the request', 'Server errors on /search')?.message).toMatch(/^from names the ticket/);
     expect(problem('the ticket', '/')?.message).toMatch(/two or more of them/);
     expect(problem('the ticket', 'the')?.message).toMatch(/two or more of them/);
     // Whole words only: the inside of a word is no quote of it.

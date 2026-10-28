@@ -25,10 +25,12 @@ export function requestTitle(words: string): string {
   const first = end ? text.slice(0, end.index + (end[0] === '\n' ? 0 : 1)) : text;
   const sentence = collapse(first).replace(/\.$/, '');
   const title = sentence || collapse(words);
-  if (title.length <= REQUEST_TITLE) return title;
+  // Measured and cut by code points, as a reader counts characters, so an emoji is one and is never split.
+  const characters = [...title];
+  if (characters.length <= REQUEST_TITLE) return title;
   // Room for the mark: the cut is at most one character short of the whole.
-  const within = title.slice(0, REQUEST_TITLE);
+  const within = characters.slice(0, REQUEST_TITLE).join('');
   const space = within.lastIndexOf(' ');
-  const cut = space > 0 ? within.slice(0, space) : [...title].slice(0, REQUEST_TITLE - 1).join('');
+  const cut = space > 0 ? within.slice(0, space) : characters.slice(0, REQUEST_TITLE - 1).join('');
   return `${cut.replace(/[\s,;:–—-]+$/, '')}…`;
 }
