@@ -9,8 +9,9 @@
  *   passkey (`flag.to-checks` in the access table); every other is `flag.widen`, with it. A larger share is a widening.
  * - **Turning back on**: a flag turned off from Everyone may go straight back to Everyone, with the passkey
  *   (`flag.back-on`). Any other flag that is off widens from Checks, but one Martin turned off on the work item whose
- *   spec names it: Off closes that work item as turned off, so the flag stays off, its code in the app, and only a
- *   flag turned off from Everyone goes back on. The same flag on a later improvement's work item widens afresh.
+ *   spec names it: Off closes that work item as turned off, or leaves it closed as verified once the flag reached
+ *   Everyone, so the flag stays off, its code in the app, and only a flag turned off from Everyone goes back on. The
+ *   same flag on a later improvement's work item widens afresh.
  * - **Narrowing** may go to any lower stage, or a smaller share, and **Off** from any stage, each with no passkey: they
  *   only tighten, so neither is refused, but for narrowing into Share, which is held as widening into it is. A flag
  *   once staged can always be turned off, on the work item it was staged on.
@@ -172,14 +173,15 @@ function refusalOf(
   if (from === null) {
     return `${flag} is set in flagd outside every stage: turn it off first, then widen it a stage at a time.`;
   }
-  // Off closes the work item as turned off, decided by Martin's move, not by when the line gets to the close.
+  // Off on its improvement keeps the flag off, decided by Martin's move, not by when the line gets to the close: it
+  // closes an open improvement as turned off, and one closed as verified at Everyone stays verified.
   if (
     from.stage === 'off' &&
     now.last?.to.stage === 'off' &&
     now.stagedOn === now.workItem &&
     action !== 'flag.back-on'
   ) {
-    return `${flag} was turned off, and #${now.stagedOn} closes as turned off: it stays off. Only a flag turned off from Everyone goes straight back on.`;
+    return `${flag} was turned off on #${now.stagedOn}, and stays off, its code in the app. Only a flag turned off from Everyone goes straight back on.`;
   }
   if (action === 'flag.back-on' && !turnedOffFromEveryone(now)) {
     return 'Only a flag turned off from Everyone goes straight back to it: from Off, Checks comes first.';

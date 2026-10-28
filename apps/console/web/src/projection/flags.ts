@@ -119,12 +119,15 @@ export interface FlagRow {
   /** Turned off by Martin, rather than never widened. */
   turnedOff: boolean;
   /**
-   * Turned off before everyone had it, and its work item closed as turned off (the line closes it once Martin turns
-   * the flag off): folded under Turned off and closed. One turned off from Everyone may go straight back, so it stays.
+   * Turned off, but not from Everyone, and its work item closed, as turned off (the line closes it once Martin turns
+   * the flag off) or as verified (it was on for everyone, then narrowed): folded under Turned off and closed. One
+   * turned off from Everyone may go straight back, so it stays.
    */
   closed: boolean;
   /** Its work item is still open: turning the flag off closes it. */
   open: boolean;
+  /** Its work item closed as verified, once the flag was on for everyone: turning it off then closes nothing more. */
+  done: boolean;
   /**
    * The work item Martin's take of Just one names, when it is another: the line acts on that one alone, so it closes
    * this one as turned off only once it takes more.
@@ -348,8 +351,9 @@ export function flagsView(
       checked: checked && checked.stage === stage.stage ? checked : undefined,
       backOn,
       turnedOff,
-      closed: stage.stage === 'off' && item.outcome === 'turned-off' && !backOn,
+      closed: stage.stage === 'off' && (item.outcome === 'turned-off' || item.outcome === 'verified') && !backOn,
       open: item.closedAt === undefined,
+      done: item.outcome === 'verified',
       justOne: take?.kind === 'just-one' && take.workItem !== workItem ? take.workItem : undefined,
       since: staged ? Date.parse(staged.ts) : (released?.at ?? item.openedAt),
       released,

@@ -436,6 +436,8 @@ function chapterOf(event: PublicEvent, item: ItemState): Pick<Chapter, 'label' |
     case 'work-item.closed':
       // A guardrail that worked needs nobody: quarantine is told in the quiet tone, as closed work is.
       if (event.payload.outcome === 'quarantined') return { label: 'QUARANTINED', tone: 'faint' };
+      // An improvement is verified by its close at Everyone, as a fix is by Verify's pass.
+      if (event.payload.outcome === 'verified' && item.kind === 'improvement') return { label: 'VERIFIED', tone: 'ok' };
       return event.payload.outcome === 'no-change' ||
         event.payload.outcome === 'discarded' ||
         event.payload.outcome === 'turned-off'

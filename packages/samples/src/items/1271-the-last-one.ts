@@ -1,6 +1,7 @@
 /**
  * An improvement Martin asked for: specified, approved, built behind a flag, shipped with it off, widened a stage at a
- * time to everyone (Verify's comparison at Share passing first), and verified in production.
+ * time to everyone (Verify's comparison at Share passing first), and closed as verified once the app held it there. Its
+ * flag stays in Controls, Martin's to turn off.
  */
 import { commitFor, Item } from '../build.ts';
 import { changed, shot } from '../captures.ts';
@@ -199,21 +200,14 @@ export default new Item('1271', '2026-10-01T10:05:00+01:00')
     revision: 'r4',
     steppedUp: true,
   })
-  .verify('5:40:00', 'The acceptance criteria pass in production', {
-    check: 'Acceptance criteria, in production',
-    against: 'v0.8.5',
-    version: 'v0.9.0',
-    variant: 'last-one',
-    marked: shot('last-one/products-marked', 'v0.9.0'),
-  })
-  .at('5:40:01', 'work-item.closed', 'factory', 'Closed: verified', {
+  .at('5:01:00', 'work-item.closed', 'factory', 'Closed: last-one is on for everyone', {
     outcome: 'verified',
-    reason: 'The acceptance criteria pass in production',
+    reason: "Martin widened last-one to Everyone, after Verify's comparison at Share passed",
   })
-  .at('5:40:02', 'work-item.summarised', 'factory', 'Summary written', {
+  .at('5:01:01', 'work-item.summarised', 'factory', 'Summary written', {
     title: 'Say when it is the last one',
     description:
       'A product with one left now says “The last one” on its card. It shipped behind a flag, off, which Martin widened a stage at a time to everyone.',
     story:
-      'Martin asked for products with one left to say so on their cards, so nobody has to open a product to find it is the last. The planner wrote a spec with three acceptance criteria, and Martin approved it. The coder wrote the tests first, then the change, behind the last-one flag. Every check passed, the reviewer’s one suggestion was taken, and v0.9.0 went out behind a canary with the flag off. Martin widened it a stage at a time: Checks, Preview, then half the traffic generator’s requests, where Verify compared the two sides and found them alike, and then everyone. The acceptance criteria passed in production. Only the pages that list products changed.',
+      'Martin asked for products with one left to say so on their cards, so nobody has to open a product to find it is the last. The planner wrote a spec with three acceptance criteria, and Martin approved it. The coder wrote the tests first, then the change, behind the last-one flag. Every check passed, the reviewer’s one suggestion was taken, and v0.9.0 went out behind a canary with the flag off. Martin widened it a stage at a time: Checks, Preview, then half the traffic generator’s requests, where Verify compared the two sides and found them alike, and then everyone, where the line closed it as verified. Only the pages that list products changed.',
   });
