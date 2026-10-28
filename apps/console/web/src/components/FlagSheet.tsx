@@ -359,7 +359,8 @@ export function FlagSection({
         Each stage is Martin’s, here or in Controls; widening asks for his passkey.
       </p>
       <FlagSlider row={row} onChoose={admin.kind === 'martin' ? (stop) => setChoosing(stop.to) : undefined} />
-      {choosing && admin.kind === 'martin' && (
+      {/* As in Controls, a flag closed meanwhile takes its confirmation with it: no move is left to make. */}
+      {choosing && admin.kind === 'martin' && !row.closed && (
         <Suspense fallback={null}>
           <FlagDialog
             row={row}
