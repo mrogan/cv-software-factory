@@ -5,9 +5,11 @@ name: check
 # Some are lighter (the `kind` job): the App's release and deploy pull requests, and anyone's that changes only
 # manifests, run no browser tests, and a deploy or manifests pull request's images are checked rather than built. They
 # also run on the merge queue's commit for a pull request, which holds the change on main as it will merge, and is the
-# very commit main moves to: everything runs there, whatever the pull request is. That run is main's test, so nothing
-# runs again on main after a merge. The README's badge reports the queue's latest run, which may be of a pull request
-# the queue turned away rather than of main.
+# very commit main moves to. Everything runs there but for the App's deploy, which is told apart there as on its pull
+# request and runs as light, its tests standing on the queue's run of the commit it is made on; a release or manifests
+# pull request runs everything there. That run is main's test, so nothing runs again on main after a merge. The
+# README's badge reports the queue's latest run, which may be of a pull request the queue turned away rather than of
+# main.
 on:
   pull_request:
   merge_group:
@@ -23,21 +25,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Which checks can see what a pull request changes. A skipped job counts as passed for the ruleset, so only these skip
-  # any, each tested on the exact files that change:
-  # - `release` and `deploy`: the factory's App opened it and nobody has changed it, so the test is the author too, and
-  #   for a release the lines that change, and that it merges into main. A release runs no tests: nothing they read
-  #   changes (scripts/release-files.test.ts), so the commit it is made on passing them in the merge queue stands
-  #   for it.
+  # Which checks can see what a change makes (scripts/check-kind.sh). A skipped job counts as passed for the ruleset, so
+  # only these skip any, each tested on the exact files and lines that change:
+  # - `release` and `deploy`: the factory's App opened it, into main, so the test is the author too, and the lines that
+  #   change: for a release, only the changelog, the release manifest and package.json's version; for a deploy, only
+  #   the digests of the images the local profile's two pin files pin. Neither runs the tests: nothing they read
+  #   changes (scripts/release-files.test.ts, scripts/deploy-files.test.ts), so the commit it is made on passing them
+  #   in the merge queue stands for it.
   # - `manifests`: anyone's, changing only files under deploy/. No image copies anything from there
   #   (scripts/dockerfiles.test.ts), and nothing the browser tests run reads it (scripts/browser-tests.test.ts), but
   #   for the Postgres the console's run beside: a change to its pin is `code`.
-  # Anything else, or this job failing, is `code` and runs everything; so is every run that is not a pull request's,
-  # the merge queue's included.
+  # In the merge queue, whose event names no pull request, only `deploy` is told, by the same test on the change from
+  # the commit the queue's entry is made on, with the author and base of the pull request its branch names, read from
+  # the API. Anything else, or this job failing, is `code` and runs everything: the job writes the kind last, once it
+  # has it, so a job that fails has none.
   kind:
     name: which checks apply
     runs-on: ubuntu-24.04
     timeout-minutes: 3
+    permissions:
+      contents: read
+      # The queue's pull request, for its author and base.
+      pull-requests: read
     outputs:
       kind: ${{ steps.which.outputs.kind }}
       base: ${{ steps.which.outputs.base }}
@@ -47,7 +56,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # The merge commit and its parents: the first is the base, so the diff between them is what would merge.
+          # The merge commit and its parents, or the queue's commit and the one it is made on: the first parent is the
+          # base, so the diff between them is what would merge.
           fetch-depth: 2
       # The Postgres the console's browser tests run beside, the cluster's, from CI's copy of it (scripts/ci-images.sh).
       # First, so that the output is set even when the step below fails.
@@ -60,30 +70,13 @@ jobs:
       - id: which
         env:
           AUTHOR: ${{ github.event.pull_request.user.login }}
+          QUEUE_BRANCH: ${{ github.event.merge_group.head_ref }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          kind=code
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            # Both sides of a rename, so that moving a file into deploy/ counts the place it left.
-            files=$(git diff --name-only --no-renames HEAD^1 HEAD)
-            if [ "$AUTHOR" = 'mrogan-software-factory[bot]' ]; then
-              # Every changed line of package.json is its version.
-              other_lines=$(git diff --unified=0 HEAD^1 HEAD -- package.json | grep -E '^[-+]' | grep -vE '^(\+\+\+|---) ' | grep -vE '^[-+]  "version": "[^"]+",$' || true)
-              if [ "$GITHUB_BASE_REF" = main ] && [ -n "$files" ] && [ -z "$other_lines" ] \
-                && ! grep -vqxE 'CHANGELOG\.md|package\.json|\.release-please-manifest\.json' <<< "$files"; then
-                kind=release
-              elif [ -n "$files" ] && ! grep -vqxE 'deploy/overlays/local/(console|factory)-image/kustomization\.yaml' <<< "$files"; then
-                kind=deploy
-              fi
-            fi
-            # The console's browser tests run beside the Postgres this pins (scripts/ci-images.sh postgres).
-            if [ "$kind" = code ] && [ -n "$files" ] && ! grep -vqE '^deploy/' <<< "$files" \
-              && ! grep -qxF 'deploy/base/postgres/statefulset.yaml' <<< "$files"; then
-              kind=manifests
-            fi
-          fi
+          base=$(git rev-parse HEAD^1)
+          kind=$(scripts/check-kind.sh)
           echo "$kind"
-          echo "kind=$kind" >> "$GITHUB_OUTPUT"
-          echo "base=$(git rev-parse HEAD^1)" >> "$GITHUB_OUTPUT"
+          printf 'kind=%s\nbase=%s\n' "$kind" "$base" >> "$GITHUB_OUTPUT"
 
   # `make check` in two halves side by side, the tests in three parts, each on a runner of its own. A part that fails
   # stops none of the others, so a run shows every failure.
@@ -108,8 +101,8 @@ jobs:
   tests:
     name: tests (${{ matrix.shard }})
     needs: kind
-    # Skipped only for a release pull request: the required check below stands on its base's tests instead.
-    if: ${{ !cancelled() && needs.kind.outputs.kind != 'release' }}
+    # Skipped only for a release or a deploy: the required check below stands on its base's tests instead.
+    if: ${{ !cancelled() && !contains(fromJSON('["release", "deploy"]'), needs.kind.outputs.kind) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     strategy:
@@ -136,16 +129,18 @@ jobs:
           SHARD: ${{ matrix.shard }}
 
   # The one check the ruleset requires of `make check` (scripts/github-settings.ts), so that it need not change when it
-  # is split differently. It passes when both halves passed, every part of the tests included; for a release, when the
-  # static half passed and the commit on main it is made on passed this check in the merge queue, before it landed. It
-  # runs whatever they did, a cancelled run included, since a skipped job counts as passed.
+  # is split differently. It passes when both halves passed, every part of the tests included; for a release or a
+  # deploy, when the static half passed and the commit it is made on passed this check in the merge queue: main's
+  # commit, which passed before it landed, or, for a deploy in the queue, that or the queue's entry ahead of it. A
+  # deploy's run in the queue passes only so, so each pass stands on a run of the tests, back along its bases. It runs
+  # whatever they did, a cancelled run included, since a skipped job counts as passed.
   check:
     name: lint, types, tests
     needs: [kind, static, tests]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
-    # Long enough for a release to wait out a re-run of the queue's run of this check on its base, which runs
-    # everything.
+    # Long enough for a release or a deploy to wait out a re-run of the queue's run of this check on its base, or the
+    # run of the entry ahead of it in the queue, which may run everything.
     timeout-minutes: 20
     permissions:
       actions: read
@@ -159,12 +154,16 @@ jobs:
         run: |
           echo "kind: $KIND, static: $STATIC, tests: $TESTS"
           [ "$STATIC" = success ] || exit 1
-          [ "$KIND" = release ] || { [ "$TESTS" = success ]; exit; }
+          case "$KIND" in
+            release | deploy) ;;
+            *) [ "$TESTS" = success ]; exit ;;
+          esac
           [ -n "$BASE" ] || exit 1
-          # This check in this workflow's latest run on the base in the merge queue, whose commit is the one main moved
-          # to, so the run finished before the commit landed and is found at once; a run re-run is waited for, and its
-          # latest attempt read. A call that fails is tried again. A base the queue never ran on reached main some
-          # other way: GitHub's list can lag a moment behind a run, so it fails once a minute's asking finds none.
+          # This check in this workflow's latest run on the base in the merge queue. On main, the queue's commit is the
+          # one main moved to, so the run finished before the commit landed and is found at once; the entry ahead of a
+          # deploy in the queue has its run under way, and it is waited for, as is a run re-run, its latest attempt
+          # read. A call that fails is tried again. A base the queue never ran on reached main some other way: GitHub's
+          # list can lag a moment behind a run, so it fails once a minute's asking finds none.
           runs="repos/$GITHUB_REPOSITORY/actions/workflows/check.yml/runs?event=merge_group&head_sha=$BASE"
           missing=0
           for _ in $(seq 72); do
@@ -192,7 +191,8 @@ jobs:
   console-browser:
     name: console browser tests (${{ matrix.part }})
     needs: kind
-    # Skipped only for a release, deploy or manifests pull request: they change nothing a browser test could see.
+    # Skipped only for a release, deploy or manifests pull request, and a deploy in the merge queue: they change nothing
+    # a browser test could see.
     if: ${{ !cancelled() && !contains(fromJSON('["release", "deploy", "manifests"]'), needs.kind.outputs.kind) }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
@@ -306,7 +306,7 @@ jobs:
 
   # The one check the ruleset requires of the browser tests (scripts/github-settings.ts), so that it need not change
   # when they are split differently. It passes when every job passed, every part of the console's and ZAP's scan
-  # included, and is skipped, as they are, for a release, deploy or manifests pull request.
+  # included, and is skipped, as they are, for a release, deploy or manifests pull request, and a deploy in the queue.
   browser:
     name: browser tests
     needs: [kind, console-browser, senses-browser, zap]
@@ -323,8 +323,9 @@ jobs:
           [ "$CONSOLE" = success ] && [ "$SENSES" = success ] && [ "$ZAP" = success ]
 
   # A deploy or manifests pull request builds nothing, since no image holds what it changes: it checks that each image it
-  # pins was built from main. Any change that moves a pin checks that the images it moves to were signed there. A
-  # release pull request changes nothing an image holds or pins, so it skips this.
+  # pins was built from main, and so does a deploy in the merge queue. Any change that moves a pin checks that the
+  # images it moves to were signed there. A release pull request changes nothing an image holds or pins, so it skips
+  # this.
   image:
     name: image builds
     needs: kind

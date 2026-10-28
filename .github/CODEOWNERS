@@ -23,6 +23,7 @@
 /tsconfig.base.json          @mrogan
 /vitest.config.ts            @mrogan
 /scripts/commit-msg.ts       @mrogan
+/scripts/check-kind.sh       @mrogan
 
 # Intent, specification and reference material
 /docs/INTENT.md              @mrogan

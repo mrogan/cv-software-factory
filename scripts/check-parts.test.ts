@@ -51,9 +51,9 @@ describe('make check in CI', () => {
     expect(check).toMatch(/^ {4}needs: \[kind, static, tests\]$/m);
     // Otherwise a part that failed, or a run cancelled, would skip the check, and a skipped job counts as passed.
     expect(check).toMatch(/^ {4}if: \$\{\{ always\(\) \}\}$/m);
-    // The tests are skipped for a release and nothing else.
+    // The tests are skipped for a release or a deploy and nothing else.
     expect(jobs.get('tests')).toMatch(
-      /^ {4}if: \$\{\{ !cancelled\(\) && needs\.kind\.outputs\.kind != 'release' \}\}$/m,
+      /^ {4}if: \$\{\{ !cancelled\(\) && !contains\(fromJSON\('\["release", "deploy"\]'\), needs\.kind\.outputs\.kind\) \}\}$/m,
     );
   });
 });
@@ -108,27 +108,35 @@ const status = (...args: Parameters<typeof required>) => required(...args).statu
 describe('the required check', () => {
   it.each(['failure', 'cancelled', 'skipped'])('fails a pull request when a part of its tests was %s', (tests) => {
     expect(status({ KIND: 'code', STATIC: 'success', TESTS: tests })).toBe(1);
-    expect(status({ KIND: 'deploy', STATIC: 'success', TESTS: tests })).toBe(1);
+    expect(status({ KIND: 'manifests', STATIC: 'success', TESTS: tests })).toBe(1);
   });
 
-  it('fails any pull request whose static half did not pass, a release too', () => {
+  it.each(['release', 'deploy'])('fails any pull request whose static half did not pass, a %s too', (kind) => {
     expect(status({ KIND: 'code', STATIC: 'failure', TESTS: 'success' })).toBe(1);
     const passed = { run: '42', state: 'completed success' };
-    expect(status({ KIND: 'release', STATIC: 'cancelled', TESTS: 'skipped' }, passed)).toBe(1);
+    expect(status({ KIND: kind, STATIC: 'cancelled', TESTS: 'skipped' }, passed)).toBe(1);
   });
 
   it('passes a pull request whose parts all passed', () => {
     expect(status({ KIND: 'code', STATIC: 'success', TESTS: 'success' })).toBe(0);
   });
 
-  it('passes a release only once the merge queue passed it on the commit the release is made on', () => {
-    const release = { KIND: 'release', STATIC: 'success', TESTS: 'skipped' };
-    expect(status(release, { run: '42', state: 'completed success' })).toBe(0);
-    expect(status(release, { run: '42', state: 'completed failure' })).toBe(1);
-    expect(status(release, { run: '42', state: 'completed cancelled' })).toBe(1);
-    // Never finished, or never ran: it gives up, failed.
-    expect(status(release, { run: '42', state: 'in_progress null' })).toBe(1);
-    expect(status({ ...release, BASE: '' }, { run: '42', state: 'completed success' })).toBe(1);
+  it.each(['release', 'deploy'])(
+    'passes a %s only once the merge queue passed it on the commit it is made on',
+    (kind) => {
+      const release = { KIND: kind, STATIC: 'success', TESTS: 'skipped' };
+      expect(status(release, { run: '42', state: 'completed success' })).toBe(0);
+      expect(status(release, { run: '42', state: 'completed failure' })).toBe(1);
+      expect(status(release, { run: '42', state: 'completed cancelled' })).toBe(1);
+      // Never finished, or never ran: it gives up, failed.
+      expect(status(release, { run: '42', state: 'in_progress null' })).toBe(1);
+      expect(status({ ...release, BASE: '' }, { run: '42', state: 'completed success' })).toBe(1);
+    },
+  );
+
+  it("does not take a run's passing tests for its base's: a deploy's stand on the queue's run alone", () => {
+    expect(status({ KIND: 'deploy', STATIC: 'success', TESTS: 'success' })).toBe(1);
+    expect(status({ KIND: 'release', STATIC: 'success', TESTS: 'success' })).toBe(1);
   });
 
   it("reads the queue's latest run on the base, and that run's latest attempt", () => {
