@@ -177,22 +177,17 @@ describe('what leaves the cluster of a report, whatever the text', () => {
 });
 
 /**
- * The least processor time (`processorTime`) each of two texts takes to scrub, of five tries taken in turn, so one
- * pause for garbage collection does not count as the code's. It is the time this process spent working, not the time
- * on the clock: on a busy runner the long text, which takes a few tens of milliseconds, would be taken off the
- * processor nearly every time and the short one often not, which looks like time growing faster than the text.
+ * The least processor time each of two texts takes to scrub, of five tries taken in turn, so one pause for garbage
+ * collection does not count as the code's. It is the time this process spent working, not the time on the clock: on a
+ * busy runner the long text, which takes a few tens of milliseconds, would be taken off the processor nearly every
+ * time and the short one often not, which looks like time growing faster than the text.
  */
 function timesOf(short: string, long: string): [number, number] {
+  const time = (text: string) => processorTime(() => scrub(text));
   let [leastShort, leastLong] = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
   for (let i = 0; i < 5; i++) {
-    leastShort = Math.min(
-      leastShort,
-      processorTime(() => scrub(short)),
-    );
-    leastLong = Math.min(
-      leastLong,
-      processorTime(() => scrub(long)),
-    );
+    leastShort = Math.min(leastShort, time(short));
+    leastLong = Math.min(leastLong, time(long));
   }
   return [leastShort, leastLong];
 }
