@@ -278,26 +278,24 @@ describe('the server that answers for a flag’s check', () => {
     let runs = 0;
     const answer: FlagCheckAnswer = { kind: 'have', version: V1 };
     // The test, not a timer, says when the run ends, so both requests before it find it running however slow they are.
-    let finish = () => {};
-    const gate = new Promise<void>((resolve) => {
-      finish = resolve;
-    });
+    const gate = Promise.withResolvers<void>();
     const { base, close } = await serve(async () => {
       runs++;
-      await gate;
+      await gate.promise;
       return answer;
     });
     try {
       const client = new ProbesClient(base);
       expect(await client.flagCheck(off())).toBeNull();
       expect(await client.flagCheck(off())).toBeNull();
-      finish();
+      gate.resolve();
       await settled();
       expect(await client.flagCheck(off())).toEqual(answer);
       expect(runs).toBe(1);
       // Another request is another run.
       expect(await client.flagCheck(off({ have: V2 }))).toBeNull();
     } finally {
+      gate.resolve();
       await close();
     }
   });
