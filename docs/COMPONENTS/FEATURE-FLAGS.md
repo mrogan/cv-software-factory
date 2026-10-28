@@ -4,7 +4,20 @@ Ship improvements switched off; a kill switch without a rollback. Part of the [r
 
 An improvement Martin asks for is planned behind a flag its spec names. Its change is built, reviewed and merged as a fix's is, and once its release is promoted the line hands it over, off ([an improvement](ORCHESTRATOR.md#an-improvement)). From then on Martin widens its flag a stage at a time, and Verify judges each stage ([Verify by variant](RELEASE-AND-VERIFY.md#verify-by-variant)).
 
-- **v1:** OpenFeature with flagd.
+- **v1:** OpenFeature with flagd ([ADR 0015](../architecture/adr/0015-feature-flags.md)). [How an improvement goes out](../architecture/flags.html), stage by stage, is drawn as an explainer.
+
+## An improvement, end to end
+
+Each step is on the page that does it:
+
+1. **Asked for.** Martin asks with the "+" on Plan, in his own words, giving his passkey again; it reaches his phone ([admin service](ADMIN-SERVICE.md#an-improvement)). The work item is of kind improvement, and waits behind every open ticket ([an improvement](ORCHESTRATOR.md#an-improvement)), unless he takes it with Just one.
+2. **Its spec, held.** The planner names its title, a flag of its own, the pages it changes, and criteria with the flag on and off ([an improvement's spec](PLANNER.md#an-improvements-spec)). Every spec of an improvement is held for Martin (`spec`) before any code, and approving it takes his passkey again.
+3. **Built behind the flag.** The coder writes each criterion's test with the flag on or off, and every new behaviour behind `await request.flag('<flag>')` ([coder](CODER.md#its-prompt)). A file it needs outside the scope holds the work item as `scope`, as for a fix ([holds](ORCHESTRATOR.md#holds-and-martins-answers)).
+4. **Reviewed.** The reviewer holds the spec to Martin's request and the change to its flag ([reviewer](REVIEWER.md#what-it-holds-the-change-to)). Approving a held review answers and resolves its open threads as his acceptance.
+5. **Its merge waits for Martin,** in every autonomy mode; then it is released through a canary as a fix is, switched off.
+6. **Handed over** once its release is promoted: its row on the line ends, its issue says the change is in, off, and the work item stays open for its flag ([an improvement](ORCHESTRATOR.md#an-improvement)).
+7. **Staged by Martin, judged by Verify.** With the flag off, Verify has the probes picture its pages in light and in dark, as a baseline. At Checks and Preview the probes run again with the flag on, and Martin sees each page off and on; at Share, Verify compares the flag's two sides on the traffic generator's requests ([Verify by variant](RELEASE-AND-VERIFY.md#verify-by-variant)). Each stage waits for the check before it.
+8. **Closed.** Everyone closes the work item as verified; Off, at any stage below it, closes it as turned off, with no rollback. Off stays the kill switch after Everyone, and closes nothing more ([the stages](#the-stages)).
 
 ## Where it runs
 
