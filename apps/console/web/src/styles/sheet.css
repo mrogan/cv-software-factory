@@ -1134,3 +1134,51 @@ table.scope th {
     font-size: 10.5px;
   }
 }
+
+/* An improvement: Martin's request, in his words, ruled on the left as his rows in the audit log are. */
+.martins-request {
+  margin: 0;
+  padding: 14px 18px;
+  max-width: 760px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-left: var(--stroke-rule) solid var(--text);
+  border-radius: var(--radius-rule) var(--radius-card) var(--radius-card) var(--radius-rule);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.martins-request blockquote {
+  margin: 0;
+  font: 400 22px / 1.3 var(--font-display);
+}
+.martins-request blockquote::before {
+  content: "“";
+}
+.martins-request blockquote::after {
+  content: "”";
+}
+/* Its spec: what it changes, its flag and its pages, then each criterion's side of the flag. */
+.spec-dl {
+  margin: 0 0 12px;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 18px;
+  padding: 14px 16px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  font-size: 13.5px;
+}
+.spec-dl dt {
+  color: var(--text-muted);
+}
+.spec-dl dd {
+  margin: 0;
+}
+.criteria small.side {
+  display: block;
+  margin-top: 3px;
+  font: 11px / 1.3 var(--font-mono);
+  color: var(--text-muted);
+}

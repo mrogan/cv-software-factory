@@ -208,7 +208,7 @@ function Body({ block, flag, app }: { block: FlagBlock; flag: FlagSheet; app: st
           )}
           {block.current && app && !row.turnedOff && (
             <p className="rel-end">
-              <a href={previewHref(app, row.name)} target="_blank" rel="noopener">
+              <a href={previewHref(app, row.name, row.page)} target="_blank" rel="noopener">
                 Preview it on the app<span aria-hidden="true"> ↗</span>
                 <span className="sr"> (opens a new tab)</span>
               </a>

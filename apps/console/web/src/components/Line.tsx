@@ -1,12 +1,15 @@
 /**
  * The line: one station per stage, each captioned with its state word and one figure, the returns drawn over them
- * one at a time, and a panel per stage listing what is in it.
+ * one at a time, and a panel per stage listing what is in it. Plan carries the "+", a `signal` disc, and its panel ends
+ * with the same: Martin asks for an improvement there, and everyone else reads how he does (`ImproveDialog.tsx`).
  */
 import type { Sense, Stage } from '@software-factory/events';
 import { STAGES } from '@software-factory/events';
 import {
   type CSSProperties,
+  lazy,
   type ReactElement,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -14,6 +17,7 @@ import {
   useState,
 } from 'react';
 import { STAGE_NAME, STATE } from '../../../../../docs/design/system/station.ts';
+import type { Admin } from '../admin.ts';
 import { clock, duration, shortVersion } from '../format.ts';
 import {
   type CapSpell,
@@ -27,6 +31,20 @@ import {
   whileSending,
 } from '../projection/index.ts';
 import { Glyph } from './Glyph.tsx';
+
+/** The "+"'s dialog arrives when it is first opened. */
+const ImproveDialog = lazy(() => import('./ImproveDialog.tsx').then((module) => ({ default: module.ImproveDialog })));
+
+/** What the "+" is called: Martin asks with it, and everyone else reads how. */
+const plusName = (admin: Admin) =>
+  admin.kind === 'martin' ? 'Request an improvement' : 'How Martin asks for an improvement';
+
+/** The "+" drawn small, as the disc and the panel's button carry it. */
+const PLUS = (
+  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+    <path d="M6 1.5V10.5M1.5 6H10.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+  </svg>
+);
 
 const BLURB: Record<Stage, string> = {
   sense: 'What the probes, the crawler, telemetry and visitor reports picked up.',
@@ -165,12 +183,15 @@ interface LineProps {
   view: View;
   motion: boolean;
   onOpen: (item: string) => void;
+  /** Who is looking: Martin's "+" asks, and everyone else's shows how he does. */
+  admin: Admin;
   /** No events yet: the stations wait, idle, saying so. */
   pending?: boolean;
 }
 
-export function Line({ view, motion, onOpen, pending = false }: LineProps) {
+export function Line({ view, motion, onOpen, admin, pending = false }: LineProps) {
   const [open, setOpen] = useState<Stage | null>(null);
+  const [improving, setImproving] = useState(false);
   const line = useRef<HTMLElement>(null);
   const buttons = useRef(new Map<Stage, HTMLButtonElement>());
   const stopped = view.header.stopped !== undefined;
@@ -206,7 +227,7 @@ export function Line({ view, motion, onOpen, pending = false }: LineProps) {
           const fault = !stopped && !capped && status === 'failed' ? 'Fault. ' : '';
           const figure = capped ? `until ${clock(s.cappedUntil ?? 0)}` : s.figure;
           return (
-            <li key={s.stage}>
+            <li key={s.stage} className={s.stage === 'plan' ? 'plan' : undefined}>
               <button
                 type="button"
                 className="stage"
@@ -240,6 +261,18 @@ export function Line({ view, motion, onOpen, pending = false }: LineProps) {
                   {!pending && <span className={`fig ${capped ? 'keep' : ''}`}>{figure}</span>}
                 </span>
               </button>
+              {s.stage === 'plan' && (
+                <button
+                  type="button"
+                  className="add"
+                  title={plusName(admin)}
+                  aria-label={plusName(admin)}
+                  disabled={pending}
+                  onClick={() => setImproving(true)}
+                >
+                  <span>{PLUS}</span>
+                </button>
+              )}
             </li>
           );
         })}
@@ -284,7 +317,17 @@ export function Line({ view, motion, onOpen, pending = false }: LineProps) {
             setOpen(null);
             onOpen(item);
           }}
+          plus={plusName(admin)}
+          onImprove={() => {
+            setOpen(null);
+            setImproving(true);
+          }}
         />
+      )}
+      {improving && (
+        <Suspense fallback={null}>
+          <ImproveDialog admin={admin} improve={view.improve} onClose={() => setImproving(false)} />
+        </Suspense>
       )}
     </section>
   );
@@ -395,6 +438,9 @@ interface PanelProps {
   container: HTMLElement | null;
   onClose: () => void;
   onOpen: (item: string) => void;
+  /** The "+"'s name, which Plan's panel ends with, and what it opens. */
+  plus: string;
+  onImprove: () => void;
 }
 
 /**
@@ -502,7 +548,7 @@ function Row({ row, first, onOpen }: { row: PanelRow; first: boolean; onOpen: (i
   );
 }
 
-function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelProps) {
+function StagePanel({ stage, view, anchor, container, onClose, onOpen, plus, onImprove }: PanelProps) {
   const panel = useRef<HTMLDivElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
   const [place, setPlace] = useState<CSSProperties>({});
@@ -581,8 +627,17 @@ function StagePanel({ stage, view, anchor, container, onClose, onOpen }: PanelPr
       )}
       {stage === 'plan' && queued > 0 && (
         <div className="ref">
-          <p className="queue-note">Tickets wait here for the planner, which takes one at a time.</p>
+          <p className="queue-note">
+            Tickets wait here for the planner, which takes one at a time, and an improvement Martin asked for waits
+            behind every open ticket.
+          </p>
         </div>
+      )}
+      {stage === 'plan' && (
+        <button type="button" className="btn small plus" onClick={onImprove}>
+          {PLUS}
+          {plus}
+        </button>
       )}
     </div>
   );

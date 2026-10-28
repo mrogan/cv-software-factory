@@ -61,9 +61,10 @@ describe('the samples, projected', () => {
 
   it('keep what waits on Martin in the reel, held when a mechanism stopped it and waiting when the line asked', () => {
     expect(card('1300')?.outcome).toBe('needs-you');
+    expect(card('1334')?.outcome).toBe('needs-you');
     expect(card('1274')?.outcome).toBe('held');
     const station = (stage: string) => view.stations.find((s) => s.stage === stage);
-    expect(station('plan')).toMatchObject({ status: 'blocked', figure: '1 waiting' });
+    expect(station('plan')).toMatchObject({ status: 'blocked', figure: '2 waiting' });
     // Build works on another item beside the two it holds: at work, with its beacon lit.
     expect(station('build')).toMatchObject({ status: 'working', beacon: 'needs-you', figure: '2 held' });
     expect(station('gates')).toMatchObject({ status: 'blocked', figure: '2 held' });

@@ -272,6 +272,7 @@ describe('Needs you', () => {
     expect(needs.holds.map((need) => [need.workItem, need.cause])).toEqual([
       ['1274', 'gates'],
       ['1300', 'question'],
+      ['1334', 'spec'],
       ['1311', 'merge'],
       ['1315', 'scope'],
       ['1317', 'tests-first'],

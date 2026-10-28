@@ -21,6 +21,7 @@ import {
   type Station,
   score,
   station,
+  ticketWaits,
 } from './line.ts';
 import { type NeedsView, needsView } from './needs.ts';
 import { type Card, card, type Timeline, timeline } from './reel.ts';
@@ -104,6 +105,27 @@ export interface View {
   controls: ControlsView;
   /** The feature flags, each at its stage, and those waiting for Martin to widen them. */
   flags: FlagsView;
+  /** What the "+" on Plan says: what a new improvement would wait behind, and Martin's latest request. */
+  improve: ImproveView;
+}
+
+export interface ImproveView {
+  /** The open tickets waiting for the planner: an improvement waits behind every one of them. */
+  tickets: number;
+  /** Martin's latest request, which a visitor's form shows: his words, as everyone may read them, and when. */
+  latest: { workItem: string; words: string; at: number } | undefined;
+}
+
+/** What the "+" says, from the work items. */
+export function improveView(items: readonly ItemState[]): ImproveView {
+  let latest: ImproveView['latest'];
+  for (const item of items) {
+    const { request } = item;
+    if (request && (!latest || request.at >= latest.at)) {
+      latest = { workItem: item.number, words: request.words, at: request.at };
+    }
+  }
+  return { tickets: items.filter(ticketWaits).length, latest };
 }
 
 /** The events that had happened by t, in seq order. */
@@ -134,6 +156,7 @@ export function project(events: readonly PublicEvent[], t: number): View {
     needs: needsView(items, t),
     controls,
     flags: flagsView(seen, items, shipped, t),
+    improve: improveView(items),
   };
 }
 

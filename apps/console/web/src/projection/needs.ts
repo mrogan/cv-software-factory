@@ -18,7 +18,7 @@ import {
   type Stage,
   WORDS_LEAVE_HELD,
 } from '@software-factory/events';
-import { GUARDRAIL_HOLDS } from '../access.ts';
+import { GUARDRAIL_HOLDS, IMPROVEMENT_STEP_UP } from '../access.ts';
 import { APP_REPO, clock, duration, money } from '../format.ts';
 import { deployWords } from './fixing.ts';
 import { deployWaitsForMartin, type ItemState } from './items.ts';
@@ -28,14 +28,16 @@ import { startOfDay } from './line.ts';
 export type Evidence =
   | { kind: 'output'; heading: string; text: string }
   | { kind: 'question'; before: string; question: string }
-  | { kind: 'words'; text: string };
+  | { kind: 'words'; text: string }
+  /** An improvement's spec: the flag it names, the pages it changes, and how many acceptance criteria it has. */
+  | { kind: 'spec'; flag: string | undefined; pages: string[]; criteria: number };
 
 export interface AnswerRow {
   answer: HoldAnswer;
   label: string;
   /** What it does, in a sentence. */
   does: string;
-  /** Whether it asks for the passkey again: approving a guardrail's hold. */
+  /** Whether it asks for the passkey again: approving a guardrail's hold, or an improvement's spec. */
   stepUp: boolean;
 }
 
@@ -93,7 +95,7 @@ const STAGE_NAME: Record<Stage, string> = {
 const ASKS: Partial<Record<Stage, string>> = { plan: 'planner', build: 'coder', review: 'reviewer' };
 
 /** What a hold is, in Martin's words, for its card's kicker. */
-function kickerOf(cause: HoldCause, stage: Stage, opener: string | undefined): string {
+function kickerOf(cause: HoldCause, stage: Stage, opener: string | undefined, improvement: boolean): string {
   switch (cause) {
     case 'suggestion':
       return opener === 'planner' ? 'The planner suggests' : 'A visitor suggests';
@@ -104,7 +106,7 @@ function kickerOf(cause: HoldCause, stage: Stage, opener: string | undefined): s
     case 'environment':
       return 'Held for its backends';
     case 'spec':
-      return 'A spec to approve';
+      return improvement ? 'An improvement’s spec' : 'A spec to approve';
     case 'question':
       return `The ${ASKS[stage] ?? 'line'} asks`;
     case 'ticket-rejected':
@@ -137,7 +139,7 @@ function kickerOf(cause: HoldCause, stage: Stage, opener: string | undefined): s
 }
 
 /** What an answer does, by what the line does with it, for the hold's cause. */
-function doesOf(cause: HoldCause, answer: HoldAnswer, workItem: string): string {
+function doesOf(cause: HoldCause, answer: HoldAnswer, workItem: string, improvement: boolean): string {
   const resolution: Resolution = ANSWERS[cause][answer];
   if (answer === 'answered' && WORDS_LEAVE_HELD.includes(cause)) {
     return cause === 'suggestion'
@@ -160,6 +162,9 @@ function doesOf(cause: HoldCause, answer: HoldAnswer, workItem: string): string 
     if (cause === 'gates') return 'Sends it back to the coder for one more round, past the gates’ limit.';
     if (cause === 'scope') return 'The planner writes the spec again, told the coder needed those files.';
     if (cause === 'spend') return 'The line carries on, and holds again until the cap is raised.';
+    if (cause === 'spec' && improvement) {
+      return 'The coder starts: tests first, with the flag on and off. Its pull request waits for you too.';
+    }
     if (cause === 'spec') return 'The spec goes on to Build as it stands.';
     if (cause === 'question') return 'The line carries on with the spec as it stands.';
   }
@@ -250,6 +255,17 @@ function evidenceOf(item: ItemState, cause: HoldCause): Evidence {
     };
   }
   if (cause === 'deploy') return { kind: 'words', text: deployEvidence(item) };
+  // The planner's latest spec, which the line holds: no other's counts.
+  const spec =
+    item.kind === 'improvement' && cause === 'spec'
+      ? item.events.findLast(
+          (event): event is PublicEvent<'spec.written'> => event.type === 'spec.written' && event.actor === 'planner',
+        )
+      : undefined;
+  if (spec) {
+    const { flag, pages = [], criteria } = spec.payload;
+    return { kind: 'spec', flag, pages, criteria: criteria.length };
+  }
   return { kind: 'words', text: reason };
 }
 
@@ -293,6 +309,11 @@ export function needsView(items: readonly ItemState[], t: number): NeedsView {
         | PayloadOf<'signal.received'>
         | undefined;
       const guardrail = (GUARDRAIL_HOLDS as readonly HoldCause[]).includes(hold.cause);
+      // Approving an improvement's spec sets the line building something new, so it asks for the passkey too, by the
+      // work item's kind, as the admin service decides.
+      const improvement = item.kind === 'improvement';
+      const keyed =
+        guardrail || (hold.cause === 'spec' && improvement && IMPROVEMENT_STEP_UP['hold.approve-improvement-spec']);
       // A deploy waits for Martin from when its pull request's checks passed, as the line's gauge counts it.
       const since = hold.cause === 'deploy' && item.deploy?.state === 'passed' ? item.deploy.at : hold.since;
       return [
@@ -303,7 +324,7 @@ export function needsView(items: readonly ItemState[], t: number): NeedsView {
           kicker:
             hold.cause === 'deploy' && !deployWaitsForMartin(item)
               ? deployWords(item.deploy).kicker
-              : kickerOf(hold.cause, hold.stage, opener?.sense),
+              : kickerOf(hold.cause, hold.stage, opener?.sense, improvement),
           stage: hold.stage,
           waited: waited(t - since),
           since,
@@ -313,8 +334,8 @@ export function needsView(items: readonly ItemState[], t: number): NeedsView {
           answers: answersTo(hold.cause).map((answer) => ({
             answer,
             label: LABEL[answer],
-            does: doesOf(hold.cause, answer, item.number),
-            stepUp: answer === 'approved' && guardrail,
+            does: doesOf(hold.cause, answer, item.number, improvement),
+            stepUp: answer === 'approved' && keyed,
           })),
           aboutReport: opener?.sense === 'report',
           forMartin: hold.cause !== 'deploy' || deployWaitsForMartin(item),

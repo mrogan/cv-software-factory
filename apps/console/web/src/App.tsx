@@ -235,7 +235,13 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
           </section>
           <States source={source} view={view} />
           {/* The stations draw at once, idle, and take their states as the events arrive. */}
-          <Line view={view} motion={motion} onOpen={setOpen} pending={!source.events.length && !settled} />
+          <Line
+            view={view}
+            motion={motion}
+            onOpen={setOpen}
+            admin={admin}
+            pending={!source.events.length && !settled}
+          />
           {settled && (
             <Canary
               view={view.canary}

@@ -265,7 +265,7 @@ function FlagLine({
         {previewing && app && (
           <a
             className="pv-icon"
-            href={previewHref(app, row.name)}
+            href={previewHref(app, row.name, row.page)}
             target="_blank"
             rel="noopener"
             title="Preview it on the app"

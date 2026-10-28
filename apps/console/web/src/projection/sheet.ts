@@ -204,6 +204,8 @@ export interface Sheet {
    * carry any.
    */
   report: { page: string; quarantined: boolean; by: 'visitor' | 'planner'; times: number; texts: string[] } | undefined;
+  /** For an improvement Martin asked for: his request, in his words as everyone may read them, and when. */
+  request: ItemState['request'];
   story: string;
   chapters: Chapter[];
   /** Screenshots taken at the signal, on the canary and at rollout, for the evidence. */
@@ -973,8 +975,10 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
     }
     if (startsPass(event)) pass += 1;
     const chapter = chapterOf(event, item);
-    // Each widening says it was given with the passkey.
-    const keyed = event.type === 'flag.staged' && event.payload.steppedUp && FLAG_STEP_UP[event.payload.action];
+    // Each widening says it was given with the passkey, as does Martin's request, which opens an improvement.
+    const keyed =
+      (event.type === 'flag.staged' && event.payload.steppedUp && FLAG_STEP_UP[event.payload.action]) ||
+      (event.type === 'work-item.opened' && item.request?.steppedUp);
     return chapter ? [{ event, ...chapter, pass, ...(keyed && { text: `${event.summary}, with his passkey` }) }] : [];
   });
   // Work still on the line ends at now, or, for a ticket queued for the planner, waiting at Plan. Work waiting on
@@ -1055,6 +1059,7 @@ export function sheet(item: ItemState, events: readonly PublicEvent[], t: number
             }),
           }
         : undefined,
+    request: item.request,
     story: item.story ?? item.description ?? item.title,
     storyBy: summarised?.actor === 'describer' ? 'describer' : undefined,
     evidence: picture(item, { waits: false }),

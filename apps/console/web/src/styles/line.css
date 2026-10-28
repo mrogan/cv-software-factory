@@ -444,3 +444,45 @@ button.srow:hover {
     font-size: 10px;
   }
 }
+
+/* The "+" on Plan: a `signal` disc at the station's top left, over the belt, which asks for an improvement. */
+.stations li.plan {
+  display: grid;
+  position: relative;
+}
+.add {
+  position: absolute;
+  left: 1%;
+  top: 2%;
+  z-index: 3;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--on-signal);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.add span {
+  width: 26px;
+  height: 26px;
+  border-radius: 13px;
+  background: var(--signal);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 0 0 3px var(--bg);
+  transition: transform 0.15s var(--motion-ease);
+}
+.add:hover span {
+  transform: scale(1.1);
+}
+.add:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+.stage-panel .btn.plus {
+  width: 100%;
+  margin: 6px 0 8px;
+}

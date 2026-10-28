@@ -295,6 +295,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose, app }: She
                 </p>
               )}
               {sheet.report && <Report report={sheet.report} />}
+              {sheet.request && <Request request={sheet.request} />}
               <Section
                 title="How it went"
                 help="Step through the stages. The console shows only what had happened by then: replay and the live view are the same code."
@@ -604,8 +605,26 @@ const RISK_WORDS: Record<string, string> = {
 };
 
 /**
+ * Martin's request for an improvement, in his words as everyone may read them, ruled on the left as his rows in the
+ * audit log are. React inserts them as text.
+ */
+function Request({ request }: { request: NonNullable<SheetData['request']> }) {
+  return (
+    <figure className="martins-request">
+      <span className="label">The request · in Martin’s words · {when(request.at)}</span>
+      <blockquote>{request.words}</blockquote>
+      <figcaption className="help">
+        Asked with the “+” on Plan{request.steppedUp && ', with his passkey'}. An improvement starts only from Martin: a
+        visitor’s suggestion never starts work by itself.
+      </figcaption>
+    </figure>
+  );
+}
+
+/**
  * The spec: its outcome, its criteria, and its scope, with what the pull request changes in it, or what the last
- * patch the fence refused would have.
+ * patch the fence refused would have. An improvement's says, in a box, what it changes, the flag it goes behind and
+ * the pages it changes, and under each criterion the side of the flag it is tested with.
  */
 function SpecSection({ sheet }: { sheet: SheetData }) {
   const { spec, scope, card } = sheet;
@@ -613,6 +632,7 @@ function SpecSection({ sheet }: { sheet: SheetData }) {
   const of = scope?.of;
   const built = of !== undefined;
   const refused = of !== undefined && 'refused' in of;
+  const improvement = card.kind === 'improvement' && spec.flag !== undefined;
   return (
     <Section
       title="The spec"
@@ -620,11 +640,30 @@ function SpecSection({ sheet }: { sheet: SheetData }) {
         built
           ? 'What the planner asked for, and the files it allowed the coder to change. A patch outside them is refused.'
           : card.outcome === 'needs-you'
-            ? 'Acceptance criteria the planner proposes. Nothing is built until Martin approves.'
+            ? improvement
+              ? 'What the planner proposes. Nothing is built until Martin approves it, with his passkey.'
+              : 'Acceptance criteria the planner proposes. Nothing is built until Martin approves.'
             : 'What the planner asked for, and the files it allows the coder to change. A patch outside them is refused.'
       }
     >
-      <p className="spec-outcome">{spec.outcome}</p>
+      {improvement ? (
+        <dl className="spec-dl">
+          <dt>What it changes</dt>
+          <dd>{spec.outcome}</dd>
+          <dt>Its flag</dt>
+          <dd>
+            <code className="flagname">{spec.flag}</code>, off until Martin widens it
+          </dd>
+          {spec.pages && (
+            <>
+              <dt>{spec.pages.length === 1 ? 'The page it changes' : 'The pages it changes'}</dt>
+              <dd className="mono">{spec.pages.join(', ')}</dd>
+            </>
+          )}
+        </dl>
+      ) : (
+        <p className="spec-outcome">{spec.outcome}</p>
+      )}
       <ul className={`criteria ${card.outcome === 'verified' ? 'met' : ''}`}>
         {spec.criteria.map((c) => (
           <li key={c.given + c.when}>
@@ -637,6 +676,7 @@ function SpecSection({ sheet }: { sheet: SheetData }) {
                   <em>FROM</em> {c.from}
                 </>
               )}
+              {c.withFlag && <small className="side">tested with the flag {c.withFlag}</small>}
             </span>
           </li>
         ))}

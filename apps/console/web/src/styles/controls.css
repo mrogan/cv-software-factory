@@ -58,6 +58,17 @@
 .dialog .what b {
   font-weight: 500;
 }
+/* What happens to a request, as a list of facts. */
+.dialog ul.what {
+  margin: 0;
+  padding-left: 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
 .dialog-refusal,
 .canary-refusal,
 .controls-refusal {

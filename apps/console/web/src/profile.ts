@@ -4,6 +4,7 @@
  * whatever the settings say, and the app's address (`APP_URL`), which a flag's "Preview it" opens. Anything unexpected
  * reads as the defaults: `local`, not, and no address.
  */
+import { PAGE_PATH } from '@software-factory/events';
 import { PROFILES, type Profile } from '../../../../policy/spend.ts';
 
 export interface Factory {
@@ -38,5 +39,10 @@ function appOrigin(given: string): string | undefined {
   }
 }
 
-/** Where "Preview it on the app" goes: the app's front page, asking for the flag's preview, which sets its cookie. */
-export const previewHref = (app: string, flag: string) => `${app}/?${new URLSearchParams({ preview: flag })}`;
+/**
+ * Where "Preview it on the app" goes: the page the flag's spec changes first, or the front page when it names none, or
+ * names one that is not a path alone (`PAGE_PATH`, as `spec.written` holds it), asking for the flag's preview, which
+ * sets its cookie.
+ */
+export const previewHref = (app: string, flag: string, page = '/') =>
+  `${app}${PAGE_PATH.test(page) ? page : '/'}?${new URLSearchParams({ preview: flag })}`;

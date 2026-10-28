@@ -562,7 +562,7 @@ The "+" stays where it is, a `signal` disc on the Plan station, and Plan's panel
 - A box of three facts: it waits behind every open ticket (how many now), oldest first, and Just one in Controls takes it at once; it ships behind a flag of its own, off, widened a stage at a time from Controls; visitors see the words, with anything shaped like a secret left out.
 - **Request**, with the key while the passkey is not fresh, and under it why: requesting widens what the line does, so it asks for the passkey again, and tells his phone.
 
-Once asked, the work item is a row at the top of Plan's panel ("asked just now · waiting behind the open tickets"), and a card on the reel. Nothing else announces it.
+Once asked, the work item is a row in Plan's panel, waiting with the tickets ("Asked by Martin · waiting behind the open tickets", or "waiting for the planner" when no ticket waits), and a card on the reel. Nothing else announces it.
 
 **For a visitor** the "+" is there too, titled "How Martin asks for an improvement", and Plan's panel's button says the same. It opens the same dialog, read-only, titled **How Martin asks**: the field holds Martin's latest request, disabled, with when he asked; the facts speak of him ("he widens it"), and the last one says that a suggestion sent from the app reaches Martin and never starts work by itself; **Request** is a label beside "Martin requests it signed in, with his passkey again: it widens what the line does", and the only button is Close.
 
@@ -588,7 +588,7 @@ The facts gain **Flag**: its name and stage ("delivery-dates · preview", or "pr
 
 ### The flags in Controls
 
-A group of its own, **Flags**, between What the line takes and Spend, with how many flags the app has. One row per flag, so ten fit without the panel growing much: its name in code, its work item's number as a link that opens the sheet, from Preview up an eye on the right, 16px in `text-muted`, whose tooltip and accessible name say "Preview it on the app" (it opens the app in a new tab with `?preview=` on its front page (a spec does not yet record the pages it changes), which sets the preview cookie in that browser for a day), and the slider. Nothing else: what a stage means, and why one cannot be taken, is said when it is chosen.
+A group of its own, **Flags**, between What the line takes and Spend, with how many flags the app has. One row per flag, so ten fit without the panel growing much: its name in code, its work item's number as a link that opens the sheet, from Preview up an eye on the right, 16px in `text-muted`, whose tooltip and accessible name say "Preview it on the app" (it opens the app in a new tab with `?preview=` on the first page the spec changes, or its front page when the spec names none, which sets the preview cookie in that browser for a day), and the slider. Nothing else: what a stage means, and why one cannot be taken, is said when it is chosen.
 
 **Setting a stage.** Martin clicks a stop, or drags the handle and lets go on one; the handle follows the pointer and, until the change is applied, goes back to where the flag stands. Either opens one confirmation, a dialog as the others are, whose box says the move ("PREVIEW → SHARE") and who gets it on there, in the table's words:
 
