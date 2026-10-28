@@ -391,6 +391,10 @@ importers:
       zod:
         specifier: ^4.6.7
         version: 4.6.7
+    devDependencies:
+      '@software-factory/testing':
+        specifier: workspace:*
+        version: link:../testing
 
   packages/samples:
     dependencies:
@@ -440,6 +444,10 @@ importers:
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
+    devDependencies:
+      '@software-factory/testing':
+        specifier: workspace:*
+        version: link:../testing
 
 packages:
 
