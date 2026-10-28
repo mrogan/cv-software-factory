@@ -853,6 +853,20 @@ describe('the background analysis’s looks', () => {
     ]);
   });
 
+  it('records only the latest attempt’s looks, from its own background run, even when the line missed a retry', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(at25, [looking({ errors: [{ at: at(1) }] })], { start: START });
+    // While the line was down, the first attempt looked again and failed; Martin retried it, and its new run looked.
+    const first = looking({ errors: [{ at: at(1) }, { at: at(2), phase: 'Failed', value: '[0.3]' }] });
+    const second = looking({ errors: [{ at: at(11) }] }, { name: 'website-68ff668868-4.1', created: at(10) });
+    expect(
+      s
+        .pass(at25, [first, second])
+        .drafts.get('1001')
+        ?.map((d) => (d.payload as { at: string }).at),
+    ).toEqual([at(11)]);
+  });
+
   it('records no look of a release that is over, nor one found live, nor a measurement that has not ended', () => {
     const s = store(STABLE_RECORDED);
     s.pass(at25, [looking({ errors: [{ phase: 'Running' }] })], { start: START });

@@ -16,8 +16,8 @@
  *   the Rollout says it could not make them. The line records a release only once it knows the version before it.
  * - **Each step** is a step AnalysisRun that ended, in the order they were made: the n-th recorded is the n-th run.
  * - **Each look** of the background analysis, as it lands, is a `canary.measuring`: the measurements of the release's
- *   background runs that ended after the last look recorded (`looksOf`), those that ended within a few seconds of
- *   each other taken as one look. Argo Rollouts keeps a run's latest measurements, so a line that missed a few
+ *   newest background run (its latest attempt's) that ended after the last look recorded (`looksOf`), those that
+ *   ended within a few seconds of each other taken as one look. Argo Rollouts keeps a run's latest measurements, so a line that missed a few
  *   minutes records the looks it missed, and one that is behind by more records those it still has. Only a release
  *   in flight has looks, so a release found live has none.
  * - **It is promoted** when it is the stable version.
@@ -259,7 +259,13 @@ export const lookKey = (look: Pick<Look, 'run' | 'at'>) => `${look.run.metadata.
 export function looksOf(o: Observed, release: string, after: string | undefined): Look[] {
   const since = after === undefined ? -Infinity : Date.parse(after);
   const looks: Look[] = [];
-  for (const run of o.runs.filter((r) => isOf(r, release) && !isStep(r))) {
+  // Each attempt makes a background run of its own as it starts: the newest is the attempt in flight's, and an
+  // earlier one's looks are an attempt's that is over.
+  const background = o.runs
+    .filter((r) => isOf(r, release) && !isStep(r))
+    .sort((a, b) => Date.parse(a.metadata.creationTimestamp) - Date.parse(b.metadata.creationTimestamp))
+    .slice(-1);
+  for (const run of background) {
     const ended = run.status.metricResults
       .slice(0, 8)
       .flatMap((result) =>
@@ -282,23 +288,33 @@ export function looksOf(o: Observed, release: string, after: string | undefined)
       look.taken = [...look.taken.filter((t) => t.name !== name), { name, measurement }];
     }
   }
-  const order = (look: Look) => look.run.status.metricResults.map((r) => r.name);
-  for (const look of looks) look.taken.sort((a, b) => order(look).indexOf(a.name) - order(look).indexOf(b.name));
-  return looks.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  const order = background[0]?.status.metricResults.map((r) => r.name) ?? [];
+  for (const look of looks) look.taken.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+  return looks;
 }
 
 /** A look's measures, in the analysis's own terms: each measurement's own phase, value and words. */
-export function lookMeasures(look: Look): Measure[] {
-  return look.taken.map(({ name, measurement }) => {
-    const message = words(measurement.message, 300);
-    return {
-      name,
-      phase: phaseOf(measurement.phase),
-      value: measured(measurement.value),
-      limit: limitOf(look.run.spec.metrics.find((m) => m.name === name)?.successCondition),
-      ...(message ? { message } : {}),
-    };
-  });
+export const lookMeasures = (look: Look): Measure[] =>
+  look.taken.map(({ name, measurement }) =>
+    measureOf(look.run, name, measurement.phase, measurement, measurement.message),
+  );
+
+/** One measure of a run, in the analysis's own terms: its phase, a measurement's value, its limit and its words. */
+function measureOf(
+  run: AnalysisRun,
+  name: string,
+  phase: string | undefined,
+  measurement: Measurement | undefined,
+  message: string | undefined,
+): Measure {
+  const said = words(message, 300);
+  return {
+    name,
+    phase: phaseOf(phase),
+    value: measured(measurement?.value),
+    limit: limitOf(run.spec.metrics.find((m) => m.name === name)?.successCondition),
+    ...(said ? { message: said } : {}),
+  };
 }
 
 const LOOKED: Record<Measure['phase'], string> = {
@@ -325,14 +341,7 @@ function lookWords(measures: readonly Measure[]): string {
 export function measuresOf(run: AnalysisRun): Measure[] {
   return run.status.metricResults.slice(0, 8).map((result) => {
     const last = result.measurements.at(-1);
-    const message = words(result.message ?? last?.message, 300);
-    return {
-      name: result.name,
-      phase: phaseOf(result.phase),
-      value: measured(last?.value),
-      limit: limitOf(run.spec.metrics.find((m) => m.name === result.name)?.successCondition),
-      ...(message ? { message } : {}),
-    };
+    return measureOf(run, result.name, result.phase, last, result.message ?? last?.message);
   });
 }
 
@@ -434,7 +443,7 @@ function forTarget(
       },
     });
   }
-  const looks = looksOf(o, name, record.lookedUntil);
+  const looks = looksOf(o, name, record.lastLook);
   for (const look of looks) {
     const measures = lookMeasures(look);
     const weight = lookWeight(o, name, look);

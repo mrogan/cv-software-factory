@@ -226,14 +226,17 @@ export class Releases {
         });
       }
     };
-    for (const run of needs.steps) {
-      const journeys = run.status.metricResults.find((m) => m.name === 'journeys')?.measurements.at(-1);
-      await readFigures(run.metadata.name, run, run.status.completedAt, journeys);
-    }
-    for (const look of needs.looks) {
-      const journeys = look.taken.find((t) => t.name === 'journeys')?.measurement;
-      await readFigures(lookKey(look), look.run, look.at, journeys);
-    }
+    // A line that was down may have a few minutes of looks to read: they are read together.
+    await Promise.all([
+      ...needs.steps.map((run) => {
+        const journeys = run.status.metricResults.find((m) => m.name === 'journeys')?.measurements.at(-1);
+        return readFigures(run.metadata.name, run, run.status.completedAt, journeys);
+      }),
+      ...needs.looks.map((look) => {
+        const journeys = look.taken.find((t) => t.name === 'journeys')?.measurement;
+        return readFigures(lookKey(look), look.run, look.at, journeys);
+      }),
+    ]);
     const series = new Map<string, Series>();
     for (const run of needs.failures) {
       const hashes = hashesOf(run);
