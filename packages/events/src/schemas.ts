@@ -906,10 +906,17 @@ export const PAYLOADS = {
       defect: z.strictObject({ fingerprint, symptom: z.enum(V.SYMPTOM_CLASSES) }).optional(),
       /**
        * A `scope` hold the coder asked for, rather than the fence: each file outside the spec's scope that it needs to
-       * change and may not, with why. Approving sends them to the planner, which may widen the scope to them.
+       * change and may not, with why, and whether no scope may name it (`barred`). Approving sends them to the
+       * planner, which may widen the scope to them, never to one barred.
        */
       needs: z
-        .array(z.strictObject({ path: text(PATH_CHARS), reason: text(V.NEED_REASON_CHARS) }))
+        .array(
+          z.strictObject({
+            path: text(PATH_CHARS),
+            reason: text(V.NEED_REASON_CHARS),
+            barred: z.literal(true).optional(),
+          }),
+        )
         .min(1)
         .max(V.MAX_NEEDS)
         .optional(),

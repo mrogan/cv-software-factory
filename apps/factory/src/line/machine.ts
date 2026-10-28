@@ -101,7 +101,6 @@ import {
   ANSWERS,
   type HoldAnswer,
   type HoldCause,
-  inScope,
   LIMITS,
   type PayloadOf,
   type Resolution,
@@ -109,6 +108,7 @@ import {
   STAGES,
   type Stage,
   sameVersion,
+  touches,
   WORDS_LEAVE_HELD,
 } from '@software-factory/events';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
@@ -543,7 +543,10 @@ const FENCE_APPROVED = 'Yes: the coder needed those files, so let the scope take
  */
 function askedOf(hold: PayloadOf<'hold.started'>, fenced: string | undefined): { asked: string; said?: string } {
   if (hold.needs) {
-    const said = hold.needs.map(({ path, reason }) => `The coder said of ${path}: ${reason.replace(/[.\s]+$/, '')}.`);
+    const said = hold.needs.map(
+      ({ path, reason, barred }) =>
+        `The coder said of ${path}${barred ? ', which no scope may name' : ''}: ${reason.replace(/[.\s]+$/, '')}.`,
+    );
     return { asked: `${hold.reason}.`, said: said.join(' ') };
   }
   if (hold.cause === 'scope' && fenced)
@@ -950,23 +953,32 @@ export function unchangedHold(state: WorkItemState, why: string): PayloadOf<'hol
 /**
  * The hold for a coder that named files outside the spec's scope it needs to change: `scope`, as when the fence kept
  * refusing its patch, so Martin's approval sends the work back to the planner, told the files, to widen the scope to
- * them. Those no scope may name (`protectedPaths`) are said to be so: the planner may not widen to them, and rejects
- * the work item if it needs them. Nothing of the round is pushed.
+ * them. Those no scope may name (`protectedPaths`) are marked `barred`, and said first, so a reason cut to fit still
+ * says it: the planner may not widen to them, and rejects the work item if it needs them. Nothing of the round is
+ * pushed. Each reason is one line, as the card and the planner's prompt show it.
  */
 export function needsHold(
-  needs: NonNullable<PayloadOf<'hold.started'>['needs']>,
+  named: readonly { path: string; reason: string }[],
   protectedPaths: readonly string[],
 ): PayloadOf<'hold.started'> {
-  const paths = needs.map(({ path }) => path);
-  const barred = paths.filter((path) => inScope(path, protectedPaths));
-  const files = `${paths.length === 1 ? 'a file' : `${paths.length} files`} outside the spec’s scope`;
-  const never = barred.length ? `; no scope may name ${barred.join(', ')}` : '';
-  const reason = `The coder needs ${files} to meet its criteria: ${paths.join(', ')}${never}`;
+  const needs = named.map(({ path, reason }) => ({
+    path,
+    reason: reason.replace(/\s+/g, ' ').trim(),
+    ...(touches(path, protectedPaths) ? { barred: true as const } : {}),
+  }));
+  const barred = needs.filter((need) => need.barred).map(({ path }) => path);
+  const files = `${needs.length === 1 ? 'a file' : `${needs.length} files`} outside the spec’s scope`;
+  const never = barred.length ? `, and no scope may name ${barred.join(', ')}` : '';
+  const reason = `The coder needs ${files} to meet its criteria${never}: ${needs.map(({ path }) => path).join(', ')}`;
   return { stage: 'build', kind: 'held', cause: 'scope', reason: clip(reason, 300), needs };
 }
 
-/** Text cut to `max` characters, with an ellipsis where it was cut. */
-const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+/** Text cut to `max` characters, with an ellipsis where it was cut: between characters, never inside one. */
+function clip(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const kept = text.slice(0, max - 1);
+  return `${/[\uD800-\uDBFF]$/.test(kept) ? kept.slice(0, -1) : kept}…`;
+}
 
 /** What the line does straight after Martin's answer, or undefined to carry on as the work item's events say. */
 function afterAnswer(answer: NonNullable<WorkItemState['answer']>, merged: boolean): Decision | undefined {

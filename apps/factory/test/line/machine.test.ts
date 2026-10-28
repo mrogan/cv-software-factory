@@ -270,7 +270,7 @@ describe('what the line does next', () => {
 
   it('holds as scope the files a coder needs, says those no scope may name, and tells the planner them, not the fence', () => {
     const needs = [
-      { path: 'test/flags-preview.test.ts', reason: 'It assumes / asks no flag; every page now does.' },
+      { path: 'test/flags-preview.test.ts', reason: 'It assumes / asks no flag;\nevery page now does.' },
       { path: '.github/workflows/ci.yml', reason: 'It runs the old command' },
     ];
     const hold = needsHold(needs, ['.github/', 'deploy/']);
@@ -279,12 +279,25 @@ describe('what the line does next', () => {
       kind: 'held',
       cause: 'scope',
       reason:
-        'The coder needs 2 files outside the spec’s scope to meet its criteria: test/flags-preview.test.ts, .github/workflows/ci.yml; no scope may name .github/workflows/ci.yml',
-      needs,
+        'The coder needs 2 files outside the spec’s scope to meet its criteria, and no scope may name .github/workflows/ci.yml: test/flags-preview.test.ts, .github/workflows/ci.yml',
+      // Each reason one line, and the protected file marked, for the card and the planner.
+      needs: [
+        { path: 'test/flags-preview.test.ts', reason: 'It assumes / asks no flag; every page now does.' },
+        { path: '.github/workflows/ci.yml', reason: 'It runs the old command', barred: true },
+      ],
     });
-    // However many it names, the reason fits the hold.
+    // However many it names, the reason fits the hold, says first which no scope may name, and is cut between
+    // characters, never inside one, which the store would refuse.
     const many = Array.from({ length: 20 }, (_, i) => ({ path: `test/${'a'.repeat(40)}-${i}.test.ts`, reason: 'x' }));
-    expect(needsHold(many, []).reason).toHaveLength(300);
+    const barred = needsHold([{ path: 'deploy/app.yaml', reason: 'x' }, ...many], ['deploy/']).reason;
+    expect(barred).toHaveLength(300);
+    expect(barred).toContain('no scope may name deploy/app.yaml');
+    const prefix = 'The coder needs a file outside the spec’s scope to meet its criteria: test/';
+    // An emoji whose first half is the 299th character, where the reason is cut.
+    const path = `test/${'a'.repeat(298 - prefix.length)}😀😀`;
+    const cut = needsHold([{ path, reason: 'x' }], []).reason;
+    expect(cut.endsWith('a…')).toBe(true);
+    expect(cut.length).toBeLessThanOrEqual(300);
     // The fence refused a patch earlier in the round; what the coder said is what Martin approved.
     const refused: LineEvent = {
       type: 'action.refused',
@@ -295,7 +308,7 @@ describe('what the line does next', () => {
     expect(approved.answers).toEqual([
       {
         asked: `${hold.reason}.`,
-        said: 'The coder said of test/flags-preview.test.ts: It assumes / asks no flag; every page now does. The coder said of .github/workflows/ci.yml: It runs the old command.',
+        said: 'The coder said of test/flags-preview.test.ts: It assumes / asks no flag; every page now does. The coder said of .github/workflows/ci.yml, which no scope may name: It runs the old command.',
         answer: 'Yes: the coder needed those files, so let the scope take them in.',
       },
     ]);

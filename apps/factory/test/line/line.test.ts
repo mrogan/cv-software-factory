@@ -1669,7 +1669,7 @@ describe('the line', () => {
     await pass();
     await pass();
     expect((await payloads(workItem, 'hold.started'))[0]?.reason).toBe(
-      'The coder needs a file outside the spec’s scope to meet its criteria: .github/workflows/ci.yml; no scope may name .github/workflows/ci.yml',
+      'The coder needs a file outside the spec’s scope to meet its criteria, and no scope may name .github/workflows/ci.yml: .github/workflows/ci.yml',
     );
     await martin.append(event(workItem, 'hold.answered', { decision: 'approved' }, 'martin'));
     await pass();

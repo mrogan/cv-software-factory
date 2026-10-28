@@ -112,7 +112,7 @@ function kickerOf(cause: HoldCause, stage: Stage, opener: string | undefined, im
     case 'ticket-rejected':
       return 'The planner turned it down';
     case 'scope':
-      return 'Held by the fence';
+      return 'Held to its scope';
     case 'nothing-to-fix':
       return 'The coder found nothing';
     case 'failures':
@@ -239,11 +239,10 @@ function evidenceOf(item: ItemState, cause: HoldCause): Evidence {
       return { kind: 'output', heading: `${failed.payload.check} · PR #${failed.payload.pullRequest}`, text };
     }
   }
-  // The coder said which files it needs, and why: the fence refused nothing.
+  // The coder said which files it needs, and why: the fence refused nothing. The hold's reason heads them, saying
+  // first any no scope may name. Every one is shown, never cut: approving sends them all to the planner.
   if (cause === 'scope' && hold?.needs) {
-    // Every one, never cut: approving sends them all to the planner.
-    const text = hold.needs.map(({ path, reason }) => `${path}: ${reason}`).join('\n');
-    return { kind: 'output', heading: 'the coder needs', text };
+    return { kind: 'output', heading: reason, text: hold.needs.map((n) => `${n.path}: ${n.reason}`).join('\n') };
   }
   if (cause === 'scope') {
     const refused = item.events.findLast(
@@ -330,9 +329,7 @@ export function needsView(items: readonly ItemState[], t: number): NeedsView {
           kicker:
             hold.cause === 'deploy' && !deployWaitsForMartin(item)
               ? deployWords(item.deploy).kicker
-              : hold.needs
-                ? 'The coder needs files'
-                : kickerOf(hold.cause, hold.stage, opener?.sense, improvement),
+              : kickerOf(hold.cause, hold.stage, opener?.sense, improvement),
           stage: hold.stage,
           waited: waited(t - since),
           since,

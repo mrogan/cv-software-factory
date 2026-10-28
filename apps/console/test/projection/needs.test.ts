@@ -210,11 +210,11 @@ describe('Needs you', () => {
       .add(30, 'hold.started', 'coder', hold('scope', { reason, needs }));
     const [need] = needsView(foldItems(item.events), START + 60 * 60_000).holds;
     expect(need).toMatchObject({
-      kicker: 'The coder needs files',
+      kicker: 'Held to its scope',
       stage: 'build',
       evidence: {
         kind: 'output',
-        heading: 'the coder needs',
+        heading: reason,
         text: 'test/flags-preview.test.ts: It assumes / asks no flag; every page now does.\ntest/home.test.ts: It expects the old heading.',
       },
     });
@@ -232,6 +232,22 @@ describe('Needs you', () => {
       .add(30, 'hold.started', 'coder', hold('scope', { reason, needs: many }));
     const shown = needsView(foldItems(long.events), START + 60 * 60_000).holds[0]?.evidence;
     expect(shown?.kind === 'output' && shown.text.split('\n')).toHaveLength(20);
+    // A file no scope may name is said first in the reason that heads them, so he can reject rather than approve.
+    const never =
+      'The coder needs a file outside the spec’s scope to meet its criteria, and no scope may name deploy/app.yaml: deploy/app.yaml';
+    const barred = work('2013', START)
+      .open()
+      .add(
+        30,
+        'hold.started',
+        'coder',
+        hold('scope', { reason: never, needs: [{ path: 'deploy/app.yaml', reason: 'x', barred: true }] }),
+      );
+    expect(needsView(foldItems(barred.events), START + 60 * 60_000).holds[0]?.evidence).toEqual({
+      kind: 'output',
+      heading: never,
+      text: 'deploy/app.yaml: x',
+    });
     // The fence's own hold still shows what it printed.
     const fenced = work('2011', START)
       .open()
@@ -242,7 +258,7 @@ describe('Needs you', () => {
       })
       .add(30, 'hold.started', 'factory', hold('scope'));
     expect(needsView(foldItems(fenced.events), START + 60 * 60_000).holds[0]).toMatchObject({
-      kicker: 'Held by the fence',
+      kicker: 'Held to its scope',
       evidence: { kind: 'output', heading: 'scope fence' },
     });
   });

@@ -107,7 +107,11 @@ const declined = z
 const needed = z
   .array(
     z.strictObject({
-      path: z.string().refine(plainPath, 'a plain path in the repository'),
+      path: z
+        .string()
+        .trim()
+        .refine(plainPath, 'a plain path in the repository')
+        .refine((path) => !path.endsWith('/') && !path.includes('*'), 'a file, not a folder or a pattern'),
       reason: words(NEED_REASON_CHARS),
     }),
   )

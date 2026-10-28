@@ -135,6 +135,10 @@ describe('the coder', () => {
     expect(fits({ ...CODED, needs })).toBe(true);
     expect(fits({ unchanged: 'The change is in; one test is outside the scope.', needs })).toBe(true);
     expect(fits({ ...CODED, needs: [] })).toBe(true);
+    // Its path is read trimmed, as the hold records it.
+    expect(coder.schema(input).parse({ needs: [{ path: ' test/a.ts ', reason: 'x' }] })).toEqual({
+      needs: [{ path: 'test/a.ts', reason: 'x' }],
+    });
     for (const wrong of [
       { needs: [] },
       { needs: [{ path: '../secrets', reason: 'x' }] },
@@ -143,6 +147,9 @@ describe('the coder', () => {
       { needs: [{ path: 'test/a.ts', reason: 'x'.repeat(201) }] },
       { needs: Array.from({ length: 21 }, (_, i) => ({ path: `test/${i}.ts`, reason: 'x' })) },
       { needs: [{ path: 'test/a.ts' }] },
+      // A file, never a folder or a pattern, which the scope and the protected paths could not be told apart from.
+      { needs: [{ path: 'deploy/', reason: 'x' }] },
+      { needs: [{ path: 'src/**/*.ts', reason: 'x' }] },
     ]) {
       expect(fits(wrong), JSON.stringify(wrong).slice(0, 60)).toBe(false);
     }

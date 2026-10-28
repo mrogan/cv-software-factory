@@ -53,7 +53,7 @@ export interface Hold {
   spentUsd: number | undefined;
   question: string | undefined;
   /** A scope hold the coder asked for: each file outside the spec's scope it needs, and why. */
-  needs: { path: string; reason: string }[] | undefined;
+  needs: { path: string; reason: string; barred?: true | undefined }[] | undefined;
   since: number;
 }
 
