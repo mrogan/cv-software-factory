@@ -272,6 +272,9 @@ function Fresh({
 }) {
   const cell = useRef<HTMLTableCellElement>(null);
   const was = useRef({ look, value });
+  // What React draws now: a count cut short ends there, not at the figure it was counting to.
+  const drawn = useRef(text);
+  drawn.current = text;
   useLayoutEffect(() => {
     const before = was.current;
     was.current = { look, value };
@@ -293,9 +296,9 @@ function Fresh({
     });
     return () => {
       cancelAnimationFrame(frame);
-      node.nodeValue = text;
+      node.nodeValue = drawn.current;
     };
-  }, [look, value, unit, text, motion]);
+  }, [look, value, unit, motion]);
   return (
     <td ref={cell} className={className}>
       {text}
@@ -415,6 +418,15 @@ function useEachSecond(t: number, ticking: boolean, draw: (now: number) => void)
   }, [t, ticking]);
 }
 
+/**
+ * Writes new words into the one text node React drew in an element, so React's next render finds its own node there
+ * and draws over it: setting `textContent` would put a node of its own in its place, which React never updates.
+ */
+function rewrite(el: HTMLElement | null, words: string) {
+  const node = el?.firstChild;
+  if (node instanceof Text) node.nodeValue = words;
+}
+
 /** When the next look is due, as the caption says it: "next look in 0:29", or "next look due" once it is. */
 const nextWords = (ms: number) => (ms > 0 ? `next look in ${countdown(ms)}` : 'next look due');
 
@@ -449,7 +461,7 @@ function Measures({
   const next = useRef<HTMLSpanElement>(null);
   const { nextLook } = r;
   useEachSecond(t, ticking && live && nextLook !== undefined, (now) => {
-    if (next.current && nextLook !== undefined) next.current.textContent = nextWords(nextLook - now);
+    if (nextLook !== undefined) rewrite(next.current, nextWords(nextLook - now));
   });
   const failedOf = (name: string) => (r.end?.kind === 'rolled-back' ? r.end.failed.filter((f) => f.name === name) : []);
   return (
@@ -589,7 +601,7 @@ function StepTime({ r, clock: { t, ticking, motion } }: { r: Release; clock: Clo
     if (run.current && since !== undefined) run.current.currentTime = t - since;
   }, [t, since]);
   useEachSecond(t, on && ticking, (at) => {
-    if (left.current && until !== undefined) left.current.textContent = `${countdown(until - at)} left`;
+    if (until !== undefined) rewrite(left.current, `${countdown(until - at)} left`);
     if (!run.current && bar.current) bar.current.style.transform = `scaleX(${done(at)})`;
   });
   if (!on) return null;
@@ -602,7 +614,7 @@ function StepTime({ r, clock: { t, ticking, motion } }: { r: Release; clock: Clo
           : `${analysed ? 'Measuring' : 'Holding at'} the ${r.weight}% step`}
       </span>
       <span className="left mono" ref={left}>
-        {countdown(until - t)} left
+        {`${countdown(until - t)} left`}
       </span>
       <span className="bar" aria-hidden="true">
         <span ref={bar} style={runs ? undefined : { transform: `scaleX(${done(t)})` }} />

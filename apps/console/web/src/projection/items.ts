@@ -351,6 +351,9 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
   /** Whether the change has merged since the work item last went back to Plan: a release before it carries nothing. */
   let merged = false;
   for (const event of events) {
+    // A look of a canary's background analysis lands every minute and changes nothing of the work item's: its time is
+    // not the work item's latest.
+    if (event.type === 'canary.measuring') continue;
     const time = at(event);
     state.lastAt = time;
     // An improvement has no signal to look at again, so no look ends its wait on overlapping work: whatever the line

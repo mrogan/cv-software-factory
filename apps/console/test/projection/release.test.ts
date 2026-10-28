@@ -9,6 +9,7 @@ import { release as policy } from '../../../../policy/release.ts';
 import { DRAWN } from '../../../factory/src/release/read.ts';
 import { FRESH_MINUTES, STEP_UP } from '../../web/src/access.ts';
 import { project, projectSheet, upTo } from '../../web/src/projection/index.ts';
+import { foldItems } from '../../web/src/projection/items.ts';
 import { type Card, timeline } from '../../web/src/projection/reel.ts';
 import {
   BACKGROUND,
@@ -688,8 +689,20 @@ describe('the background analysis’s looks', () => {
       // As \`pnpm dev\` serves the samples: every event's time moved to end now, the payloads' times as they were.
       const moved = flying().add(2.2, 'canary.measuring', 'rollouts', { ...look(2, 200), at: '2026-09-01T09:02:00Z' });
       expect(releases(moved.events, [], moved.at(3))[0]?.looks[0]?.at).toBe(moved.at(2.2));
+      // Recorded on another work item a pass later, it is still one look, known by its own time.
+      const other = work('2')
+        .add(1, 'release.started', 'rollouts', started)
+        .add(2.7, 'canary.measuring', 'rollouts', { ...look(2, 200), at: '2026-09-01T09:02:00Z' });
+      const both = [...moved.events, ...other.events].sort((a, b) => a.ts.localeCompare(b.ts));
+      expect(releases(both, [], moved.at(3))[0]?.looks).toHaveLength(1);
       const recorded = flying().add(2.2, 'canary.measuring', 'rollouts', look(2, 200));
       expect(releases(recorded.events, [], recorded.at(3))[0]?.looks[0]?.at).toBe(recorded.at(2));
+    });
+
+    it('leaves a work item’s latest time where its last change put it', () => {
+      const looked = flying().add(2.2, 'canary.measuring', 'rollouts', look(2, 200));
+      const item = foldItems(looked.events).find((i) => i.number === '1');
+      expect(item?.lastAt).toBe(looked.at(1));
     });
 
     it('has no next look for a dry run', () => {

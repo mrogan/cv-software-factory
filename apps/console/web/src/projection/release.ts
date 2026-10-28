@@ -347,6 +347,8 @@ interface Building extends Release {
   /** Each pause of Martin's that has ended: from when he paused it to when he resumed or promoted it. */
   held: { from: number; to: number }[];
   stoppedAt: number | undefined;
+  /** Each look kept, by its own time and the measures it took. */
+  seen: Set<string>;
 }
 
 /**
@@ -496,6 +498,7 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
         promotions: [],
         held: [],
         stoppedAt: undefined,
+        seen: new Set(),
       });
       continue;
     }
@@ -519,9 +522,11 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
       const r = byId.get(event.payload.release);
       if (!r || r.end) continue;
       const { weight, measures, figures } = event.payload;
-      const look = { at: lookedAt(Date.parse(event.payload.at), at), weight, measures, figures };
-      const names = (l: Look) => l.measures.map((m) => m.name).join();
-      if (!r.looks.some((l) => l.at === look.at && names(l) === names(look))) r.looks.push(look);
+      // Known by its own time, which every copy of it carries, whatever time it is placed at.
+      const key = `${event.payload.at}|${measures.map((m) => m.name).join()}`;
+      if (r.seen.has(key)) continue;
+      r.seen.add(key);
+      r.looks.push({ at: lookedAt(Date.parse(event.payload.at), at), weight, measures, figures });
       continue;
     }
     if (
@@ -555,7 +560,7 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
     if (event.type === 'release.aborted') r.end = abortedAt(r, Date.parse(event.payload.abortedAt), event.payload.by);
   }
   return [...byId.values()].map((r): Release => {
-    const { listed: _listed, stoppedAt: _stoppedAt, held: _held, ...release } = r;
+    const { listed: _listed, stoppedAt: _stoppedAt, held: _held, seen: _seen, ...release } = r;
     if (!r.planned) release.steps = measuredSteps(r);
     const end = endOf(r);
     const place = position(r, end?.at ?? t);
