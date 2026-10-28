@@ -473,6 +473,7 @@ describe('the planner’s prompt for an improvement', () => {
       'never `flag-set-revision`, and none of these, which other improvements have named: `sort-by-price`, `gift-note`.',
     );
     expect(prompt).toContain('Give at least one of each');
+    expect(prompt).toContain('An `off` criterion quotes the words of the request whose change it keeps back');
     expect(prompt).toContain('out-of-scope: it changes behaviour beyond what Martin asked');
     expect(planner.prompt({ ...REQUEST, flagsTaken: [] })).toContain('never `flag-set-revision`.');
   });
