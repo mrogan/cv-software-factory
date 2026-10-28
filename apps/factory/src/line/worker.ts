@@ -143,6 +143,7 @@ import { FlagPass } from './flags.ts';
 import { asEvent, type Draft, gateEvents, gateRecord } from './gates.ts';
 import { closeIssue } from './issues.ts';
 import {
+  acceptedFindings,
   closesWhenCleared,
   decide,
   dryRunLeft,
@@ -160,7 +161,7 @@ import { stepCalls, workItemSpend } from './model-calls.ts';
 import { type Own, pagesFor } from './pictures.ts';
 import { type Pending, Queue, type QueueItem, type Takes, takesOf } from './queue.ts';
 import { type Carried, carried, Releases, type ReleaseWatchOptions } from './release.ts';
-import { acceptedReply, acceptedThreads, resolveThreads } from './review.ts';
+import { acceptedThreads, resolveThreads } from './review.ts';
 import {
   closingComment,
   closingPullComment,
@@ -928,17 +929,19 @@ export class Line {
         const number = state.pullRequest?.number;
         if (number === undefined) return false;
         const at = (await this.#answeredAt(workItem)) ?? this.#o.now();
-        const threads = acceptedThreads(state.reviews, acceptedReply(at, next.words));
+        const accepted = acceptedFindings(state);
+        const threads = acceptedThreads(state.reviews, accepted, at, next.words);
         await resolveThreads(threads, (batch) =>
           this.#o.github.act('resolveThreads', this.#o.repo, { number, threads: batch }, { workItem }),
         );
-        const findings = state.review?.findings.filter((f) => f.blocking).length ?? 0;
+        const findings = accepted.blocking.length;
+        const suggestions = accepted.suggestions.length;
         await this.#append(workItem, [
           {
             type: 'review.accepted',
             actor: 'factory',
-            summary: `Martin accepted review ${next.review} of PR #${number}: the ${findings === 1 ? 'thread of its blocking finding is' : `threads of its ${findings} blocking findings are`} answered and resolved`,
-            payload: { pullRequest: number, review: next.review, findings },
+            summary: `Martin accepted review ${next.review} of PR #${number}: ${acceptedWords(findings, suggestions)} answered and resolved`,
+            payload: { pullRequest: number, review: next.review, findings, suggestions },
           },
         ]);
         return;
@@ -1974,6 +1977,17 @@ interface InFlight {
   workItem: string;
   scope: string[] | undefined;
   waitsOn: string[];
+}
+
+/** The threads a review Martin accepted had answered, in a few words: "the threads of its 2 blocking findings are". */
+function acceptedWords(findings: number, suggestions: number): string {
+  const counted = (n: number, one: string, many: string) => (n === 1 ? `its ${one}` : `its ${n} ${many}`);
+  const of = [
+    findings ? counted(findings, 'blocking finding', 'blocking findings') : '',
+    suggestions ? counted(suggestions, 'suggestion', 'suggestions') : '',
+  ].filter(Boolean);
+  const one = findings + suggestions === 1;
+  return `the ${one ? 'thread' : 'threads'} of ${of.join(' and ')} ${one ? 'is' : 'are'}`;
 }
 
 /** Why a work item waits, in a line: "Waits for #1028, whose spec also changes src/example.ts". */

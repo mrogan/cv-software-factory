@@ -463,11 +463,12 @@ describe('validation', () => {
     expect(validate({ ...answered, payload: { ...payload, declined: declined(1, 1) } }).ok).toBe(false);
   });
 
-  it('takes Martin’s acceptance of a review, naming the review and how many of its findings blocked', () => {
+  it('takes Martin’s acceptance of a review, naming the review and the threads it answered, one at least', () => {
     const accepted = { ...opened, type: 'review.accepted', version: 1, actor: 'factory' };
-    const payload = { pullRequest: 12, review: 2, findings: 3 };
+    const payload = { pullRequest: 12, review: 2, findings: 3, suggestions: 1 };
     expect(validate({ ...accepted, payload })).toEqual({ ok: true });
-    expect(validate({ ...accepted, payload: { ...payload, findings: 0 } }).ok).toBe(false);
+    expect(validate({ ...accepted, payload: { ...payload, findings: 0 } })).toEqual({ ok: true });
+    expect(validate({ ...accepted, payload: { ...payload, findings: 0, suggestions: 0 } }).ok).toBe(false);
     expect(validate({ ...accepted, payload: { ...payload, review: 0 } }).ok).toBe(false);
   });
 

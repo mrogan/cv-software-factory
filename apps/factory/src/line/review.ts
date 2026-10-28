@@ -8,9 +8,9 @@
  * where the reviewer put it.
  *
  * A finding's thread is answered and resolved once the finding is: a blocking finding or a suggestion a later review
- * finds put right, with the commit it reviewed, and a suggestion the coder declines, with its reason; and a blocking
- * finding of a held review Martin approves in the console, saying he accepted it. So is the thread of every earlier
- * finding it held again (`lineage`). The app's `main` merges nothing with a review thread open. The
+ * finds put right, with the commit it reviewed, and a suggestion the coder declines, with its reason; and every
+ * finding still open of a held review Martin approves in the console, saying he accepted it. So is the thread of every
+ * earlier finding it held again (`lineage`). The app's `main` merges nothing with a review thread open. The
  * thread is found by its comment, as this module wrote it, and the line it was made on.
  */
 import type { PayloadOf } from '@software-factory/events';
@@ -95,23 +95,24 @@ export function lineage(reviews: readonly PayloadOf<'review.submitted'>[], findi
 }
 
 /**
- * The threads Martin's approval of a held review answers, which stands in for the reviewer's: each of the latest
- * review's blocking findings, and each earlier finding it holds again, with what the line says on them. What he
- * accepts is what blocked: the review's suggestions are not answered here.
+ * The threads Martin's approval of a held review answers, which stands in for the reviewer's: each finding it blocked
+ * on and each suggestion it sends on with no round (`acceptedFindings`), and each earlier finding one holds again,
+ * with what the line says on them, as of when he answered, so a reply asked for again reads the same and is made
+ * once. His words are said with it, unless they stay his, on a work item a visitor's report opened.
  */
-export function acceptedThreads(reviews: readonly PayloadOf<'review.submitted'>[], reply: string): ThreadAnswer[] {
-  const blocking = reviews.at(-1)?.findings.filter((f) => f.blocking) ?? [];
-  return threadAnswers(blocking.flatMap((finding) => lineage(reviews, finding).map((f) => ({ finding: f, reply }))));
-}
-
-/**
- * What the line says on a thread Martin accepted, at the time he answered, so a reply asked for again reads the same
- * and is made once: with his words, unless they stay his, on a work item a visitor's report opened.
- */
-export function acceptedReply(at: Date, words: string | undefined): string {
+export function acceptedThreads(
+  reviews: readonly PayloadOf<'review.submitted'>[],
+  { blocking, suggestions }: { blocking: Finding[]; suggestions: Finding[] },
+  at: Date,
+  words: string | undefined,
+): ThreadAnswer[] {
   const when = `${at.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
   const said = words ? `\n\nHe said: “${words}”` : '';
-  return `Martin accepted this in the console at ${when}, in place of the factory’s reviewer’s approval.${said}`;
+  const accepted = `Martin accepted this in the console at ${when}, in place of the factory’s reviewer’s approval.${said}`;
+  const unasked = `Martin approved the change in the console at ${when}, in place of the factory’s reviewer’s approval, with no round for its suggestions: this one is not taken.${said}`;
+  const answers = (findings: Finding[], reply: string) =>
+    findings.flatMap((finding) => lineage(reviews, finding).map((f) => ({ finding: f, reply })));
+  return threadAnswers([...answers(blocking, accepted), ...answers(suggestions, unasked)]);
 }
 
 /** What the GitHub worker says of a request that asking again will not help: refused, gone, or not as it was. */

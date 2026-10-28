@@ -18,8 +18,9 @@
  * findings and the suggestions, and the gates and a fresh reviewer run again on what it pushes. A review that still
  * blocks after the second holds the work item for Martin, as does one the reviewer escalates. His approval of a held
  * review stands in for the reviewer's: before the change goes on, the line answers the thread of each finding it
- * blocked on, saying he accepted it, and resolves it (`review.accepted`). His words leave the threads open for the
- * coder he sends the work back to.
+ * blocked on, and of each suggestion it sends on with no round, saying he accepted it, and resolves it
+ * (`review.accepted`), so he resolves none by hand. His words leave the threads open for the coder he sends the work
+ * back to.
  *
  * A review that approves and leaves suggestions sends the work back to the coder once in a pass
  * (`LIMITS.suggestions`), before the describer writes the change up, to take each or decline it with a reason, as the
@@ -208,8 +209,8 @@ export interface WorkItemState {
   /** Each time the work went back to Build, in order, and why. */
   returns: { from: Stage; reason: string }[];
   /**
-   * Martin's approval of a held review whose findings block, until the line has answered their threads on the pull
-   * request (`review.accepted`), saying he accepted them: his words, unless they stay his.
+   * Martin's approval of a held review with threads open (`acceptedFindings`), until the line has answered them on the
+   * pull request (`review.accepted`), saying he accepted it: his words, unless they stay his.
    */
   accepted: { words: string | undefined } | undefined;
   /** Whether the describer has written up the approved change. */
@@ -505,8 +506,9 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         if (resolution === 'approve') {
           // His approval overrules the review of the latest push, if there is one, and the review that sent the work
           // back, if one did: the coder has nothing to do. With no review of the spec in force, the reviewer runs. The
-          // threads of what it blocked on are answered first, as his acceptance.
-          if (state.review?.findings.some((f) => f.blocking)) state.accepted = { words };
+          // review's open threads are answered first, as his acceptance.
+          const { blocking, suggestions } = acceptedFindings(state);
+          if (blocking.length || suggestions.length) state.accepted = { words };
           if (state.review) state.review = { ...state.review, verdict: 'approved' };
           state.rebuild = undefined;
         }
@@ -704,9 +706,9 @@ export type Next =
   /** Hold the work item for Martin. */
   | { do: 'hold'; hold: PayloadOf<'hold.started'> }
   /**
-   * Answer the threads of what the latest review blocked on, and of each earlier finding one holds again, saying
-   * Martin accepted it in the console, with his words if they are not his alone, and resolve them: his approval of
-   * the hold stood in for the reviewer's.
+   * Answer the open threads of the latest review (`acceptedFindings`), and of each earlier finding one holds again,
+   * saying Martin accepted it in the console, with his words if they are not his alone, and resolve them: his approval
+   * of the hold stood in for the reviewer's.
    */
   | { do: 'accept'; review: number; words?: string }
   /**
@@ -918,7 +920,7 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
       return { stage: 'build', next: { do: 'return', from: 'review', to: 'build', reason, blocking } };
     }
     case 'approved': {
-      // His approval of a review that blocked answers its threads before the change goes on, so none stays open.
+      // His approval of a held review answers its open threads before the change goes on, so none stays open.
       if (s.accepted) {
         const { words } = s.accepted;
         return {
@@ -949,6 +951,22 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
       };
     }
   }
+}
+
+type Finding = PayloadOf<'review.submitted'>['findings'][number];
+
+/**
+ * The findings of the latest review whose threads Martin's approval of its hold answers, so that he resolves none by
+ * hand: what it blocked on, and its suggestions, which his approval sends on with no round of their own, less those
+ * the coder declined, whose threads it answered already.
+ */
+export function acceptedFindings(state: WorkItemState): { blocking: Finding[]; suggestions: Finding[] } {
+  const findings = state.review?.findings ?? [];
+  const declined = new Set(state.suggestionsAnswered?.declined.map((d) => d.suggestion));
+  return {
+    blocking: findings.filter((f) => f.blocking),
+    suggestions: findings.filter((f) => !f.blocking).filter((_, i) => !declined.has(i + 1)),
+  };
 }
 
 /**

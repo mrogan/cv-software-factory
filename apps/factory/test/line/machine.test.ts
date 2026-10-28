@@ -1,6 +1,7 @@
 import { ANSWERS, HOLD_CAUSES, type HoldCause, type PayloadOf, WORDS_LEAVE_HELD } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import {
+  acceptedFindings,
   closesWhenCleared,
   decide,
   dryRunLeft,
@@ -70,7 +71,7 @@ const review = (verdict: PayloadOf<'review.submitted'>['verdict']): LineEvent =>
 /** The line's record that it answered the blocking threads of a review Martin approved. */
 const accepted = (number = 1): LineEvent => ({
   type: 'review.accepted',
-  payload: { pullRequest: 12, review: number, findings: 1 },
+  payload: { pullRequest: 12, review: number, findings: 1, suggestions: 0 },
 });
 const returned = (from: 'gates' | 'review'): LineEvent => ({
   type: 'work.returned',
@@ -1283,11 +1284,23 @@ describe('Martin’s answer to a hold', () => {
       payload: { decision: 'approved', answer: 'As the visitor said', report: true },
     };
     expect(decide([...escalated, fromReport], facts).next).toEqual({ do: 'accept', review: 1 });
-    // An escalation with nothing blocking has no thread to answer.
-    const bare = escalated.map((e) =>
+    // A suggestion alone has a thread to answer too, as his approval gives it no round; a review with no findings has
+    // none.
+    const suggests = escalated.map((e) =>
       e.type === 'review.submitted' ? { ...e, payload: { ...e.payload, findings: [suggestion] } } : e,
     );
+    expect(decide([...suggests, answer('approved')], facts).next).toEqual({ do: 'accept', review: 1 });
+    const bare = escalated.map((e) =>
+      e.type === 'review.submitted' ? { ...e, payload: { ...e.payload, findings: [] } } : e,
+    );
     expect(decide([...bare, answer('approved')], facts).next).toEqual({ do: 'step', agent: 'describer', round: 1 });
+    // The findings his approval answers: what blocked, and the suggestions the coder has not declined.
+    expect(acceptedFindings(fold(withSuggestion))).toEqual({ blocking: [finding], suggestions: [suggestion] });
+    const declined: LineEvent = {
+      type: 'suggestions.answered',
+      payload: { pullRequest: 12, suggestions: 1, declined: [{ suggestion: 1, reason: 'No.' }] },
+    };
+    expect(acceptedFindings(fold([...withSuggestion, declined]))).toEqual({ blocking: [finding], suggestions: [] });
   });
 
   it('moves a review still blocking after the last round on by his answer: another round, his approval, or a close', () => {

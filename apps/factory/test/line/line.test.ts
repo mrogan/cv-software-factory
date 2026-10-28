@@ -2414,24 +2414,28 @@ describe('the line', () => {
       await pass(); // the threads are resolved, and the line crashes before it records so
       expect(await payloads(workItem, 'review.accepted')).toEqual([]);
       await pass(); // asked again, then recorded, and the describer writes it up
-      const reply =
-        'Martin accepted this in the console at 2026-10-28 14:02 UTC, in place of the factory’s reviewer’s approval.' +
-        '\n\nHe said: “The escape is right: the test reads it.”';
+      const said = '\n\nHe said: “The escape is right: the test reads it.”';
+      const reply = `Martin accepted this in the console at 2026-10-28 14:02 UTC, in place of the factory’s reviewer’s approval.${said}`;
+      const unasked = `Martin approved the change in the console at 2026-10-28 14:02 UTC, in place of the factory’s reviewer’s approval, with no round for its suggestions: this one is not taken.${said}`;
       const asked = resolved(github).slice(before);
       expect(asked).toHaveLength(2);
       expect(asked[1]).toEqual(asked[0]);
-      // Each blocking finding's thread, and the first review's that the second held again; not the suggestion's.
+      // Each blocking finding's thread, the first review's that the second held again, and the suggestion's, which
+      // his approval sends on with no round: none is left for him to resolve.
       expect(asked[0]?.args).toEqual({
         number: 12,
         threads: [
           { ...commentOf(again), reply },
           { ...commentOf(quote), reply },
           { ...commentOf(test), reply },
+          { ...commentOf(name), reply: unasked },
         ],
       });
-      expect(await payloads(workItem, 'review.accepted')).toEqual([{ pullRequest: 12, review: 2, findings: 2 }]);
+      expect(await payloads(workItem, 'review.accepted')).toEqual([
+        { pullRequest: 12, review: 2, findings: 2, suggestions: 1 },
+      ]);
       expect(await summaries(workItem, 'review.accepted')).toEqual([
-        'Martin accepted review 2 of PR #12: the threads of its 2 blocking findings are answered and resolved',
+        'Martin accepted review 2 of PR #12: the threads of its 2 blocking findings and its suggestion are answered and resolved',
       ]);
       expect(steps.requests.at(-1)?.agent).toBe('describer');
       await pass();
@@ -2456,6 +2460,7 @@ describe('the line', () => {
       expect(new Set(replies.map((t) => t.reply))).toEqual(
         new Set([
           'Martin accepted this in the console at 2026-10-28 14:02 UTC, in place of the factory’s reviewer’s approval.',
+          'Martin approved the change in the console at 2026-10-28 14:02 UTC, in place of the factory’s reviewer’s approval, with no round for its suggestions: this one is not taken.',
         ]),
       );
     });
@@ -2499,9 +2504,11 @@ describe('the line', () => {
         const recorded = records.filter((r) => r.action === 'resolveThreads');
         expect(recorded).toHaveLength(1);
         expect(recorded[0]?.args.threads.map((t: { body: string }) => t.body)).toEqual(
-          [again, quote, test].map((f) => commentOf(f).body),
+          [again, quote, test, name].map((f) => commentOf(f).body),
         );
-        expect(await payloads(workItem, 'review.accepted')).toEqual([{ pullRequest: 12, review: 2, findings: 2 }]);
+        expect(await payloads(workItem, 'review.accepted')).toEqual([
+          { pullRequest: 12, review: 2, findings: 2, suggestions: 1 },
+        ]);
       } finally {
         server.close();
       }
