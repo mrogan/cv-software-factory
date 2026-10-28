@@ -1,0 +1,45 @@
+# main's cache of the toolchain, for each set of tools a check.yml job installs. A run reads only its own branch's
+# caches and main's, and check.yml runs on pull requests and the merge queue alone, so without this each of their
+# branches would install the toolchain from scratch, and keep a copy that only it can read in the repository's 10 GB.
+# mise-action keys its cache by the tools it is asked for and the files that pin them (scripts/toolchain.test.ts holds
+# this list to check.yml's), so it runs when those move, weekly in case the cache was evicted, and by hand: on main
+# alone, since a run elsewhere would save a cache only its own branch could read.
+name: toolchain cache
+
+on:
+  push:
+    branches: [main]
+    paths: [mise.toml, mise.lock, .github/workflows/check.yml, .github/workflows/toolchain-cache.yml]
+  schedule:
+    - cron: '41 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toolchain-cache
+  cancel-in-progress: false
+
+jobs:
+  cache:
+    name: toolchain cache (${{ matrix.tools }})
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        tools:
+          - node pnpm kustomize
+          - node pnpm kustomize step promtool
+          - node pnpm
+    steps:
+      # The whole checkout, as check.yml's jobs have it, so the cache's key hashes the same files.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          version: 2026.10.17
+          install_args: ${{ matrix.tools }}
