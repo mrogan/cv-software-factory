@@ -203,7 +203,9 @@ describe('the time scrubbing takes', () => {
    * text would take sixty-four. The short text is 64,000 characters, which takes a millisecond or more where the piece
    * gives the scanning work, so the clock's grain is small beside it. The bound is three times the linear one, in
    * milliseconds, with two for the pieces that give it next to none, so a busy runner does not fail it and a quadratic
-   * pass still does. Fifty pieces keep the test to a second or two.
+   * pass still does. Fifty pieces keep the test to a second or two. A scrub that has gone quadratic takes seconds a
+   * piece and more again while fast-check shrinks the piece, and nothing can stop a run part way, so after twenty
+   * seconds it runs no more and fails, rather than holding CI for minutes.
    */
   const unit = fc.string({ unit: chars("@.a1 -!'(:x\n"), minLength: 1, maxLength: 8 });
 
@@ -214,7 +216,7 @@ describe('the time scrubbing takes', () => {
         const [shortTime, longTime] = timesOf(short, short.repeat(8));
         expect(longTime).toBeLessThan(24 * shortTime + 2);
       }),
-      { numRuns: 50 },
+      { numRuns: 50, plugins: [fc.interruptAfterTimeLimit(20_000, { failOnInterrupt: true })] },
     );
   });
 });
