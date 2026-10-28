@@ -91,10 +91,11 @@
 }
 /*
  * While looks land, the measures take the width their table needs to keep each row on one line, and the steps the
- * rest, which they can spare: at the widest window that is about the 5 : 7 the panel has otherwise.
+ * rest, which they can spare: at the widest window that is about the 5 : 7 the panel has otherwise. The column is
+ * as wide as the table, its narrowest, so a rollback's words beside it wrap to the table rather than widen it.
  */
 .canary-body.trended {
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) min-content;
 }
 .canary .canary-note {
   margin-top: 10px;
