@@ -1,4 +1,5 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readdirSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { trace } from '@opentelemetry/api';
@@ -2371,6 +2372,161 @@ describe('the line', () => {
       'changes-requested',
       'approved',
     ]);
+  });
+
+  describe('Martin’s approval of a held review', () => {
+    const quote = { path: 'src/search.ts', line: 1, blocking: true, criterion: 1, comment: 'No quote is escaped.' };
+    // The second review holds the first's finding again, in new words, beside one of its own and a suggestion.
+    const again = { ...quote, comment: 'The quote is still not escaped.', holds: 1 };
+    const test = { path: 'test/search.test.ts', line: 1, blocking: true, rule: 3, comment: 'No test shows a quote.' };
+    const name = { path: 'src/search.ts', line: 1, blocking: false, comment: 'Name the escape for what it does.' };
+    const ANSWERED_AT = '2026-10-28T14:02:31.000Z';
+
+    /** A work item held after its second review escalated, and the line that holds it. */
+    async function heldReview() {
+      const workItem = await ticket();
+      const reviews = [
+        { verdict: 'changes-requested', note: 'The quote is not escaped.', findings: [quote] },
+        { verdict: 'escalated', note: 'Martin should judge the escape.', findings: [again, test, name] },
+      ];
+      const it = line({ ...AGENTS, reviewer: () => handback(reviews.shift()) });
+      await it.pass();
+      await it.pass();
+      it.github.pass();
+      await it.pass(); // the first review asks for changes
+      await it.pass(); // the coder's second round
+      it.github.pass();
+      await it.pass(); // the second review escalates
+      await it.pass();
+      expect((await payloads(workItem, 'hold.started')).at(-1)).toMatchObject({ cause: 'review' });
+      return { workItem, ...it };
+    }
+
+    const answer = (workItem: string, payload: PayloadOf<'hold.answered'>) =>
+      martin.append({ ...event(workItem, 'hold.answered', payload, 'martin'), ts: ANSWERED_AT });
+    const resolved = (github: FakeGitHub) => github.acts.filter((a) => a.action === 'resolveThreads');
+
+    it('answers and resolves the threads of what the review blocked on, saying he accepted it, once across a retry', async () => {
+      const { workItem, pass, steps, github } = await heldReview();
+      const before = resolved(github).length;
+      await answer(workItem, { decision: 'approved', answer: 'The escape is right: the test reads it.' });
+      github.crashAfter = 'resolveThreads';
+      await pass(); // the threads are resolved, and the line crashes before it records so
+      expect(await payloads(workItem, 'review.accepted')).toEqual([]);
+      await pass(); // asked again, then recorded, and the describer writes it up
+      const said = '\n\nHe said: “The escape is right: the test reads it.”';
+      const reply = `Martin accepted this in the console at 2026-10-28 14:02 UTC, in place of the factory’s reviewer’s approval.${said}`;
+      const unasked = `Martin approved the change in the console at 2026-10-28 14:02 UTC, in place of the factory’s reviewer’s approval, with no round for its suggestions: this one is not taken.${said}`;
+      const asked = resolved(github).slice(before);
+      expect(asked).toHaveLength(2);
+      expect(asked[1]).toEqual(asked[0]);
+      // Each blocking finding's thread, the first review's that the second held again, and the suggestion's, which
+      // his approval sends on with no round: none is left for him to resolve.
+      expect(asked[0]?.args).toEqual({
+        number: 12,
+        threads: [
+          { ...commentOf(again), reply },
+          { ...commentOf(quote), reply },
+          { ...commentOf(test), reply },
+          { ...commentOf(name), reply: unasked },
+        ],
+      });
+      expect(await payloads(workItem, 'review.accepted')).toEqual([
+        { pullRequest: 12, review: 2, findings: 2, suggestions: 1 },
+      ]);
+      expect(await summaries(workItem, 'review.accepted')).toEqual([
+        'Martin accepted review 2 of PR #12: the threads of its 2 blocking findings and its suggestion are answered and resolved',
+      ]);
+      expect(steps.requests.at(-1)?.agent).toBe('describer');
+      await pass();
+      expect(resolved(github).slice(before)).toHaveLength(2);
+    });
+
+    it('records that GitHub refused, and leaves those threads to Martin', async () => {
+      const { workItem, pass, steps, github } = await heldReview();
+      await answer(workItem, { decision: 'approved' });
+      github.refusing.set('resolveThreads', new GitHubWorkerError(403, 'refused', 'Resource not accessible.'));
+      await pass();
+      expect(await payloads(workItem, 'review.accepted')).toEqual([
+        { pullRequest: 12, review: 2, findings: 2, suggestions: 1, refused: true },
+      ]);
+      expect(await summaries(workItem, 'review.accepted')).toEqual([
+        'Martin accepted review 2 of PR #12: GitHub refused to resolve the threads of its 2 blocking findings and its suggestion, which are left for him',
+      ]);
+      expect(steps.requests.at(-1)?.agent).toBe('describer');
+    });
+
+    it('leaves the threads open for the coder when he answers in words', async () => {
+      const { workItem, pass, steps, github } = await heldReview();
+      const before = resolved(github).length;
+      await answer(workItem, { decision: 'answered', answer: 'Escape it in the query builder.' });
+      await pass();
+      expect(resolved(github)).toHaveLength(before);
+      expect(await payloads(workItem, 'review.accepted')).toEqual([]);
+      expect(steps.requests.at(-1)).toMatchObject({ agent: 'coder', round: 3 });
+    });
+
+    it('says only that he accepted it on a work item a visitor’s report opened', async () => {
+      const { workItem, pass, github } = await heldReview();
+      await answer(workItem, { decision: 'approved', answer: 'As the visitor said.', report: true });
+      await pass();
+      const replies = resolved(github).at(-1)?.args.threads as { reply: string }[];
+      expect(new Set(replies.map((t) => t.reply))).toEqual(
+        new Set([
+          'Martin accepted this in the console at 2026-10-28 14:02 UTC, in place of the factory’s reviewer’s approval.',
+          'Martin approved the change in the console at 2026-10-28 14:02 UTC, in place of the factory’s reviewer’s approval, with no round for its suggestions: this one is not taken.',
+        ]),
+      );
+    });
+
+    it('has the GitHub worker’s dry run record the threads it would have resolved', async () => {
+      const { workItem } = await heldReview();
+      const no = (what: string) => () => Promise.reject(new Error(`GitHub has no ${what}`));
+      const reads: Reads = {
+        head: async () => MAIN,
+        requiredChecks: async () => ['test'],
+        protectedPaths: async () => ['.github/', 'deploy/'],
+        pullRequestFrom: async () => null,
+        checkRuns: async () => [],
+        pullRequest: no('such pull request'),
+        comparison: no('such commit'),
+        checkout: async (_repo, sha) => ({ commit: sha, commits: [] }),
+        commits: no('such commit'),
+        imageRevision: no('such image'),
+        imageSigned: no('such image'),
+        deployProposal: async () => null,
+      };
+      const dir = mkdtempSync(join(tmpdir(), 'dry-run-'));
+      const made = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date(now));
+      const server = createWorkerServer({
+        actions: made,
+        reads,
+        dryRun: made,
+        dryRunReads: new DryRunReads(made, reads, { checksAfterMs: 0, mergeAfterMs: 0 }, () => new Date(now)),
+        repositories: [APP_REPOSITORY],
+        health: () => ({}),
+        log: quiet,
+      });
+      const { url } = await listenLocal(server);
+      try {
+        const { pass } = line(AGENTS, events, { github: new GitHubWorker(url, { dryRun: true }) });
+        await answer(workItem, { decision: 'approved' });
+        await pass();
+        const records = await Promise.all(
+          readdirSync(dir).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),
+        );
+        const recorded = records.filter((r) => r.action === 'resolveThreads');
+        expect(recorded).toHaveLength(1);
+        expect(recorded[0]?.args.threads.map((t: { body: string }) => t.body)).toEqual(
+          [again, quote, test, name].map((f) => commentOf(f).body),
+        );
+        expect(await payloads(workItem, 'review.accepted')).toEqual([
+          { pullRequest: 12, review: 2, findings: 2, suggestions: 1 },
+        ]);
+      } finally {
+        server.close();
+      }
+    });
   });
 
   it('posts the review once when GitHub fails after the check run, and never runs the reviewer again', async () => {

@@ -660,6 +660,25 @@ export const PAYLOADS = {
       )
       .max(V.MAX_FINDINGS),
   }),
+  /**
+   * Martin approved a review hold in the console (`review` or `beyond-ticket`), which stands in for the reviewer's
+   * approval: the line replied on the thread of each of that review's blocking findings, and of each suggestion his
+   * approval sends on with no round, and of each earlier finding one holds again, saying he accepted it, and resolved
+   * it, so the pull request has none open for his merge.
+   */
+  'review.accepted': z
+    .strictObject({
+      pullRequest,
+      /** The review he accepted, by its number in the pass, from 1. */
+      review: z.number().int().min(1).max(20),
+      /** How many of its findings blocked. */
+      findings: z.number().int().min(0).max(V.MAX_FINDINGS),
+      /** How many of its suggestions went on with no round: those the coder had not declined already. */
+      suggestions: z.number().int().min(0).max(V.MAX_FINDINGS),
+      /** GitHub refused to resolve some of them, which are left for Martin to resolve by hand. */
+      refused: z.literal(true).optional(),
+    })
+    .refine((a) => a.findings + a.suggestions > 0, 'an acceptance answers at least one thread'),
   'pull-request.merged': z.strictObject({ number: pullRequest, commit, by: z.enum(['martin', 'factory']) }),
 
   /**

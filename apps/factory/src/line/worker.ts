@@ -143,6 +143,7 @@ import { FlagPass } from './flags.ts';
 import { asEvent, type Draft, gateEvents, gateRecord } from './gates.ts';
 import { closeIssue } from './issues.ts';
 import {
+  acceptedFindings,
   closesWhenCleared,
   decide,
   dryRunLeft,
@@ -160,6 +161,7 @@ import { stepCalls, workItemSpend } from './model-calls.ts';
 import { type Own, pagesFor } from './pictures.ts';
 import { type Pending, Queue, type QueueItem, type Takes, takesOf } from './queue.ts';
 import { type Carried, carried, Releases, type ReleaseWatchOptions } from './release.ts';
+import { acceptedThreads, resolveThreads } from './review.ts';
 import {
   closingComment,
   closingPullComment,
@@ -920,6 +922,38 @@ export class Line {
         await this.#queue.moved(workItem);
         // The coder of a fresh pass starts a session of its own: the old one worked on a change that has merged.
         if (next.to === 'plan') await this.#queue.setSession(workItem, null);
+        return;
+      }
+      case 'accept': {
+        // The reply says when he gave the answer that approved it, so one asked for again after a failure reads the
+        // same, and is made once.
+        const number = state.pullRequest?.number;
+        const at = await this.#answeredAt(workItem, next.answer);
+        if (number === undefined || !at) throw new Error('an accepted review has no pull request, or no answer');
+        const accepted = acceptedFindings(state);
+        const threads = acceptedThreads(state.reviews, accepted, at, next.words);
+        const resolved = await resolveThreads(threads, (batch) =>
+          this.#o.github.act('resolveThreads', this.#o.repo, { number, threads: batch }, { workItem }),
+        );
+        const findings = accepted.blocking.length;
+        const suggestions = accepted.suggestions.length;
+        const what = acceptedWords(findings, suggestions);
+        await this.#append(workItem, [
+          {
+            type: 'review.accepted',
+            actor: 'factory',
+            summary: resolved
+              ? `Martin accepted review ${next.review} of PR #${number}: ${what} answered and resolved`
+              : `Martin accepted review ${next.review} of PR #${number}: GitHub refused to resolve ${what.replace(/ (is|are)$/, '')}, which are left for him`,
+            payload: {
+              pullRequest: number,
+              review: next.review,
+              findings,
+              suggestions,
+              ...(resolved ? {} : { refused: true }),
+            },
+          },
+        ]);
         return;
       }
       case 'hold': {
@@ -1915,6 +1949,19 @@ export class Line {
     );
   }
 
+  /**
+   * When Martin gave one of his answers to the work item's holds, by its place among them from 0, as the line reads
+   * them: only from his roles.
+   */
+  async #answeredAt(workItem: string, answer: number): Promise<Date | undefined> {
+    const { sql } = this.#o;
+    const [row] = await sql<{ ts: Date }[]>`
+      select e.ts from events e
+      where e.work_item = ${workItem} and e.type = 'hold.answered' and ${fromMartin(sql, 'e')}
+      order by e.seq offset ${answer} limit 1`;
+    return row ? new Date(row.ts) : undefined;
+  }
+
   async #events(workItem: string): Promise<{ events: LineEvent[]; last: number }> {
     const { raw, last } = await this.#raw(workItem);
     return { events: raw as LineEvent[], last };
@@ -1943,6 +1990,17 @@ interface InFlight {
   workItem: string;
   scope: string[] | undefined;
   waitsOn: string[];
+}
+
+/** The threads a review Martin accepted had answered, in a few words: "the threads of its 2 blocking findings are". */
+function acceptedWords(findings: number, suggestions: number): string {
+  const counted = (n: number, one: string, many: string) => (n === 1 ? `its ${one}` : `its ${n} ${many}`);
+  const of = [
+    findings ? counted(findings, 'blocking finding', 'blocking findings') : '',
+    suggestions ? counted(suggestions, 'suggestion', 'suggestions') : '',
+  ].filter(Boolean);
+  const one = findings + suggestions === 1;
+  return `the ${one ? 'thread' : 'threads'} of ${of.join(' and ')} ${one ? 'is' : 'are'}`;
 }
 
 /** Why a work item waits, in a line: "Waits for #1028, whose spec also changes src/example.ts". */

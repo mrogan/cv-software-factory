@@ -8,8 +8,9 @@
  * where the reviewer put it.
  *
  * A finding's thread is answered and resolved once the finding is: a blocking finding or a suggestion a later review
- * finds put right, with the commit it reviewed, and a suggestion the coder declines, with its reason. So is the thread
- * of every earlier finding it held again (`lineage`). The app's `main` merges nothing with a review thread open. The
+ * finds put right, with the commit it reviewed, and a suggestion the coder declines, with its reason; and every
+ * finding still open of a held review Martin approves in the console, saying he accepted it. So is the thread of every
+ * earlier finding it held again (`lineage`). The app's `main` merges nothing with a review thread open. The
  * thread is found by its comment, as this module wrote it, and the line it was made on.
  */
 import type { PayloadOf } from '@software-factory/events';
@@ -93,6 +94,42 @@ export function lineage(reviews: readonly PayloadOf<'review.submitted'>[], findi
   return found;
 }
 
+/**
+ * The threads Martin's approval of a held review answers, which stands in for the reviewer's: each finding it blocked
+ * on and each suggestion it sends on with no round (`acceptedFindings`), and each earlier finding one holds again,
+ * with what the line says on them, as of when he answered, so a reply asked for again reads the same and is made
+ * once. His words are said with it, unless they stay his, on a work item a visitor's report opened.
+ */
+export function acceptedThreads(
+  reviews: readonly PayloadOf<'review.submitted'>[],
+  { blocking, suggestions }: { blocking: Finding[]; suggestions: Finding[] },
+  at: Date,
+  words: string | undefined,
+): ThreadAnswer[] {
+  const when = `${at.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+  const said = words ? `\n\nHe said: “${words}”` : '';
+  const accepted = `Martin accepted this in the console at ${when}, in place of the factory’s reviewer’s approval.${said}`;
+  const unasked = `Martin approved the change in the console at ${when}, in place of the factory’s reviewer’s approval, with no round for its suggestions: this one is not taken.${said}`;
+  // Each thread by what it was: an earlier finding that blocked, held again as a suggestion, was accepted all the same.
+  const answers = (findings: Finding[]) =>
+    findings.flatMap((finding) =>
+      lineage(reviews, finding).map((f) => ({ finding: f, reply: f.blocking ? accepted : unasked })),
+    );
+  return threadAnswers([...answers(blocking), ...answers(suggestions)]);
+}
+
+/**
+ * The suggestions among a review's findings the coder has not declined, in order: a suggestion is numbered among the
+ * findings that do not block, from 1, as the coder was given them and `suggestions.answered` names them.
+ */
+export function suggestionsLeft(
+  findings: readonly Finding[],
+  answered: PayloadOf<'suggestions.answered'> | undefined,
+): Finding[] {
+  const declined = new Set(answered?.declined.map((d) => d.suggestion));
+  return findings.filter((f) => !f.blocking).filter((_, i) => !declined.has(i + 1));
+}
+
 /** What the GitHub worker says of a request that asking again will not help: refused, gone, or not as it was. */
 const REFUSED = [403, 404, 409, 422];
 
@@ -107,19 +144,34 @@ export async function answerThreads(
   pullRequest: number,
   threads: ThreadAnswer[],
 ): Promise<void> {
+  await resolveThreads(threads, (batch, i) =>
+    context.once(i ? `${name} ${i + 1}` : name, () =>
+      context.act('resolveThreads', { number: pullRequest, threads: batch }),
+    ),
+  );
+}
+
+/**
+ * Has each thread answered and resolved, once each, in as many calls as the GitHub worker needs (`resolve`, given
+ * each batch and its place). GitHub refusing it holds nothing up: what is left is Martin's to resolve by hand, and it
+ * gives back false. The GitHub worker replies on a thread only once and passes over one resolved, so asking again
+ * after a failure is safe.
+ */
+export async function resolveThreads(
+  threads: ThreadAnswer[],
+  resolve: (batch: ThreadAnswer[], index: number) => Promise<unknown>,
+): Promise<boolean> {
+  let done = true;
   const key = (c: ReviewComment) => `${c.path}:${c.line}\n${c.body}`;
   const once = threads.filter((t, i) => threads.findIndex((u) => key(u) === key(t)) === i);
   // The worker takes at most fifty threads a call: a finding held again through every review answers one each.
   for (let i = 0; i < once.length; i += THREADS_A_CALL) {
-    const batch = once.slice(i, i + THREADS_A_CALL);
-    await context
-      .once(i ? `${name} ${i / THREADS_A_CALL + 1}` : name, () =>
-        context.act('resolveThreads', { number: pullRequest, threads: batch }),
-      )
-      .catch((error: unknown) => {
-        if (!(error instanceof GitHubWorkerError && REFUSED.includes(error.status))) throw error;
-      });
+    await resolve(once.slice(i, i + THREADS_A_CALL), i / THREADS_A_CALL).catch((error: unknown) => {
+      if (!(error instanceof GitHubWorkerError && REFUSED.includes(error.status))) throw error;
+      done = false;
+    });
   }
+  return done;
 }
 
 /** The most threads the GitHub worker resolves in one call. */

@@ -1,6 +1,7 @@
 import { ANSWERS, HOLD_CAUSES, type HoldCause, type PayloadOf, WORDS_LEAVE_HELD } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import {
+  acceptedFindings,
   closesWhenCleared,
   decide,
   dryRunLeft,
@@ -66,6 +67,11 @@ const review = (verdict: PayloadOf<'review.submitted'>['verdict']): LineEvent =>
     note: 'One blocking finding.',
     findings: verdict === 'approved' ? [] : [finding],
   },
+});
+/** The line's record that it answered the blocking threads of a review Martin approved. */
+const accepted = (number = 1): LineEvent => ({
+  type: 'review.accepted',
+  payload: { pullRequest: 12, review: number, findings: 1, suggestions: 0 },
 });
 const returned = (from: 'gates' | 'review'): LineEvent => ({
   type: 'work.returned',
@@ -213,7 +219,8 @@ describe('what the line does next', () => {
     // A coder that changes nothing when findings block declines every suggestion, and holds: his answer works as ever.
     const unchanged = [...blocked, returned('review'), answered(1), held('review', 'review')];
     expect(decide(unchanged, facts).next).toEqual({ do: 'wait', for: 'martin' });
-    expect(decide([...unchanged, answer('approved')], facts).next).toEqual({
+    expect(decide([...unchanged, answer('approved')], facts).next).toEqual({ do: 'accept', review: 1, answer: 0 });
+    expect(decide([...unchanged, answer('approved'), accepted()], facts).next).toEqual({
       do: 'step',
       agent: 'describer',
       round: 2,
@@ -1098,7 +1105,8 @@ describe('Martin’s answer to a hold', () => {
     expect(decide(answered, facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });
     expect(decide([...answered, spec], facts).next).toMatchObject({ do: 'return', from: 'review', to: 'build' });
     const approved = [...escalated, held('beyond-ticket', 'review'), answer('approved')];
-    expect(decide(approved, facts).next).toEqual({ do: 'step', agent: 'describer', round: 1 });
+    expect(decide(approved, facts).next).toEqual({ do: 'accept', review: 1, answer: 0 });
+    expect(decide([...approved, accepted()], facts).next).toEqual({ do: 'step', agent: 'describer', round: 1 });
     // An escalation that does not cite the ticket keeps the review's cause.
     expect(
       decide([ticket, spec, pushed(), started(), finished('passed'), review('escalated')], facts).next,
@@ -1241,7 +1249,12 @@ describe('Martin’s answer to a hold', () => {
       review('escalated'),
       held('review', 'review'),
     ];
-    expect(decide([...escalated, answer('approved')], facts).next).toEqual({
+    // The threads of what it blocked on are answered first, saying he accepted them; then the describer writes it up.
+    expect(decide([...escalated, answer('approved')], facts)).toEqual({
+      stage: 'review',
+      next: { do: 'accept', review: 1, answer: 0 },
+    });
+    expect(decide([...escalated, answer('approved'), accepted()], facts).next).toEqual({
       do: 'step',
       agent: 'describer',
       round: 1,
@@ -1251,7 +1264,7 @@ describe('Martin’s answer to a hold', () => {
     const withSuggestion = escalated.map((e) =>
       e.type === 'review.submitted' ? { ...e, payload: { ...e.payload, findings: [finding, suggestion] } } : e,
     );
-    expect(decide([...withSuggestion, answer('approved')], facts).next).toEqual({
+    expect(decide([...withSuggestion, answer('approved'), accepted()], facts).next).toEqual({
       do: 'step',
       agent: 'describer',
       round: 1,
@@ -1260,6 +1273,42 @@ describe('Martin’s answer to a hold', () => {
       do: 'return',
       from: 'review',
     });
+    // His words with his approval are said on the threads, unless a visitor's report opened the work item.
+    expect(decide([...escalated, answer('approved', 'The test covers it')], facts).next).toEqual({
+      do: 'accept',
+      review: 1,
+      answer: 0,
+      words: 'The test covers it',
+    });
+    const fromReport: LineEvent = {
+      type: 'hold.answered',
+      payload: { decision: 'approved', answer: 'As the visitor said', report: true },
+    };
+    expect(decide([...escalated, fromReport], facts).next).toEqual({ do: 'accept', review: 1, answer: 0 });
+    // It names his answer among all his answers to the work item's holds, by its place, for when he gave it.
+    const earlier = answer('answered', 'Before the review');
+    expect(decide([ticket, earlier, ...escalated.slice(1), answer('approved')], facts).next).toEqual({
+      do: 'accept',
+      review: 1,
+      answer: 1,
+    });
+    // A suggestion alone has a thread to answer too, as his approval gives it no round; a review with no findings has
+    // none.
+    const suggests = escalated.map((e) =>
+      e.type === 'review.submitted' ? { ...e, payload: { ...e.payload, findings: [suggestion] } } : e,
+    );
+    expect(decide([...suggests, answer('approved')], facts).next).toEqual({ do: 'accept', review: 1, answer: 0 });
+    const bare = escalated.map((e) =>
+      e.type === 'review.submitted' ? { ...e, payload: { ...e.payload, findings: [] } } : e,
+    );
+    expect(decide([...bare, answer('approved')], facts).next).toEqual({ do: 'step', agent: 'describer', round: 1 });
+    // The findings his approval answers: what blocked, and the suggestions the coder has not declined.
+    expect(acceptedFindings(fold(withSuggestion))).toEqual({ blocking: [finding], suggestions: [suggestion] });
+    const declined: LineEvent = {
+      type: 'suggestions.answered',
+      payload: { pullRequest: 12, suggestions: 1, declined: [{ suggestion: 1, reason: 'No.' }] },
+    };
+    expect(acceptedFindings(fold([...withSuggestion, declined]))).toEqual({ blocking: [finding], suggestions: [] });
   });
 
   it('moves a review still blocking after the last round on by his answer: another round, his approval, or a close', () => {
@@ -1293,7 +1342,8 @@ describe('Martin’s answer to a hold', () => {
     expect(decide([...reviewed, review('approved')], facts).next).toMatchObject({ agent: 'describer' });
 
     // His approval stands in for the reviewer's; rejecting closes the work item.
-    expect(decide([...heldAtLast, answer('approved')], facts).next).toEqual({
+    expect(decide([...heldAtLast, answer('approved')], facts).next).toEqual({ do: 'accept', review: 2, answer: 0 });
+    expect(decide([...heldAtLast, answer('approved'), accepted(2)], facts).next).toEqual({
       do: 'step',
       agent: 'describer',
       round: 2,
@@ -1439,7 +1489,8 @@ describe('a coder that changes nothing, and says why', () => {
     const reviewed = [ticket, spec, pushed(), started(), finished('passed'), review('changes-requested')];
     const back = [...reviewed, returned('review')];
     const holding = [...back, unchanged(back)];
-    expect(decide([...holding, answer('approved')], facts).next).toEqual({
+    expect(decide([...holding, answer('approved')], facts).next).toEqual({ do: 'accept', review: 1, answer: 0 });
+    expect(decide([...holding, answer('approved'), accepted()], facts).next).toEqual({
       do: 'step',
       agent: 'describer',
       round: 2,

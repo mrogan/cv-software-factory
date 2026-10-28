@@ -27,6 +27,7 @@ export const VERSIONS = {
   'gate.finished': 1,
   'gates.finished': 1,
   'review.submitted': 4,
+  'review.accepted': 1,
   'pull-request.merged': 1,
   // Release and verify
   'deploy.changed': 1,
