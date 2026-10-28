@@ -48,7 +48,8 @@ export interface StepContext {
   commit: string;
   /**
    * The commit a pull request's diff is taken against: where its branch left main for a step that reads the change
-   * (`readsChange`), its base's head for any other, and the start before there is a pull request.
+   * (`readsChange`) or plans it (`plansFromBase`), its base's head for any other, and the start before there is a
+   * pull request.
    */
   base: string;
   /** The session the agent's last step ended with, which a later round may carry on. */
@@ -273,7 +274,11 @@ export const answerOf = (state: WorkItemState) => state.answer?.text;
  * marked as the line's, so no agent takes the line's words for his.
  */
 export function heAnswered(a: Answer): string {
-  const his = a.answer ? `He said: ${a.answer}` : 'He approved, and wrote nothing.';
+  const his = a.answer
+    ? `He said: ${a.answer}`
+    : a.approved
+      ? 'He approved, and wrote nothing.'
+      : 'He answered, in words that stay his.';
   return a.line ? `${his} The line reads his answer as: ${a.line}` : his;
 }
 

@@ -311,6 +311,7 @@ describe('what the line does next', () => {
         said: 'The coder said of test/flags-preview.test.ts: It assumes / asks no flag; every page now does. The coder said of .github/workflows/ci.yml, which no scope may name: It runs the old command.',
         // The line's reading of his approval, which is never his words.
         line: 'Let the scope take in the files the coder needed that a scope may name. A file no scope may name stays out of it: if the fix needs one, reject the ticket.',
+        approved: true,
       },
     ]);
     expect(closesWhenCleared(fold([ticket, spec, { type: 'hold.started', payload: hold }]))).toBe(true);
@@ -329,6 +330,7 @@ describe('what the line does next', () => {
     // So do his words alone, which send it back to the planner too; on a hold with nothing barred, his words stand.
     const words = fold([ticket, spec, { type: 'hold.started', payload: barredOnly }, answer('answered', 'Try again.')]);
     expect(words.answers[0]).toMatchObject({ answer: 'Try again.', line: barredLine });
+    expect(words.answers[0]?.approved).toBeUndefined();
     const open = needsHold([{ path: 'test/a.ts', reason: 'x' }], []);
     const plain = fold([ticket, spec, { type: 'hold.started', payload: open }, answer('answered', 'Try again.')]);
     expect(plain.answers[0]?.answer).toBe('Try again.');
@@ -1211,7 +1213,7 @@ describe('Martin’s answer to a hold', () => {
     const approved = [...strayed, answer('approved')];
     expect(decide(approved, facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });
     expect(fold(approved).answers).toEqual([
-      { asked, line: 'The coder needed those files: let the scope take them in.' },
+      { asked, line: 'The coder needed those files: let the scope take them in.', approved: true },
     ]);
     expect(decide([...strayed, answer('rejected')], facts).next).toMatchObject({ do: 'close' });
   });

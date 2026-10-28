@@ -353,7 +353,7 @@ describe('the planner’s prompt', () => {
   it('takes no quote from the line’s reading of an approval: only words Martin wrote are his answer', () => {
     const asked = 'The coder needs a file outside the spec’s scope to meet its criteria: test/home.test.ts.';
     const line = 'The coder needed those files: let the scope take them in.';
-    const input = { ...INPUT, answers: [{ asked, line }] };
+    const input = { ...INPUT, answers: [{ asked, line, approved: true as const }] };
     expect(planner.prompt(input)).toContain(
       `- ${asked} He approved, and wrote nothing. The line reads his answer as: ${line}`,
     );
@@ -365,6 +365,10 @@ describe('the planner’s prompt', () => {
     const both = sourcesOf({ ...INPUT, answers: [{ asked, answer: 'Take them in.', line }] });
     expect(quoteProblem('Martin’s answer', 'take them in', both)).toBeUndefined();
     expect(quoteProblem('Martin’s answer', 'the coder needed those files', both)).toBeDefined();
+    // Answered in words that stay his, on a work item a visitor's report opened, it says so: never that he approved.
+    expect(planner.prompt({ ...INPUT, answers: [{ asked, line }] })).toContain(
+      `- ${asked} He answered, in words that stay his. The line reads his answer as: ${line}`,
+    );
   });
 
   it('tells the planner of a fix released before whose signal persisted', () => {
@@ -640,7 +644,7 @@ describe('the planner planning again', () => {
   const commit = 'b'.repeat(40);
   const AGAIN: PlannerInput = {
     ...INPUT,
-    answers: [{ asked, line }],
+    answers: [{ asked, line, approved: true as const }],
     lastSpec: LAST_SPEC,
     replan: { cause: 'scope', approved: true, answered: false, reason: asked, needs },
     change: { pullRequest: 12, files: ['src/money.ts', 'test/money.test.ts'], commit },

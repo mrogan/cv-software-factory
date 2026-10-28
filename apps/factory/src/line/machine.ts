@@ -586,6 +586,8 @@ export interface Answer {
   answer?: string;
   /** What the line reads his answer as, beside his words or in place of them for an approval in none. */
   line?: string;
+  /** Whether he approved, rather than answering in words. */
+  approved?: true;
 }
 
 /** Why the work item is back at Plan: the hold Martin answered, or the return or reopening that sent it there. */
@@ -621,12 +623,12 @@ function scopeAnswered(
   hold: PayloadOf<'hold.started'>,
   decision: HoldAnswer,
   words: string | undefined,
-): Pick<Answer, 'answer' | 'line'> | undefined {
+): Pick<Answer, 'answer' | 'line' | 'approved'> | undefined {
   const approved = decision === 'approved';
-  const his = words ? { answer: words } : {};
+  const his = { ...(words ? { answer: words } : {}), ...(approved ? { approved: true as const } : {}) };
   if (!hold.needs?.some((need) => need.barred)) {
     if (words) return his;
-    return approved ? { line: FENCE_APPROVED } : undefined;
+    return approved ? { ...his, line: FENCE_APPROVED } : undefined;
   }
   // His own words never drop what the planner may not do.
   const said = !words && approved ? 'Let the scope take in the files the coder needed that a scope may name. ' : '';
