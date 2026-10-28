@@ -16,9 +16,10 @@
  *   the Rollout says it could not make them. The line records a release only once it knows the version before it.
  * - **Each step** is a step AnalysisRun that ended, in the order they were made: the n-th recorded is the n-th run.
  * - **Each look** of the background analysis, as it lands, is a `canary.measuring`: the measurements of the release's
- *   newest background run (its latest attempt's) that ended and no look has recorded (`looksOf`), those that ended
- *   within a few seconds of each other taken as one look. Argo Rollouts keeps a run's latest measurements, so a line
- *   that missed a few minutes records the looks it missed, and one that is behind by more records those it still has.
+ *   newest background run (its latest attempt's, unless an abort ended it) that ended and no look has recorded
+ *   (`looksOf`), those that ended within a few seconds of each other taken as one look. Argo Rollouts keeps a run's
+ *   latest measurements, so a line that missed a few minutes records the looks it missed, and one that is behind by
+ *   more records those it still has.
  *   Only a release in flight has looks, so a release found live has none.
  * - **It is promoted** when it is the stable version.
  * - **It rolls back** when the Rollout is aborted and an AnalysisRun of the release has failed. Only a run whose phase
@@ -269,15 +270,25 @@ export const lookKey = (look: Pick<Look, 'run' | 'at'>) => `${look.run.metadata.
  * them in one status, so errors and latency land as one look; the journeys, a Job, end on their own, and are a look of
  * their own. A line that reads between two writes a moment apart records the second as a look of its own a pass later:
  * nothing is lost or recorded twice, and a reader takes each measure's latest.
+ *
+ * `inFlight` says the Rollout has neither aborted the release nor promoted it. Then a background run that an abort
+ * ended (`endedAttempt`) is an earlier attempt's, retried a moment before Argo Rollouts made the new one: what it wrote
+ * after the line recorded that attempt's end (a Job's measurement the abort terminated) is no look of the retry's.
  */
-export function looksOf(o: Observed, release: string, looked: ReadonlySet<string> | undefined): Look[] {
+export function looksOf(
+  o: Observed,
+  release: string,
+  looked: ReadonlySet<string> | undefined,
+  inFlight: boolean,
+): Look[] {
   const looks: Look[] = [];
   // Each attempt makes a background run of its own as it starts: the newest is the attempt in flight's, and an
   // earlier one's looks are an attempt's that is over.
   const background = o.runs
     .filter((r) => isOf(r, release) && !isStep(r))
     .sort((a, b) => Date.parse(a.metadata.creationTimestamp) - Date.parse(b.metadata.creationTimestamp))
-    .slice(-1);
+    .slice(-1)
+    .filter((run) => !(inFlight && endedAttempt(run)));
   for (const run of background) {
     const ended = run.status.metricResults
       .slice(0, 8)
@@ -307,6 +318,14 @@ export function looksOf(o: Observed, release: string, looked: ReadonlySet<string
   for (const look of looks) look.taken.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
   return looks;
 }
+
+/**
+ * Whether a background run ended its attempt: Argo Rollouts terminates it when it aborts the release (or promotes it),
+ * and one that failed or erred aborts the release itself. An attempt's background run runs until then, or stops
+ * inconclusive, which pauses the release and does not end it.
+ */
+const endedAttempt = (run: AnalysisRun) =>
+  run.spec.terminate === true || run.status.phase === 'Failed' || run.status.phase === 'Error';
 
 /** A look's measures, in the analysis's own terms: each measurement's own phase, value and words, and its end. */
 export const lookMeasures = (look: Look): (Measure & { at: string })[] =>
@@ -459,7 +478,7 @@ function forTarget(
       },
     });
   }
-  const looks = looksOf(o, name, record.looked);
+  const looks = looksOf(o, name, record.looked, !o.aborted && names.stable !== name);
   for (const look of looks) {
     const measures = lookMeasures(look);
     const weight = lookWeight(o, name, look);

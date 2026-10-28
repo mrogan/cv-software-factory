@@ -943,6 +943,30 @@ describe('the background analysis’s looks', () => {
     ).toEqual([at(11)]);
   });
 
+  it('records no look of an aborted attempt’s run in its retry, before Argo Rollouts makes the retry’s own', () => {
+    const s = store(STABLE_RECORDED);
+    s.pass(at25, [looking({ errors: [{ at: at(1) }], journeys: [{ phase: 'Running' }] })], { start: START });
+    // The 25% step fails, and the abort terminates the background run, the journeys still running as the line reads.
+    const failed = step(2, { created: at(2), completed: at(3), phase: 'Failed', message: 'Metric "errors" failed' });
+    const terminating = looking({ errors: [{ at: at(1) }], journeys: [{ phase: 'Running' }] }, { terminate: true });
+    const aborted = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, abort: true });
+    expect(s.pass(aborted, [terminating, failed]).said[1001]).toEqual(['canary.stepped', 'release.rolled-back']);
+    // The journeys end as terminated; Martin retries before Argo Rollouts has made the retry's background run.
+    const ended = looking(
+      { errors: [{ at: at(1) }], journeys: [{ at: at(3, 30) }] },
+      { terminate: true, completed: at(3, 30), phase: 'Successful' },
+    );
+    expect(s.pass(at25, [ended, failed]).said[1001]).toEqual(['release.started']);
+    expect(s.pass(at25, [ended, failed]).said).toEqual({});
+    // The retry's own run looks, and that look is its first.
+    const retry = looking({ errors: [{ at: at(6) }] }, { name: 'website-68ff668868-4.1', created: at(5) });
+    expect(s.pass(at25, [ended, failed, retry]).said[1001]).toEqual(['canary.measuring']);
+    expect((s.of('1001', 'canary.measuring') as PayloadOf<'canary.measuring'>[]).map((look) => look.at)).toEqual([
+      at(1),
+      at(6),
+    ]);
+  });
+
   it('records no look of a release that is over, nor one found live, nor a measurement that has not ended', () => {
     const s = store(STABLE_RECORDED);
     s.pass(at25, [looking({ errors: [{ phase: 'Running' }] })], { start: START });
