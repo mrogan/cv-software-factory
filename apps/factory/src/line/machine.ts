@@ -223,7 +223,12 @@ export interface WorkItemState {
    * asked (the planner's question, why it was held, or what the scope fence printed), for every later step of the
    * planner's: a second question should not forget the first answer.
    */
-  answers: { asked: string; answer: string; said?: string }[];
+  answers: Answer[];
+  /**
+   * Why the work item is back at Plan for another spec, from the hold Martin answered or the return that sent it,
+   * until the planner writes one: what the planner is told of why its last spec came back.
+   */
+  replan: Replan | undefined;
   merged: boolean;
   /**
    * The latest release that carried the change since its merge: how it started, its promotion once it has one, and
@@ -256,8 +261,11 @@ export interface WorkItemState {
   firstSense: SignalSource | undefined;
   /** The versions of the app the ticket's signals were seen on: triage records each sense's first in each version. */
   seenOn: string[];
-  /** The scope of the latest spec, in any pass: what the work item is about, even back at Plan for another. */
-  latestScope: string[] | undefined;
+  /**
+   * The latest spec, in any pass: what the work item is about, even back at Plan for another, and what the planner
+   * is told it wrote last when the work comes back to it.
+   */
+  lastSpec: PayloadOf<'spec.written'> | undefined;
   /** The work items it waits on after Plan, the files their specs share with its own, and whether the wait is over. */
   waiting: { on: string[]; files: string[]; ended: boolean } | undefined;
   /** The latest look again under the hold or wait in force, and the release it looked at. */
@@ -290,6 +298,7 @@ const initial = (): WorkItemState => ({
   hold: undefined,
   answer: undefined,
   answers: [],
+  replan: undefined,
   merged: false,
   release: undefined,
   verification: undefined,
@@ -299,7 +308,7 @@ const initial = (): WorkItemState => ({
   closed: false,
   firstSense: undefined,
   seenOn: [],
-  latestScope: undefined,
+  lastSpec: undefined,
   waiting: undefined,
   rechecked: undefined,
   cleared: undefined,
@@ -327,7 +336,8 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         break;
       case 'spec.written':
         state.spec = event.payload;
-        state.latestScope = event.payload.scope;
+        state.lastSpec = event.payload;
+        state.replan = undefined;
         state.specApproved = false;
         // A hold on the spec before is a hold on what Martin read: his answer to it says nothing of this one, which
         // is held afresh if it needs him. His approval of the old card, appended after, finds no hold, and approves
@@ -399,7 +409,11 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
           if (event.payload.from === 'gates') state.gateReturns += 1;
           if (event.payload.suggestions !== undefined) state.suggestionReturns += 1;
         }
-        if (event.payload.to === 'plan') startAgain(state);
+        if (event.payload.to === 'plan') {
+          // Martin's answer that sent it back says more of why than the return does.
+          state.replan ??= { cause: 'returned', from: event.payload.from, reason: event.payload.reason };
+          startAgain(state);
+        }
         break;
       case 'hold.started':
         // A hold for a deploy decided as a release started is already answered by it.
@@ -436,11 +450,28 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         const words = event.payload.report ? undefined : event.payload.answer;
         // Approved or answered in words, a scope hold goes back to the planner, which is told what it may not take in.
         const replanScope = cause === 'scope' && resolution === 'replan';
-        const said = replanScope ? scopeAnswered(state.hold, event.payload.decision, words) : words;
+        const reading = replanScope
+          ? scopeAnswered(state.hold, event.payload.decision, words)
+          : words
+            ? { answer: words }
+            : undefined;
         // Words settle nothing for triage's holds: the hold stands, and the work item waits as it did.
         if (event.payload.decision === 'answered' && WORDS_LEAVE_HELD.includes(cause)) break;
-        if ((stage === 'plan' || resolution === 'replan') && said) {
-          state.answers.push({ ...askedOf(state.hold, state.fenced), answer: said });
+        if ((stage === 'plan' || resolution === 'replan') && reading) {
+          state.answers.push({ ...askedOf(state.hold, state.fenced), ...reading });
+        }
+        if (resolution === 'replan') {
+          // What the reviewer found beyond the ticket, when its escalation is what he answered.
+          const beyond = cause === 'beyond-ticket' ? state.review?.findings.filter((f) => f.ticket) : undefined;
+          state.replan = {
+            cause,
+            approved: event.payload.decision === 'approved',
+            answered: words !== undefined,
+            reason: state.hold.reason,
+            ...(state.hold.needs ? { needs: state.hold.needs } : {}),
+            ...(cause === 'scope' && state.fenced ? { fenced: state.fenced } : {}),
+            ...(beyond?.length ? { beyond } : {}),
+          };
         }
         state.hold = undefined;
         forgetLook(state);
@@ -515,6 +546,10 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
       case 'work-item.reopened':
         startAgain(state);
         Object.assign(state, { hold: undefined, answer: undefined, closed: false });
+        // A ticket a dry run verified comes back with nothing shipped: a first plan again, not a replan of the dry
+        // run's spec, whose flag no one moved.
+        if (event.payload.dryRun) Object.assign(state, { lastSpec: undefined, replan: undefined });
+        else state.replan = { cause: 'reopened' };
         state.reopened.push(event.payload);
         state.persistedBefore = state.persisted.length;
         break;
@@ -527,31 +562,77 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
  * Work sent back to Plan starts a fresh pass: the planner writes a new spec, and the coder's first round opens a new
  * pull request, with its own gates, review, merge and release. Only the ticket or the request, the hold, Martin's
  * answers, the verifications that persisted and the reopenings carry over: the planner should not forget an answer,
- * nor a fix that did not work or did not last. So do the ticket's signals, and the last scope, which still says what
- * it is about.
+ * nor a fix that did not work or did not last. So do the ticket's signals, the last spec, which still says what it is
+ * about, and why the work came back.
  */
 function startAgain(state: WorkItemState): void {
   const { ticket, request, hold, answer, answers, persisted, reopened, persistedBefore, closed } = state;
-  const { firstSense, seenOn, latestScope } = state;
+  const { firstSense, seenOn, lastSpec, replan } = state;
   Object.assign(state, initial(), { ticket, request, hold, answer, answers, persisted, reopened, persistedBefore });
-  Object.assign(state, { closed, firstSense, seenOn, latestScope });
+  Object.assign(state, { closed, firstSense, seenOn, lastSpec, replan });
 }
 
-/** What approving a hold of the scope fence's says, for the planner. */
-const FENCE_APPROVED = 'Yes: the coder needed those files, so let the scope take them in.';
+/**
+ * One of Martin's answers at Plan, or one that sent the work back to it, as an agent is told it. Only his own words
+ * are his: what the line reads into an answer, and what an agent said that he read with it, are told beside them,
+ * and no criterion may quote either.
+ */
+export interface Answer {
+  /** What he was asked: the planner's question, why the work item was held, or what the scope fence printed. */
+  asked: string;
+  /** What an agent said that he read with it: the files the coder needs, and why. */
+  said?: string;
+  /** His own words, when he wrote any. */
+  answer?: string;
+  /** What the line reads his answer as, beside his words or in place of them for an approval in none. */
+  line?: string;
+  /** Whether he approved, rather than answering in words. */
+  approved?: true;
+}
 
-/** What an answer to a scope hold says, for the planner: of a file no scope may name, that it stays out of the scope. */
+/** Why the work item is back at Plan: the hold Martin answered, or the return or reopening that sent it there. */
+export type Replan =
+  | {
+      cause: HoldCause;
+      /** Whether he approved, rather than answering in words. */
+      approved: boolean;
+      /** Whether he answered in words the planner is told: not on a work item a visitor's report opened. */
+      answered: boolean;
+      /** Why the work item was held, as the hold said it. */
+      reason: string;
+      /** The files the coder named outside the scope, each with why, for a `scope` hold it made. */
+      needs?: NonNullable<PayloadOf<'hold.started'>['needs']>;
+      /** What the scope fence printed of the coder's last patch, for a `scope` hold the fence made. */
+      fenced?: string;
+      /** The review's findings that cite the ticket, for a `beyond-ticket` hold. */
+      beyond?: PayloadOf<'review.submitted'>['findings'];
+    }
+  /** Returned from a stage after the merge, as when the signal persisted after the fix was released. */
+  | { cause: 'returned'; from: Stage; reason: string }
+  /** The ticket reopened: the defect came back after its fix was verified. */
+  | { cause: 'reopened' };
+
+/** What the line reads Martin's approval of a hold of the scope fence's as, for the planner. */
+const FENCE_APPROVED = 'The coder needed those files: let the scope take them in.';
+
+/**
+ * What an answer to a scope hold says, for the planner: his words, if any, and what the line reads into his answer:
+ * of a file no scope may name, that it stays out of the scope.
+ */
 function scopeAnswered(
   hold: PayloadOf<'hold.started'>,
   decision: HoldAnswer,
   words: string | undefined,
-): string | undefined {
+): Pick<Answer, 'answer' | 'line' | 'approved'> | undefined {
   const approved = decision === 'approved';
-  if (!hold.needs?.some((need) => need.barred)) return words ?? (approved ? FENCE_APPROVED : undefined);
+  const his = { ...(words ? { answer: words } : {}), ...(approved ? { approved: true as const } : {}) };
+  if (!hold.needs?.some((need) => need.barred)) {
+    if (words) return his;
+    return approved ? { ...his, line: FENCE_APPROVED } : undefined;
+  }
   // His own words never drop what the planner may not do.
-  const said =
-    words ?? (approved ? 'Yes: let the scope take in the files the coder needed that a scope may name.' : '');
-  return `${said} A file no scope may name stays out of it: if the fix needs one, reject the ticket.`.trim();
+  const said = !words && approved ? 'Let the scope take in the files the coder needed that a scope may name. ' : '';
+  return { ...his, line: `${said}A file no scope may name stays out of it: if the fix needs one, reject the ticket.` };
 }
 
 /**

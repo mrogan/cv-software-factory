@@ -65,7 +65,8 @@ export interface Comparison {
   mergeBase: string;
   /**
    * Each file the commit changes since then, with its patch as GitHub shows it (none for a binary file, or one too
-   * large to show), and the lines it adds and removes, which GitHub counts even then.
+   * large to show), and the lines it adds and removes, which GitHub counts even then: every one, up to the 300 GitHub
+   * compares (`MAX_COMPARED_FILES`).
    */
   files: { path: string; patch: string | null; added: number; removed: number }[];
 }
@@ -88,6 +89,9 @@ export interface Signed {
   signed: boolean;
   reason: string | null;
 }
+
+/** The most files GitHub's comparison lists, which `comparison` reads every page of. */
+export const MAX_COMPARED_FILES = 300;
 
 /** The most commits `commits` lists: ten pages of GitHub's comparison. A deploy carries tens. */
 export const MAX_COMMITS = 1000;
@@ -284,21 +288,31 @@ export class LiveReads implements Reads {
   }
 
   async comparison(repo: string, base: string, head: string): Promise<Comparison> {
-    // One page of files: a fix's scope names a few, and GitHub lists up to 300 on its first.
-    const { body } = await this.#github.poll(
-      repo,
-      `/repos/${repo}/compare/${segments(base)}...${head}?per_page=100`,
-      COMPARE,
-    );
-    return {
-      mergeBase: body.merge_base_commit.sha,
-      files: (body.files ?? []).map((file) => ({
-        path: file.filename,
-        patch: file.patch ?? null,
-        added: file.additions,
-        removed: file.deletions,
-      })),
-    };
+    // Every page of files, a hundred to a page, up to the most GitHub compares: a page short of a hundred is the last,
+    // and one that adds none already listed ends it too, should GitHub give the same files on every page.
+    let mergeBase: string | undefined;
+    const files = new Map<string, Comparison['files'][number]>();
+    for (let page = 1; page <= MAX_COMPARED_FILES / 100; page++) {
+      const { body } = await this.#github.poll(
+        repo,
+        `/repos/${repo}/compare/${segments(base)}...${head}?per_page=100&page=${page}`,
+        COMPARE,
+      );
+      mergeBase ??= body.merge_base_commit.sha;
+      const listed = body.files ?? [];
+      const before = files.size;
+      for (const file of listed) {
+        if (files.has(file.filename)) continue;
+        files.set(file.filename, {
+          path: file.filename,
+          patch: file.patch ?? null,
+          added: file.additions,
+          removed: file.deletions,
+        });
+      }
+      if (listed.length < 100 || files.size === before) break;
+    }
+    return { mergeBase: mergeBase as string, files: [...files.values()] };
   }
 
   async commits(repo: string, base: string, head: string): Promise<Commits> {

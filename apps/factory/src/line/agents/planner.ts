@@ -25,8 +25,25 @@
  * app reads with `request.flag`, off until he turns it on; so the schema holds it to a title, a fresh flag (none
  * another improvement named, `flagsTaken`), the pages it changes, and criteria on each side of the flag, each from
  * his words (`improvementProblems`). It rejects a change that needs a protected path, the app's flag context among
- * them, or that would keep anything on a visitor's device. A ticket's prompt is word for word as it was before
- * improvements, so its recordings still replay.
+ * them, or that would keep anything on a visitor's device. A ticket's first plan is word for word as it was before
+ * improvements and replans, so its recordings still replay.
+ *
+ * Work can come back to Plan: Martin answers a hold that sends it back (the coder needs files outside the scope, the
+ * fence kept refusing its patch, the reviewer found the spec beyond the ticket, the coder found nothing to fix, or he
+ * answered the spec or a verification in words), a fix's signal persists after its release, or the ticket reopens.
+ * The planner is then told it is planning again: its last spec as it wrote it, and why it came back, in plain words
+ * (`replanLines`), and to keep what still holds. Once the work item has a pull request, the planner's checkout is
+ * where that pull request's branch left main (`plansFromBase`), which the change's tests are judged against, not the
+ * pull request's head: it is told the pull request holds the work so far, and which files it changes, so it does not
+ * take that work for another change's. An improvement planned again keeps its flag, which the schema holds it to:
+ * Martin's moves, the baseline and the pictures are recorded against it.
+ *
+ * Only Martin's own words in an answer are his. What the line reads into an answer (that an approval of a scope hold
+ * lets the scope take in the files), and what an agent said that he read with it, are told beside them, and no
+ * criterion may quote either (`sourcesOf`).
+ *
+ * A finding is an extra for triage: one that does not fit (a page that is not a path, a field too long, one past the
+ * most a plan leaves) is left out, logged and counted in the spec's summary, and the result stands.
  *
  * The planner has the checkout's tools, but nothing it changes leaves the sandbox: the line reads only its result,
  * and the coder's step starts from a fresh checkout. Its scope is held to the line's rules here, by the schema: a
@@ -40,7 +57,8 @@ import { PATH_CHARS, RISKS, touches } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
 import { z } from 'zod';
 import { NEVER, plainPath, protectedWords } from '../../github/paths.ts';
-import { askedOf, count, defineAgent, holdDraft, words } from './agent.ts';
+import type { Answer, Replan } from '../machine.ts';
+import { askedOf, count, defineAgent, heAnswered, holdDraft, words } from './agent.ts';
 import {
   type Asked,
   askedLines,
@@ -63,9 +81,10 @@ export interface PlannerInput {
   protectedPaths: readonly string[];
   /**
    * Martin's answers to the holds at Plan, each with what he was asked, and what an agent said that he read with it
-   * (`said`: the files the coder needs, and why), which the prompt tells and no quote may come from.
+   * (`said`: the files the coder needs, and why) and what the line reads his answer as (`line`), which the prompt
+   * tells and no quote may come from.
    */
-  answers: { asked: string; answer: string; said?: string | undefined }[];
+  answers: Answer[];
   /** Each verification that found the signal persisting after a fix for this ticket was released. */
   persisted?: PayloadOf<'verification.finished'>[];
   /**
@@ -80,6 +99,15 @@ export interface PlannerInput {
    * stays in the app behind its flag, off, so its name is never given to another change.
    */
   flagsTaken?: readonly string[] | undefined;
+  /** The spec the planner wrote last, when the work has come back to Plan for another. */
+  lastSpec?: PayloadOf<'spec.written'> | undefined;
+  /** Why the work came back to Plan, when it has. */
+  replan?: Replan | undefined;
+  /**
+   * The work so far, once the work item has a pull request: its number, the files it changes, and the commit the
+   * planner's checkout is, where its branch left main, without that work.
+   */
+  change?: { pullRequest: number; files: string[]; commit: string } | undefined;
 }
 
 /** What is wrong with a scope entry, if anything: it must be a plain path in the repository, and keep out of the protected paths. */
@@ -104,12 +132,30 @@ export interface Sources {
   answers: string;
 }
 
-/** One of Martin's answers, with what he was asked, as a quote is looked for in it: never an agent's words. */
-const answered = (a: PlannerInput['answers'][number]) => `${a.asked} He said: ${a.answer}`;
+/**
+ * One of Martin's answers, with what he was asked, as a quote is looked for in it: his own words, never an agent's
+ * nor the line's. An approval in no words of his gives a quote nothing.
+ */
+const answered = (a: Answer) => (a.answer ? `${a.asked} He said: ${a.answer}` : '');
 
-/** One of Martin's answers as the prompt tells it: with what an agent said that he read with it. */
-const told = (a: PlannerInput['answers'][number]) =>
-  a.said ? `${a.asked} ${a.said} He said: ${a.answer}` : answered(a);
+/** One of Martin's answers as the prompt tells it: with what an agent said that he read with it, and the line's reading. */
+const told = (a: Answer) => [a.asked, a.said, heAnswered(a)].filter(Boolean).join(' ');
+
+/** Martin's answers as the prompt tells them, and, when any carries words not his, which of them a criterion may quote. */
+function answerLines(answers: readonly Answer[]): string[] {
+  if (!answers.length) return [];
+  const notHis = answers.some((a) => a.said || a.line || !a.answer);
+  return [
+    '',
+    'Martin was asked, and answered:',
+    ...answers.map((a) => `- ${told(a)}`),
+    ...(notHis
+      ? [
+          'Only his own words, after “He said:”, are his answer, which a criterion from Martin’s answer may quote, with what he was asked. What the coder said, and what the line reads his answer as, are not his words: no criterion quotes them.',
+        ]
+      : []),
+  ];
+}
 
 /** The sources of a plan's input, as its prompt tells them. */
 export const sourcesOf = ({
@@ -120,7 +166,7 @@ export const sourcesOf = ({
   kind: asked.kind,
   asked: [askedTitle(asked), ...askedLines(asked, signals)].join('\n'),
   signals: signals.map((signal) => seen(signal).join('\n')),
-  answers: answers.map(answered).join('\n'),
+  answers: answers.map(answered).filter(Boolean).join('\n'),
 });
 
 /** No sources at all: every quote is refused. */
@@ -200,10 +246,12 @@ const specWithin = (protectedPaths: readonly string[], sources: Sources, improve
     });
   });
 
-/** What an improvement's spec is held to beyond a fix's: the flags it may not take. */
+/** What an improvement's spec is held to beyond a fix's: the flags it may not take, and the one it keeps. */
 export interface Improvement {
   /** The flags other improvements have named. */
   flagsTaken: readonly string[];
+  /** The flag its last spec named, which a spec written again keeps. */
+  keeps?: string | undefined;
 }
 
 /**
@@ -213,11 +261,17 @@ export interface Improvement {
  * each: with it on, the change; with it off, the app as it was, which is what keeps the change off until Martin
  * widens it. Each comes from what Martin asked: his request, or his answer.
  */
-function improvementProblems(spec: PayloadOf<'spec.written'>, { flagsTaken }: Improvement, ctx: z.RefinementCtx) {
+function improvementProblems(
+  spec: PayloadOf<'spec.written'>,
+  { flagsTaken, keeps }: Improvement,
+  ctx: z.RefinementCtx,
+) {
   const issue = (path: (string | number)[], message: string) => ctx.addIssue({ code: 'custom', path, message });
   if (spec.title === undefined) issue(['title'], 'an improvement’s spec names it, in a few words');
   if (spec.flag === undefined) issue(['flag'], 'an improvement’s spec names the flag its change goes behind');
-  else if (flagsTaken.includes(spec.flag)) {
+  else if (keeps !== undefined && spec.flag !== keeps) {
+    issue(['flag'], `the improvement’s flag is ${keeps}, as its last spec named it: keep it`);
+  } else if (keeps === undefined && flagsTaken.includes(spec.flag)) {
     issue(['flag'], `another improvement has named ${spec.flag}: give this one a flag of its own`);
   }
   if (spec.pages === undefined) issue(['pages'], 'an improvement’s spec names the pages its change shows on');
@@ -267,7 +321,39 @@ const finding = z.strictObject({
 
 export type PlannerFinding = z.infer<typeof finding>;
 
-const findings = z.array(finding).max(MAX_PLANNER_FINDINGS).default([]);
+/**
+ * The findings that fit, up to the most a plan leaves; each that does not is left out, with why, rather than
+ * refusing the result it came in: a finding is an extra for triage, and the spec beside it stands without it.
+ */
+const findings = z
+  .array(z.unknown())
+  .default([])
+  .transform((given) => {
+    const kept: PlannerFinding[] = [];
+    const dropped: string[] = [];
+    given.forEach((item, i) => {
+      const parsed = finding.safeParse(item);
+      if (!parsed.success) {
+        const problems = parsed.error.issues.map((issue) => `${issue.path.join('.') || 'finding'}: ${issue.message}`);
+        dropped.push(`findings.${i}: ${problems.slice(0, 2).join('; ')}`);
+      } else if (kept.length >= MAX_PLANNER_FINDINGS) {
+        dropped.push(`findings.${i}: past the ${MAX_PLANNER_FINDINGS} a plan may leave`);
+      } else kept.push(parsed.data);
+    });
+    return { kept, dropped };
+  });
+
+type Sorted = { kept: PlannerFinding[]; dropped: string[] };
+
+/** A verdict, each of the union's alike, with the findings that fit, and why each other was left out, if one was. */
+type WithFindings<T> = T extends { findings: Sorted }
+  ? Omit<T, 'findings'> & { findings: PlannerFinding[]; dropped?: string[] }
+  : never;
+
+const withFindings = <T extends { findings: Sorted }>(result: T): WithFindings<T> => {
+  const { kept, dropped } = result.findings;
+  return { ...result, findings: kept, ...(dropped.length ? { dropped } : {}) } as unknown as WithFindings<T>;
+};
 
 /**
  * The planner's result, with its scope held to the protected paths given; with none, to the rules of the line that
@@ -279,16 +365,18 @@ export const plannerResult = (
   sources: Sources = NOTHING,
   improvement?: Improvement,
 ) =>
-  z.discriminatedUnion('verdict', [
-    z.strictObject({ verdict: z.literal('spec'), spec: specWithin(protectedPaths, sources, improvement), findings }),
-    /**
-     * The ticket cannot be made testable, is not a defect in the app, or needs a fix the line may not make; or the
-     * improvement needs a change the line may not make.
-     */
-    z.strictObject({ verdict: z.literal('reject'), reason: words(300), findings }),
-    /** Something about what the app should do that only Martin can say. */
-    z.strictObject({ verdict: z.literal('question'), question: words(300), findings }),
-  ]);
+  z
+    .discriminatedUnion('verdict', [
+      z.strictObject({ verdict: z.literal('spec'), spec: specWithin(protectedPaths, sources, improvement), findings }),
+      /**
+       * The ticket cannot be made testable, is not a defect in the app, or needs a fix the line may not make; or the
+       * improvement needs a change the line may not make.
+       */
+      z.strictObject({ verdict: z.literal('reject'), reason: words(300), findings }),
+      /** Something about what the app should do that only Martin can say. */
+      z.strictObject({ verdict: z.literal('question'), question: words(300), findings }),
+    ])
+    .transform(withFindings);
 
 export type PlannerResult = z.infer<ReturnType<typeof plannerResult>>;
 
@@ -329,6 +417,90 @@ export function findingSignal(
   };
 }
 
+/** What Martin did with the hold that sent the work back, as the prompt says it. */
+function heDid(replan: Extract<Replan, { approved: boolean }>): string {
+  if (replan.approved)
+    return `Martin approved that${replan.answered ? ', with the words last among his answers above' : ''}.`;
+  return replan.answered
+    ? 'Martin answered it in words: the last of his answers above.'
+    : 'Martin sent it back to you.';
+}
+
+/** Why the work came back to Plan, in plain words, by its cause, and what to change for it. */
+function whyBack(replan: Replan, asked: Asked['kind']): string[] {
+  const it = asked === 'ticket' ? 'the ticket' : 'what Martin asked';
+  switch (replan.cause) {
+    case 'returned':
+      return [`Why it came back: the work returned from ${replan.from}: ${replan.reason.replace(/[.\s]+$/, '')}.`];
+    case 'reopened':
+      return ['Why it came back: the ticket reopened, as said above.'];
+    case 'scope':
+      if (replan.needs) {
+        return [
+          'Why it came back: the coder could not meet your criteria without changing files outside your scope, and changed nothing. It named each, and why:',
+          ...replan.needs.map(
+            ({ path, reason, barred }) => `- ${path}${barred ? ', which no scope may name' : ''}: ${reason}`,
+          ),
+          heDid(replan),
+          'So take into the scope each of those files a scope may name, and keep the rest of the spec as it is, unless his words ask for more. A file no scope may name stays out of it: if the work needs one, reject it.',
+        ];
+      }
+      return [
+        `Why it came back: the scope fence refused the coder’s patch twice, as it changed files outside your scope.${replan.fenced ? ` The fence printed: ${replan.fenced.split('\n').join('; ')}.` : ''}`,
+        heDid(replan),
+        `So put the scope right for what the criteria need${replan.answered ? ', as his answer says' : ''}, and keep the rest of the spec as it is.`,
+      ];
+    case 'beyond-ticket':
+      return [
+        `Why it came back: the reviewer found the spec, or the change, goes beyond ${it}${replan.beyond?.length ? ':' : `: ${replan.reason}`}`,
+        ...(replan.beyond ?? []).map((f) => `- Criterion ${f.criterion}: ${f.comment}`),
+        heDid(replan),
+        `So take out what goes beyond ${it}, as his answer says, and keep the rest of the spec as it is.`,
+      ];
+    case 'nothing-to-fix':
+      return [
+        `Why it came back: the coder found nothing to fix at your spec: ${replan.reason.replace(/[.\s]+$/, '')}.`,
+        heDid(replan),
+      ];
+    case 'spec':
+      return [
+        'Why it came back: Martin read your last spec and did not approve it.',
+        heDid(replan),
+        'So change the spec as his answer asks, and keep the rest of it as it is.',
+      ];
+    case 'verify':
+      return [
+        `Why it came back: the change was merged and released, and at Verify it was held for Martin: ${replan.reason.replace(/[.\s]+$/, '')}.`,
+        heDid(replan),
+      ];
+    default:
+      return [`Why it came back: it was held for Martin: ${replan.reason.replace(/[.\s]+$/, '')}.`, heDid(replan)];
+  }
+}
+
+/**
+ * What the planner is told when the work has come back to it: its last spec, as it wrote it, why the work came back,
+ * the pull request that holds the work so far, and to keep what still holds. Nothing on a first plan.
+ */
+function replanLines({ asked, lastSpec, replan, change }: PlannerInput): string[] {
+  if (!lastSpec) return [];
+  const kind = asked.kind === 'ticket' ? 'ticket' : 'improvement';
+  return [
+    '',
+    `This is a replan: you planned this ${kind} before, and the work came back to you. Your last spec, as you wrote it:`,
+    '```json',
+    JSON.stringify(lastSpec, null, 2),
+    '```',
+    ...(replan ? whyBack(replan, asked.kind) : []),
+    ...(change
+      ? [
+          `Pull request #${change.pullRequest} holds the work so far, which is this ${kind}’s own: no other change’s. It changes ${change.files.length ? change.files.join(', ') : 'no file yet'}. Your checkout is not that work: it is ${change.commit}, where the pull request’s branch left main, which the coder’s tests are judged against, as your first plan was. Plan against this commit: what the pull request adds is not in it.`,
+        ]
+      : []),
+    `Keep what still holds, and change only what the return asks for. A criterion you keep keeps its \`from\` and its \`quote\`, word for word.${asked.kind === 'request' && lastSpec.flag ? ` The flag stays \`${lastSpec.flag}\`.` : ''}`,
+  ];
+}
+
 /** A fix's plan: the ticket, what the senses saw and what came of fixes before, to a diagnosis and a spec. */
 function ticketPrompt(input: PlannerInput, ticket: PayloadOf<'ticket.opened'>): string {
   const { workItem, signals, protectedPaths, answers, persisted = [], reopened = [], failure } = input;
@@ -336,7 +508,7 @@ function ticketPrompt(input: PlannerInput, ticket: PayloadOf<'ticket.opened'>): 
     `Plan the fix for ticket #${workItem}: ${ticket.title}.`,
     ...ticketLines(ticket, signals),
     ...(signals.length ? ['', 'What the senses saw, by number:', ...numbered(signals)] : []),
-    ...(answers.length ? ['', 'Martin was asked, and answered:', ...answers.map((a) => `- ${told(a)}`)] : []),
+    ...answerLines(answers),
     ...(persisted.length
       ? [
           '',
@@ -355,6 +527,7 @@ function ticketPrompt(input: PlannerInput, ticket: PayloadOf<'ticket.opened'>): 
           'Find out what brought it back, and what let it through, before you plan another fix.',
         ]
       : []),
+    ...replanLines(input),
     ...(failure ? ['', `Your last attempt at this plan failed: ${failure}. Do not hand back the same again.`] : []),
     '',
     'Find the cause in the repository: start from the route, and read the code that serves it and its tests. Stop as soon as you can name the code at fault and say why it does what the evidence shows: that diagnosis is all the plan needs, and most plans need a dozen tool calls or fewer.',
@@ -377,11 +550,21 @@ const IMPROVEMENT_RISK_MEANINGS: Record<(typeof RISKS)[number], string> = {
   'out-of-scope': 'it changes behaviour beyond what Martin asked',
 };
 
+/** The flag an improvement's spec names: a fresh one, or, planned again, the one its last spec named. */
+function flagRule(flagsTaken: readonly string[], keeps: string | undefined): string {
+  const named =
+    '- `flag`: the name of the flag the change goes behind: lower-case letters and digits, in words joined by hyphens, at most 100 characters, such as `sort-by-price`.';
+  if (keeps) {
+    return `${named.replace(/, such as `sort-by-price`\.$/, '.')} Planned again, it is \`${keeps}\`, as your last spec named it, and stays so: Martin’s moves, the baseline and the pictures of the pages are all recorded against it. It is this improvement’s own.`;
+  }
+  return `${named} A fresh one, which no other change uses: never \`flag-set-revision\`${flagsTaken.length ? `, and none of these, which other improvements have named: ${flagsTaken.map((f) => `\`${f}\``).join(', ')}` : ''}.`;
+}
+
 /** The spec an improvement is held to: a fix's, with its title, its flag, its pages and each criterion's side. */
-const improvementTemplate = (flagsTaken: readonly string[]) => [
+const improvementTemplate = (flagsTaken: readonly string[], keeps?: string) => [
   '- `title`: what the work item is, in a few words, at most 120 characters, such as "Sort the products by price". It names the work item from here on, in place of the one made from Martin’s first sentence.',
   '- `outcome`: one sentence, what a visitor sees once the flag is on.',
-  `- \`flag\`: the name of the flag the change goes behind: lower-case letters and digits, in words joined by hyphens, at most 100 characters, such as \`sort-by-price\`. A fresh one, which no other change uses: never \`flag-set-revision\`${flagsTaken.length ? `, and none of these, which other improvements have named: ${flagsTaken.map((f) => `\`${f}\``).join(', ')}` : ''}.`,
+  flagRule(flagsTaken, keeps),
   '- `pages`: one to six pages of the app a visitor opens to see the change, each as the path from the root without a query, such as `/products/blue-mug` for a product’s page: Verify takes pictures of them with the flag off and on.',
   '- `criteria`: one to twelve acceptance criteria, each an object of `given`, `when`, `expect` (the then), `withFlag`, `from` and `quote`, in a sentence each. A criterion says what a visitor or a caller of the code sees, not how the code changes. `withFlag` is the side of the flag it holds on: `on` for what the change does, `off` for what stays as it is now. Give at least one of each: one `off` criterion says that, with the flag off, the pages are exactly as they are now. Each is a test the coder can write with the repository’s own tests, with the flag as its side says: an `on` criterion fails at this commit and passes once the change is in; an `off` one passes at both. `from` names what above asks for it: `the request`, or `Martin’s answer`. `quote` copies, word for word, the words there that ask for it: two or more, in one unbroken stretch with nothing left out, at most 200 characters; the line refuses a spec whose quote is not in what its criterion names. An `off` criterion quotes the words of the request whose change it keeps back, since Martin asked for the change and not for the flag: never these instructions. A criterion Martin did not ask for does not belong in the spec, however much better it would make the app.',
   '- `scope`: the files the coder may change, its tests among them, and no more than the change needs: a path from the top of the repository, a folder ending in `/`, or a pattern with `*`.',
@@ -395,11 +578,12 @@ const improvementTemplate = (flagsTaken: readonly string[]) => [
  * a diagnosis, since nothing is wrong, and nothing built or tried: the coder builds it, test first.
  */
 function requestPrompt(input: PlannerInput, request: Request): string {
-  const { workItem, protectedPaths, answers, failure, flagsTaken = [] } = input;
+  const { workItem, protectedPaths, answers, failure, flagsTaken = [], lastSpec } = input;
   return [
     `Plan improvement #${workItem}: ${request.title}.`,
     `Martin asked for it in his own words: “${request.words}”`,
-    ...(answers.length ? ['', 'Martin was asked, and answered:', ...answers.map((a) => `- ${told(a)}`)] : []),
+    ...answerLines(answers),
+    ...replanLines(input),
     ...(failure ? ['', `Your last attempt at this plan failed: ${failure}. Do not hand back the same again.`] : []),
     '',
     'Nothing is broken: this is a change Martin wants. Find where it goes in the repository: start from the pages it shows on, and read the code that serves them and its tests. Stop as soon as you can say which code changes and what a visitor will see: that is all the plan needs, and most plans need a dozen tool calls or fewer.',
@@ -411,7 +595,7 @@ function requestPrompt(input: PlannerInput, request: Request): string {
     '',
     'Then write the result, one of three, each with its `findings`:',
     '1. {"verdict":"spec","spec":{"title","outcome","flag","pages":[],"criteria":[{"given","when","expect","withFlag","from","quote"}],"scope":[],"risks":[],"rollout"},"findings":[{"page","route","text"}]}, the spec the coder will be held to, which Martin approves before any code is written:',
-    ...improvementTemplate(flagsTaken).map((line) => `   ${line}`),
+    ...improvementTemplate(flagsTaken, lastSpec?.flag).map((line) => `   ${line}`),
     `2. {"verdict":"reject","reason"} when the line may not make the change. Reject it when it needs a path no scope may name, the app’s flag context among them: ${protectedWords(protectedPaths).join(', ')}. Reject it when it would keep anything on a visitor’s device, such as a cookie or anything in the browser’s storage: nothing goes there that a visitor did not ask for, and what may is decided outside this repository. Reject it too when no test could tell the change from the app as it is. The reason is one or two short sentences for Martin, at most 300 characters, naming the file or what is in the way.`,
     '3. {"verdict":"question","question"} when what Martin asked could mean more than one thing, and the spec turns on which: one question he can answer in a line, at most 300 characters.',
     `\`findings\`: at most ${MAX_PLANNER_FINDINGS}, each with \`page\`, a page of the app that shows it, as the path a visitor opens, without its query (\`/\` when it shows on none); \`route\`, the route that serves that page, as the app’s code names it, such as \`/products/:slug\`; and \`text\`, what is wrong or could be better, in a sentence or two of at most 300 characters, with the query if it shows only with one.`,
@@ -422,7 +606,8 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
   agent: 'planner',
   maxTurns: 30,
   deadlineSeconds: 15 * 60,
-  input: async ({ workItem, state, commit, failure, ticket, request, signals, read, flagsTaken }) => ({
+  plansFromBase: true,
+  input: async ({ workItem, state, commit, failure, ticket, request, signals, read, flagsTaken, change }) => ({
     workItem,
     asked: await askedOf({ state, ticket, request }),
     signals: await signals(),
@@ -432,12 +617,15 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
     reopened: state.reopened.filter((r) => !r.dryRun),
     failure,
     ...(state.request ? { flagsTaken: await flagsTaken() } : {}),
+    ...(state.lastSpec ? { lastSpec: state.lastSpec } : {}),
+    ...(state.replan ? { replan: state.replan } : {}),
+    ...(change ? { change: { ...change, commit } } : {}),
   }),
   schema: (input) =>
     plannerResult(
       input.protectedPaths,
       sourcesOf(input),
-      input.asked.kind === 'request' ? { flagsTaken: input.flagsTaken ?? [] } : undefined,
+      input.asked.kind === 'request' ? { flagsTaken: input.flagsTaken ?? [], keeps: input.lastSpec?.flag } : undefined,
     ),
   prompt: (input) =>
     input.asked.kind === 'ticket' ? ticketPrompt(input, input.asked.ticket) : requestPrompt(input, input.asked.request),
@@ -448,7 +636,19 @@ export const planner = defineAgent<PlannerInput, PlannerResult>({
       const key = `finding ${found.route} ${found.page} ${found.text}`;
       await context.leaveSignal(key, findingSignal(found, context.workItem, context.commit));
     }
-    const left = planned.findings.length ? `; ${count(planned.findings.length, 'finding')} left for triage` : '';
+    const dropped = planned.dropped ?? [];
+    // Once for the handback, though its effects are tried again after GitHub or the store fails.
+    if (dropped.length) {
+      await context.once('log dropped findings', async () => {
+        context.log.warn({ workItem: context.workItem, dropped }, 'the planner handed back findings that do not fit');
+      });
+    }
+    const left = [
+      ...(planned.findings.length ? [`${count(planned.findings.length, 'finding')} left for triage`] : []),
+      ...(dropped.length ? [`${count(dropped.length, 'finding')} that did not fit left out`] : []),
+    ]
+      .map((part) => `; ${part}`)
+      .join('');
     switch (planned.verdict) {
       case 'spec': {
         const { spec } = planned;

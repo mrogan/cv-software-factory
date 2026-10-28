@@ -172,7 +172,7 @@ Each hold names its cause, and Martin's answer does what `ANSWERS` says for that
 | `question` | The planner asks what only Martin can say | Carries on | Carries on; his answer reaches every later plan |
 | `ticket-rejected` | The planner rejects the ticket | Agrees, and closes the work item | Carries on; his answer reaches every later plan |
 | `spec` | A spec is tagged `out-of-scope` | Carries on to Build | Sends it back to the planner |
-| `scope` | The scope fence refused the coder's patch twice, or the coder named files outside the scope it needs | Sends it back to the planner, told the coder needed those files | Sends it back to the planner with what the fence printed, or the files the coder named |
+| `scope` | The scope fence refused the coder's patch twice, or the coder named files outside the scope it needs | Sends it back to the planner, told, as the line's reading of his approval, that the coder needed those files | Sends it back to the planner with what the fence printed, or the files the coder named |
 | `nothing-to-fix` | The coder's first round finds nothing to fix | Agrees, and closes the work item | Sends it back to the planner with the coder's reason |
 | `failures` | A step failed twice, or its effects failed six times | Runs the step again | Runs the step again, with his words |
 | `gates` | Gates failed after two returns, or the coder changed nothing after gates | Sends the work back to the coder | Sends the work back to the coder, with his words |
@@ -182,6 +182,8 @@ Each hold names its cause, and Martin's answer does what `ANSWERS` says for that
 | `deploy` | The merged fix waits for a release ([Release](RELEASE-AND-VERIFY.md#release)) | Waits: he settles it by merging the deploy pull request, his once its checks have passed | Waits |
 | `verify` | The signal persisted a second time, Verify could not tell for 24 hours, or nothing can judge the fix ([Verify](RELEASE-AND-VERIFY.md#verify)) | Closes the work item as verified, with his words | Sends it back to Plan |
 | `spend` | The work item has spent its cap on models | Carries on, and holds again until the cap is raised; raising it answers the hold | Carries on |
+
+Work sent back to the planner is planned again, not from nothing ([planned again](PLANNER.md#planned-again)). The work item keeps its last spec, in any pass, and why it came back (`replan` in the machine's state: the hold he answered, with the files the coder named, what the fence printed or the reviewer's findings beyond the ticket; the return from Verify; or the reopening) until the planner writes another. The planner is told both, and to keep what still holds. Once the work item has a pull request, the planner's step starts where that pull request's branch left main, as GitHub's comparison names it, and is told the pull request and the files it changes; every other step after a pull request starts from its head. An answer's words are his alone: what the line reads into an approval, such as that the coder needed those files, is told beside them as the line's, and no criterion may quote it.
 
 ### A held work item whose defect went another way
 

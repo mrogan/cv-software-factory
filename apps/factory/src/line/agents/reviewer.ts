@@ -36,9 +36,9 @@
  */
 import { MAX_FINDINGS, PATH_CHARS, type PayloadOf } from '@software-factory/events';
 import { z } from 'zod';
-import { LIMITS, suggestionsGoBack, type WorkItemState } from '../machine.ts';
+import { type Answer, LIMITS, suggestionsGoBack, type WorkItemState } from '../machine.ts';
 import { answerThreads, cites, type Finding, lineage, reviewInGitHub, threadAnswers } from '../review.ts';
-import { askedOf, defineAgent, need, words } from './agent.ts';
+import { askedOf, defineAgent, heAnswered, need, words } from './agent.ts';
 import { flagLine, side } from './coder.ts';
 import { type Asked, askedLines, askedName, askedTitle, numbered, type Signal } from './evidence.ts';
 
@@ -48,8 +48,11 @@ export interface ReviewerInput {
   asked: Asked;
   /** What each sense saw, in the order they saw it. A report's signal is not here. */
   signals: Signal[];
-  /** Martin's answers to the holds at Plan, each with what he was asked: part of what the ticket asks. */
-  answers: { asked: string; answer: string }[];
+  /**
+   * Martin's answers to the holds at Plan, each with what he was asked: part of what the ticket asks. What the line
+   * reads into one is told as the line's, never as his words.
+   */
+  answers: Pick<Answer, 'asked' | 'answer' | 'line'>[];
   spec: PayloadOf<'spec.written'>;
   pullRequest: number;
   /** The pull request's title, as the coder wrote it. */
@@ -220,7 +223,7 @@ function prompt({
       ? [
           '',
           `Martin was asked, as the planner planned, and answered. His answers are part of what ${improvement ? 'he asks' : 'the ticket asks'}:`,
-          ...answers.map((a) => `- ${a.asked} He said: ${a.answer}`),
+          ...answers.map((a) => `- ${a.asked} ${heAnswered(a)}`),
         ]
       : []),
     '',

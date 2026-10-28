@@ -309,31 +309,32 @@ describe('what the line does next', () => {
       {
         asked: `${hold.reason}.`,
         said: 'The coder said of test/flags-preview.test.ts: It assumes / asks no flag; every page now does. The coder said of .github/workflows/ci.yml, which no scope may name: It runs the old command.',
-        answer:
-          'Yes: let the scope take in the files the coder needed that a scope may name. A file no scope may name stays out of it: if the fix needs one, reject the ticket.',
+        // The line's reading of his approval, which is never his words.
+        line: 'Let the scope take in the files the coder needed that a scope may name. A file no scope may name stays out of it: if the fix needs one, reject the ticket.',
+        approved: true,
       },
     ]);
     expect(closesWhenCleared(fold([ticket, spec, { type: 'hold.started', payload: hold }]))).toBe(true);
     // Approving files of which one no scope may name tells the planner to leave that one out, or reject the ticket.
     const barredOnly = needsHold([{ path: 'deploy/app.yaml', reason: 'x' }], ['deploy/']);
+    const barredLine = 'A file no scope may name stays out of it: if the fix needs one, reject the ticket.';
     const told = fold([ticket, spec, { type: 'hold.started', payload: barredOnly }, answer('approved')]).answers[0];
-    expect(told?.answer).toBe(
-      'Yes: let the scope take in the files the coder needed that a scope may name. A file no scope may name stays out of it: if the fix needs one, reject the ticket.',
-    );
-    // His own words with his approval keep what the planner may not do.
+    expect(told).toMatchObject({
+      line: `Let the scope take in the files the coder needed that a scope may name. ${barredLine}`,
+    });
+    expect(told?.answer).toBeUndefined();
+    // His own words with his approval keep what the planner may not do, as the line's beside his.
     const worded = fold([ticket, spec, { type: 'hold.started', payload: barredOnly }, answer('approved', 'Go ahead.')])
       .answers[0];
-    expect(worded?.answer).toBe(
-      'Go ahead. A file no scope may name stays out of it: if the fix needs one, reject the ticket.',
-    );
+    expect(worded).toMatchObject({ answer: 'Go ahead.', line: barredLine });
     // So do his words alone, which send it back to the planner too; on a hold with nothing barred, his words stand.
     const words = fold([ticket, spec, { type: 'hold.started', payload: barredOnly }, answer('answered', 'Try again.')]);
-    expect(words.answers[0]?.answer).toBe(
-      'Try again. A file no scope may name stays out of it: if the fix needs one, reject the ticket.',
-    );
+    expect(words.answers[0]).toMatchObject({ answer: 'Try again.', line: barredLine });
+    expect(words.answers[0]?.approved).toBeUndefined();
     const open = needsHold([{ path: 'test/a.ts', reason: 'x' }], []);
     const plain = fold([ticket, spec, { type: 'hold.started', payload: open }, answer('answered', 'Try again.')]);
     expect(plain.answers[0]?.answer).toBe('Try again.');
+    expect(plain.answers[0]?.line).toBeUndefined();
     // A reason cut to fit ends as it was cut, with no full stop after the mark.
     const cutHold = needsHold(many, []);
     const cutTold = fold([ticket, spec, { type: 'hold.started', payload: cutHold }, answer('approved')]).answers[0];
@@ -725,6 +726,12 @@ describe('after the merge', () => {
     expect(state.release).toBeUndefined();
     expect(state.persisted).toEqual([verified('persists').payload]);
     expect(state.reopened).toEqual([reopened.payload]);
+    // The planner is told its last spec, and why it is back: the reopening, as a persisting fix's return before it.
+    expect(state).toMatchObject({ lastSpec: spec.payload, replan: { cause: 'reopened' } });
+    expect(fold([...persisted, back]).replan).toEqual({ cause: 'returned', from: 'verify', reason: 'It persists' });
+    // One a dry run verified comes back to a first plan: nothing of its spec shipped.
+    const dry: LineEvent = { ...reopened, payload: { ...reopened.payload, dryRun: true } };
+    expect(fold([...ended, dry])).toMatchObject({ lastSpec: undefined, replan: undefined });
     // A verification that persists in the new pass sends it back to Plan once more: the limit counts this ticket's
     // regression afresh.
     const live = [...again, ...done.slice(1), deployHold(done), release('8a6c0d9e7', 'v0.9.7')];
@@ -1142,6 +1149,54 @@ describe('Martin’s answer to a hold', () => {
     expect(fold([...events, pushed()]).answer).toBeUndefined();
   });
 
+  it('keeps the last spec and why the work came back to Plan, for the planner, until it writes another', () => {
+    const needs = needsHold([{ path: 'test/flags-preview.test.ts', reason: 'It assumes no flag.' }], []);
+    const hold: LineEvent = { type: 'hold.started', payload: needs };
+    const approved = fold([ticket, spec, pushed(), hold, answer('approved')]);
+    expect(approved).toMatchObject({ spec: undefined, lastSpec: spec.payload, pullRequest: { number: 12 } });
+    expect(approved.replan).toEqual({
+      cause: 'scope',
+      approved: true,
+      answered: false,
+      reason: needs.reason,
+      needs: needs.needs,
+    });
+    // His words, when he answers in them, are told as his.
+    expect(fold([ticket, spec, pushed(), hold, answer('answered', 'Take it in.')]).replan).toMatchObject({
+      approved: false,
+      answered: true,
+    });
+    // The fence's output, for a hold the fence made.
+    const fence: LineEvent = {
+      type: 'action.refused',
+      payload: { mechanism: 'scope-fence', action: 'Push', output: 'scope: test/\nrefused src/server.ts +1 −1' },
+    };
+    expect(fold([ticket, spec, fence, fence, held('scope', 'build'), answer('approved')]).replan).toMatchObject({
+      cause: 'scope',
+      fenced: 'scope: test/\nrefused src/server.ts +1 −1',
+    });
+    // The reviewer's findings beyond the ticket, for its escalation.
+    const beyond = { ...finding, criterion: 1, ticket: true as const, comment: 'No signal asks for it.' };
+    const escalated: LineEvent = {
+      type: 'review.submitted',
+      payload: { pullRequest: 12, verdict: 'escalated', note: 'Beyond the ticket', findings: [finding, beyond] },
+    };
+    const beyondHeld = [ticket, spec, pushed(), escalated, held('beyond-ticket', 'review')];
+    expect(fold([...beyondHeld, answer('answered', 'Drop it.')]).replan).toMatchObject({
+      cause: 'beyond-ticket',
+      beyond: [beyond],
+    });
+    // A new spec answers it; the last spec is the new one.
+    const rewritten: LineEvent = {
+      ...spec,
+      payload: { ...spec.payload, scope: ['src/search.ts', 'test/', 'src/x.ts'] },
+    };
+    const after = fold([ticket, spec, pushed(), hold, answer('approved'), rewritten]);
+    expect(after).toMatchObject({ replan: undefined, lastSpec: rewritten.payload });
+    // A hold that carries on at Plan sends nothing back.
+    expect(fold([ticket, held('question', 'plan'), answer('answered', 'Yes')]).replan).toBeUndefined();
+  });
+
   it('sends a scope the coder kept straying from back to Plan, with what the fence printed and what he said', () => {
     const fenced = 'scope: src/search.ts, test/\nallowed src/search.ts +1 −1\nrefused src/cards.ts +2 −0';
     const refused: LineEvent = {
@@ -1154,11 +1209,11 @@ describe('Martin’s answer to a hold', () => {
     const answered = [...strayed, answer('answered', 'The cards share the bug: take them in')];
     expect(decide(answered, facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });
     expect(fold(answered).answers).toEqual([{ asked, answer: 'The cards share the bug: take them in' }]);
-    // Approving says the coder needed those files.
+    // Approving says the coder needed those files, in the line's words, not his.
     const approved = [...strayed, answer('approved')];
     expect(decide(approved, facts).next).toEqual({ do: 'step', agent: 'planner', round: 1 });
     expect(fold(approved).answers).toEqual([
-      { asked, answer: 'Yes: the coder needed those files, so let the scope take them in.' },
+      { asked, line: 'The coder needed those files: let the scope take them in.', approved: true },
     ]);
     expect(decide([...strayed, answer('rejected')], facts).next).toMatchObject({ do: 'close' });
   });

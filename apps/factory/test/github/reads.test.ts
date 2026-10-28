@@ -76,7 +76,7 @@ const ROUTES = [
   },
   {
     method: 'GET',
-    path: `/repos/${REPO}/compare/main...${SHA}?per_page=100`,
+    path: `/repos/${REPO}/compare/main...${SHA}?per_page=100&page=1`,
     answer: () => ({
       body: {
         merge_base_commit: { sha: OTHER_SHA },
@@ -148,6 +148,36 @@ describe('reading GitHub for the line', () => {
         { path: 'public/logo.png', patch: null, added: 0, removed: 0 },
       ],
     });
+  });
+
+  it('reads every page of a comparison’s files, up to the most GitHub compares', async () => {
+    const file = (n: number) => ({ filename: `src/f${n}.ts`, status: 'modified', additions: 1, deletions: 0 });
+    const page = (from: number, count: number) => Array.from({ length: count }, (_, i) => file(from + i));
+    const compare = (n: number, files: unknown[]) => ({
+      method: 'GET',
+      path: `/repos/${REPO}/compare/main...${SHA}?per_page=100&page=${n}`,
+      answer: () => ({ body: { merge_base_commit: { sha: OTHER_SHA }, files } }),
+    });
+    // 250 files: two whole pages and a part one, which is the last.
+    const paged = client([compare(1, page(0, 100)), compare(2, page(100, 100)), compare(3, page(200, 50))]);
+    const all = await new LiveReads(paged.github).comparison(REPO, 'main', SHA);
+    expect(all.mergeBase).toBe(OTHER_SHA);
+    expect(all.files.map((f) => f.path)).toEqual(page(0, 250).map((f) => f.filename));
+    // At GitHub's 300 it asks no further; and a page that repeats the files before it ends the reading.
+    const sentFull: Parameters<typeof calls>[0] = [];
+    const full = client(
+      [1, 2, 3, 4].map((n) => compare(n, page((n - 1) * 100, 100))),
+      sentFull,
+    );
+    expect((await new LiveReads(full.github).comparison(REPO, 'main', SHA)).files).toHaveLength(300);
+    expect(calls(sentFull)).toHaveLength(3);
+    const sentRepeated: Parameters<typeof calls>[0] = [];
+    const repeated = client(
+      [1, 2, 3].map((n) => compare(n, page(0, 100))),
+      sentRepeated,
+    );
+    expect((await new LiveReads(repeated.github).comparison(REPO, 'main', SHA)).files).toHaveLength(100);
+    expect(calls(sentRepeated)).toHaveLength(2);
   });
 });
 
