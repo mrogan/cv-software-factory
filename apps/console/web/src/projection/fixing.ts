@@ -182,6 +182,34 @@ export function attempts(item: ItemState): Attempt[] {
   return list;
 }
 
+/**
+ * What the rounds have in hand now, besides gates that are running, which the last round's own gates say. A return
+ * sends the work into a round the coder has not pushed yet: its row is drawn at once, hollow, so the return's arc
+ * lands on its Build. None follows a return once the work item has closed, or one the coder declined in full, as it
+ * pushes nothing.
+ */
+export interface RoundsNow {
+  /** The round a return sent the work into, before the coder pushed it, and whether the coder is at work on it. */
+  next: { attempt: number; building: boolean } | undefined;
+  /** Whether the reviewer is at work on the last round. */
+  reviewing: boolean;
+}
+
+/** What the rounds have in hand now: the stage the work item is in, while it is in progress there, as its card's segment that blinks says. */
+export function roundsNow(item: ItemState, list: readonly Attempt[]): RoundsNow {
+  const last = list.at(-1);
+  const inHand = (stage: Stage) => item.stage === stage && item.outcome === 'in-progress';
+  const next =
+    last?.returned && !last.returned.declined && item.closedAt === undefined
+      ? { attempt: last.attempt + 1, building: inHand('build') }
+      : undefined;
+  // The line records no start for a review, only the reviewer's call as it ends: a round whose gates passed is the
+  // reviewer's from then, while the work item is in hand at Gates or Review.
+  const reviewing =
+    !!last && !last.returned && !last.review && last.gates?.state === 'passed' && (inHand('gates') || inHand('review'));
+  return { next, reviewing };
+}
+
 /** Every review, with each finding's rule and criterion in full. */
 export function reviewThread(item: ItemState, spec: PayloadOf<'spec.written'> | undefined): ThreadReview[] {
   let attempt: number | undefined;

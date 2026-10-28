@@ -415,6 +415,8 @@ describe('the sheet of a fix', () => {
     expect(rounds[0]?.review).toEqual({ number: 1, verdict: 'approved', blocking: 0, suggestions: 1 });
     expect(rounds[0]?.returned).toEqual({ from: 'review', detail: '1 suggestion, declined', declined: true });
     expect(sheet('1304')?.facts.reviews).toEqual({ done: 1, of: 2 });
+    // The coder pushed nothing for it, so no round follows the return.
+    expect(sheet('1304')?.roundsNow.next).toBeUndefined();
   });
 
   it('prints each finding’s rule in full, and a criterion in the spec’s words', () => {
@@ -489,6 +491,23 @@ describe('a fix sent back by the gates and then by the reviewer', () => {
       [1, { from: 'gates', detail: '1 check failed' }],
       [2, { from: 'review', detail: '1 blocking' }],
     ]);
+  });
+
+  it('draws the round a return sends it into at once, the coder at work on it, before it pushes', () => {
+    // The gates sent round 1 back at 14:15:55; the coder pushed round 2 at 14:19:00.
+    const between = projectSheet(SAMPLES, '1325', Date.parse('2026-10-06T14:17:00Z'));
+    expect(between?.rounds.map((a) => a.attempt)).toEqual([1]);
+    expect(between?.roundsNow).toEqual({ next: { attempt: 2, building: true }, reviewing: false });
+    // And at the end, the reviewer's return waits for round 3.
+    expect(sheet('1325')?.roundsNow.next).toEqual({ attempt: 3, building: true });
+  });
+
+  it('says which step of the last round is in hand: its gates, then its review', () => {
+    const at = (time: string) => projectSheet(SAMPLES, '1325', Date.parse(time));
+    const gating = at('2026-10-06T14:20:00Z');
+    expect(gating?.rounds.at(-1)?.gates?.state).toBe('running');
+    expect(gating?.roundsNow).toEqual({ next: undefined, reviewing: false });
+    expect(at('2026-10-06T14:22:00Z')?.roundsNow).toEqual({ next: undefined, reviewing: true });
   });
 
   it('names the review apart from the attempt it reviewed', () => {
