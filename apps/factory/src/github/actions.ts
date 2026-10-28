@@ -534,7 +534,8 @@ export class LiveActions implements Actions {
       `/repos/${repo}/issues/${number}/comments?per_page=100${after}`,
       z.array(z.object({ body: z.string().nullable() })),
     );
-    return comments.some((made) => made.body === body);
+    // As GitHub keeps it: its line endings may be \r\n, and its ends trimmed.
+    return comments.some((made) => same(made.body ?? '', body));
   }
 
   async comment(repo: string, number: number, body: string): Promise<void> {
@@ -814,7 +815,11 @@ export class DryRunActions implements Actions {
     const on = `${repo}#${number}`;
     const said = this.#said.get(on) ?? new Set<string>();
     if (said.has(body)) return;
-    await this.#record('comment', repo, { number, body });
+    // Taken before it is recorded, so two asked at once record it once; given back if the record fails.
     this.#said.set(on, said.add(body));
+    await this.#record('comment', repo, { number, body }).catch((error: unknown) => {
+      said.delete(body);
+      throw error;
+    });
   }
 }

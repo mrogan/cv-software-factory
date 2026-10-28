@@ -656,7 +656,8 @@ describe('closing a pull request', () => {
 
 describe('commenting on an issue', () => {
   it('says each thing once: asked again, after a failure or a restart, it says nothing more', async () => {
-    const comments: { body: string }[] = [{ body: 'Something said before.' }];
+    // As GitHub may keep one: with \r\n for its line endings.
+    const comments: { body: string }[] = [{ body: 'Something said before.\r\nOn two lines.' }];
     let failPost = 1;
     const { github, sent } = client([
       { method: 'GET', path: /^\/repos\/.+\/issues\/31\/comments/, answer: () => ({ body: comments }) },
@@ -674,19 +675,25 @@ describe('commenting on an issue', () => {
     await expect(actions.comment(REPO, 31, 'Released behind its flag.')).rejects.toThrow();
     await actions.comment(REPO, 31, 'Released behind its flag.');
     await actions.comment(REPO, 31, 'Released behind its flag.');
-    await actions.comment(REPO, 31, 'Something said before.');
+    await actions.comment(REPO, 31, 'Something said before.\nOn two lines.');
     expect(
       calls(sent)
         .filter((s) => s.method === 'POST')
         .map((s) => s.body),
     ).toEqual([{ body: 'Released behind its flag.' }, { body: 'Released behind its flag.' }]);
-    expect(comments.map((c) => c.body)).toEqual(['Something said before.', 'Released behind its flag.']);
+    expect(comments.map((c) => c.body)).toEqual([
+      'Something said before.\r\nOn two lines.',
+      'Released behind its flag.',
+    ]);
   });
 
   it('records what a dry run would have said on an issue once', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
     const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
-    await actions.comment(REPO, 31, 'Released behind its flag.');
+    await Promise.all([
+      actions.comment(REPO, 31, 'Released behind its flag.'),
+      actions.comment(REPO, 31, 'Released behind its flag.'),
+    ]);
     await actions.comment(REPO, 31, 'Released behind its flag.');
     await actions.comment(REPO, 32, 'Released behind its flag.');
     const records = await Promise.all(
