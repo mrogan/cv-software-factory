@@ -72,7 +72,7 @@ details p { font-size: 13.5px; margin-top: 8px; }
 <div class="wrap">
   <header class="top">
     <div>
-      <div class="eyebrow"><a href="../AGENTS.md">Software Factory</a> · architecture · planned in milestone 7 Part B</div>
+      <div class="eyebrow"><a href="../AGENTS.md">Software Factory</a> · architecture</div>
       <h1>Feature flags <em>· an improvement, stage by stage</em></h1>
     </div>
     <div class="seg" role="tablist" aria-label="Step" id="steps"></div>
@@ -112,7 +112,7 @@ details p { font-size: 13.5px; margin-top: 8px; }
 
   <footer class="foot">
     <div class="left">
-      <span>The plan: <a href="../PLAN/M07-ADMIN-AND-GUARDRAILS.md#feature-flags-part-b">milestone 7, feature flags</a>.</span>
+      <span>The details: <a href="../COMPONENTS/FEATURE-FLAGS.md">feature flags</a>, and <a href="adr/0015-feature-flags.md">why</a>.</span>
       <a href="wiring.html">How the parts connect</a>
       <a href="hosting.html">Where the factory lives</a>
       <a href="../design/system/index.html">Design system</a>
@@ -128,7 +128,7 @@ details p { font-size: 13.5px; margin-top: 8px; }
 (()=> {
 const NS = 'http://www.w3.org/2000/svg';
 const $ = (id) => document.getElementById(id);
-const PLAN = '../PLAN/M07-ADMIN-AND-GUARDRAILS.md';
+const DOCS = '../COMPONENTS';
 
 const NODES = {
   visitors: { x: 20, y: 40, t: 'Real visitors', s: 'people using the shop' },
@@ -183,74 +183,79 @@ const STEPS = [
     body: `
 <ul>
 <li><b>Real visitors</b> use the shop.</li>
-<li><b>The traffic generator</b> stands in for visitors, so there is always traffic to measure. Each of its fake visitors has an id.</li>
+<li><b>The traffic generator</b> stands in for visitors, so there is always traffic to measure. Each of its 101 fake visitors has an id.</li>
 <li><b>A previewer</b> is Martin, or anyone he sends a preview link to.</li>
-<li><b>The factory's checks</b> click through the shop and take pictures, to see that it works.</li>
+<li><b>The factory's checks</b> are the probes: they click through the shop and take pictures, to see that it works.</li>
 <li><b>Traefik</b> is the front door: visitors and the generator come in through it. The checks reach the app directly.</li>
 <li><b>Argo CD</b> deploys new versions of the app's code.</li>
 <li><b>The app</b> is usually one version. During a release there are briefly two, and the new one is the canary.</li>
-<li><b><code>flags</code></b> is a switchboard: which features are on, and for whom. <b>flagd</b> watches it and keeps the app's copy up to date.</li>
-<li><b>The console</b> is where Martin flips the switches. <b>Verify</b> judges the evidence.</li>
+<li><b><code>flags</code></b> is a switchboard: which features are on, and for whom. <b>flagd</b> watches it and keeps the app's copy up to date; the app decides each request from its copy, so no request waits on flagd.</li>
+<li><b>The console</b> is where Martin moves the switches, a stage at a time: Off, Checks, Preview, Share, Everyone. <b>Verify</b> judges each stage before he can go past it.</li>
 </ul>`,
   },
   {
     title: 'The code arrives, switched off',
     tab: 'Shipped',
-    nodes: ['visitors', 'gen', 'traefik', 'argo', 'stable', 'canary', 'verify', 'flagd', 'flags'],
-    edges: { vis: 'unlit', gen: 'unlit', argo: 'req', ts: 'unlit', tc: 'unlit', canv: 'req', sv: 'req', fs: 'set', fc: 'set', ff: 'set' },
+    nodes: ['visitors', 'gen', 'checks', 'traefik', 'argo', 'stable', 'canary', 'verify', 'flagd', 'flags'],
+    edges: { vis: 'unlit', gen: 'unlit', argo: 'req', ts: 'unlit', tc: 'unlit', cs: 'unlit', cv: 'req', canv: 'req', fs: 'set', fc: 'set', ff: 'set' },
     tags: { traefik: '75% · 25%', flags: 'dark-mode: off', canary: 'dark mode inside' },
     who: { visitors: 'unlit', preview: 'unlit', gen: 'unlit', checks: 'unlit' },
     body: `
-<p>The coder writes dark mode behind a flag, <code>dark-mode</code>, which is off unless the switchboard says otherwise. The pull request merges and is released like any other change.</p>
+<p>Martin asked for dark mode with the "+", and approved its spec, which names its flag, <code>dark-mode</code>, and the pages it changes. The coder writes dark mode behind the flag, with tests that pass with it on and with it off. Nothing defines the flag, so it is off. The pull request waits for Martin's merge, as every improvement's does, and is released like any other change.</p>
 <div class="callout"><b>A canary is about which code runs.</b> A new version doesn't replace the old one at once: the front door sends it a quarter of the traffic, and the canary's analysis compares the two versions. If the new one has more errors or is slower, it is rolled back on its own; if not, it gets the rest.</div>
 <div class="callout"><b>A flag is about which behaviour that code shows.</b> Dark mode is in the new version, switched off, so the canary only checks that it breaks nothing while off. Switching it on later needs no new version, no deploy and no canary.</div>
-<details><summary>In the plan</summary><p><a href="${PLAN}#feature-flags-part-b">The flag is defined in the change; its state is Martin's.</a> The probes' pictures from this release are the "off" side of the evidence later.</p></details>`,
+<p>Once the release is promoted, the line <b>hands it over</b> to its flag. With the flag still off, Verify has the checks picture each page the spec names, once with the browser preferring light and once dark: the <b>baseline</b>, the "off" side of the evidence later.</p>
+<details><summary>In the docs</summary><p><a href="${DOCS}/FEATURE-FLAGS.md#an-improvement-end-to-end">An improvement, end to end</a>; <a href="${DOCS}/ORCHESTRATOR.md#an-improvement">the hand-over</a>; <a href="${DOCS}/RELEASE-AND-VERIFY.md#the-probes-checks">the baseline</a>.</p></details>`,
   },
   {
-    title: "Stage 1: the factory's checks",
+    title: "Checks: the factory's own checks",
     tab: 'Checks',
     nodes: ['visitors', 'checks', 'traefik', 'stable', 'verify', 'flagd', 'flags', 'console'],
     edges: { vis: 'denied', ts: 'unlit', cs: 'lit', cv: 'req', ...SET },
-    tags: { flags: 'dark-mode: stage 1', traefik: 'strips the mark' },
+    tags: { flags: 'dark-mode: checks', traefik: 'strips the mark' },
     who: { visitors: 'unlit', preview: 'unlit', gen: 'unlit', checks: 'lit' },
     body: `
-<p>Martin moves dark mode to stage 1. Only the factory's own checks see it, so they can try it on the real shop while no visitor sees anything.</p>
-<p><b>How the app tells a check from a visitor.</b> The checks already label every request (the header <code>x-unmeasured</code>), and the app shows dark mode to a labelled request. A visitor who adds the label gets nowhere: the front door strips it. The checks don't come through the front door; they reach the app directly, and the network lets nothing else do so. So the label can only come from the checks.</p>
-<p><b>What Verify does.</b> The checks click through the shop with dark mode on, make sure nothing breaks and nothing is left on the device, and take pictures. The release's pictures (off) and these (on) go on the work item's card, and Martin looks at them before going further.</p>
-<details><summary>In the plan</summary><p>Stage 1, <a href="${PLAN}#feature-flags-part-b">the mark</a>: kept by the network, not a key. An admission rule requires the strip on every route to the app (task 14).</p></details>`,
+<p>Martin moves dark mode to Checks. Only the factory's own checks see it, so they can try it on the real shop while no visitor sees anything. It shows nobody else, so this one move needs no passkey.</p>
+<p><b>How the app tells a check from a visitor.</b> The checks already label every request with <b>the mark</b> (the header <code>x-unmeasured</code>), and the app shows dark mode to a marked request. A visitor who adds the mark gets nowhere: the front door strips it. The checks don't come through the front door; they reach the app directly, and the network lets nothing else do so. So the mark can only come from the factory.</p>
+<p><b>What Verify does.</b> The checks run their journeys with dark mode on, and the device check makes sure nothing new is left on the browser; a check that passed with the flag off and fails twice, or cannot finish, with it on fails the stage. Each page is pictured again, in light and in dark, and the card shows each beside its baseline, off and on, with where they differ. No check knows what dark mode should look like, so the pictures are Martin's to judge. He can go past Checks only once Verify's check there has passed.</p>
+<details><summary>In the docs</summary><p><a href="${DOCS}/ADMISSION-CONTROL.md#the-mark">The mark</a>: kept by the network, not a key. An admission rule holds every route to the app to the one Middleware that strips it. <a href="${DOCS}/RELEASE-AND-VERIFY.md#the-probes-checks">The probes' checks</a>.</p></details>`,
   },
   {
-    title: 'Stage 2: a preview',
+    title: 'Preview: those who ask',
     tab: 'Preview',
-    nodes: ['visitors', 'preview', 'traefik', 'stable', 'flagd', 'flags', 'console'],
-    edges: { vis: 'unlit', pre: 'lit', ts: 'req', ...SET },
-    tags: { flags: 'dark-mode: stage 2', preview: '?preview=dark-mode' },
+    nodes: ['visitors', 'preview', 'checks', 'traefik', 'stable', 'verify', 'flagd', 'flags', 'console'],
+    edges: { vis: 'unlit', pre: 'lit', ts: 'req', cs: 'lit', cv: 'req', ...SET },
+    tags: { flags: 'dark-mode: preview', preview: '?preview=dark-mode' },
     who: { visitors: 'unlit', preview: 'lit', gen: 'unlit', checks: 'lit' },
     body: `
-<p>At stage 2, anyone who asks for a preview sees dark mode. The console's "Preview it" link opens the shop with <code>?preview=dark-mode</code>, and the shop remembers it in a cookie on that one browser.</p>
+<p>At Preview, anyone who asks for a preview sees dark mode. The console's "Preview it" opens the shop with <code>?preview=dark-mode</code>, and the shop remembers it for a day in a cookie on that one browser. Every move past Checks, to Preview or to Share, needs Martin's passkey again.</p>
 <p>It is harmless: they asked for it, they see a feature already deployed, and only in their own browser. Everyone else sees the old look. Each stage keeps the ones before it, so the checks still see it too.</p>
-<p>The preview cookie is the only thing flags ever keep on a visitor's device, and only because they asked, which is why neither the shop nor the console needs a cookie banner.</p>`,
+<p><b>What Verify does.</b> One check asks for the preview, as the console's link does, and the rest run with its cookie. The stage passes only if the device check finds the preview cookie, kept as its contract says, and nothing else the baseline did not keep.</p>
+<p>The preview cookie is the only thing flags ever keep on a visitor's device, and only because they asked, which is why neither the shop nor the console needs a cookie banner. Preview is the one stage Martin may skip, from Checks straight to Share.</p>
+<details><summary>In the docs</summary><p><a href="${DOCS}/FEATURE-FLAGS.md#the-preview-cookie">The preview cookie</a>, and how a probe asks for it.</p></details>`,
   },
   {
-    title: 'Stage 3: a share',
+    title: 'Share: the comparison',
     tab: 'Share',
     nodes: ['visitors', 'gen', 'traefik', 'stable', 'verify', 'flagd', 'flags', 'console'],
-    edges: { vis: 'unlit', gen: 'half', ts: 'half', sv: 'req', ...SET },
+    edges: { vis: 'unlit', gen: 'half', ts: 'half', ...SET },
     tags: { flags: 'dark-mode: share 50%', gen: 'signed ids' },
     who: { visitors: 'unlit', preview: 'lit', gen: 'half', checks: 'lit' },
     body: `
-<p><b>A share is a percentage of the fake visitors.</b> At "share 50%", half of the traffic generator's fake visitors see dark mode and half don't. Real visitors still see the old look.</p>
-<div class="ids"><span class="lit">#101 signed</span><span>#102 signed</span><span class="lit">#103 signed</span><span>#104 signed</span><span class="none">a visitor, unsigned: off</span></div>
-<p><b>Why.</b> It is a fair test: two groups alike in everything but dark mode. Verify compares them on errors and speed, as the generator measured them, and a fault in the feature shows before any real person meets it.</p>
+<p><b>A share is a percentage of the fake visitors:</b> 10, 25 or 50%. At "share 50%", about half of the traffic generator's fake visitors see dark mode and half don't, by flagd's own rule over each one's id. Real visitors still see the old look.</p>
+<div class="ids"><span class="lit">traffic-001 signed</span><span>traffic-002 signed</span><span class="lit">traffic-003 signed</span><span>traffic-004 signed</span><span class="none">a visitor, unsigned: off</span></div>
+<p><b>Why.</b> It is a fair test: two groups alike in everything but dark mode, each meeting every page as often. Verify compares them on errors and on the 99th percentile of their latency, with the canary's own thresholds, so a fault in the feature shows before any real person meets it.</p>
+<p><b>Whose figures.</b> The generator's own: it times each request it sends, by id. The app never labels them, so the code being judged cannot mark its own work. Verify works out which side each id was on with the same library the app decides with, from Martin's move, and asks the app nothing.</p>
+<p><b>How long.</b> From a minute after Martin's move, the time the app has to take it, for at least half an hour, one round of the generator's walk, and until each side has enough requests. Everyone waits for this comparison to pass.</p>
 <p><b>Why only fake visitors.</b> Keeping a real person on one side would mean keeping an id on their device. The fake visitors send their id with every request.</p>
-<p><b>Why signed.</b> If any id would do, anyone could send one and walk into the test. The generator signs each id with a key only it holds; the app holds only the key that checks a signature, which cannot make one.</p>
-<details><summary>In the plan</summary><p>Stage 3: Ed25519, the private key in the generator's Secret and the public one in <code>share-key</code>. flagd's <code>fractional</code> rule splits on the signed id. The app's flag context is code-owned, so an agent cannot quietly skip the check (tasks 14 and 17).</p></details>`,
+<p><b>Why signed.</b> If any id would do, anyone could send one and walk into the test. The generator signs each id, with the page and the time, using a key only it holds; the app holds only the key that checks a signature, which cannot make one, and accepts it for that page for a minute.</p>
+<details><summary>In the docs</summary><p><a href="${DOCS}/FEATURE-FLAGS.md#the-shares-signed-ids">The share's signed ids</a>: Ed25519, the private key in the generator's Secret and the public one in <code>share-key</code>. <a href="${DOCS}/RELEASE-AND-VERIFY.md#share">Verify's comparison</a>. The app's flag context, which checks the signature, is code-owned, so an agent cannot quietly skip the check.</p></details>`,
   },
   {
     title: 'A canary and a share take turns',
     tab: 'Canary + share',
     nodes: ['gen', 'traefik', 'argo', 'stable', 'canary', 'verify', 'flagd', 'flags'],
-    edges: { gen: 'half', argo: 'req', ts: 'half', tc: 'half', canv: 'req', sv: 'req', fs: 'set', fc: 'set', ff: 'set' },
+    edges: { gen: 'half', argo: 'req', ts: 'half', tc: 'half', canv: 'req', fs: 'set', fc: 'set', ff: 'set' },
     tags: { traefik: 'split two ways', flags: 'dark-mode: share 50%', canary: 'another fix' },
     who: { visitors: 'unlit', preview: 'lit', gen: 'half', checks: 'lit' },
     body: `
@@ -264,23 +269,24 @@ const STEPS = [
 <div class="callout attn"><b>What goes wrong.</b> The canary sees 80% of its requests slow against 40% on the current version, decides the fix is slow, and rolls it back, though the fix is fine and dark mode is the cause. The other way round, Verify's comparison of dark mode mixes two versions.</div>
 <p><b>So they take turns:</b></p>
 <ul>
-<li>A flag cannot move to a share while a canary is in flight; the console says why.</li>
-<li>If a canary starts while a flag is at a share, Verify sets those minutes aside and carries on after. A release never waits for a flag.</li>
+<li>A flag cannot move to Share while a canary is in flight; the console says why.</li>
+<li>If a canary starts while a flag is at Share, Verify sets those minutes aside and carries on after. A release never waits for a flag.</li>
 <li>The generator turns its ids independently of the front door's split, so both versions get the same mix of on and off.</li>
-<li>Only one flag is at a share at a time, so a comparison has one difference to explain.</li>
+<li>Only one flag is at Share at a time, so a comparison has one difference to explain.</li>
 </ul>`,
   },
   {
-    title: 'Stage 4: everyone',
+    title: 'Everyone',
     tab: 'Everyone',
     nodes: ['visitors', 'preview', 'gen', 'checks', 'traefik', 'stable', 'flagd', 'flags', 'console'],
     edges: { vis: 'lit', gen: 'lit', pre: 'lit', ts: 'lit', cs: 'lit', ...SET },
     tags: { flags: 'dark-mode: everyone' },
     who: { visitors: 'lit', preview: 'lit', gen: 'lit', checks: 'lit' },
     body: `
-<p>Verify found the two halves alike, so Martin switches dark mode on for everyone, giving his passkey again, as widening a flag needs. Real visitors see it from their next page.</p>
+<p>Verify's comparison found the two sides alike, so Martin switches dark mode on for everyone, giving his passkey again. Real visitors see it from their next page. Dark mode follows the browser's own setting, with no switch of its own, since a switch would keep a choice on the visitor's device.</p>
+<p>A minute later, once the app has had time to take the move, the line closes the work item as <b>verified</b>, and its issue as completed. The flag stays Martin's: turning it off is still one move in the console.</p>
 <p>From here dark mode is part of the shop like any other: if something goes wrong with it later, the senses notice and triage opens a ticket.</p>
-<details><summary>In the plan</summary><p>Dark mode follows the browser's own setting, with no switch of its own, since a switch would keep a choice on the visitor's device (task 19).</p></details>`,
+<details><summary>In the docs</summary><p><a href="${DOCS}/RELEASE-AND-VERIFY.md#everyone">Everyone</a>.</p></details>`,
   },
   {
     title: 'The kill switch',
@@ -290,9 +296,10 @@ const STEPS = [
     tags: { flags: 'dark-mode: off', console: 'off' },
     who: { visitors: 'unlit', preview: 'unlit', gen: 'unlit', checks: 'unlit' },
     body: `
-<p>At any stage Martin can turn a flag off. The admin service changes the switchboard, flagd sees it within seconds and tells the app, and everyone, previewers included, is back on the old look: no new version, no deploy, no rollback. Then the admin service asks the app which switchboard it holds, and tells Martin if the change has not arrived within a minute.</p>
-<p><b>If flagd itself fails,</b> the app carries on with its own copy of the switchboard. But then an "off" could not reach it, so once its copy has gone a minute without word from flagd, the app treats every flag as off.</p>
-<p>A flag turned off closes its work item as turned off, with Martin's reason. It is not a rollback: no code moved.</p>`,
+<p>At any stage Martin can turn a flag off, with a reason and no passkey. The admin service changes the switchboard, flagd sees it within seconds and tells the app, and everyone, previewers included, is back on the old look: no new version, no deploy, no rollback. Then the admin service asks each of the app's pods which switchboard it holds, and Martin's phone hears if one has not taken the change within a minute.</p>
+<p><b>If flagd itself fails,</b> the app carries on with its own copy of the switchboard. But then an "off" could not reach it, so once its copy has gone a minute without word from flagd (two, if the connection died silently), the app treats every flag as off.</p>
+<p><b>What it closes.</b> Turned off below Everyone, the work item closes as <b>turned off</b>, and its issue as not planned, with Martin's reason; the flag stays off for it. Turned off from Everyone, the work item stays verified and nothing more closes, and Martin may switch it straight back on. Either way it is not a rollback: no code moved.</p>
+<details><summary>In the docs</summary><p><a href="${DOCS}/RELEASE-AND-VERIFY.md#off">Off</a>; <a href="${DOCS}/FEATURE-FLAGS.md#failing-off">failing off</a>; <a href="${DOCS}/ADMIN-SERVICE.md#whether-the-app-holds-the-flags">whether the app holds the flags</a>.</p></details>`,
   },
   {
     title: 'Who may touch the switches',
@@ -304,14 +311,15 @@ const STEPS = [
     body: `
 <p>The switches are production state kept outside Git, so each is guarded:</p>
 <ul>
-<li><b>Only the admin service writes <code>flags</code>,</b> and only in the four stages' fixed shapes. The cluster refuses anything else, and refuses deleting it.</li>
+<li><b>Only the admin service writes <code>flags</code>,</b> and the cluster holds each of its writes to the five stages' fixed shapes, and refuses deleting <code>flags</code>. A flag set there by hand in any other shape is turned off at the admin service's next write.</li>
 <li><b>flagd only reads it,</b> and lives in a namespace of its own, which nothing the app's repository deploys can reach.</li>
 <li><b>Argo CD makes the switchboard empty and leaves its switches alone,</b> or every merge would turn every flag off.</li>
 <li><b>Only Martin can stage a flag or ask for an improvement:</b> both are admin events, which no worker's role may append. Asking for an improvement and approving its spec take his passkey again and reach his phone.</li>
-<li><b>Widening needs his passkey again;</b> narrowing and off never do, so the safe way is always one click.</li>
+<li><b>Widening needs his passkey again,</b> but from Off to Checks, which shows nobody but the factory's checks; narrowing and off never do, so the safe way is always one click.</li>
 <li><b>The app's code cannot cheat.</b> Agents write the app, so the part that decides who is a check, a previewer or in a share changes only with Martin's approval, and no other part of the app may ask flagd anything. Verify judges a share from what the traffic generator measured, not from what the app says about itself.</li>
 </ul>
-<p>Every switch is an event, so the audit log is each flag's history.</p>`,
+<p>Every switch is an event, so the audit log is each flag's history.</p>
+<details><summary>In the docs</summary><p><a href="${DOCS}/FEATURE-FLAGS.md#the-stages">The stages</a>, and <a href="adr/0015-feature-flags.md">why flags are built this way</a> (ADR 0015).</p></details>`,
   },
 ];
 

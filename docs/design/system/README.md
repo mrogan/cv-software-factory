@@ -340,11 +340,11 @@ Each panel does one job:
 - **Controls:** autonomy, three switches, what the line takes, the flags, and spend against the day's, the month's and a work item's caps; the models and the caps themselves are on the settings page. Guardrails that can't be switched off are not drawn as switches; one line says so.
 - **Left out on purpose:** placeholders for other apps, a live-feed ticker (the stations and the reel already show what is happening), an always-on feedback loop under the belt (production feeding Sense is a return like any other), sparklines, and help text that repeats itself.
 
-## Sensing and triage (milestone 4)
+## Sensing and triage
 
 The states the factory's first real work brings, agreed as a set: a sense's ticket waiting at Plan, the pictures for what a screenshot can't show, reports quarantined, parked or closed, a ticket's sheet, where Triage's work comes from, the spend cap, and an empty store for real events. Each is described above where it belongs. The console's tests draw every one from invented test data (`apps/console/test/fixture`), which the console never ships: in Paper at all three widths, the spend cap and a ticket's sheet in Ink too, and with axe in both themes on a laptop and a phone.
 
-## Fixing (milestone 5)
+## Fixing
 
 The states real fixes bring, agreed as a set: a fix's spec and scope, its rounds, its review thread, its gates by attempt, a round on the line, the wait for Martin's merge, the four ways a fix is held, a merge waiting for a release, a local model at no cost, and the describer's step. Each is drawn from the samples' last seven work items: in Paper at all three widths, the sheet's new parts in Ink too, and with axe in both themes on a laptop and a phone.
 
@@ -358,7 +358,7 @@ The states real fixes bring, agreed as a set: a fix's spec and scope, its rounds
 - **Holds:** each picture follows the cause the hold records (`merge`, `scope`, `tests-first`, `spend`, `review`). A hold with another cause, or whose events lack what its picture shows, keeps the problem's evidence on the card, and its reason says why it waits.
 - **A merge:** the scrubber gets a MERGED chapter; for a fix waiting for Martin's deploy it is the last but one, before the waiting ring, and Release counts it as "1 waiting", with a parcel on the belt.
 
-## Shipping (milestone 6)
+## Shipping
 
 The states that shipping brings, agreed as a set: the Canary panel, the scoreboard, the wait for Martin's deploy, each release's steps on the sheet, a rollback and its ticket, Verify and the pages it compared, a return from Verify, a reopened ticket, a dry run, and the scrubber for work that goes round more than once. The mockup draws each of them (`?canary=` and `?score=` show the panel's and the scoreboard's states; its comment lists them), and the console's tests draw them from the samples: in Paper at all three widths, the panel and the sheet's new section in Ink too, and with axe in both themes on a laptop and a phone.
 
@@ -429,7 +429,7 @@ Yellow stays the Release station's bird. Moving is ink, a measure that passed an
 - **The wait for Martin's deploy** is the section's one block while it waits, with the `attn` rule.
 - **The scrubber** has one chapter for each release, named by how it ended (PROMOTED, ROLLED BACK, STOPPED for Stop the line's abort, ABORTED for Martin's, or CANARY while in flight; the text reads "v0.9.11 aborted by Martin at 25%"), PERSISTS for a verification that persists (nothing reopens), and REOPENED for a reopening. PERSISTS ends a pass, and the next begins with the work's return to Plan; REOPENED begins one. The first pass and the pass holding the chosen chapter are drawn in full; every other pass is one chapter, PASS 2, drawn as a dashed square, which opens when chosen. When that still leaves too many chapters to keep a target's width apart, the first pass folds too. A work item with more than one pass has its chapters spread evenly; past twelve, only the chosen one, the first and the last keep their labels. Under the scrubber, the events up to the chosen chapter, the last five of them, with "All events (17)" to show the rest and "Fewer events" to fold them again.
 
-## Admin (milestone 7)
+## Admin
 
 What Martin does from the console, and what a visitor sees of it, agreed as a set: the bottom row (Needs you and Controls), sign-in and enrolment, the account menu, the passkey asked again (step-up), the settings, the audit log, the Canary panel's controls, stopping and starting the line, and Preview as visitor. The mockup draws each (`?view=`, `?dialog=`, `?mode=visitor` and the rest in its comment). Requesting an improvement (the "+" on Plan) and the flags are in "Improvements and flags", below.
 
@@ -537,7 +537,7 @@ From the account menu. A green banner across the top says: "Previewing as a visi
 
 A dialog is a `raised` card on a `scrim`, 480px wide in the middle of the screen on a laptop, and a bottom sheet with 14px top corners on a phone, its buttons side by side and full width. Escape, Cancel or the scrim close it, and focus goes to its title. Toasts are still not used: what happened shows where it happened (an answered card moves to Answered today, the canary's kicker changes).
 
-## Improvements and flags (milestone 7, Part B)
+## Improvements and flags
 
 Martin asks for an improvement with the "+" on Plan. It goes down the same line as a fix, and ships behind a feature flag of its own, off; he then widens the flag from Controls a stage at a time, and Verify checks each stage. A visitor sees all of it: the "+" and its form, every improvement's request, spec and progress, and the flags and their stages, read-only, by the rules in "Read only" above. The mockup draws each (`?dialog=improve`, `?flag=`, `?sync=behind` and the rest in its comment), with #1316, "Delivery dates on each product", part way out.
 

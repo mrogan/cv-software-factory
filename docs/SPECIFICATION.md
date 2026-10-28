@@ -106,11 +106,16 @@ A deliberately bad, funny, small web app that gives the factory real work.
 
 A first-class factory capability, though not the centre of the visitor demo.
 
-- Only Martin can request one, via the "+" control in admin mode. The server rejects improvement requests from any other source.
-- Same spec template as a fix. The planner may ask clarifying questions through "Needs you". Martin approves the spec before any code is written.
-- Then the same line: build, gates, review, canary, verify (acceptance criteria pass in production, canary shows no regression).
+- Only Martin can request one, via the "+" control in admin mode, in his own words. The server rejects improvement requests from any other source, and the factory acts on one only when it came from his roles. A visitor's suggestion never starts work.
+- Same spec template as a fix, with the improvement's title, the flag it ships behind and the pages it changes, and acceptance criteria its own tests prove with the flag on and with it off. The planner may ask clarifying questions through "Needs you". Martin approves every spec before any code is written.
+- Then the same line: build, gates, review, release through a canary. An improvement waits behind every open ticket, and its merge waits for Martin in every autonomy mode. Once its release is promoted, the line hands it over to its flag.
 - Small: one outcome per request, reviewable in minutes.
-- New behaviour ships behind a feature flag, which the change defines, switched off. Martin switches it from the console in stages: the factory's own requests first, so Verify can check the acceptance criteria in production with nobody else seeing the change; then browsers that opt in to preview it; then a share of the traffic generator's requests, where Verify compares the flag's two sides; then everyone. Off is a kill switch, with no rollback. A flag keeps nothing on a visitor's device but the preview cookie of one who asks for it. A flag's state is never a visitor's to change.
+- New behaviour ships behind a feature flag, which the change reads and does not define: a flag nobody has staged is off, so it ships off. Martin widens it from the console a stage at a time, and Verify judges each stage before the next:
+  - **Checks:** the factory's own requests, which carry a mark the network keeps from visitors. The probes run with the flag on, and the pictures of the pages it changes, in light and dark, are set beside those taken with it off, for Martin to judge.
+  - **Preview:** those, and browsers that ask to preview it. A probe asks, and nothing may be kept on the device but the preview cookie.
+  - **Share:** those, and a share of the traffic generator's requests, chosen by an id the generator signs. Verify compares the flag's two sides on errors and latency, from the generator's own figures, with the canary's thresholds. A canary and a share take turns, and one flag is at Share at a time.
+  - **Everyone:** only once the comparison has passed. It closes the improvement as verified.
+- Off is a kill switch, at any stage, with no deploy and no rollback; below Everyone it closes the improvement as turned off. Widening needs the passkey again, but from Off to Checks; narrowing and Off never do. Every flag fails off once the app has been without flagd for a minute, or two when its connection died silently. A flag keeps nothing on a visitor's device but the preview cookie of one who asks for it. A flag's state is never a visitor's to change.
 
 ### 4.3 Autonomy
 
@@ -236,7 +241,7 @@ Each seam sits behind an interface, so a pivot means a new adapter, not a rewrit
 | Probes and crawler    | Playwright                                                                          |
 | Console               | Preact and Vite (ADR 0007), reading the event store, live via server-sent events    |
 | Admin sign-in         | Passkeys (WebAuthn), sessions kept on the server                                    |
-| Feature flags         | OpenFeature in the app, flagd in a namespace of its own                             |
+| Feature flags         | OpenFeature in the app, flagd in a namespace of its own (ADR 0015)                  |
 | Alerting              | Prometheus and Alertmanager; to Martin by Pushover                                  |
 
 ### 7.1 Recorded model responses
