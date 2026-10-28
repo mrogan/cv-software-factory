@@ -66,11 +66,33 @@
 .linkish:hover {
   text-decoration-color: var(--text);
 }
+/*
+ * The steps and the note on the left, the measures on the right, and Martin's controls under the note, where the
+ * left column ends well above the measures. The second row takes what height the measures need beyond the steps, so
+ * the controls sit just under the note and never push it down.
+ */
 .canary-body {
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  grid-template-rows: auto 1fr;
   gap: 20px 40px;
   align-items: start;
+}
+.canary-steps {
+  grid-area: 1 / 1;
+}
+.canary-measures {
+  grid-area: 1 / 2 / span 2;
+}
+.canary-body > .canary-controls {
+  grid-area: 2 / 1;
+}
+/*
+ * While looks land, the measures take the width their table needs to keep each row on one line, and the steps the
+ * rest, which they can spare: at the widest window that is about the 5 : 7 the panel has otherwise.
+ */
+.canary-body.trended {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 .canary .canary-note {
   margin-top: 10px;
@@ -236,18 +258,29 @@ p.words {
   border-collapse: collapse;
   font-size: 13px;
 }
-/* With the trend column, a row is one line, in columns of their own width, each cell from the top. */
+/*
+ * With the trend column, a row is one line, in columns of their own width, each cell from the top: the measure's
+ * column as wide as its longest rule caption, so no caption wraps, and the table as wide as its columns.
+ */
 .measures.trended {
+  --measure: 228px;
+  --fig: 84px;
+  --tr: 166px;
+  --vd: 184px;
   table-layout: fixed;
+  width: calc(var(--measure) + 2 * var(--fig) + var(--tr) + var(--vd));
+}
+.measures.trended col.name {
+  width: var(--measure);
 }
 .measures.trended col.fig {
-  width: 84px;
+  width: var(--fig);
 }
 .measures.trended col.tr {
-  width: 166px;
+  width: var(--tr);
 }
 .measures.trended col.vd {
-  width: 184px;
+  width: var(--vd);
 }
 .measures caption {
   text-align: left;
@@ -395,9 +428,15 @@ p.words {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
     gap: 20px 28px;
   }
-  /* The trend column needs the width: the measures go under the steps. */
+  /* The trend column needs the width: the steps, the measures and the controls, one under the next, as written. */
   .canary-body.trended {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template: none / minmax(0, 1fr);
+  }
+  .canary-body.trended > * {
+    grid-area: auto;
+  }
+  .measures.trended {
+    width: 100%;
   }
 }
 @media (max-width: 720px) {
@@ -409,7 +448,10 @@ p.words {
     text-align: left;
   }
   .canary-body {
-    grid-template-columns: 1fr;
+    grid-template: none / minmax(0, 1fr);
+  }
+  .canary-body > * {
+    grid-area: auto;
   }
   /* The rules' captions go; a measure's own words, such as why it could not measure, stay. */
   .measures .base,

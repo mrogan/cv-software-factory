@@ -169,8 +169,12 @@
   white-space: nowrap;
 }
 
-/* The Canary panel's controls, under the steps and the measures, behind a hairline. */
+/*
+ * The Canary panel's controls, under the steps and the note, behind a hairline. In a column too narrow for a control
+ * and what it does side by side, what it does goes under it.
+ */
 .canary-controls {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -202,6 +206,15 @@
 }
 .canary-controls dd {
   margin: 0;
+}
+@container (max-width: 400px) {
+  .canary-controls dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .canary-controls dd {
+    margin-bottom: 8px;
+  }
 }
 
 /* The account menu's links, which look as its buttons do. */

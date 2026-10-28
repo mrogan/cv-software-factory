@@ -478,7 +478,7 @@ function Measures({
         )}
       </caption>
       <colgroup>
-        <col />
+        <col className="name" />
         <col className="fig" />
         <col className="fig base" />
         {trend && <col className="tr" />}
@@ -792,7 +792,7 @@ const ASKED: Partial<Record<ReleaseControl, (r: Release, c: Control) => Asked>> 
 };
 
 /**
- * Martin's controls, under the steps and the measures: his buttons, each with the key while the passkey is not fresh
+ * Martin's controls, under the steps and the note: his buttons, each with the key while the passkey is not fresh
  * where it asks for it, and Abort behind a dialog; or for anyone else, the same controls as labels beside what each
  * does. Each names the release the panel shows, so the admin service acts on that one or none. What it did shows in
  * the panel as the events arrive: the kicker, the steps, the note.
@@ -1014,15 +1014,15 @@ export function Canary({ view, t, onOpen, admin, lineStopped, ticking, motion }:
         </p>
       </div>
       <div className={`canary-body ${r.looks.length ? 'trended' : ''}`}>
-        <div>
+        <div className="canary-steps">
           <Steps r={r} tone={tone} />
           <StepTime r={r} clock={clock} />
           <p className="canary-note">{note(r)}</p>
         </div>
-        {right && <div>{right}</div>}
+        {right && <div className="canary-measures">{right}</div>}
+        {/* A release of its own: what was pressed for another, and refused, is not said under this one. */}
+        <CanaryControls key={r.id} r={r} admin={admin} lineStopped={lineStopped} />
       </div>
-      {/* A release of its own: what was pressed for another, and refused, is not said under this one. */}
-      <CanaryControls key={r.id} r={r} admin={admin} lineStopped={lineStopped} />
       <p className="help tooled">
         {rollouts(r) && <ToolMark name="argo" />}
         <span>
