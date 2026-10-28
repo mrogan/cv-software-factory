@@ -434,8 +434,9 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         // since what an agent writes is public and a paraphrase of a report would pass any redactor. His answer still
         // does what it does.
         const words = event.payload.report ? undefined : event.payload.answer;
-        const approvedScope = cause === 'scope' && event.payload.decision === 'approved';
-        const said = approvedScope ? scopeApproved(state.hold, words) : words;
+        // Approved or answered in words, a scope hold goes back to the planner, which is told what it may not take in.
+        const replanScope = cause === 'scope' && resolution === 'replan';
+        const said = replanScope ? scopeAnswered(state.hold, event.payload.decision, words) : words;
         // Words settle nothing for triage's holds: the hold stands, and the work item waits as it did.
         if (event.payload.decision === 'answered' && WORDS_LEAVE_HELD.includes(cause)) break;
         if ((stage === 'plan' || resolution === 'replan') && said) {
@@ -539,12 +540,18 @@ function startAgain(state: WorkItemState): void {
 /** What approving a hold of the scope fence's says, for the planner. */
 const FENCE_APPROVED = 'Yes: the coder needed those files, so let the scope take them in.';
 
-/** What approving a scope hold says: of a file no scope may name, that it stays out, so the planner rejects it. */
-function scopeApproved(hold: PayloadOf<'hold.started'>, words: string | undefined): string {
-  const barred = 'A file no scope may name stays out of it: if the fix needs one, reject the ticket.';
-  if (!hold.needs?.some((need) => need.barred)) return words ?? FENCE_APPROVED;
+/** What an answer to a scope hold says, for the planner: of a file no scope may name, that it stays out of the scope. */
+function scopeAnswered(
+  hold: PayloadOf<'hold.started'>,
+  decision: HoldAnswer,
+  words: string | undefined,
+): string | undefined {
+  const approved = decision === 'approved';
+  if (!hold.needs?.some((need) => need.barred)) return words ?? (approved ? FENCE_APPROVED : undefined);
   // His own words never drop what the planner may not do.
-  return `${words ?? 'Yes: let the scope take in the files the coder needed that a scope may name.'} ${barred}`;
+  const said =
+    words ?? (approved ? 'Yes: let the scope take in the files the coder needed that a scope may name.' : '');
+  return `${said} A file no scope may name stays out of it: if the fix needs one, reject the ticket.`.trim();
 }
 
 /**

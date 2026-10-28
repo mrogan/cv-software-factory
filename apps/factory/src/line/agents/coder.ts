@@ -40,6 +40,7 @@
  * may name. A file the scope already takes in is not one it needs.
  */
 import {
+  cutTo,
   inScope,
   MAX_FINDINGS,
   MAX_NEEDS,
@@ -464,17 +465,18 @@ export const coder = defineAgent<CoderInput, CoderResult>({
       const hold = holdDraft('coder', needsHold(needs, input.protectedPaths));
       const declined = 'declined' in result ? (result.declined ?? []) : [];
       if (!suggestions.length || !declined.length) return [hold];
-      // The suggestions it declined are answered with its reasons, so they are not lost; one it took is the next
-      // reviewer's to find, as after any round.
-      await answerDeclined(context, need(state.pullRequest, 'a pull request').number, suggestions, declined);
-      return [hold];
+      // The suggestions it declined are answered with its reasons, so they are not lost, and recorded as answered; one
+      // it would have taken is the next reviewer's to find, as after any round.
+      const pullRequest = need(state.pullRequest, 'a pull request').number;
+      await answerDeclined(context, pullRequest, suggestions, declined);
+      return [answeredDraft(pullRequest, suggestions, declined, true), hold];
     }
     // A file it needs that the scope already takes in is one it could have changed: a change without it is not the
     // change it said it needed, so it is not pushed.
     const allowed = 'needs' in result ? (result.needs ?? []) : [];
     if (allowed.length) {
       const paths = allowed.map(({ path }) => path).join(', ');
-      throw new StepFailed(`The coder said it needs ${paths}, which its scope already allows`.slice(0, 300));
+      throw new StepFailed(cutTo(`The coder said it needs ${paths}, which its scope already allows`, 300));
     }
     if (!('title' in result || 'unchanged' in result || 'declined' in result)) {
       throw new StepFailed('The coder handed back neither a change nor why it made none');
@@ -620,12 +622,15 @@ async function answerDeclined(
 }
 
 /** The coder's answer to its round's suggestions, as the line records it. */
-function answeredDraft(pullRequest: number, suggestions: Finding[], declined: Declined): Draft {
+function answeredDraft(pullRequest: number, suggestions: Finding[], declined: Declined, held = false): Draft {
   const taken = suggestions.length - declined.length;
   return {
     type: 'suggestions.answered',
     actor: 'coder',
-    summary: `The coder took ${taken} of ${suggestions.length} suggestions on PR #${pullRequest}, and declined ${declined.length}`,
+    // A round held for the files it needs pushes nothing, so it took none: it only declined.
+    summary: held
+      ? `The coder declined ${declined.length} of ${suggestions.length} suggestions on PR #${pullRequest}, and needs files outside its scope`
+      : `The coder took ${taken} of ${suggestions.length} suggestions on PR #${pullRequest}, and declined ${declined.length}`,
     payload: { pullRequest, suggestions: suggestions.length, declined },
   };
 }

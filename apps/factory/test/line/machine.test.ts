@@ -326,6 +326,14 @@ describe('what the line does next', () => {
     expect(worded?.answer).toBe(
       'Go ahead. A file no scope may name stays out of it: if the fix needs one, reject the ticket.',
     );
+    // So do his words alone, which send it back to the planner too; on a hold with nothing barred, his words stand.
+    const words = fold([ticket, spec, { type: 'hold.started', payload: barredOnly }, answer('answered', 'Try again.')]);
+    expect(words.answers[0]?.answer).toBe(
+      'Try again. A file no scope may name stays out of it: if the fix needs one, reject the ticket.',
+    );
+    const open = needsHold([{ path: 'test/a.ts', reason: 'x' }], []);
+    const plain = fold([ticket, spec, { type: 'hold.started', payload: open }, answer('answered', 'Try again.')]);
+    expect(plain.answers[0]?.answer).toBe('Try again.');
     // A reason cut to fit ends as it was cut, with no full stop after the mark.
     const cutHold = needsHold(many, []);
     const cutTold = fold([ticket, spec, { type: 'hold.started', payload: cutHold }, answer('approved')]).answers[0];

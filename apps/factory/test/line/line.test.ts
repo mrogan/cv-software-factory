@@ -1723,6 +1723,11 @@ describe('the line', () => {
     await pass(); // the coder declines one, and needs a file outside its scope for the other
     expect((await payloads(workItem, 'hold.started')).map((h) => h.cause)).toEqual(['scope']);
     expect(github.acts.filter((a) => a.action === 'resolveThreads')).toHaveLength(1);
+    // The log says what GitHub does: the declined one is answered, and the round took none.
+    expect(await payloads(workItem, 'suggestions.answered')).toEqual([{ pullRequest: 12, suggestions: 2, declined }]);
+    expect(await summaries(workItem, 'suggestions.answered')).toEqual([
+      'The coder declined 1 of 2 suggestions on PR #12, and needs files outside its scope',
+    ]);
     expect(github.acts.filter((a) => a.action === 'applyPatch')).toHaveLength(1);
   });
 
