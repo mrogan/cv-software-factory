@@ -18,7 +18,7 @@ import type { AgentDefinition } from '../agents/agent.ts';
 import type { Request, Signal } from '../agents/evidence.ts';
 import type { AGENTS } from '../agents/index.ts';
 import type { PlannerInput } from '../agents/planner.ts';
-import { fold, LIMITS, type LineAgent, type LineEvent, needsHold } from '../machine.ts';
+import { fenceHold, fold, LIMITS, type LineAgent, type LineEvent, needsHold } from '../machine.ts';
 
 /** What an agent's step is given, as its definition takes it. */
 export type InputOf<A extends LineAgent> = (typeof AGENTS)[A] extends AgentDefinition<infer I, unknown> ? I : never;
@@ -623,15 +623,7 @@ const CARDS_FENCE_RETURN: LineEvent[] = [
   { type: 'spec.written', payload: CARDS_SPEC },
   CARDS_REFUSED,
   CARDS_REFUSED,
-  {
-    type: 'hold.started',
-    payload: {
-      stage: 'build',
-      kind: 'held',
-      cause: 'scope',
-      reason: `The scope fence refused the coder’s patch ${LIMITS.fenceRefusals} times: it changed files outside the spec’s scope`,
-    },
-  },
+  { type: 'hold.started', payload: fenceHold(LIMITS.fenceRefusals) },
   APPROVED,
 ];
 
