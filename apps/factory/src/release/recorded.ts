@@ -35,8 +35,8 @@ export interface TargetRecord {
 }
 
 /**
- * A measurement of the background analysis, by its measure and when it ended. A measure is taken a minute or more
- * apart, so no two of one measure end in the same second.
+ * A measurement of the background analysis, by its measure and when it ended. Two measurements of one
+ * measure that ended in the same second would be one here; a measure's interval, a minute or more, keeps them apart.
  */
 export const measurementKey = (name: string, at: string) => `${name}@${Date.parse(at)}`;
 
