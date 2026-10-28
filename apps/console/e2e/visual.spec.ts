@@ -240,8 +240,8 @@ const FIXING: Record<string, { item: string; at?: number }> = {
 };
 
 /** A fix's sheet, a part at a time: the parts below the fold are the new ones. */
-async function sheetParts(page: Page, item: string, theme: 'paper' | 'ink' = 'paper') {
-  await page.goto(consoleUrl({ item, sheet: true, theme }));
+async function sheetParts(page: Page, item: string, theme: 'paper' | 'ink' = 'paper', at?: number) {
+  await page.goto(consoleUrl({ item, sheet: true, theme, at }));
   await page.getByRole('dialog').first().waitFor();
   await page.evaluate(() => document.fonts.ready);
   await page.waitForLoadState('networkidle');
@@ -309,6 +309,16 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
     test('a fix’s sheet: an approval’s suggestion sent back, and declined', async ({ page }) => {
       const { section } = await sheetParts(page, '1304');
       await expect(section('Rounds')).toHaveScreenshot(`m05-sheet-rounds-declined-${width}.png`);
+    });
+
+    test('a fix’s sheet: the round a return sent it into, before the coder pushed it, and gates running', async ({
+      page,
+    }) => {
+      // #1325: the gates sent round 1 back at 14:15:55, the coder pushed round 2 at 14:19:00, and its gates ran on.
+      const between = await sheetParts(page, '1325', 'paper', Date.parse('2026-10-06T14:17:00Z'));
+      await expect(between.section('Rounds')).toHaveScreenshot(`m05-sheet-rounds-next-${width}.png`);
+      const running = await sheetParts(page, '1325', 'paper', Date.parse('2026-10-06T14:20:00Z'));
+      await expect(running.section('Rounds')).toHaveScreenshot(`m05-sheet-rounds-running-${width}.png`);
     });
   });
 }

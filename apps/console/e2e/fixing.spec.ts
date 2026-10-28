@@ -72,6 +72,24 @@ test.describe('fixing', () => {
     await expect(sheet.locator('.scrub')).toContainText('DESCRIBED');
   });
 
+  test('a return’s next round shows before the coder pushes it, and a step in hand moves, unless motion is reduced', async ({
+    page,
+  }) => {
+    // #1325: the gates sent round 1 back at 14:15:55, and the coder pushed round 2 at 14:19:00.
+    await page.goto(consoleUrl({ item: '1325', sheet: true, motion: true, at: Date.parse('2026-10-06T14:17:00Z') }));
+    const rounds = page.getByRole('dialog').locator('.rounds');
+    await expect(rounds.locator('.rn')).toHaveText(['Round1', 'Round2']);
+    // The return's arc lands on round 2's Build, hollow and in hand.
+    await expect(rounds.locator('.ret-row .arc')).toHaveCount(1);
+    await expect(rounds.locator('.cell.next')).toHaveText(['Running', 'Waiting', 'Waiting']);
+    const busy = rounds.locator('.cell.running .busy');
+    const moving = () => busy.evaluate((el) => el.getAnimations({ subtree: true }).length);
+    await expect.poll(moving).toBe(1);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect.poll(moving).toBe(0);
+    await expect(rounds.locator('.cell.running')).toHaveText('Running');
+  });
+
   test('a refused path says so to a screen reader, not only by its colour and its line', async ({ page }) => {
     await page.goto(consoleUrl({ item: '1315', sheet: true }));
     const row = page.getByRole('dialog').locator('table.scope tr', { hasText: 'src/catalogue.ts' });

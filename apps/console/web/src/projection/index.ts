@@ -29,7 +29,7 @@ import { type CanaryView, canaryView, releases } from './release.ts';
 import { type Sheet, sheet } from './sheet.ts';
 
 export type { ControlsView } from './controls.ts';
-export type { Attempt, DeployRecord, Finding, ThreadReview } from './fixing.ts';
+export type { Attempt, DeployRecord, Finding, RoundsNow, ThreadReview } from './fixing.ts';
 export { deployWords } from './fixing.ts';
 export type {
   Checked,

@@ -25,6 +25,9 @@
     ?canary=flight (default) | line (no work item) | promoted | rolledback | early (rolled back before a step) | stopped | dry | idle | none
             | paused (by Martin) | aborted (by Martin)
     ?score=on (default) | first (nothing verified yet) | off (no answer key) | sample | none (no score.updated at all)
+  A fix's rounds on any open sheet (README, "Fixing"), e.g. ?item=1279&sheet&rounds=next:
+    ?rounds=next (the gates sent round 1 back; round 2 hollow, the coder at work) | gates (round 2's gates running)
+          | review (round 2's gates passed, the reviewer at work)
   The app’s screenshots are drawn in HTML here; in the console they are Playwright captures from the event store.
   Package logos are from theSVG (MIT), inlined so the page makes no third-party requests for them.
 -->
@@ -382,6 +385,38 @@ body.still .sheet, body.still .scrim, body.still .reel.anim .card, body.still .r
 .lead { margin: 0; font-size: 17px; line-height: 1.55; max-width: 760px; }
 .sec h3 { margin: 0 0 4px; font: 400 26px/1.1 var(--font-display); }
 .sec > .help { margin-bottom: 14px; }
+/* Rounds: one row per attempt, Build, Gates and Review, with the line's return arc between two rows. A return's next
+   round is drawn at once, hollow, so the arc lands on its Build; a step in hand says "Running" over a sliding bar. */
+.rounds { display: grid; grid-template-columns: 54px repeat(3, minmax(0, 1fr)); gap: 0 8px; }
+.rounds .colh, .rounds .rn { font: 10px/1.4 var(--font-mono); letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); }
+.rounds .colh { padding-bottom: 6px; }
+.rounds .rn { padding-top: 10px; }
+.rounds .rn b { display: block; font: 400 22px/1 var(--font-mono); color: var(--text); letter-spacing: 0; }
+.rcell { display: grid; align-content: start; gap: 3px; min-width: 0; padding: 10px 11px; background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-card); font-size: 12.5px; }
+.rcell .t { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+.rcell .t.muted { font-weight: 400; color: var(--text-muted); }
+.rcell .t .glyph { width: 14px; height: 14px; }
+.rcell .t.ok .glyph { color: var(--ok); }
+.rcell small { font: 11px/1.4 var(--font-mono); color: var(--text-muted); overflow-wrap: anywhere; }
+.rcell .plus { color: var(--ok); } .rcell .minus { color: var(--attn); }
+.rcell.next { background: transparent; border-color: var(--text-muted); }
+.rcell.running { position: relative; overflow: hidden; }
+.rcell .busy { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--line); }
+.rcell .busy::after { content: ""; position: absolute; inset: 0 auto 0 0; width: 35%; background: var(--signal); }
+@media (prefers-reduced-motion: no-preference) { body:not(.still) .rcell .busy::after { animation: busy calc(var(--motion-flow) * 2) var(--motion-ease) infinite; } }
+@keyframes busy { from { transform: translateX(-100%); } to { transform: translateX(286%); } }
+.rret { grid-column: 2 / -1; position: relative; height: 54px; }
+.rret > svg { position: absolute; overflow: visible; }
+.rret .arc { inset: 0; width: 100%; height: 100%; }
+.rret .arc .ret-arc { vector-effect: non-scaling-stroke; }
+.rret .head { left: calc(100% / 6 - 6px); bottom: -3px; width: 12px; height: 10px; fill: none; stroke: var(--signal); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.rret .ret-pill { left: 50%; top: 50%; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 720px) {
+  .rounds { grid-template-columns: 30px repeat(3, minmax(0, 1fr)); gap: 0 5px; }
+  .rounds .rn { font-size: 0; } .rounds .rn b { font-size: 18px; }
+  .rcell { padding: 8px 7px; font-size: 11.5px; } .rcell small { font-size: 10px; }
+  .rret .ret-pill { padding: 4px 9px; font-size: 10.5px; }
+}
 .source { margin: 10px 0 0; display: flex; gap: 6px; align-items: baseline; font-size: 11.5px; color: var(--text-muted); }
 .source::before { content: "SOURCE"; font: 10px/1 var(--font-mono); letter-spacing: 1px; color: var(--text-faint); }
 .facts-dl { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); padding: 4px 18px; background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-panel); font-size: 13px; }
@@ -2349,6 +2384,30 @@ function flagSection(it) {
     ${flagSlider(it.flag)}<div class="rels">${blocks}</div></section>`;
 }
 
+// A fix's rounds, in one of the states ?rounds= names: round 1 sent back by the gates, and round 2 before the coder
+// pushed it (hollow, the coder at work), with its gates running, or with its review in hand.
+function roundsSection() {
+  const k = q.get('rounds');
+  if (!['next', 'gates', 'review'].includes(k)) return '';
+  const running = '<span class="t">Running</span><span class="busy" aria-hidden="true"></span>';
+  const waiting = '<span class="t muted">Waiting</span>';
+  const row = (n, cells) => `<div class="rn">Round<b>${n}</b></div>${cells.map(([cls, html]) => `<div class="rcell ${cls}">${html}</div>`).join('')}`;
+  const round1 = row(1, [
+    ['', '<span class="t">Attempt 1</span><small>tests first · 4be81c2</small><small><span class="plus">+14</span> <span class="minus">−3</span> · 2 files</small>'],
+    ['', `<span class="t">${glyph('cross')}12 of 13</span><small>End-to-end journeys failed</small><small>tests fail on base: 2 of 2</small>`],
+    ['', '<span class="t muted">Not reviewed</span>'],
+  ]);
+  const ret = `<span></span><div class="rret"><svg class="arc" viewBox="0 0 300 54" preserveAspectRatio="none" aria-hidden="true"><path class="ret-arc" d="M150 0 C150 34 50 18 50 52"/></svg>
+    <svg class="head" viewBox="0 0 12 10" aria-hidden="true"><path d="M1.5 1.5 6 8.5 10.5 1.5"/></svg>
+    <span class="ret-pill">Gates → Build · 1 check failed</span></div>`;
+  const attempt2 = ['', '<span class="t">Attempt 2</span><small>resumed · 9d03a7e</small><small><span class="plus">+6</span> <span class="minus">−2</span> · 1 file</small>'];
+  const round2 = k === 'next' ? row(2, [['next running', running], ['next', waiting], ['next', waiting]])
+    : k === 'gates' ? row(2, [attempt2, ['running', running], ['', waiting]])
+    : row(2, [attempt2, ['', `<span class="t ok">${glyph('check')}13 of 13</span><small>tests fail on base: 2 of 2</small>`], ['running', running]]);
+  return `<section class="sec"><h3>Rounds</h3><p class="help">Each attempt the coder pushed, what the gates and the reviewer made of it, and why it went back. Two reviews at most in a pass: after the last, anything still blocking waits for Martin.</p>
+    <div class="rounds"><span></span><span class="colh">Build</span><span class="colh">Gates</span><span class="colh">Review</span>${round1}${ret}${round2}</div></section>`;
+}
+
 function renderSheet() {
   const it = ITEMS[S.sheet], i = S.sheet, [word, tone, needs] = END[it.end];
   $('sheet-head').innerHTML = `<div style="min-width: 0">
@@ -2413,6 +2472,7 @@ function renderSheet() {
       ${releaseSection(it)}
       ${flagSection(it)}
       ${change}
+      ${roundsSection()}
     </div>
     <aside class="sheet-side">
       <dl class="facts-dl">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>

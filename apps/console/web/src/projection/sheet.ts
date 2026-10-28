@@ -15,7 +15,16 @@ import type {
 import { clearedOnWords, knownInScope, LIMITS, SENSES } from '@software-factory/events';
 import { FLAG_STEP_UP } from '../access.ts';
 import { clock, shortVersion } from '../format.ts';
-import { type Attempt, attempts, deployPicture, reviewThread, startsPass, type ThreadReview } from './fixing.ts';
+import {
+  type Attempt,
+  attempts,
+  deployPicture,
+  type RoundsNow,
+  reviewThread,
+  roundsNow,
+  startsPass,
+  type ThreadReview,
+} from './fixing.ts';
 import {
   type Checked,
   type Compared,
@@ -239,6 +248,8 @@ export interface Sheet {
   files: PayloadOf<'pull-request.pushed'>['whole'] | undefined;
   /** Each attempt the coder pushed, and what the work item waits for after the last. */
   rounds: Attempt[];
+  /** The round a return sent the work into, before its first event, and what is in hand now. */
+  roundsNow: RoundsNow;
   after: After | undefined;
   review: ThreadReview[];
   facts: {
@@ -1090,6 +1101,7 @@ export function sheet(
     // What a merge brings in: every round together, not only the last round's own files.
     files: pushed?.type === 'pull-request.pushed' ? pushed.payload.whole : undefined,
     rounds: tried,
+    roundsNow: roundsNow(item, tried),
     after: coded ? afterRounds(item, item.hold, Boolean(summarised && summarised.actor === 'describer')) : undefined,
     review: thread,
     facts: {

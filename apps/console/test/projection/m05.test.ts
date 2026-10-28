@@ -166,6 +166,37 @@ describe('a fix whose branch was brought up to date while it waited for the merg
   });
 });
 
+describe('a fix whose branch was brought up to date while the reviewer had it', () => {
+  const updated = 'e'.repeat(40);
+  const story = work('1')
+    .open()
+    .add(0, 'pull-request.pushed', 'coder', {
+      number: 7,
+      title: 'fix(products): load them all',
+      branch: 'factory/1-products',
+      attempt: 1,
+      testsFirst: true,
+      files: [{ path: 'src/products.ts', added: 1, removed: 1 }],
+      whole: [{ path: 'src/products.ts', added: 1, removed: 1 }],
+    })
+    .add(1, 'gates.started', 'actions', payloads.gatesStarted)
+    .add(3, 'gates.finished', 'actions', payloads.gatesPassed)
+    .add(4, 'gates.started', 'actions', { ...payloads.gatesStarted, commit: updated })
+    .add(7, 'gates.finished', 'actions', { ...payloads.gatesFailed, commit: updated });
+
+  it('shows the gates running again and the review still in hand, as the gates that passed stand until they end', () => {
+    const running = projectSheet(story.events, '1', story.at(5));
+    expect(running?.rounds.map((a) => a.gates?.state)).toEqual(['running']);
+    expect(running?.roundsNow.reviewing).toBe(true);
+  });
+
+  it('takes the review out of hand once the newer run fails', () => {
+    const failed = projectSheet(story.events, '1', story.at(8));
+    expect(failed?.rounds.map((a) => a.gates?.state)).toEqual(['failed']);
+    expect(failed?.roundsNow.reviewing).toBe(false);
+  });
+});
+
 describe('a fix whose gates fail on a branch brought up to date while it waited for the merge', () => {
   const updated = 'd'.repeat(40);
   const story = work('1')
@@ -415,6 +446,8 @@ describe('the sheet of a fix', () => {
     expect(rounds[0]?.review).toEqual({ number: 1, verdict: 'approved', blocking: 0, suggestions: 1 });
     expect(rounds[0]?.returned).toEqual({ from: 'review', detail: '1 suggestion, declined', declined: true });
     expect(sheet('1304')?.facts.reviews).toEqual({ done: 1, of: 2 });
+    // The coder pushed nothing for it, so no round follows the return.
+    expect(sheet('1304')?.roundsNow.next).toBeUndefined();
   });
 
   it('prints each finding’s rule in full, and a criterion in the spec’s words', () => {
@@ -489,6 +522,57 @@ describe('a fix sent back by the gates and then by the reviewer', () => {
       [1, { from: 'gates', detail: '1 check failed' }],
       [2, { from: 'review', detail: '1 blocking' }],
     ]);
+  });
+
+  it('draws the round a return sends it into at once, the coder at work on it, before it pushes', () => {
+    // The gates sent round 1 back at 14:15:55; the coder pushed round 2 at 14:19:00.
+    const between = projectSheet(SAMPLES, '1325', Date.parse('2026-10-06T14:17:00Z'));
+    expect(between?.rounds.map((a) => a.attempt)).toEqual([1]);
+    expect(between?.roundsNow).toEqual({ next: { attempt: 2, building: true }, reviewing: false });
+    // And at the end, the reviewer's return waits for round 3.
+    expect(sheet('1325')?.roundsNow.next).toEqual({ attempt: 3, building: true });
+  });
+
+  it('draws no next round once a return to Plan starts a new pass', () => {
+    const end = Date.parse('2026-10-06T14:24:00Z');
+    const events = SAMPLES.filter((e) => e.work_item === '1325' && Date.parse(e.ts) <= end);
+    const back = events.at(-1);
+    if (back?.type !== 'work.returned') throw new Error('expected #1325 to end on its return');
+    const replanned = [
+      ...events,
+      {
+        ...back,
+        id: `${back.id}-plan`,
+        ts: '2026-10-06T14:24:00.000Z',
+        payload: { ...back.payload, from: 'build' as const, to: 'plan' as const },
+      },
+    ];
+    expect(projectSheet(replanned, '1325', end)?.roundsNow.next).toBeUndefined();
+    // And back at Build in the new pass, the coder at work before its first push: no round 3 from the pass before.
+    const coding = events.find((e) => e.type === 'model.called' && e.actor === 'coder');
+    if (!coding) throw new Error('expected #1325 to have the coder’s call');
+    const rebuilding = [...replanned, { ...coding, id: `${coding.id}-again`, ts: '2026-10-06T14:25:00.000Z' }];
+    const later = Date.parse('2026-10-06T14:25:00Z');
+    expect(projectSheet(rebuilding, '1325', later)?.card.segments[3]).toBe('now');
+    expect(projectSheet(rebuilding, '1325', later)?.roundsNow.next).toBeUndefined();
+  });
+
+  it('knows each round by its pass and its number, as each pass starts again at round 1', () => {
+    // #1306 went round twice: Verify sent it back to Plan, and its second pass began again at round 1.
+    const rounds = sheet('1306')?.rounds ?? [];
+    expect(rounds.map((a) => [a.pass, a.attempt])).toEqual([
+      [1, 1],
+      [2, 1],
+    ]);
+    expect(new Set(rounds.map((a) => `${a.pass}-${a.attempt}`)).size).toBe(rounds.length);
+  });
+
+  it('says which step of the last round is in hand: its gates, then its review', () => {
+    const at = (time: string) => projectSheet(SAMPLES, '1325', Date.parse(time));
+    const gating = at('2026-10-06T14:20:00Z');
+    expect(gating?.rounds.at(-1)?.gates?.state).toBe('running');
+    expect(gating?.roundsNow).toEqual({ next: undefined, reviewing: false });
+    expect(at('2026-10-06T14:22:00Z')?.roundsNow).toEqual({ next: undefined, reviewing: true });
   });
 
   it('names the review apart from the attempt it reviewed', () => {

@@ -32,6 +32,7 @@ import type {
   Chapter,
   GateRow,
   Picture as PictureData,
+  RoundsNow,
   Sheet as SheetData,
   Sighting,
   ThreadReview,
@@ -407,7 +408,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose, app, admin
                   title="Rounds"
                   help={`Each attempt the coder pushed, what the gates and the reviewer made of it, and why it went back. ${capital(inWords(sheet.facts.reviews?.of ?? 2, 'review'))} at most in a pass: after the last, anything still blocking waits for Martin.`}
                 >
-                  <Rounds rounds={sheet.rounds} after={sheet.after} />
+                  <Rounds rounds={sheet.rounds} now={sheet.roundsNow} after={sheet.after} />
                 </Section>
               )}
               {sheet.review.length > 0 && (
@@ -766,17 +767,29 @@ const VERDICT = { approved: 'Approved', 'changes-requested': 'Changes asked', es
 /**
  * Rounds: one row per attempt, one column per stage it passed through, and between two rows the same dashed return
  * arc the line draws, from the stage that sent it back to Build, so the shape learned on the line means the same here.
+ * A return's next round is drawn before the coder pushes it, hollow, so the arc always lands on a Build; and a step in
+ * hand moves, as the line's stations do.
  */
-function Rounds({ rounds, after }: { rounds: Attempt[]; after: SheetData['after'] }) {
+function Rounds({ rounds, now, after }: { rounds: Attempt[]; now: RoundsNow; after: SheetData['after'] }) {
   return (
     <div className="rounds">
       <span />
       <span className="colh">Build</span>
       <span className="colh">Gates</span>
       <span className="colh">Review</span>
-      {rounds.map((a) => (
-        <RoundRow key={a.attempt} attempt={a} />
+      {rounds.map((a, i) => (
+        <RoundRow
+          key={`${a.pass}-${a.attempt}`}
+          attempt={a}
+          followed={
+            i < rounds.length - 1
+              ? rounds[i + 1]?.pass === a.pass && rounds[i + 1]?.attempt === a.attempt + 1
+              : Boolean(now.next)
+          }
+          reviewing={i === rounds.length - 1 && now.reviewing}
+        />
       ))}
+      {now.next && <NextRound attempt={now.next.attempt} building={now.next.building} />}
       {after && (
         <div className="after">
           <OutcomeWord outcome={after.outcome} />
@@ -787,14 +800,51 @@ function Rounds({ rounds, after }: { rounds: Attempt[]; after: SheetData['after'
   );
 }
 
+/**
+ * A step in hand: the word, and a short bar sliding along the cell's foot. The bar stands still when motion is off,
+ * and the word says it alone; React draws it once, and the browser moves it.
+ */
+function Running() {
+  return (
+    <>
+      <span className="t">Running</span>
+      <span className="busy" aria-hidden="true" />
+    </>
+  );
+}
+
+/** The round a return sent the work into, before the coder has pushed it: hollow, each step waiting or in hand. */
+function NextRound({ attempt, building }: { attempt: number; building: boolean }) {
+  return (
+    <>
+      <div className="rn">
+        Round<b>{attempt}</b>
+      </div>
+      <div className={`cell next${building ? ' running' : ''}`}>
+        {building ? <Running /> : <span className="t muted">Waiting</span>}
+      </div>
+      <div className="cell next">
+        <span className="t muted">Waiting</span>
+      </div>
+      <div className="cell next">
+        <span className="t muted">Waiting</span>
+      </div>
+    </>
+  );
+}
+
 /** Where each stage's column is centred in the return's row, out of 300. */
 const COLUMN: Record<string, number> = { build: 50, gates: 150, review: 250 };
 
-/** One attempt, in the coder's round of the same number: the line's round, as the return's pill names it. */
-function RoundRow({ attempt: a }: { attempt: Attempt }) {
+/**
+ * One attempt, in the coder's round of the same number: the line's round, as the return's pill names it. Its return's
+ * arc is drawn only to the round it sent the work into, in the same pass.
+ */
+function RoundRow({ attempt: a, followed, reviewing }: { attempt: Attempt; followed: boolean; reviewing: boolean }) {
   const gates = a.gates;
   const review = a.review;
   const from = a.returned ? (COLUMN[a.returned.from] ?? 250) : 0;
+  const gatesRunning = gates?.state === 'running';
   return (
     <>
       <div className="rn">
@@ -811,13 +861,17 @@ function RoundRow({ attempt: a }: { attempt: Attempt }) {
           {plural(a.files, 'file')}
         </small>
       </div>
-      <div className="cell">
+      <div className={`cell${gatesRunning ? ' running' : ''}`}>
         {gates ? (
           <>
-            <span className={`t ${gates.state === 'passed' ? 'ok' : ''}`}>
-              {gates.state !== 'running' && <Glyph name={gates.state === 'passed' ? 'check' : 'cross'} />}
-              {gates.state === 'running' ? 'Running' : `${gates.passed} of ${gates.total}`}
-            </span>
+            {gatesRunning ? (
+              <Running />
+            ) : (
+              <span className={`t ${gates.state === 'passed' ? 'ok' : ''}`}>
+                <Glyph name={gates.state === 'passed' ? 'check' : 'cross'} />
+                {`${gates.passed} of ${gates.total}`}
+              </span>
+            )}
             {gates.state === 'failed' && <small>{gates.failed.join(', ')} failed</small>}
             {gates.testsFirst && (
               <small>
@@ -831,7 +885,7 @@ function RoundRow({ attempt: a }: { attempt: Attempt }) {
           <span className="t muted">Waiting</span>
         )}
       </div>
-      <div className="cell">
+      <div className={`cell${reviewing ? ' running' : ''}`}>
         {review ? (
           <>
             <span className={`t ${review.verdict === 'approved' ? 'ok' : ''}`}>
@@ -847,6 +901,8 @@ function RoundRow({ attempt: a }: { attempt: Attempt }) {
                 .join(' · ') || 'no findings'}
             </small>
           </>
+        ) : reviewing ? (
+          <Running />
         ) : (
           <span className="t muted">{gates?.state === 'failed' ? 'Not reviewed' : 'Waiting'}</span>
         )}
@@ -855,8 +911,9 @@ function RoundRow({ attempt: a }: { attempt: Attempt }) {
         <>
           <span />
           <div className="ret-row">
-            {/* The arc joins two rows; a return the coder declined in full has no row after it to reach. */}
-            {!a.returned.declined && (
+            {/* The arc joins two rows: a return the coder declined in full, or one the work item closed after, has no
+                row after it to reach. */}
+            {followed && !a.returned.declined && (
               <>
                 <svg className="arc" viewBox="0 0 300 54" preserveAspectRatio="none" aria-hidden="true">
                   <path className="ret-arc" d={`M${from} 0 C${from} 34 50 18 50 52`} />

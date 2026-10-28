@@ -23,6 +23,11 @@ type GateRun = PayloadOf<'gate.finished'>;
 /** One patch the coder pushed, and what became of it. */
 export interface Attempt {
   attempt: number;
+  /**
+   * The pass it belongs to, from 1: a return to Plan or a reopening starts a new one, whose first round is round 1
+   * again, so a round is known by its pass and its number together.
+   */
+  pass: number;
   /** The commit the gates ran on, once they started. */
   commit: string | undefined;
   /** How the coder came to it: a first patch with its failing test first or not, or its own session resumed. */
@@ -41,6 +46,11 @@ export interface Attempt {
 
 export interface AttemptGates {
   state: 'running' | 'passed' | 'failed';
+  /**
+   * While a run on a newer commit of the same push runs (main merged in): whether the run before it passed. Those gates
+   * stand until it ends, as the line counts them, so the reviewer goes on meanwhile.
+   */
+  standing: boolean;
   /** The required checks finished so far: passed, and in all. */
   passed: number;
   total: number;
@@ -95,6 +105,7 @@ export function attempts(item: ItemState): Attempt[] {
   const list: Attempt[] = [];
   let current: Attempt | undefined;
   let reviews = 0;
+  let pass = 1;
   let suggestionsBack = false;
   const runs = new Map<string, GateRun>();
   const settle = () => {
@@ -114,6 +125,7 @@ export function attempts(item: ItemState): Attempt[] {
     };
   };
   for (const event of item.events) {
+    if (startsPass(event)) pass += 1;
     switch (event.type) {
       case 'pull-request.pushed': {
         // Dependabot's pull requests and Martin's are not the coder's attempts.
@@ -121,6 +133,7 @@ export function attempts(item: ItemState): Attempt[] {
         const { attempt, testsFirst, files } = event.payload;
         current = {
           attempt,
+          pass,
           commit: undefined,
           how: attempt > 1 ? 'resumed' : testsFirst ? 'tests first' : 'no new test',
           files: files.length,
@@ -137,7 +150,15 @@ export function attempts(item: ItemState): Attempt[] {
         // A run on a newer commit of the same push (main merged in) replaces the one before.
         if (!current) break;
         current.commit = event.payload.commit;
-        current.gates = { state: 'running', passed: 0, total: 0, failed: [], testsFirst: undefined, runs: [] };
+        current.gates = {
+          state: 'running',
+          standing: current.gates?.state === 'passed' || (current.gates?.state === 'running' && current.gates.standing),
+          passed: 0,
+          total: 0,
+          failed: [],
+          testsFirst: undefined,
+          runs: [],
+        };
         runs.clear();
         break;
       case 'gate.finished':
@@ -148,6 +169,7 @@ export function attempts(item: ItemState): Attempt[] {
       case 'gates.finished':
         if (current?.commit !== event.payload.commit || !current.gates) break;
         current.gates.state = event.payload.conclusion;
+        current.gates.standing = false;
         break;
       case 'review.submitted': {
         reviews += 1;
@@ -180,6 +202,46 @@ export function attempts(item: ItemState): Attempt[] {
     }
   }
   return list;
+}
+
+/**
+ * What the rounds have in hand now, besides gates that are running, which the last round's own gates say. A return
+ * sends the work into a round the coder has not pushed yet: its row is drawn at once, hollow, so the return's arc
+ * lands on its Build. None follows a return once the work item has closed or left Build for a new pass, or one the
+ * coder declined in full, as it pushes nothing.
+ */
+export interface RoundsNow {
+  /** The round a return sent the work into, before the coder pushed it, and whether the coder is at work on it. */
+  next: { attempt: number; building: boolean } | undefined;
+  /** Whether the reviewer is at work on the last round. */
+  reviewing: boolean;
+}
+
+/** What the rounds have in hand now: the stage the work item is in, while it is in progress there, as its card's segment that blinks says. */
+export function roundsNow(item: ItemState, list: readonly Attempt[]): RoundsNow {
+  const last = list.at(-1);
+  const inHand = (stage: Stage) => item.stage === stage && item.outcome === 'in-progress';
+  // A return to Plan or a reopening starts a new pass, whose first round is round 1 again: only this pass's own return
+  // and push count.
+  const pass = item.events.findLastIndex(startsPass);
+  const since = (found: (event: PublicEvent) => boolean) => item.events.findLastIndex(found) > pass;
+  const returnedNow = since((event) => event.type === 'work.returned' && event.payload.to === 'build');
+  const pushedNow = since((event) => event.type === 'pull-request.pushed' && event.actor === 'coder');
+  const next =
+    last?.returned && !last.returned.declined && returnedNow && item.closedAt === undefined && item.stage === 'build'
+      ? { attempt: last.attempt + 1, building: inHand('build') }
+      : undefined;
+  // The line records no start for a review, only the reviewer's call as it ends: a round whose gates passed is the
+  // reviewer's from then, while the work item is in hand at Gates or Review, and stays so while a run on a newer commit
+  // of the push runs, since the gates that passed stand until it ends.
+  const reviewing =
+    !!last &&
+    pushedNow &&
+    !last.returned &&
+    !last.review &&
+    (last.gates?.state === 'passed' || !!last.gates?.standing) &&
+    (inHand('gates') || inHand('review'));
+  return { next, reviewing };
 }
 
 /** Every review, with each finding's rule and criterion in full. */
