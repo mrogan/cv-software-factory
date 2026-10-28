@@ -729,6 +729,9 @@ describe('the planner planning again', () => {
     const fits = (flag: string) =>
       planner.schema(again).safeParse({ verdict: 'spec', spec: { ...IMPROVEMENT_SPEC, flag } });
     expect(fits('delivery-dates').success).toBe(true);
+    // Kept, though another improvement named it too: it can neither change it nor be refused for keeping it.
+    const twin = { ...again, flagsTaken: ['delivery-dates'] };
+    expect(planner.schema(twin).safeParse({ verdict: 'spec', spec: IMPROVEMENT_SPEC }).error?.issues).toBeUndefined();
     expect(fits('delivery-dates-2').error?.issues.map((i) => i.message)).toEqual([
       'the improvement’s flag is delivery-dates, as its last spec named it: keep it',
     ]);

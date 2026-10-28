@@ -727,6 +727,9 @@ describe('after the merge', () => {
     // The planner is told its last spec, and why it is back: the reopening, as a persisting fix's return before it.
     expect(state).toMatchObject({ lastSpec: spec.payload, replan: { cause: 'reopened' } });
     expect(fold([...persisted, back]).replan).toEqual({ cause: 'returned', from: 'verify', reason: 'It persists' });
+    // One a dry run verified comes back to a first plan: nothing of its spec shipped.
+    const dry: LineEvent = { ...reopened, payload: { ...reopened.payload, dryRun: true } };
+    expect(fold([...ended, dry])).toMatchObject({ lastSpec: undefined, replan: undefined });
     // A verification that persists in the new pass sends it back to Plan once more: the limit counts this ticket's
     // regression afresh.
     const live = [...again, ...done.slice(1), deployHold(done), release('8a6c0d9e7', 'v0.9.7')];

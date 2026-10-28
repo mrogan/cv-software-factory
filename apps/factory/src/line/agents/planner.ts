@@ -25,8 +25,8 @@
  * app reads with `request.flag`, off until he turns it on; so the schema holds it to a title, a fresh flag (none
  * another improvement named, `flagsTaken`), the pages it changes, and criteria on each side of the flag, each from
  * his words (`improvementProblems`). It rejects a change that needs a protected path, the app's flag context among
- * them, or that would keep anything on a visitor's device. A ticket's prompt is word for word as it was before
- * improvements, so its recordings still replay.
+ * them, or that would keep anything on a visitor's device. A ticket's first plan is word for word as it was before
+ * improvements and replans, so its recordings still replay.
  *
  * Work can come back to Plan: Martin answers a hold that sends it back (the coder needs files outside the scope, the
  * fence kept refusing its patch, the reviewer found the spec beyond the ticket, the coder found nothing to fix, or he
@@ -271,7 +271,7 @@ function improvementProblems(
   if (spec.flag === undefined) issue(['flag'], 'an improvement’s spec names the flag its change goes behind');
   else if (keeps !== undefined && spec.flag !== keeps) {
     issue(['flag'], `the improvement’s flag is ${keeps}, as its last spec named it: keep it`);
-  } else if (flagsTaken.includes(spec.flag)) {
+  } else if (keeps === undefined && flagsTaken.includes(spec.flag)) {
     issue(['flag'], `another improvement has named ${spec.flag}: give this one a flag of its own`);
   }
   if (spec.pages === undefined) issue(['pages'], 'an improvement’s spec names the pages its change shows on');
@@ -448,7 +448,7 @@ function whyBack(replan: Replan, asked: Asked['kind']): string[] {
       return [
         `Why it came back: the scope fence refused the coder’s patch twice, as it changed files outside your scope.${replan.fenced ? ` The fence printed: ${replan.fenced.split('\n').join('; ')}.` : ''}`,
         heDid(replan),
-        'So put the scope right for what the criteria need, as his answer says, and keep the rest of the spec as it is.',
+        `So put the scope right for what the criteria need${replan.answered ? ', as his answer says' : ''}, and keep the rest of the spec as it is.`,
       ];
     case 'beyond-ticket':
       return [

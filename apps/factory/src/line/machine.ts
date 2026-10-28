@@ -546,7 +546,10 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
       case 'work-item.reopened':
         startAgain(state);
         Object.assign(state, { hold: undefined, answer: undefined, closed: false });
-        state.replan = { cause: 'reopened' };
+        // A ticket a dry run verified comes back with nothing shipped: a first plan again, not a replan of the dry
+        // run's spec, whose flag no one moved.
+        if (event.payload.dryRun) Object.assign(state, { lastSpec: undefined, replan: undefined });
+        else state.replan = { cause: 'reopened' };
         state.reopened.push(event.payload);
         state.persistedBefore = state.persisted.length;
         break;
