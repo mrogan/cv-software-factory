@@ -23,7 +23,7 @@ Three images, built by `build.yml`, signed there by digest with cosign's keyless
 |---|---|---|
 | `factory` | Distroless Node | The gateway, the GitHub worker, triage, the intake, the log watcher, the line and the traffic generator |
 | `factory-browser` | From the pinned Playwright image, running as an unprivileged user | The probes, the crawler and the canary's journeys |
-| `factory-runner` | Node, git, pnpm through corepack, the Agent SDK | The [runners'](AGENT-RUNNERS.md) Jobs; the line is given its pinned reference as `RUNNER_IMAGE` |
+| `factory-runner` | Node, git, this repository's pnpm (from `mise.lock`), the Agent SDK | The [runners'](AGENT-RUNNERS.md) Jobs; the line is given its pinned reference as `RUNNER_IMAGE` |
 
 Chromium runs without its own sandbox, which the restricted Pod Security Standard refuses it, so the pod's other fences carry that.
 

@@ -23,6 +23,10 @@
  * the gateway's cassettes replay only what is sent again exactly. The message says nothing of what the seed is, since
  * real work never comes with such a hint. For the same reason every file of the checkout is given that time too,
  * since the agent's searches list files by when they changed.
+ *
+ * pnpm is the image's own, this repository's (`apps/runner/Dockerfile`), whatever the checkout's `packageManager`
+ * names: the app pins pnpm on its own, and nothing here may fetch another. The step says which it runs beside the one
+ * the checkout names, and stops at a different major, which the lockfile may not be read by.
  */
 import { execFile } from 'node:child_process';
 import { lutimes, mkdir, readFile, rm } from 'node:fs/promises';
@@ -65,12 +69,42 @@ export async function prepare(env = process.env, write = (line: string) => conso
   } else {
     await settleTimes(dir);
   }
+  const pnpmEnv = { ...env, ...OWN_PNPM, COREPACK_ENABLE_DOWNLOAD_PROMPT: '0', CI: 'true' };
+  const runs = (await exec('pnpm', ['--version'], { cwd: dir, env: pnpmEnv })).stdout.trim();
+  const named = await namedPnpm(dir);
+  log('runs its own pnpm', { pnpm: runs, packageManager: named ?? null });
+  samePnpmMajor(named, runs);
   await exec('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts', '--ignore-pnpmfile', '--reporter=silent'], {
     cwd: dir,
-    env: { ...env, COREPACK_ENABLE_DOWNLOAD_PROMPT: '0', CI: 'true' },
+    env: pnpmEnv,
     maxBuffer: 64 * 1024 * 1024,
   });
   log('installed the dependencies');
+}
+
+/**
+ * pnpm runs as itself, and does not switch to the version a checkout's `packageManager` names, which it would fetch.
+ * The image sets the same for both pods; the step sets it again, so that on a host, as the bench runs it, the pnpm it
+ * names is the pnpm that installs.
+ */
+const OWN_PNPM = { npm_config_manage_package_manager_versions: 'false' };
+
+/** The pnpm version a checkout's `packageManager` names, if it names pnpm. */
+export async function namedPnpm(dir: string): Promise<string | undefined> {
+  const manager = await readFile(join(dir, 'package.json'), 'utf8')
+    .then((text) => (JSON.parse(text) as { packageManager?: unknown }).packageManager)
+    .catch(() => undefined);
+  return typeof manager === 'string' ? /^pnpm@(\d+\.\d+\.\d+[^+]*)/.exec(manager)?.[1] : undefined;
+}
+
+/** Fails, saying so, when the pnpm a checkout names is of another major than the one that runs. */
+export function samePnpmMajor(named: string | undefined, runs: string): void {
+  const major = (version: string) => version.split('.')[0];
+  if (!named || major(named) === major(runs)) return;
+  throw new Error(
+    `The checkout asks for pnpm ${named}, and the runner runs pnpm ${runs}: pnpm moves to a new major in both ` +
+      "repositories, and the runner image's pnpm is this repository's (mise.lock).",
+  );
 }
 
 /** Times the history between a step's commit and its base is deepened before the prepare step gives up. */

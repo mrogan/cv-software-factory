@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { attempt } from '../src/agent.ts';
-import { prepare, SEED_MESSAGE } from '../src/prepare.ts';
+import { namedPnpm, prepare, SEED_MESSAGE, samePnpmMajor } from '../src/prepare.ts';
 
 /** A repository the prepare step can fetch from by path, with a package that needs nothing installed. */
 function origin(): { url: string; commit: string; dir: string } {
@@ -72,6 +72,13 @@ describe('the prepare step', () => {
         commit,
       }),
       expect.objectContaining({ job: 'coder-1001-1-1', msg: 'applied the seed, and committed it as the base' }),
+      // The pnpm that runs, beside the one the checkout names: this one names none.
+      expect.objectContaining({
+        job: 'coder-1001-1-1',
+        msg: 'runs its own pnpm',
+        pnpm: expect.stringMatching(/^\d+\.\d+\.\d+/),
+        packageManager: null,
+      }),
       expect.objectContaining({ job: 'coder-1001-1-1', msg: 'installed the dependencies' }),
     ]);
     const repo = join(work, 'repo');
@@ -170,6 +177,30 @@ describe('the prepare step', () => {
       'takes no seed',
     );
   }, 60_000);
+});
+
+describe('the pnpm the prepare step runs', () => {
+  it('reads the pnpm a checkout names, and nothing from one that names none or another manager', async () => {
+    const named = async (packageManager?: string) => {
+      const dir = mkdtempSync(join(tmpdir(), 'checkout-'));
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'shop', packageManager }));
+      return namedPnpm(dir);
+    };
+    expect(await named(`pnpm@12.8.1+sha512.${'0'.repeat(128)}`)).toBe('12.8.1');
+    expect(await named('pnpm@13.0.0-rc.1')).toBe('13.0.0-rc.1');
+    expect(await named()).toBeUndefined();
+    expect(await named('yarn@4.9.0')).toBeUndefined();
+    expect(await namedPnpm(mkdtempSync(join(tmpdir(), 'empty-')))).toBeUndefined();
+  });
+
+  it('goes on within a major, and stops at another with a sentence that names both', () => {
+    expect(() => samePnpmMajor('12.8.1', '12.15.0')).not.toThrow();
+    expect(() => samePnpmMajor(undefined, '12.15.0')).not.toThrow();
+    expect(() => samePnpmMajor('13.0.0', '12.15.0')).toThrow(
+      'The checkout asks for pnpm 13.0.0, and the runner runs pnpm 12.15.0: pnpm moves to a new major in both ' +
+        "repositories, and the runner image's pnpm is this repository's (mise.lock).",
+    );
+  });
 });
 
 describe('the fence check', () => {
