@@ -457,14 +457,28 @@ export const coder = defineAgent<CoderInput, CoderResult>({
     const { spec, round, suggestions = [] } = input;
     const { workItem, issue, state, commit } = context;
     const { patch } = handback;
-    // Files it needs outside the scope hold the work item before anything else: nothing of the round is pushed.
+    // Files it needs outside the scope hold the work item before anything else: nothing of the round is pushed. Its
+    // session is not kept, since it holds work that was not: a later round resumes the one before, which matches the
+    // pull request's head, and a first round starts afresh on the new spec.
     const needs = outsideScope(result, spec.scope);
     if (needs.length) {
-      await context.keepSession(handback.session);
-      return [holdDraft('coder', needsHold(needs, input.protectedPaths))];
+      const hold = holdDraft('coder', needsHold(needs, input.protectedPaths));
+      const declined = 'declined' in result ? (result.declined ?? []) : [];
+      if (!suggestions.length || !declined.length) return [hold];
+      // The suggestions it declined are answered with its reasons, so they are not lost; one it took is the next
+      // reviewer's to find, as after any round.
+      await answerDeclined(context, need(state.pullRequest, 'a pull request').number, suggestions, declined);
+      return [hold];
+    }
+    // A file it needs that the scope already takes in is one it could have changed: a change without it is not the
+    // change it said it needed, so it is not pushed.
+    const allowed = 'needs' in result ? (result.needs ?? []) : [];
+    if (allowed.length) {
+      const paths = allowed.map(({ path }) => path).join(', ');
+      throw new StepFailed(`The coder said it needs ${paths}, which its scope already allows`.slice(0, 300));
     }
     if (!('title' in result || 'unchanged' in result || 'declined' in result)) {
-      throw new StepFailed('The coder said it needs only files its scope already allows');
+      throw new StepFailed('The coder handed back neither a change nor why it made none');
     }
     if ('unchanged' in result) {
       if (patch) throw new StepFailed('The coder said it changed nothing, but handed back a change');

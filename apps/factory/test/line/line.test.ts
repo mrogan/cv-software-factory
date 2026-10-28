@@ -725,7 +725,8 @@ describe('the line', () => {
     expect((await payloads(workItem, 'work.returned')).at(-1)).toMatchObject({ from: 'review', to: 'build' });
     expect(github.acts.map((a) => a.action)).toContain('convertToDraft');
     expect(github.pulls.get(12)?.draft).toBe(true);
-    expect(steps.requests.at(-1)).toMatchObject({ agent: 'coder', round: 2 });
+    // It resumes the session its pushed round ended with: the one that named the file held work never pushed.
+    expect(steps.requests.at(-1)).toMatchObject({ agent: 'coder', round: 2, resume: 'session-1' });
   });
 
   it('ignores an answer or a stop that says it is Martin’s from any other role, and logs each once', async () => {
@@ -1679,17 +1680,40 @@ describe('the line', () => {
     expect(row?.failure).toMatch(/\.github\/workflows\/ci\.yml names a path no patch may change/);
   });
 
-  it('fails a coder that names only files its scope already takes in, and holds nothing for them', async () => {
+  it('fails a coder that names only files its scope already takes in, and pushes nothing for them', async () => {
     const workItem = await ticket();
-    const { pass } = line({
-      ...AGENTS,
-      coder: () => handback({ needs: [{ path: 'test/search.test.ts', reason: 'A test.' }] }),
-    });
+    // Even with a change: one without the file it said it needed is not the change it said it needed.
+    const needs = [{ path: 'test/search.test.ts', reason: 'A test.' }];
+    const { pass, github } = line({ ...AGENTS, coder: () => handback({ ...CODED, needs }, PATCH) });
     await pass();
     await pass();
     expect(await payloads(workItem, 'hold.started')).toEqual([]);
+    expect(github.acts.map((a) => a.action)).toEqual(['openIssue']);
     const [row] = await database.as.line<{ failure: string }[]>`select failure from line where work_item = ${workItem}`;
-    expect(row?.failure).toMatch(/needs only files its scope already allows/);
+    expect(row?.failure).toBe('The coder said it needs test/search.test.ts, which its scope already allows');
+  });
+
+  it('answers the suggestions a coder declined before it holds for the files it needs', async () => {
+    const workItem = await ticket();
+    const name = { path: 'src/search.ts', line: 1, blocking: false, comment: 'Name the escape for what it does.' };
+    const test = { path: 'test/search.test.ts', line: 2, blocking: false, comment: 'Test two quotes.' };
+    const reviews = [{ verdict: 'approved', note: 'It escapes the quote.', findings: [name, test] }];
+    const declined = [{ suggestion: 1, reason: 'The name is the one the rest of the code uses.' }];
+    const needs = [{ path: 'src/server.ts', reason: 'Two quotes reach it unescaped.' }];
+    const coded = [handback(CODED, PATCH), handback({ ...CODED, declined, needs }, PATCH)];
+    const { pass, github } = line({
+      ...AGENTS,
+      coder: () => coded.shift() ?? handback(CODED, PATCH),
+      reviewer: () => handback(reviews.shift()),
+    });
+    await pass();
+    await pass();
+    github.pass();
+    await pass(); // the review approves, with two suggestions
+    await pass(); // the coder declines one, and needs a file outside its scope for the other
+    expect((await payloads(workItem, 'hold.started')).map((h) => h.cause)).toEqual(['scope']);
+    expect(github.acts.filter((a) => a.action === 'resolveThreads')).toHaveLength(1);
+    expect(github.acts.filter((a) => a.action === 'applyPatch')).toHaveLength(1);
   });
 
   it('refuses a patch that changes a path the app’s CODEOWNERS gives Martin at the commit, though the scope takes it in', async () => {

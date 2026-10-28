@@ -309,10 +309,22 @@ describe('what the line does next', () => {
       {
         asked: `${hold.reason}.`,
         said: 'The coder said of test/flags-preview.test.ts: It assumes / asks no flag; every page now does. The coder said of .github/workflows/ci.yml, which no scope may name: It runs the old command.',
-        answer: 'Yes: the coder needed those files, so let the scope take them in.',
+        answer:
+          'Yes: let the scope take in the files the coder needed that a scope may name. A file no scope may name stays out of it: if the fix needs one, reject the ticket.',
       },
     ]);
     expect(closesWhenCleared(fold([ticket, spec, { type: 'hold.started', payload: hold }]))).toBe(true);
+    // Approving files of which one no scope may name tells the planner to leave that one out, or reject the ticket.
+    const barredOnly = needsHold([{ path: 'deploy/app.yaml', reason: 'x' }], ['deploy/']);
+    const told = fold([ticket, spec, { type: 'hold.started', payload: barredOnly }, answer('approved')]).answers[0];
+    expect(told?.answer).toBe(
+      'Yes: let the scope take in the files the coder needed that a scope may name. A file no scope may name stays out of it: if the fix needs one, reject the ticket.',
+    );
+    // A reason cut to fit ends as it was cut, with no full stop after the mark.
+    const cutHold = needsHold(many, []);
+    const cutTold = fold([ticket, spec, { type: 'hold.started', payload: cutHold }, answer('approved')]).answers[0];
+    expect(cutTold?.asked).toBe(cutHold.reason);
+    expect(cutTold?.asked.endsWith('…')).toBe(true);
   });
 
   it('judges the gates on the latest push only, and a later run once it ends: passed gates stand while it runs', () => {

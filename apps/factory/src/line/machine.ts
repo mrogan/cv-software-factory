@@ -434,7 +434,8 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         // since what an agent writes is public and a paraphrase of a report would pass any redactor. His answer still
         // does what it does.
         const words = event.payload.report ? undefined : event.payload.answer;
-        const said = words ?? (cause === 'scope' && event.payload.decision === 'approved' ? FENCE_APPROVED : undefined);
+        const said =
+          words ?? (cause === 'scope' && event.payload.decision === 'approved' ? scopeApproved(state.hold) : undefined);
         // Words settle nothing for triage's holds: the hold stands, and the work item waits as it did.
         if (event.payload.decision === 'answered' && WORDS_LEAVE_HELD.includes(cause)) break;
         if ((stage === 'plan' || resolution === 'replan') && said) {
@@ -538,6 +539,12 @@ function startAgain(state: WorkItemState): void {
 /** What approving a hold of the scope fence's says, for the planner. */
 const FENCE_APPROVED = 'Yes: the coder needed those files, so let the scope take them in.';
 
+/** What approving a scope hold says: of a file no scope may name, that it stays out, so the planner rejects it. */
+const scopeApproved = (hold: PayloadOf<'hold.started'>) =>
+  hold.needs?.some((need) => need.barred)
+    ? 'Yes: let the scope take in the files the coder needed that a scope may name. A file no scope may name stays out of it: if the fix needs one, reject the ticket.'
+    : FENCE_APPROVED;
+
 /**
  * What Martin was asked by a hold, as the planner is told it, and what the coder said of each file it needs, which
  * the planner is told beside it, but may quote no criterion from: an agent's words are not what he asked for.
@@ -548,7 +555,7 @@ function askedOf(hold: PayloadOf<'hold.started'>, fenced: string | undefined): {
       ({ path, reason, barred }) =>
         `The coder said of ${path}${barred ? ', which no scope may name' : ''}: ${reason.replace(/[.\s]+$/, '')}.`,
     );
-    return { asked: `${hold.reason}.`, said: said.join(' ') };
+    return { asked: hold.reason.endsWith('…') ? hold.reason : `${hold.reason}.`, said: said.join(' ') };
   }
   if (hold.cause === 'scope' && fenced)
     return { asked: `${hold.reason}. The scope fence printed: ${fenced.split('\n').join('; ')}.` };
