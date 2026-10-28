@@ -1604,7 +1604,7 @@ describe('the line', () => {
       stage: 'build',
       kind: 'held',
       cause: 'scope',
-      reason: 'The scope fence refused the coder’s patch 2 times: it changed files outside the spec’s scope',
+      reason: 'The scope fence refused the coder’s patch twice: it changed files outside the spec’s scope',
     });
     expect(github.acts.map((a) => a.action)).toEqual(['openIssue']);
     expect(steps.requests.map((r) => r.agent)).toEqual(['planner', 'coder', 'coder']);

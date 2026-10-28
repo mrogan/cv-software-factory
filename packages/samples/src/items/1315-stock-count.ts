@@ -69,5 +69,5 @@ export default new Item('1315', '2026-10-06T09:12:00+01:00')
     stage: 'build',
     kind: 'held',
     cause: 'scope',
-    reason: 'The scope fence refused the coder’s patch 2 times: it changed files outside the spec’s scope',
+    reason: 'The scope fence refused the coder’s patch twice: it changed files outside the spec’s scope',
   });

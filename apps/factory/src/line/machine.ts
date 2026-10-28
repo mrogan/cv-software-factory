@@ -1044,9 +1044,15 @@ export function unchangedHold(state: WorkItemState, why: string): PayloadOf<'hol
   return { stage: from, kind: 'held', cause: from, reason };
 }
 
-/** The hold for a scope the coder's patches kept straying from: the fence refused it this many times. */
+/** How many times something happened, in words: once, twice, or the number. */
+export const timesOf = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
+
+/**
+ * The hold for a scope the coder's patches kept straying from: the fence refused it this many times. The planner is
+ * told the same, in the same words (`whyBack`).
+ */
 export function fenceHold(refusals: number): PayloadOf<'hold.started'> {
-  const reason = `The scope fence refused the coder’s patch ${refusals} times: it changed files outside the spec’s scope`;
+  const reason = `The scope fence refused the coder’s patch ${timesOf(refusals)}: it changed files outside the spec’s scope`;
   return { stage: 'build', kind: 'held', cause: 'scope', reason };
 }
 

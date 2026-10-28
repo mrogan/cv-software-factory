@@ -57,7 +57,7 @@ import { PATH_CHARS, RISKS, touches } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
 import { z } from 'zod';
 import { NEVER, plainPath, protectedWords } from '../../github/paths.ts';
-import type { Answer, Replan } from '../machine.ts';
+import { type Answer, LIMITS, type Replan, timesOf } from '../machine.ts';
 import { askedOf, count, defineAgent, heAnswered, holdDraft, words } from './agent.ts';
 import {
   type Asked,
@@ -446,7 +446,7 @@ function whyBack(replan: Replan, asked: Asked['kind']): string[] {
         ];
       }
       return [
-        `Why it came back: the scope fence refused the coder’s patch twice, as it changed files outside your scope.${replan.fenced ? ` The fence printed: ${replan.fenced.split('\n').join('; ')}.` : ''}`,
+        `Why it came back: the scope fence refused the coder’s patch ${timesOf(LIMITS.fenceRefusals)}, as it changed files outside your scope.${replan.fenced ? ` The fence printed: ${replan.fenced.split('\n').join('; ')}.` : ''}`,
         heDid(replan),
         `So put the scope right for what the criteria need${replan.answered ? ', as his answer says' : ''}, and keep the rest of the spec as it is.`,
       ];
