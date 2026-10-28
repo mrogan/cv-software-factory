@@ -1,8 +1,9 @@
 /**
  * The line after triage: takes tickets, and the improvements Martin asks for, into Plan and carries each work item
- * through its agents' steps, the gates and review, to Martin's merge, and on to Release and Verify. What to do next is decided from the work item's events
- * (`machine.ts`); this module does it, and appends what happened. A merged work item is held at Release until a
- * release carries it, and waits there while the release runs; a promoted one waits at Verify.
+ * through its agents' steps, the gates and review, to Martin's merge, and on to Release and Verify. What to do next is
+ * decided from the work item's events (`machine.ts`); this module does it, and appends what happened. A merged work
+ * item is held at Release until a release carries it, and waits there while the release runs; a promoted one waits at
+ * Verify.
  *
  * - A step runs in a runner (`Steps`), and its handback becomes events: the agent's result read through its schema,
  *   what the result does in GitHub (both in the agent's module, `agents/`), and one `model.called` with the step's
@@ -28,8 +29,9 @@
  *   looks at it: it has no signal. The work item stays open, for the flag pass below.
  * - About every thirty seconds, while the line runs, it judges each improvement's work item at the stage Martin set its
  *   flag at, from the flags' events, not the ticket machine (`flags.ts`): a flag turned off closes its improvement as
- *   turned off, and its issue as not planned, and a flag at Share has its two sides compared on the traffic generator's requests, through Verify's
- *   Prometheus (`compare.ts`). Live and in a dry run, and with `only`, for that work item alone.
+ *   turned off, and its issue as not planned, and a flag at Share has its two sides compared on the traffic
+ *   generator's requests, through Verify's Prometheus (`compare.ts`). Live and in a dry run, and with `only`, for that
+ *   work item alone.
  * - About every thirty seconds, it reads the app's Rollout and its AnalysisRuns, and records each release on the work
  *   items it carries, or on the line when it carries none (`release.ts`). It changes nothing in Kubernetes. In a dry
  *   run, it answers for the releases of the dry run's merges, which never shipped.
