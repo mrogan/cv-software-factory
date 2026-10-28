@@ -856,11 +856,7 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
   }
   if (!s.pullRequest || s.rebuild) {
     if (s.fenceRefusals >= LIMITS.fenceRefusals) {
-      const reason = `The scope fence refused the coder’s patch ${s.fenceRefusals} times: it changed files outside the spec’s scope`;
-      return {
-        stage: 'held',
-        next: { do: 'hold', hold: { stage: 'build', kind: 'held', cause: 'scope', reason } },
-      };
+      return { stage: 'held', next: { do: 'hold', hold: fenceHold(s.fenceRefusals) } };
     }
     return step('coder');
   }
@@ -1046,6 +1042,18 @@ export function unchangedHold(state: WorkItemState, why: string): PayloadOf<'hol
   const from = state.rebuild.from === 'gates' ? 'gates' : 'review';
   const reason = `The coder changed nothing when the work came back from ${from}: ${why}`.slice(0, 300);
   return { stage: from, kind: 'held', cause: from, reason };
+}
+
+/** How many times something happened, in words: once, twice, or the number. */
+export const timesOf = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
+
+/**
+ * The hold for a scope the coder's patches kept straying from: the fence refused it this many times. The planner is
+ * told the same, in the same words (`whyBack`).
+ */
+export function fenceHold(refusals: number): PayloadOf<'hold.started'> {
+  const reason = `The scope fence refused the coder’s patch ${timesOf(refusals)}: it changed files outside the spec’s scope`;
+  return { stage: 'build', kind: 'held', cause: 'scope', reason };
 }
 
 /**

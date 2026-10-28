@@ -760,6 +760,53 @@ describe('the planner planning again', () => {
   });
 });
 
+describe('the bench’s replans', () => {
+  const fixture = (name: string) =>
+    FIXTURES.planner[name] ??
+    (() => {
+      throw new Error(`The planner has no ${name} fixture.`);
+    })();
+  const fits = (input: PlannerInput, spec: PayloadOf<'spec.written'>) =>
+    planner.schema(input).safeParse({ verdict: 'spec', spec });
+
+  it('plans an improvement again from its pull request’s base, told the files the coder needed, keeping its flag', () => {
+    const { commit, input } = fixture('delivery-dates-scope');
+    const first = fixture('delivery-dates').input;
+    // The checkout is the base, where the line puts a replan's (`plansFromBase`), and the last spec is the first's.
+    expect(input.change).toMatchObject({ pullRequest: 117, commit });
+    expect(input.lastSpec).toEqual(FIXTURES.coder['delivery-dates']?.input.spec);
+    expect(input.replan).toMatchObject({ cause: 'scope', approved: true, answered: false });
+    const needed = input.replan && 'needs' in input.replan ? input.replan.needs?.map((n) => n.path) : [];
+    expect(needed).toEqual(['src/shop.ts', 'src/pages/index.ts', 'test/support/shop.ts']);
+    const prompt = planner.prompt(input);
+    expect(prompt).toContain('This is a replan: you planned this improvement before');
+    expect(prompt).toContain('Pull request #117 holds the work so far');
+    expect(prompt).toContain('The flag stays `delivery-dates`.');
+    // Its first plan is as it was.
+    expect(planner.prompt(first)).not.toContain('replan');
+
+    const last = input.lastSpec as PayloadOf<'spec.written'>;
+    const widened = { ...last, scope: [...last.scope, ...needed] };
+    expect(fits(input, widened).success).toBe(true);
+    expect(fits(input, { ...widened, flag: 'delivery-dates-2' }).error?.issues.map((i) => i.message)).toEqual([
+      'the improvement’s flag is delivery-dates, as its last spec named it: keep it',
+    ]);
+  });
+
+  it('plans a ticket again before any pull request, told what the scope fence refused', () => {
+    const { input } = fixture('cards-fenced');
+    expect(input.change).toBeUndefined();
+    expect(input.replan).toMatchObject({ cause: 'scope', approved: true, answered: false });
+    const fenced = input.replan && 'fenced' in input.replan ? input.replan.fenced : undefined;
+    expect(fenced).toContain('refused src/pages/cards.ts');
+    expect(planner.prompt(input)).toContain(
+      'Why it came back: the scope fence refused the coder’s patch twice, as it changed files outside your scope.',
+    );
+    const last = input.lastSpec as PayloadOf<'spec.written'>;
+    expect(fits(input, { ...last, scope: [...last.scope, 'src/pages/cards.ts'] }).success).toBe(true);
+  });
+});
+
 describe('the words each criterion quotes', () => {
   const criterion = SPEC.criteria[0] as (typeof SPEC.criteria)[number];
   const fits = (from: string, quote?: string, sources = SOURCES) =>

@@ -3,18 +3,22 @@
  * A fixture names the app's commit it starts from, pinned, so a step recorded from it replays from the cassettes
  * for as long as they are kept; and, for a defect the app does not have, a seed the prepare step commits as the base.
  * A fixture for a step that reads a change (the reviewer's, the describer's) has the change too: a coder's patch,
- * which the bench commits on the base as the pull request's head.
+ * which the bench commits on the base as the pull request's head. A planner's fixture for a replan, the work sent
+ * back to Plan, folds what the planner is told from a work item's events, as the line does (`replanOf`), and starts
+ * from the commit the line would plan from: the pull request's base, once there is one (`plansFromBase`).
  *
  * Every fixture is invented: a ticket, a request, a spec or a pull request that neither a visitor nor Martin wrote. A
  * cassette recorded from one holds only that and the app's public code.
  */
 import type { PayloadOf } from '@software-factory/events';
 import { protectedFrom } from '../../github/paths.ts';
+import { fence } from '../../runners/scope.ts';
 import { SMOKE_SCOPE, SMOKE_SEED } from '../../runners/smoke.ts';
 import type { AgentDefinition } from '../agents/agent.ts';
 import type { Request, Signal } from '../agents/evidence.ts';
 import type { AGENTS } from '../agents/index.ts';
-import type { LineAgent } from '../machine.ts';
+import type { PlannerInput } from '../agents/planner.ts';
+import { fenceHold, fold, LIMITS, type LineAgent, type LineEvent, needsHold } from '../machine.ts';
 
 /** What an agent's step is given, as its definition takes it. */
 export type InputOf<A extends LineAgent> = (typeof AGENTS)[A] extends AgentDefinition<infer I, unknown> ? I : never;
@@ -485,6 +489,144 @@ const DELIVERY_SPEC: PayloadOf<'spec.written'> = {
     'Ships off. With the flag on, a product’s page in stock shows its delivery date under its stock, and one with none in stock shows none.',
 };
 
+/**
+ * What the line tells a planner sent back to Plan, folded from a work item's events as the line folds them: Martin's
+ * answers, the last spec, and why the work came back. So a replan's fixture says what the line would, word for word.
+ */
+function replanOf(events: readonly LineEvent[]): Pick<PlannerInput, 'answers' | 'lastSpec' | 'replan'> {
+  const { answers, lastSpec, replan } = fold(events);
+  if (!lastSpec || !replan) throw new Error('These events send no work back to Plan.');
+  return { answers, lastSpec, replan };
+}
+
+/** Martin's approval of a hold, in no words of his. */
+const APPROVED: LineEvent = { type: 'hold.answered', payload: { decision: 'approved' } };
+
+/** The delivery dates' pull request, its first round: the date, on the page, with tests of its own. */
+const DELIVERY_PULL_REQUEST = 117;
+const DELIVERY_FILES = [
+  { path: 'src/delivery.ts', added: 24, removed: 0 },
+  { path: 'src/pages/product.ts', added: 9, removed: 1 },
+  { path: 'test/delivery.test.ts', added: 31, removed: 0 },
+  { path: 'test/pages-product.test.ts', added: 18, removed: 0 },
+];
+
+/**
+ * The delivery dates, built and sent back: the review found no test opens a product's page on the days the criteria
+ * name, as the page reads the real clock, and the coder could give it one only through files outside the scope: the
+ * shop, which builds the routes, and the tests' shop. Martin approved, in no words, as he did #1082's.
+ */
+const DELIVERY_SCOPE_RETURN: LineEvent[] = [
+  { type: 'improvement.requested', payload: { words: DELIVERY_REQUEST.words, steppedUp: true } },
+  { type: 'spec.written', payload: DELIVERY_SPEC },
+  {
+    type: 'hold.started',
+    payload: {
+      stage: 'plan',
+      kind: 'approval',
+      cause: 'spec',
+      reason:
+        'The spec of an improvement Martin asked for: it waits for his approval before any code is written, in every autonomy mode',
+    },
+  },
+  APPROVED,
+  {
+    type: 'pull-request.pushed',
+    payload: {
+      number: DELIVERY_PULL_REQUEST,
+      title: 'feat(product): say when a product in stock would arrive',
+      branch: `factory/${FIXTURE_WORK_ITEM}-delivery-dates-on-each-product`,
+      attempt: 1,
+      testsFirst: true,
+      files: DELIVERY_FILES,
+      whole: DELIVERY_FILES,
+    },
+  },
+  {
+    type: 'review.submitted',
+    payload: {
+      pullRequest: DELIVERY_PULL_REQUEST,
+      verdict: 'changes-requested',
+      note: 'Criteria 1 and 2 name the day the page is opened, and no test opens the page on that day.',
+      findings: [
+        {
+          path: 'test/pages-product.test.ts',
+          line: 52,
+          blocking: true,
+          criterion: 1,
+          comment:
+            'The page test reads the real clock, so it shows no date for Monday 28 September: only test/delivery.test.ts names a day.',
+        },
+      ],
+    },
+  },
+  { type: 'work.returned', payload: { from: 'review', to: 'build', reason: 'Put it right' } },
+  {
+    type: 'hold.started',
+    payload: needsHold(
+      [
+        {
+          path: 'src/shop.ts',
+          reason: 'The product page reads the real clock; a test can give it a day only if createShop takes a clock.',
+        },
+        { path: 'src/pages/index.ts', reason: 'pageRoutes builds the product route, so it passes the clock on.' },
+        {
+          path: 'test/support/shop.ts',
+          reason: 'useShop starts the shop for the page tests; it must give it Monday 28 September.',
+        },
+      ],
+      APP_WITH_FLAGS_PROTECTED,
+    ),
+  },
+  APPROVED,
+];
+
+/** The wrong price in the product cards, which the coder put right though the scope does not name their file. */
+const CARDS_STRAYED = `${CARDS_FIX}diff --git a/src/pages/cards.ts b/src/pages/cards.ts
+--- a/src/pages/cards.ts
++++ b/src/pages/cards.ts
+@@ -3,6 +3,7 @@
+  */
+ import type { Product } from '../catalogue.ts';
+ import { type Html, html } from '../html.ts';
++import { pounds } from '../money.ts';
+
+ export function stockLine(stock: number): string {
+   if (stock === 0) return 'None in stock';
+@@ -13,7 +14,7 @@ export function productCard(product: Product): Html {
+   return html\`<li class="card">
+     <img src="/assets/drawings/\${product.drawing}" width="120" height="120">
+     <h3><a href="/products/\${product.slug}">\${product.name}</a></h3>
+-    <p class="price">£\${Math.trunc(product.pricePence / 100)}.\${product.pricePence % 100}</p>
++    <p class="price">\${pounds(product.pricePence)}</p>
+     <p>\${product.summary}</p>
+     <p class="quiet">Item \${product.id} · \${stockLine(product.stock)}</p>
+   </li>\`;
+`;
+
+/** The scope fence's refusal of that patch, as the line records it. */
+const CARDS_REFUSED: LineEvent = {
+  type: 'action.refused',
+  payload: {
+    mechanism: 'scope-fence',
+    action: 'Push the coder’s round 1 to a new pull request',
+    output: fence(CARDS_STRAYED, CARDS_SPEC.scope, APP_PROTECTED).output,
+  },
+};
+
+/**
+ * The wrong price in `pounds` and the cards, sent back before any pull request: the fence refused the coder's patch
+ * twice, as it mended the cards, which the scope leaves out though a criterion asks for them. Martin approved.
+ */
+const CARDS_FENCE_RETURN: LineEvent[] = [
+  { type: 'ticket.opened', payload: PRICE_TICKET },
+  { type: 'spec.written', payload: CARDS_SPEC },
+  CARDS_REFUSED,
+  CARDS_REFUSED,
+  { type: 'hold.started', payload: fenceHold(LIMITS.fenceRefusals) },
+  APPROVED,
+];
+
 export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
   planner: {
     'wrong-price': {
@@ -591,6 +733,38 @@ export const FIXTURES: { [A in LineAgent]: Record<string, Fixture<A>> } = {
         protectedPaths: APP_WITH_FLAGS_PROTECTED,
         answers: [],
         flagsTaken: FLAGS_TAKEN,
+      },
+    },
+    'delivery-dates-scope': {
+      about:
+        'the delivery dates planned again, its pull request open: the coder needed the shop and its test harness to give the page a day, and Martin approved; the replan keeps its flag',
+      // The pull request's base, which a replan's checkout is (`plansFromBase`): its work is not in it.
+      commit: APP_WITH_FLAGS,
+      input: {
+        workItem: FIXTURE_WORK_ITEM,
+        asked: { kind: 'request', request: DELIVERY_REQUEST },
+        signals: [],
+        protectedPaths: APP_WITH_FLAGS_PROTECTED,
+        flagsTaken: FLAGS_TAKEN,
+        ...replanOf(DELIVERY_SCOPE_RETURN),
+        change: {
+          pullRequest: DELIVERY_PULL_REQUEST,
+          files: DELIVERY_FILES.map(({ path }) => path),
+          commit: APP_WITH_FLAGS,
+        },
+      },
+    },
+    'cards-fenced': {
+      about:
+        'the wrong price planned again before any pull request: the scope fence refused the coder’s patch twice for mending the cards, which a criterion asks for and the scope leaves out, and Martin approved',
+      commit: APP_MAIN,
+      seed: CARDS_SEED,
+      input: {
+        workItem: FIXTURE_WORK_ITEM,
+        asked: { kind: 'ticket', ticket: PRICE_TICKET },
+        signals: PRICE_SIGNALS,
+        protectedPaths: APP_PROTECTED,
+        ...replanOf(CARDS_FENCE_RETURN),
       },
     },
   },
