@@ -35,6 +35,8 @@ import {
   SIGNALLED,
   sawOf,
   stoppedBy,
+  type Unit,
+  written,
 } from '../projection/release.ts';
 import { Dialog } from './Dialog.tsx';
 import { Glyph, type GlyphName } from './Glyph.tsx';
@@ -202,9 +204,6 @@ function firstMeasured(r: Release): number | undefined {
   return r.planned && !r.end && !r.dryRun && !r.measured.length && step?.analysis ? r.until : undefined;
 }
 
-/** How a figure is written, and counted up: requests, a share of 5xx answers, a p99, or words that do not count. */
-type Unit = 'requests' | 'share' | 'ms' | 'none';
-
 /** A figure as a look has it: its value, to count up from the last, and how it is written when it gets there. */
 interface Fig {
   value: number | null;
@@ -212,16 +211,8 @@ interface Fig {
   unit: Unit;
 }
 
-/** A figure written in its unit, on its way to `to`: requests short of the window's least say so, "63 / 100". */
-function written(unit: Unit, x: number, to: number): string {
-  if (unit === 'share') return `${(x * 100).toFixed(2)}%`;
-  if (unit === 'ms') return `${Math.round(x)} ms`;
-  const n = Math.round(x).toLocaleString('en-GB');
-  return to < BACKGROUND.minRequests ? `${n} / ${BACKGROUND.minRequests}` : n;
-}
-
 const fig = (unit: Unit, value: number | null | undefined): Fig =>
-  value == null ? { value: null, text: '—', unit: 'none' } : { value, text: written(unit, value, value), unit };
+  value == null ? { value: null, text: '—', unit: 'none' } : { value, text: written(unit, value), unit };
 
 /**
  * Each version's figure for a measure, from its latest look: the canary's to count up, the baseline's as words.
@@ -288,10 +279,10 @@ function Fresh({
     const from = before.value;
     if (value === null || from === null || from === value || !(node instanceof Text)) return;
     const start = performance.now();
-    node.nodeValue = written(unit, from, value);
+    node.nodeValue = written(unit, from);
     let frame = requestAnimationFrame(function step(now) {
       const k = Math.min(1, (now - start) / COUNT_MS);
-      node.nodeValue = written(unit, from + (value - from) * (1 - (1 - k) ** 3), value);
+      node.nodeValue = written(unit, from + (value - from) * (1 - (1 - k) ** 3));
       if (k < 1) frame = requestAnimationFrame(step);
     });
     return () => {

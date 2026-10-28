@@ -242,6 +242,21 @@ export function lookVerdict(r: Release, name: string): LookVerdict {
   return { words: `${words} · ${fails} of ${BACKGROUND.failures}`, kind: 'warm', ruled: true };
 }
 
+/** How a figure is written, and counted up: requests, a share of 5xx answers, a p99, or words that do not count. */
+export type Unit = 'requests' | 'share' | 'ms' | 'none';
+
+/**
+ * A figure written in its unit, as it stands, on its way to a new look's or there: requests short of the window's least
+ * say so, "63 / 100", and the count-up writes each figure it passes the same way.
+ */
+export function written(unit: Unit, x: number): string {
+  if (unit === 'share') return `${(x * 100).toFixed(2)}%`;
+  if (unit === 'ms') return `${Math.round(x)} ms`;
+  const n = Math.round(x);
+  const words = n.toLocaleString('en-GB');
+  return n < BACKGROUND.minRequests ? `${words} / ${BACKGROUND.minRequests}` : words;
+}
+
 /** A point of a measure's line: each version's figure, and its limit, in the figure's unit. */
 export interface Point {
   at: number;
@@ -347,8 +362,10 @@ interface Building extends Release {
   /** Each pause of Martin's that has ended: from when he paused it to when he resumed or promoted it. */
   held: { from: number; to: number }[];
   stoppedAt: number | undefined;
-  /** Each look kept, by its own time and the measures it took. */
+  /** Each measurement its looks took, by `measurementOf`. */
   seen: Set<string>;
+  /** How far its looks' own times are from the events’ clock (`lookedShift`), from its first look. */
+  shift: number | undefined;
 }
 
 /**
@@ -499,6 +516,7 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
         held: [],
         stoppedAt: undefined,
         seen: new Set(),
+        shift: undefined,
       });
       continue;
     }
@@ -517,16 +535,19 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
       if (to !== undefined) r.promotions.push({ at, to });
       continue;
     }
-    // A look lands on each work item the release carries, not always in the same pass: it is one look.
+    // A look lands on each work item the release carries, not always in the same pass, and not always grouped the same
+    // way: the line may have read one work item's between two of the analysis's writes. Each measurement is kept once,
+    // by its measure and its own end, as the line keeps them, whatever look it came in.
     if (event.type === 'canary.measuring') {
       const r = byId.get(event.payload.release);
       if (!r || r.end) continue;
-      const { weight, measures, figures } = event.payload;
-      // Known by its own time, which every copy of it carries, whatever time it is placed at.
-      const key = `${event.payload.at}|${measures.map((m) => m.name).join()}`;
-      if (r.seen.has(key)) continue;
-      r.seen.add(key);
-      r.looks.push({ at: lookedAt(Date.parse(event.payload.at), at), weight, measures, figures });
+      const { weight, figures } = event.payload;
+      const measures = event.payload.measures.filter((m) => !r.seen.has(measurementOf(m)));
+      if (!measures.length) continue;
+      for (const m of measures) r.seen.add(measurementOf(m));
+      const taken = Date.parse(event.payload.at);
+      r.shift ??= lookedShift(taken, at);
+      r.looks.push({ at: Math.min(taken + r.shift, at), weight, measures, figures });
       continue;
     }
     if (
@@ -560,7 +581,7 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
     if (event.type === 'release.aborted') r.end = abortedAt(r, Date.parse(event.payload.abortedAt), event.payload.by);
   }
   return [...byId.values()].map((r): Release => {
-    const { listed: _listed, stoppedAt: _stoppedAt, held: _held, seen: _seen, ...release } = r;
+    const { listed: _listed, stoppedAt: _stoppedAt, held: _held, seen: _seen, shift: _shift, ...release } = r;
     if (!r.planned) release.steps = measuredSteps(r);
     const end = endOf(r);
     const place = position(r, end?.at ?? t);
@@ -573,17 +594,24 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
   });
 }
 
-/** The longest a line takes to record a look: a pass, and a little more. */
-const RECORDED_WITHIN_MS = 5 * 60_000;
+/** A measurement of the background analysis, by its measure and its own end, as the line knows it. */
+export const measurementOf = (m: { name: string; at: string }) => `${m.name}|${Date.parse(m.at)}`;
 
 /**
- * When a look was taken, on the events' clock. A look is recorded a pass after it was taken, so its own time is a
- * moment before its event's. A log moved in time as a whole (`pnpm dev` serves the samples' as if their last event
- * were now, and `factory events load` moves a recording's) moves the events' times and not their payloads', so a look
- * whose time is not within a pass before its event's is placed at its event.
+ * The oldest a look can be when the line records it: Argo Rollouts keeps a measure's last ten measurements, the
+ * journeys' three minutes apart, so a line that was down records looks up to half an hour old, and a pass more.
  */
-const lookedAt = (taken: number, recorded: number) =>
-  taken <= recorded && recorded - taken <= RECORDED_WITHIN_MS ? taken : recorded;
+const RECORDED_WITHIN_MS = 35 * 60_000;
+
+/**
+ * How far a release's looks' own times are from the events' clock, from its first look: none, as a look is recorded
+ * within Argo Rollouts' memory of it after it was taken. A log moved in time as a whole (`pnpm dev` serves the samples'
+ * as if their last event were now, and `factory events load` moves a recording's) moves the events' times and not
+ * their payloads': there the first look is placed at its event, and every later one moved as far, so the looks keep
+ * their order and spacing, and none is placed after its own event.
+ */
+const lookedShift = (taken: number, recorded: number) =>
+  taken <= recorded && recorded - taken <= RECORDED_WITHIN_MS ? 0 : recorded - taken;
 
 /** A release that recorded no steps: the steps measured stand in, then all of the traffic. */
 const measuredSteps = (r: Building) =>

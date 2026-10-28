@@ -30,6 +30,7 @@ import {
   SERIES_UNITS,
   sawOf,
   versionsAt,
+  written,
 } from '../../web/src/projection/release.ts';
 import { END, SAMPLES, work } from './support.ts';
 
@@ -661,6 +662,43 @@ describe('the background analysis’s looks', () => {
       expect(r && lookVerdict(r, 'errors').words).toBe('1.02 pt to spare');
     });
 
+    it('keeps each measurement once, however the line grouped it into looks on each work item', () => {
+      // On one work item the line read errors and the failed latency together; on another, between the two writes.
+      const failed = look(2, 255, 'failed');
+      const errors = { name: 'errors', phase: 'successful', value: -0.0002, limit: 0.01, at: look(1.9, 0).at } as const;
+      const together = flying().add(2.2, 'canary.measuring', 'rollouts', {
+        ...failed,
+        measures: [errors, ...failed.measures],
+      });
+      const apart = work('2')
+        .add(1, 'release.started', 'rollouts', started)
+        .add(2.1, 'canary.measuring', 'rollouts', { ...failed, at: errors.at, measures: [errors] })
+        .add(2.4, 'canary.measuring', 'rollouts', failed);
+      for (const events of [
+        [...together.events, ...apart.events],
+        [...apart.events, ...together.events],
+      ]) {
+        const [r] = releases(
+          events.sort((a, b) => a.ts.localeCompare(b.ts)),
+          [],
+          together.at(3),
+        );
+        if (!r) throw new Error('No release');
+        expect(r.looks.flatMap((l) => l.measures.map((m) => m.name)).sort()).toEqual(['errors', 'latency']);
+        expect(lookVerdict(r, 'latency')).toEqual(said('25 ms over · 1 of 2', 'warm', true));
+        expect(pointsOf(r, 'latency')).toHaveLength(1);
+      }
+    });
+
+    it('places the looks a line that was down records together each at its own time', () => {
+      const back = flying()
+        .add(10.1, 'canary.measuring', 'rollouts', look(2, 200))
+        .add(10.1, 'canary.measuring', 'rollouts', look(3, 210))
+        .add(10.1, 'canary.measuring', 'rollouts', look(4, 220));
+      const [r] = releases(back.events, [], back.at(11));
+      expect(r?.looks.map((l) => l.at)).toEqual([back.at(2), back.at(3), back.at(4)]);
+    });
+
     it('says a failed look in warm words, with how many of the looks that fail the release have failed', () => {
       const over = flying()
         .add(2.2, 'canary.measuring', 'rollouts', look(2, 200))
@@ -711,6 +749,19 @@ describe('the background analysis’s looks', () => {
       expect(releases(both, [], moved.at(3))[0]?.looks).toHaveLength(1);
       const recorded = flying().add(2.2, 'canary.measuring', 'rollouts', look(2, 200));
       expect(releases(recorded.events, [], recorded.at(3))[0]?.looks[0]?.at).toBe(recorded.at(2));
+      // Its later looks move as far as the first, keeping their order and spacing, even recorded in one pass.
+      const later = (minute: number, p99: number) => ({
+        ...look(minute, p99),
+        at: new Date(Date.parse('2026-09-01T09:00:00Z') + minute * 60_000).toISOString(),
+      });
+      moved
+        .add(5.2, 'canary.measuring', 'rollouts', later(3, 200))
+        .add(5.2, 'canary.measuring', 'rollouts', later(4, 200));
+      expect(releases(moved.events, [], moved.at(6))[0]?.looks.map((l) => l.at)).toEqual([
+        moved.at(2.2),
+        moved.at(3.2),
+        moved.at(4.2),
+      ]);
     });
 
     it('leaves a work item’s latest time where its last change put it', () => {
@@ -849,6 +900,23 @@ describe('what the analysis saw of a measure that failed', () => {
     expect(sawOf(failed('journeys', null, null, reason), reason)).toBe(
       'a check that passed on the baseline failed here',
     );
+  });
+});
+
+describe('a live figure, as written and counted up', () => {
+  it('says the requests are short of the window’s least only while the figure shown is', () => {
+    // Counting up from 63 to 140, and down from 140 to 40: each figure it passes is written as it stands.
+    expect([63, 99.4, 99.6, 140].map((n) => written('requests', n))).toEqual(['63 / 100', '99 / 100', '100', '140']);
+    expect([140, 120, 100, 99, 40].map((n) => written('requests', n))).toEqual([
+      '140',
+      '120',
+      '100',
+      '99 / 100',
+      '40 / 100',
+    ]);
+    expect(written('requests', 1234)).toBe('1,234');
+    expect(written('share', 0.0042)).toBe('0.42%');
+    expect(written('ms', 126.6)).toBe('127 ms');
   });
 });
 
