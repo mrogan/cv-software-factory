@@ -132,6 +132,15 @@ export function itemsAsked(flags: FlagEvents): string[] {
   ];
 }
 
+/** A baseline the line recorded: a check of a flag at Off. */
+type Baseline = StoredFlagCheck & { check: Extract<StoredFlagCheck['check'], { stage: 'off' }> };
+
+/** Whether a baseline was taken before it of the same version and flag set: so it was taken again already. */
+const retaken = (baselines: readonly Baseline[], taken: Baseline) =>
+  baselines.some(
+    (b) => b !== taken && b.check.version === taken.check.version && b.check.revision === taken.check.revision,
+  );
+
 /** Whether one place in the store comes after another. */
 const after = (seq: string, than: string) => BigInt(seq) > BigInt(than);
 
@@ -143,14 +152,15 @@ export function flagsNext({ flags, items, only, now: at }: FlagFacts): FlagNext[
   for (const [flag, now] of Object.entries(told)) {
     const move = flags.records.findLast((r) => r.type === 'flag.staged' && r.flag === flag);
     const checks = flags.checked.filter((c) => c.check.flag === flag);
-    /** The latest baseline taken for an improvement: another's, which reused the flag's name, is none of its. */
-    const baselineOf = (item: string) => checks.findLast((c) => c.check.stage === 'off' && c.workItem === item) ?? null;
+    /** The baselines taken for an improvement, oldest first: another's, which reused the flag's name, are none of its. */
+    const baselinesOf = (item: string) =>
+      checks.filter((c): c is Baseline => c.check.stage === 'off' && c.workItem === item);
     // At Off, on an open improvement whose spec names it: the baseline, once for each version the app runs, which the
     // probes tell (`have`). Never staged on it: one staged on an earlier improvement may be named again by this one's
     // spec, and one turned off on this one closes it.
     const named = now.workItem;
     const improvement = named ? items[named] : undefined;
-    const taken = named ? baselineOf(named) : null;
+    const taken = named ? (baselinesOf(named).at(-1) ?? null) : null;
     if (
       now.stage?.stage === 'off' &&
       named &&
@@ -168,10 +178,13 @@ export function flagsNext({ flags, items, only, now: at }: FlagFacts): FlagNext[
         revision,
         move: move?.seq ?? null,
         // Taken again for a new flag set too: another flag moved meanwhile changes what the probes see; and once more
-        // when it is missing a page in a colour scheme, as every baseline taken before Verify pictured dark is.
-        ...(taken?.check.stage === 'off' &&
+        // when it is missing a page in a colour scheme, as every baseline taken before Verify pictured dark is. Only
+        // once more: a page the probes cannot picture in one scheme would otherwise be taken again every pass.
+        ...(taken &&
           taken.check.revision === revision &&
-          inBothSchemes(taken.check.pages) && { have: taken.check.version }),
+          (inBothSchemes(taken.check.pages) || retaken(baselinesOf(taken.workItem), taken)) && {
+            have: taken.check.version,
+          }),
         base: null,
         pages: pagesOf(flags, flag),
       });
@@ -214,7 +227,9 @@ export function flagsNext({ flags, items, only, now: at }: FlagFacts): FlagNext[
       move?.type === 'flag.staged' &&
       !checkedSince(checks, stage, move)
     ) {
-      const base = baselineOf(workItem);
+      // The latest with both schemes, as the hold counted for Checks; the latest of any when none has.
+      const baselines = baselinesOf(workItem);
+      const base = baselines.findLast((b) => inBothSchemes(b.check.pages)) ?? baselines.at(-1) ?? null;
       const moveRevision = move.revision;
       next.push({
         do: 'check',

@@ -108,35 +108,34 @@ export async function flagEvents(sql: Sql | TransactionSql, flag?: string): Prom
         or (e.type = 'flag.checked' and e.version <= ${VERSIONS['flag.checked']} and e.appended_by = ${LINE_ROLE}
             and e.work_item is not null))
     order by e.seq`;
-  // A check read as the current version: one taken before Verify named each picture's colour scheme reads as light.
-  const current = (row: (typeof rows)[number]): PayloadOf<'flag.checked'> => {
+  // Each read as the current version: a check taken before Verify named each picture's colour scheme reads as light.
+  // The query takes none newer than this reader knows, so each upcasts.
+  const current = rows.map((row) => {
     const read = upcast({ type: row.type, version: row.version, payload: row.payload });
-    if (!read.ok) throw new Error(`flag.checked version ${row.version} is newer than this reader`);
-    return read.event.payload as PayloadOf<'flag.checked'>;
-  };
-  const checked = rows
+    return { ...row, payload: (read.ok ? read.event.payload : row.payload) as never };
+  });
+  const checked = current
     .filter((row) => row.type === 'flag.checked')
     .map(
       (row): StoredFlagCheck => ({
         seq: row.seq,
         ts: row.ts.toISOString(),
         workItem: row.work_item,
-        check: current(row),
+        check: row.payload as PayloadOf<'flag.checked'>,
       }),
     );
-  const checks = new Map(checked.map((c) => [c.seq, c.check]));
   // The flag set as it stands is the one Martin's latest move of any flag wrote, whichever flag was asked about.
   const [latest] = await sql<{ revision: string }[]>`
     select e.payload->>'revision' as revision from events e
     where e.type = 'flag.staged' and not e.sample and e.version <= ${VERSIONS['flag.staged']}
       and e.work_item is not null and e.appended_by is not null and ${fromMartin(sql, 'e')}
     order by e.seq desc limit 1`;
-  const records = rows.flatMap(({ seq, ts: at, type, work_item, payload }): StoredFlagRecord[] => {
+  const records = current.flatMap(({ seq, ts: at, type, work_item, payload }): StoredFlagRecord[] => {
     const ts = at.toISOString();
     if (type === 'flag.checked') {
       // A baseline lets Checks be taken for its improvement, once it has each page in both colour schemes; a check at
       // Checks or Preview, a widening past it.
-      const check = checks.get(seq) as PayloadOf<'flag.checked'>;
+      const check = payload as PayloadOf<'flag.checked'>;
       if (check.stage === 'off') {
         const bothSchemes = inBothSchemes(check.pages);
         return [{ type, seq, ts, flag: check.flag, stage: 'off', workItem: work_item, bothSchemes }];

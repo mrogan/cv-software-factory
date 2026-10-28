@@ -295,10 +295,51 @@ describe('which checks of a flag the pass asks the probes for', () => {
       ],
     };
     expect(flagsNext({ flags: light, items: { '7': open }, only: null, now: LATER })[0]).not.toHaveProperty('have');
+    // Once only: taken again and still missing a scheme (a page the probes cannot picture in dark), it is not taken a
+    // third time on the same version and flag set.
+    const again = { ...light, checked: [...light.checked, { ...(light.checked[0] as StoredFlagCheck), seq: '99' }] };
+    expect(flagsNext({ flags: again, items: { '7': open }, only: null, now: LATER })).toMatchObject([
+      { do: 'check', stage: 'off', have: 'b'.repeat(40) },
+    ]);
     // Before Martin's first move of any flag, the app holds no flag set.
     expect(flagsNext({ flags: told({ dates: '7' }, []), items: { '7': open }, only: null, now: LATER })).toMatchObject([
       { revision: 'none' },
     ]);
+  });
+
+  it('checks at Checks against the latest baseline with both schemes, as the hold counted, over a later one without', () => {
+    const page = (scheme: 'light' | 'dark') => ({ page: '/', route: '/', scheme, off: '1'.repeat(64) });
+    const both = check('7', {
+      stage: 'off',
+      version: 'a'.repeat(40),
+      journeys: { passed: 3, ran: 4 },
+      notClean: [],
+      pages: [page('light'), page('dark')],
+    });
+    const lightOnly = check('7', {
+      stage: 'off',
+      version: 'b'.repeat(40),
+      journeys: { passed: 3, ran: 4 },
+      notClean: [],
+      pages: [page('light')],
+    });
+    const staged = told({ dates: '7' }, [
+      {
+        type: 'flag.staged',
+        seq: String(++seq),
+        ts: '2026-10-27T10:00:00.000Z',
+        flag: 'dates',
+        workItem: '7',
+        from: OFF,
+        to: CHECKS,
+        revision: 'r5',
+      },
+    ]);
+    const next = (checked: StoredFlagCheck[]) =>
+      flagsNext({ flags: { ...staged, checked }, items: { '7': open }, only: null, now: LATER });
+    expect(next([both, lightOnly])).toMatchObject([{ do: 'check', stage: 'checks', base: both }]);
+    // With none in both schemes, the latest.
+    expect(next([lightOnly])).toMatchObject([{ do: 'check', stage: 'checks', base: lightOnly }]);
   });
 
   it('takes no baseline of a closed work item, a sample, a defect, or a flag turned off on its own work item', () => {
