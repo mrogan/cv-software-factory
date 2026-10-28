@@ -121,6 +121,24 @@ describe('An improvement Martin asked for', () => {
     expect(need?.evidence).toMatchObject({ kind: 'spec', pages: ['/products'] });
   });
 
+  it('ends its wait on overlapping work when it moves on, as no look ends it, and reads only the planner’s spec', () => {
+    const item = asked('2108')
+      .add(4, 'spec.written', 'planner', SPEC)
+      .add(5, 'wait.started', 'factory', {
+        on: ['2099'],
+        files: ['src/pages/product.ts'],
+        reason: 'Waits for #2099, whose spec also changes src/pages/product.ts',
+      })
+      .add(9, 'hold.started', 'factory', HELD);
+    const [state] = foldItems(item.events);
+    expect(state).toMatchObject({ waitingOn: undefined, queued: false, outcome: 'needs-you' });
+    // A spec no planner wrote leaves the title, and the hold, as they were.
+    item.add(10, 'spec.written', 'coder', { ...SPEC, title: 'Something else' });
+    const [after] = foldItems(item.events);
+    expect(after).toMatchObject({ title: 'Delivery dates on each product', outcome: 'needs-you' });
+    expect(after?.hold?.cause).toBe('spec');
+  });
+
   it('shows his request on the sheet, the REQUEST chapter with his passkey, and each criterion’s side', () => {
     const item = asked('2104').add(4, 'spec.written', 'planner', SPEC).add(5, 'hold.started', 'factory', HELD);
     const sheet = projectSheet(item.events, '2104', START + 10 * 60_000);

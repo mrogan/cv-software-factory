@@ -12,7 +12,7 @@
  * A flag waiting for Martin to widen it has a card among them (`FlagCard`): Widen to the next stage, dashed with its
  * reason when it can't be taken now, and Turn off, each opening the slider's confirmation (`Flags.tsx`).
  */
-import { type ReactNode, Suspense, useEffect, useId, useRef, useState } from 'react';
+import { Fragment, type ReactNode, Suspense, useEffect, useId, useRef, useState } from 'react';
 import { FLAG_STEP_UP } from '../access.ts';
 import { type Admin, said, write } from '../admin.ts';
 import { clock, inWords } from '../format.ts';
@@ -67,16 +67,34 @@ function Evidence({ need }: { need: Need }) {
 /** An improvement's spec, as its card says it: the flag it names, the pages it changes, and its criteria. */
 function SpecEvidence({ evidence }: { evidence: Extract<Need['evidence'], { kind: 'spec' }> }) {
   const { flag, pages, criteria } = evidence;
+  const named: ReactNode[] = [
+    ...(flag
+      ? [
+          <>
+            its flag, <code className="flagname">{flag}</code>
+          </>,
+        ]
+      : []),
+    ...(pages.length
+      ? [
+          <>
+            the {pages.length === 1 ? 'page' : 'pages'} it changes, <span className="mono">{pages.join(', ')}</span>
+          </>,
+        ]
+      : []),
+    inWords(criteria, 'acceptance criterion', 'acceptance criteria'),
+  ];
   return (
     <p className="ev">
-      The spec names {flag ? 'its flag, ' : 'no flag'}
-      {flag && <code className="flagname">{flag}</code>}
-      {pages.length > 0 && (
-        <>
-          , the {pages.length === 1 ? 'page' : 'pages'} it changes, <span className="mono">{pages.join(', ')}</span>
-        </>
-      )}
-      , and {inWords(criteria, 'acceptance criterion', 'acceptance criteria')}, each tested with the flag on or off.
+      The spec names{' '}
+      {named.map((part, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: the parts of one sentence, in a fixed order
+        <Fragment key={i}>
+          {i === 0 ? '' : i === named.length - 1 ? ', and ' : ', '}
+          {part}
+        </Fragment>
+      ))}
+      {flag ? ', each tested with the flag on or off.' : '. It names no flag.'}
     </p>
   );
 }

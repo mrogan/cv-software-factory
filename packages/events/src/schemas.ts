@@ -4,7 +4,7 @@
  * Node only: the browser imports types from here, never values, so Zod stays out of the console's bundle.
  */
 import { z } from 'zod';
-import { PATH_CHARS } from './line.ts';
+import { PAGE_PATH, PATH_CHARS } from './line.ts';
 import { REQUEST_WORDS } from './request.ts';
 import { type EventType, LINE_TYPES, RELEASE_TYPES, VERSIONS } from './versions.ts';
 import * as V from './vocabulary.ts';
@@ -22,14 +22,8 @@ const route = z
   .string()
   .regex(/^\/[^\s]*$/, 'a path, such as /products/:slug')
   .max(200);
-/**
- * A page of the app, by its path: no query, fragment, scheme, host or space, so it names a page of the app and nothing
- * else, and a link made of it stays on the app's own origin (`//` would name another host).
- */
-const page = z
-  .string()
-  .regex(/^\/(?!\/)[^\s?#:\\]*$/, 'a page of the app, by its path, such as /products/blue-mug')
-  .max(200);
+/** A page of the app, by its path alone (`PAGE_PATH`). */
+const page = z.string().regex(PAGE_PATH, 'a page of the app, by its path, such as /products/blue-mug').max(200);
 /** A route, or `*` for a symptom found on every page the senses checked. */
 const routeOrEvery = z.union([route, z.literal('*')]);
 /** A work item's number, as the store gives it. */

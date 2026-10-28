@@ -95,7 +95,9 @@ test('Martin asks for an improvement with the “+”, giving his passkey again,
   ).toHaveAccessibleName('Request');
 });
 
-test('approving an improvement’s spec carries the key, and asks for the passkey again', async ({ page }) => {
+test('approving an improvement’s spec carries the key, and asks for the passkey again; a request made already closes', async ({
+  page,
+}) => {
   await signIn(page);
   const card = page.locator('article.needs .need').filter({ has: page.getByText('#1334 ·', { exact: false }) });
   await expect(card.locator('.kick b')).toHaveText('An improvement’s spec');
@@ -120,6 +122,19 @@ test('approving an improvement’s spec carries the key, and asks for the passke
     )
     .toEqual(['approved']);
   await expect(card).toHaveCount(0);
+
+  // A request whose first answer was lost: the service says it was made already, and the dialog closes as made.
+  await page.route('**/admin/improvements', (route) =>
+    route.fulfill({
+      status: 409,
+      json: { refused: 'request', message: 'That request has been made already: it opened #1340.' },
+    }),
+  );
+  await page.getByRole('button', { name: 'Request an improvement' }).click();
+  const form = page.getByRole('dialog', { name: 'Request an improvement' });
+  await form.getByLabel('What you want').fill('Say the basket’s weight.');
+  await form.getByRole('button', { name: /^Request/ }).click();
+  await expect(form).toHaveCount(0);
 });
 
 test('a visitor opens the same “+”, read-only, with Martin’s latest request', async ({ page }) => {

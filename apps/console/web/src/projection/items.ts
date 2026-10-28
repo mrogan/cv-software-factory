@@ -247,6 +247,25 @@ export function withoutStanding(summary: PayloadOf<'work-item.summarised'>): Pay
   };
 }
 
+/** What moves a work item on, as the line's fold reads it (`MOVES_ON` in its machine): it ends an improvement's wait. */
+const ENDS_A_WAIT = new Set<PublicEvent['type']>([
+  'spec.written',
+  'pull-request.pushed',
+  'suggestions.answered',
+  'review.submitted',
+  'work-item.summarised',
+  'work.returned',
+  'hold.started',
+  'pull-request.merged',
+  'release.started',
+  'release.promoted',
+  'release.rolled-back',
+  'release.aborted',
+  'release.errored',
+  'verification.finished',
+  'work-item.reopened',
+]);
+
 /** The outcome each way of closing gives. */
 const CLOSED: Record<PayloadOf<'work-item.closed'>['outcome'], Outcome> = {
   verified: 'verified',
@@ -332,6 +351,12 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
   for (const event of events) {
     const time = at(event);
     state.lastAt = time;
+    // An improvement has no signal to look at again, so no look ends its wait on overlapping work: whatever the line
+    // does next ends it, as the line's own fold reads it.
+    if (state.request && state.waitingOn && ENDS_A_WAIT.has(event.type)) {
+      state.waitingOn = undefined;
+      state.queued = false;
+    }
     // Once there is a ticket, another sense's signal or a report that repeats it adds evidence: it does not take
     // the ticket back up the line.
     const joining = state.ticket && (event.type === 'signal.received' || event.type === 'judgement.made');
@@ -391,6 +416,8 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.queued = true;
         break;
       case 'spec.written':
+        // Only the planner's spec counts, as the line and the admin service read only the line's own.
+        if (event.actor !== 'planner') break;
         // An improvement's spec names its title, in place of the one made from Martin's words.
         if (event.payload.title && state.kind === 'improvement') state.title = event.payload.title;
         // A spec written again replaces the one held for Martin: his answer to the old card would answer nothing, as

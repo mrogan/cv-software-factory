@@ -255,7 +255,13 @@ function evidenceOf(item: ItemState, cause: HoldCause): Evidence {
     };
   }
   if (cause === 'deploy') return { kind: 'words', text: deployEvidence(item) };
-  const spec = item.kind === 'improvement' && cause === 'spec' ? latest(item, 'spec.written') : undefined;
+  // The planner's latest spec, which the line holds: no other's counts.
+  const spec =
+    item.kind === 'improvement' && cause === 'spec'
+      ? item.events.findLast(
+          (event): event is PublicEvent<'spec.written'> => event.type === 'spec.written' && event.actor === 'planner',
+        )
+      : undefined;
   if (spec) {
     const { flag, pages = [], criteria } = spec.payload;
     return { kind: 'spec', flag, pages, criteria: criteria.length };

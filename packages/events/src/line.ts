@@ -119,6 +119,13 @@ export const answersTo = (cause: HoldCause): HoldAnswer[] =>
 export const PATH_CHARS = 200;
 
 /**
+ * A page of the app, by its path alone: one slash and no second, and no query, fragment, scheme, backslash or space, so
+ * it names a page of the app and nothing else, and a link made of it stays on the app's own origin (`//` would name
+ * another host). The spec's pages are held to it, and the console holds a preview link to it again.
+ */
+export const PAGE_PATH = /^\/(?!\/)[^\s?#:\\]*$/;
+
+/**
  * A scope entry as a pattern: a file (`src/money.ts`), a folder ending in `/` (`test/`), or a pattern with `*` (one
  * path segment, or part of one) or `**` (as a segment of its own, any number of whole segments: `**` followed by `/`
  * stands for none or some folders, so `**` followed by `/test.ts` is `test.ts` in any folder, never `latest.ts`; within

@@ -5,8 +5,9 @@
  * For Martin it is a form: his words (600 characters, counted), the title they will give the work item until the
  * planner names it (`requestTitle`, the admin service's own rule), what happens to it, and **Request**, with the key
  * while his passkey is not fresh. Requesting is one write, `POST /admin/improvements` with his words and an id made
- * as the dialog opens, so a request sent again opens nothing more; when the service asks for the passkey, the
- * browser's own sheet opens from the same button, as a flag's widening does, and the request is sent again.
+ * for them, so the same words sent again (a press after a lost answer) open nothing more, and the service's word that
+ * they were made already closes the dialog as a success would; when the service asks for the passkey, the browser's
+ * own sheet opens from the same button, as a flag's widening does, and the request is sent again.
  *
  * For everyone else it is the same dialog, read-only, titled How Martin asks: his latest request, disabled, with when
  * he asked, and only Close.
@@ -69,9 +70,9 @@ export function ImproveDialog({
 function MartinsForm({ token, improve, onClose }: { token: string; improve: ImproveView; onClose: () => void }) {
   const id = useId();
   const stepUp = useStepUp();
-  const field = useRef<HTMLTextAreaElement>(null);
-  // One id for this request, however many times it is sent: the service opens one work item for it.
-  const [request] = useState(() => crypto.randomUUID());
+  // One id for these words, however many times they are sent: the service opens one work item for them, and refuses
+  // the id again (409) once it has. Words changed are another request, with an id of their own.
+  const [request, setRequest] = useState(() => crypto.randomUUID());
   const [words, setWords] = useState('');
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | undefined>(undefined);
@@ -86,8 +87,7 @@ function MartinsForm({ token, improve, onClose }: { token: string; improve: Impr
   const keyed = IMPROVEMENT_STEP_UP['improvement.request'] && !stepUp.fresh;
 
   const send = async () => {
-    if (!asked) return field.current?.focus();
-    if (busy) return;
+    if (!asked || busy) return;
     setBusy(true);
     setRefusal(undefined);
     let refused: string | undefined;
@@ -99,7 +99,9 @@ function MartinsForm({ token, improve, onClose }: { token: string; improve: Impr
     // Closed while it asked: nothing more is sent, and nothing to say.
     if (!live.current) return;
     setBusy(false);
-    if (got.status !== 200) return setRefusal(refused ?? said(got));
+    // Made already: the answer to an earlier press was lost, and these words opened their work item then.
+    const made = got.status === 409 && got.body?.refused === 'request';
+    if (got.status !== 200 && !made) return setRefusal(refused ?? said(got));
     // Asked: its row at Plan and its card on the reel arrive with its events. Nothing else announces it.
     onClose();
   };
@@ -136,7 +138,6 @@ function MartinsForm({ token, improve, onClose }: { token: string; improve: Impr
           What you want
         </label>
         <textarea
-          ref={field}
           id={`${id}-words`}
           maxLength={REQUEST_WORDS}
           rows={4}
@@ -144,7 +145,10 @@ function MartinsForm({ token, improve, onClose }: { token: string; improve: Impr
           value={words}
           placeholder="What should change, for whom, and why"
           aria-describedby={`${id}-title`}
-          onChange={(event) => setWords(event.currentTarget.value)}
+          onChange={(event) => {
+            setWords(event.currentTarget.value);
+            setRequest(crypto.randomUUID());
+          }}
         />
         <span className="help" id={`${id}-title`}>
           {asked ? (
