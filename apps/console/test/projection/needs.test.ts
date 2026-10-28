@@ -257,6 +257,11 @@ describe('Needs you', () => {
           ],
         }),
       );
+    const [barredNeed] = needsView(foldItems(barred.events), START + 60 * 60_000).holds;
+    // Approve says the planner takes in only what a scope may name.
+    expect(barredNeed?.answers.find((a) => a.answer === 'approved')?.does).toBe(
+      'The planner writes the spec again, told to take in the files a scope may name, or reject it.',
+    );
     expect(needsView(foldItems(barred.events), START + 60 * 60_000).holds[0]?.evidence).toEqual({
       kind: 'needs',
       heading: never,

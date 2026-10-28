@@ -343,7 +343,10 @@ export function needsView(items: readonly ItemState[], t: number): NeedsView {
           answers: answersTo(hold.cause).map((answer) => ({
             answer,
             label: LABEL[answer],
-            does: doesOf(hold.cause, answer, item.number, improvement),
+            does:
+              answer === 'approved' && hold.needs?.some((n) => n.barred)
+                ? 'The planner writes the spec again, told to take in the files a scope may name, or reject it.'
+                : doesOf(hold.cause, answer, item.number, improvement),
             stepUp: answer === 'approved' && keyed,
           })),
           aboutReport: opener?.sense === 'report',
