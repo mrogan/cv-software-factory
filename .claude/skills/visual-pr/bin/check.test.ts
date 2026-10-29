@@ -32,6 +32,23 @@ describe('check.ts', () => {
     ]);
   });
 
+  it('passes an attached video, which GitHub folds in a <details> whose <summary> has a class', () => {
+    const video = [
+      '<details open="" class="details-reset border rounded-2">',
+      '  <summary class="tmp-px-3 py-2">',
+      '    <svg aria-hidden="true" class="octicon octicon-device-camera-video"><path d="M16 3.75"></path></svg>',
+      '    <span class="m-1">flight.webm</span>',
+      '    <span class="dropdown-caret"></span>',
+      '  </summary>',
+      '  <video src="https://private-user-images.githubusercontent.com/1/flight.webm" controls="controls"></video>',
+      '</details>',
+    ].join('\n');
+    expect(problems('', `${FOLDED}\n${video}`, false)).toEqual([]);
+    expect(problems('', `<details>\n${video}\n</details>`, false)).toEqual([
+      'a <details> has no <summary>, or one has two',
+    ]);
+  });
+
   it('names a local path left in a published body, in each form, and not one shown as code', () => {
     const body = [
       '[![blink](/Users/martin/scratch/pr/a/b.svg)](https://github.com/x)',

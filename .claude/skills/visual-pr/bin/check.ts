@@ -17,7 +17,9 @@ export function problems(body: string, html: string, published: boolean, folds =
   const count = (re: RegExp) => html.match(re)?.length ?? 0;
 
   if (count(/<details[\s>]/g) !== count(/<\/details>/g)) found.push('a <details> is not closed');
-  if (count(/<summary>/g) !== count(/<details[\s>]/g)) found.push('a <details> has no <summary>, or one has two');
+  if (count(/<summary[\s>]/g) !== count(/<details[\s>]/g)) found.push('a <details> has no <summary>, or one has two');
+  // Only a bare <summary> is the describer's: GitHub renders an attached video as a <details> whose <summary> has a
+  // class, and the file's name for its title.
   for (const [, inner] of html.matchAll(/<summary>([\s\S]*?)<\/summary>/g)) {
     const title = (inner ?? '').trim();
     if (!/^<h[1-6][^>]*>[\s\S]*<\/h[1-6]>$/.test(title)) {
