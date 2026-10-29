@@ -211,6 +211,13 @@ describe('the guard on pull requests', () => {
     expect(calls(sent).map((s) => `${s.method} ${s.path}`)).toEqual([`GET /repos/${REPO}/issues/121`]);
   });
 
+  it('asks who opened an issue once, even for actions asked at once', async () => {
+    const { github: gh, sent } = github();
+    const actions = new LiveActions(gh);
+    await Promise.all([actions.comment(REPO, 16, 'One.'), actions.comment(REPO, 16, 'Two.')]);
+    expect(calls(sent).filter((s) => s.path === `/repos/${REPO}/issues/16`)).toHaveLength(1);
+  });
+
   it('updates in a dry run the pull requests it opened without asking GitHub, and refuses one Martin opened', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
     const { github: gh, sent } = github();

@@ -6,7 +6,8 @@
  *                                     and says so
  *     GITHUB_DRY_RUN                  true: write nothing to GitHub, and record each action in the artifact store
  *                                     instead
- *     ARTIFACTS_DIR                   the artifact store, for a dry run's records
+ *     ARTIFACTS_DIR                   the artifact store, for a dry run's records and the issue guard's refusals;
+ *                                     a worker with the key will not start without it
  *     GITHUB_DRY_RUN_CHECKS_SECONDS   how long after a dry run's commit its checks pass (default 120)
  *     GITHUB_DRY_RUN_MERGE_SECONDS    how long after a dry run's pull request is readied it is merged (default 1200)
  *     GITHUB_REPOSITORIES             the repositories it acts on, separated by commas (default: both public ones)

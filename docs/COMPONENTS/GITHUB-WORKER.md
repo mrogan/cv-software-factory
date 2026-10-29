@@ -42,7 +42,7 @@ The line names the work item an action is for in `x-factory-work-item`, and the 
 Guardrail 10, as built (`github/issues.ts`). The factory reads no issue as work: Martin asks the line for work with the console's "+", and no issue, or label on one, does.
 
 - **The guard.** Every action that names an issue or pull request is refused, before GitHub is asked to change anything, on one the App did not open, whoever asks: commenting, labelling, closing and reopening an issue; updating, describing, readying, putting back to draft, reviewing, resolving the threads of and closing a pull request. It reads the author by numeric id, never by login, once for each issue, since it never changes: the App's bot user (337765427) passes, and anyone else is refused. Readying and putting back to draft act on the id GitHub gives that number, whatever id they were sent. Every caller acts on the App's own: the line on the work item's issue and the pull request it opened, the deploy watch on its deploy pull request.
-- **A refusal** is answered 403, `issue-refused`, as GitHub answers an issue the App may not change, so the line leaves the issue and goes on. It is kept as an `action.refused` record (mechanism `scope-fence`) in the artifact store, whose hash the answer and the worker's log carry. The worker touches no store, so the record is not an event yet.
+- **A refusal** is answered 403, `issue-refused`, as GitHub answers an issue the App may not change, so the line leaves the issue and goes on. It is kept as an `action.refused` record (mechanism `scope-fence`) in the artifact store, whose hash the answer and the worker's log carry. The worker touches no store, so the record is not an event yet. A worker with the key will not start without `ARTIFACTS_DIR`, so every refusal is kept.
 - **A dry run** is guarded the same way: an issue or pull request numbered from a billion up is one the dry run opened, and passes; any other is asked of GitHub, and a refusal is recorded beside the dry run's actions.
 
 #### The outside reply
@@ -53,7 +53,7 @@ An issue opened by anyone but Martin (user 6206459) or the App gets one comment,
 >
 > This repository is looked after by an automated software factory. It acts only on what it finds itself and on what Martin asks of it, so it will not act on this issue. Martin reads every issue, and will read this one.
 
-Nothing else is done to the issue. A watch of each repository's newest hundred open issues sends it ([watches](#watches)). The worker keeps no cursor: saying it once is its memory, as for every comment it makes, so a restarted worker reads each open outside issue's first hundred comments once more and says nothing twice. A dry run's memory is its own, so a restarted one records the reply again for each open outside issue. A reply GitHub refuses (a locked issue, one gone) is logged and not tried again while the worker runs; any other failure is tried at the next poll.
+Nothing else is done to the issue. A watch of each repository's newest hundred open issues sends it ([watches](#watches)). The worker keeps no cursor: saying it once is its memory, as for every comment it makes, so a restarted worker reads each open outside issue's comments once more, and says it again only if the first reply has fallen beyond the first hundred. A dry run's memory is its own, so a restarted one records the reply again for each open outside issue. A reply GitHub refuses (a locked issue, one gone) is logged and not tried again while the worker runs; any other failure is tried at the next poll.
 
 ### Its branches only
 

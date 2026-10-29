@@ -24,6 +24,10 @@ export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
   const signatures = new Signatures({ registry, cachePath: config.tufCacheDir });
   // configFromEnv refuses a dry run with nowhere to record it; this holds even if it is called some other way.
   if (config.dryRun && !config.artifactsDir) throw new Error('A dry run needs ARTIFACTS_DIR to record to.');
+  // A worker that can write keeps each refusal of its issue guard (guardrail 10), so it needs somewhere to keep it.
+  if (github.writable && !config.artifactsDir) {
+    throw new Error('A worker with the App key keeps its refusals in the artifact store: set ARTIFACTS_DIR.');
+  }
   const artifacts = config.artifactsDir ? new DiskArtifacts(config.artifactsDir) : undefined;
   // One guard for both: an issue the App did not open is refused, live or in a dry run, and each refusal is kept.
   const guard = new IssueGuard({ openedBy: openedBy(github), artifacts, log });

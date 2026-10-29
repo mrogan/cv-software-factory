@@ -131,7 +131,7 @@ export class IssueGuard {
   readonly #log: Logger | undefined;
   readonly #now: () => Date;
   /** Who opened each issue it has asked about, which never changes: asked of GitHub once. */
-  readonly #opened = new Map<string, Opened>();
+  readonly #opened = new Map<string, Promise<Opened>>();
 
   constructor({ openedBy, artifacts, log, now = () => new Date() }: IssueGuardOptions) {
     this.#openedBy = openedBy;
@@ -165,14 +165,18 @@ export class IssueGuard {
     throw new IssueRefused(payload, artifact);
   }
 
-  async #openerOf(repo: string, number: number): Promise<Opened> {
+  /** Asked once, even by actions asked at once: the read in flight is shared, and forgotten if it fails. */
+  #openerOf(repo: string, number: number): Promise<Opened> {
     const key = `${repo}#${number}`;
     const known = this.#opened.get(key);
     if (known) return known;
-    const opened = await this.#openedBy(repo, number);
     // A guard against a leak, not a working limit: the factory acts on a few hundred issues in a worker's life.
     if (this.#opened.size >= 10_000) this.#opened.clear();
+    const opened = this.#openedBy(repo, number);
     this.#opened.set(key, opened);
+    opened.catch(() => {
+      if (this.#opened.get(key) === opened) this.#opened.delete(key);
+    });
     return opened;
   }
 }
