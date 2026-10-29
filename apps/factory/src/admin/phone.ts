@@ -6,11 +6,12 @@
  *   the passkey again (`phone.off` in the access table), asked after the lock every append takes, as the passkey given
  *   may have gone stale while it waited. A switch to what is already in force records nothing.
  * - **The series** (`admin.alerts.phone`, 1 on, 0 off) is read from the store each time the SDK collects, so a switch
- *   reaches Prometheus at its next scrape, and a second replica says the same. While it reads 0, the `PhoneOff` rule
- *   fires, and Alertmanager mutes every alert with a level (deploy/base/telemetry/values/prometheus.yaml). With no
- *   series, from an admin service that is down, not yet scraped, or started while it could not read the store, nothing
- *   is muted: alerts reach the phone, which is failing loud. A read that fails once it has read one observes nothing
- *   new, and the SDK sends the last switch it read again: only Martin changes it, and only through this service.
+ *   reaches Prometheus at its next scrape, and a second replica says the same. While it reads 0, and the line's own
+ *   read of the switch (`line/phone.ts`) does too, the `PhoneOff` rule fires, and Alertmanager mutes every alert with a
+ *   level (deploy/base/telemetry/values/prometheus.yaml): this service's word alone mutes nothing. With no series, from
+ *   an admin service that is down, not yet scraped, or started while it could not read the store, nothing is muted:
+ *   alerts reach the phone, which is failing loud. A read that fails once it has read one observes nothing new, and
+ *   the SDK sends the last switch it read again: only Martin changes it, and only through this service.
  *
  * The line counts each switch as a security event (`line/security.ts`), from the stored event alone: switching off
  * pages him, past the mute, so on the cloud the last message before quiet says so.

@@ -122,7 +122,7 @@ The console's header stops and starts the line (`admin/line.ts`), each with Mart
 - **One event a switch,** `alerts.switched`, with the switch as it now stands. Its summary says what he did ("Martin stopped alerts reaching his phone"), and its public view is the event as it is. A switch to what is already in force records nothing (200, `changed: false`). Switches are taken one at a time, under the lock every append takes.
 - **In force:** his latest switch, or before he makes one the profile's default (`policy/phone.ts`, by `FACTORY_PROFILE`): off on the laptop, on in the cloud.
 - **The passkey again to switch them off,** asked after the lock: off loosens what reaches him, as nothing would. On asks nothing.
-- **What it does:** the service reports the switch in force as `admin_alerts_phone` (1 on, 0 off), read from the store each time its SDK collects, and while it reads 0 Prometheus's `PhoneOff` fires, which mutes every alert with a level in Alertmanager. An admin service that is down, or never scraped, reports nothing, and nothing is muted.
+- **What it does:** the service reports the switch in force as `admin_alerts_phone` (1 on, 0 off), read from the store each time its SDK collects, and while it and the line's own read of the switch (`line_alerts_phone`) both read 0, Prometheus's `PhoneOff` fires, which mutes every alert with a level in Alertmanager: this service's word alone mutes nothing. An admin service that is down, or never scraped, reports nothing, and nothing is muted.
 - **Each switch alerts Martin,** past the mute: off pages him, so the last message before quiet says so, and on informs him.
 
 ## The flags' stages

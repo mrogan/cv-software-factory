@@ -288,7 +288,7 @@ serverFiles:
               summary: "Alerts are silenced"
               description: "Alertmanager has a silence in place, which keeps the alerts it matches from your phone."
           - alert: PhoneOff
-            expr: "max(admin_alerts_phone{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}) == 0"
+            expr: "max(admin_alerts_phone{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}) == 0 and on () max(line_alerts_phone{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}) == 0"
             for: 0s
             labels: {}
             annotations:
