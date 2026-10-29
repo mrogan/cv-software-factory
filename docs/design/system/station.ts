@@ -67,13 +67,30 @@ function keyframes(name: string, frames: [number, string][]): string {
  * Plan's compass turns once about its needle point, on the roof's front edge, and the nib traces an ellipse centred there,
  * so the near half of the circle crosses the machine's face. Each leg is a stroke of its rest length placed by translate,
  * rotate and scaleY along its length, so its width never changes as it foreshortens; the hinge rides on top. The turn
- * takes 16 steps over the first 75% of the cycle, and the compass rests while the circle fades.
+ * takes 16 steps over the first 75% of the cycle, at equal lengths round the ellipse, so the nib keeps to the end of the
+ * circle as stroke-dashoffset draws it; the compass rests while the circle fades.
  */
 const NEEDLE = { x: 66, y: 44 };
 const HINGE = { dx: 9, dy: -34 }; // from the needle point, at rest
 const CIRCLE = { rx: 18, ry: 5 };
-const LEG = 35; // each leg as drawn, pointing up from its foot
+const LEG = Math.hypot(HINGE.dx, HINGE.dy); // both legs' rest length: the nib's foot is as far from the hinge as the needle's
 const TURN = 75;
+const COMPASS_STEPS = 16;
+
+/** Points at equal lengths along a curve, from a dense sampling of it. */
+function evenly(points: [number, number][], steps: number): [number, number][] {
+  const lengths = [0];
+  for (let i = 1; i < points.length; i++) {
+    const [ax, ay] = points[i - 1] as [number, number];
+    const [bx, by] = points[i] as [number, number];
+    lengths.push((lengths[i - 1] as number) + Math.hypot(bx - ax, by - ay));
+  }
+  const total = lengths[lengths.length - 1] as number;
+  return Array.from({ length: steps + 1 }, (_, k) => {
+    const i = lengths.findIndex((l) => l >= (total * k) / steps - 1e-9);
+    return points[i] as [number, number];
+  });
+}
 
 /** A leg from its foot (ax, ay) to the hinge (bx, by), as a transform of the upright stroke it is drawn as. */
 function leg(ax: number, ay: number, bx: number, by: number, rest: number): string {
@@ -91,17 +108,25 @@ function compassAt(turn: number): { needle: string; nib: string; hinge: string }
   const px = NEEDLE.x + CIRCLE.rx * c;
   const py = NEEDLE.y + CIRCLE.ry * s;
   return {
-    needle: leg(NEEDLE.x, NEEDLE.y, hx, hy, Math.hypot(HINGE.dx, HINGE.dy)),
-    nib: leg(px, py, hx, hy, Math.hypot(HINGE.dx - CIRCLE.rx, HINGE.dy)),
+    needle: leg(NEEDLE.x, NEEDLE.y, hx, hy, LEG),
+    nib: leg(px, py, hx, hy, LEG),
     hinge: `translate(${f2(hx)}px, ${f2(hy)}px)`,
   };
 }
 
 const COMPASS_REST = compassAt(0);
-const COMPASS_STEPS = Array.from({ length: 17 }, (_, n) => [(TURN * n) / 16, compassAt((2 * Math.PI * n) / 16)] as const);
+// The angle round the ellipse at each step, from points at equal lengths along it (a point's angle as the nib's).
+const COMPASS_TURNS = evenly(
+  Array.from({ length: 721 }, (_, i): [number, number] => {
+    const t = (2 * Math.PI * i) / 720;
+    return [CIRCLE.rx * Math.cos(t), CIRCLE.ry * Math.sin(t)];
+  }),
+  COMPASS_STEPS,
+).map(([x, y], n) => (n === COMPASS_STEPS ? 2 * Math.PI : (Math.atan2(y / CIRCLE.ry, x / CIRCLE.rx) + 2 * Math.PI) % (2 * Math.PI)));
+const COMPASS_POSES = COMPASS_TURNS.map((turn, n) => [(TURN * n) / COMPASS_STEPS, compassAt(turn)] as const);
 const COMPASS_KEYFRAMES = (['needle', 'nib', 'hinge'] as const)
   .map((part) => keyframes(part, [
-    ...COMPASS_STEPS.map(([at, pose]): [number, string] => [at, pose[part]]),
+    ...COMPASS_POSES.map(([at, pose]): [number, string] => [at, pose[part]]),
     [100, COMPASS_REST[part]],
   ]))
   .join('\n');
@@ -116,6 +141,7 @@ const SIG = 'M0 16 C1 10 2.5 4 3.5 0.5 C5 4 7 8 8.5 10.5 C10 7 11.5 3 13 0.5 C13
 const SIGNED = 60;
 const PEN_UP = 'translate(40px, -4px)';
 
+/** Points at equal lengths along the signature, which is one M and absolute C segments, as written. */
 function alongSignature(steps: number): [number, number][] {
   const n = (SIG.match(/-?[\d.]+/g) ?? []).map(Number);
   const points: [number, number][] = [];
@@ -135,23 +161,14 @@ function alongSignature(steps: number): [number, number][] {
     y = y3;
   }
   points.push([x, y]);
-  const lengths = [0];
-  for (let i = 1; i < points.length; i++) {
-    const [ax, ay] = points[i - 1] as [number, number];
-    const [bx, by] = points[i] as [number, number];
-    lengths.push((lengths[i - 1] as number) + Math.hypot(bx - ax, by - ay));
-  }
-  const total = lengths[lengths.length - 1] as number;
-  return Array.from({ length: steps + 1 }, (_, k) => {
-    const i = lengths.findIndex((l) => l >= (total * k) / steps - 1e-9);
-    return points[i] as [number, number];
-  });
+  return evenly(points, steps);
 }
 
-const PEN_STEPS = alongSignature(36);
+const PEN_STEP_COUNT = 36;
+const PEN_STEPS = alongSignature(PEN_STEP_COUNT);
 const PEN_START = `translate(${f2(PEN_STEPS[0]?.[0] ?? 0)}px, ${f2(PEN_STEPS[0]?.[1] ?? 0)}px)`;
 const SIGN_KEYFRAMES = keyframes('sign', [
-  ...PEN_STEPS.map(([x, y], k): [number, string] => [(SIGNED * k) / 36, `translate(${f2(x)}px, ${f2(y)}px)`]),
+  ...PEN_STEPS.map(([x, y], k): [number, string] => [(SIGNED * k) / PEN_STEP_COUNT, `translate(${f2(x)}px, ${f2(y)}px)`]),
   [68, PEN_UP], [92, PEN_UP], [100, PEN_START],
 ]);
 
@@ -241,6 +258,9 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .glass      { fill: var(--_steel); fill-opacity: .5; stroke: var(--_ink); stroke-width: 2.25; }
 .tick       { opacity: 0; }
 .s-passing .tick { opacity: 1; }
+/* Only a passed Verify shows a finished signature; at work, the pen writes it. */
+.sig        { opacity: 0; }
+.s-passing .sig { opacity: 1; }
 .pen        { transform: ${PEN_UP}; }
 .build-arm  { transform-origin: 74px 38px; transform: rotate(-18deg); }
 .gate-boom  { transform-origin: 59px 16.5px; }
@@ -472,11 +492,11 @@ const TOOLS: Record<Kind, (status: Status) => string> = {
 /** Drawn over the chassis: the compass's circle lies across the roof and over its front edge. */
 const FRONT: Partial<Record<Kind, (status: Status) => string>> = {
   plan: () => `
-    <ellipse class="tone arc" stroke-width="2" pathLength="100" stroke-dasharray="100"
-      cx="${NEEDLE.x}" cy="${NEEDLE.y}" rx="${CIRCLE.rx}" ry="${CIRCLE.ry}"/>
-    <path class="line needle" stroke-width="2" d="M0 0 V-${LEG}"/>
+    <path class="tone arc" stroke-width="2" pathLength="100" stroke-dasharray="100"
+      d="M${NEEDLE.x + CIRCLE.rx} ${NEEDLE.y} a${CIRCLE.rx} ${CIRCLE.ry} 0 0 1 ${-2 * CIRCLE.rx} 0 a${CIRCLE.rx} ${CIRCLE.ry} 0 0 1 ${2 * CIRCLE.rx} 0"/>
+    <path class="line needle" stroke-width="2" d="M0 0 V-${f2(LEG)}"/>
     <g class="nib">
-      <path class="line" stroke-width="2" d="M0 -5.5 V-${LEG}"/>
+      <path class="line" stroke-width="2" d="M0 -5.5 V-${f2(LEG)}"/>
       <path class="tone" stroke-width="3" d="M0 0 V-5.5"/>
     </g>
     <circle class="part hinge" r="4.5"/>`,
