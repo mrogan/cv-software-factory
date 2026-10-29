@@ -33,7 +33,7 @@ import { context, ROOT_CONTEXT } from '@opentelemetry/api';
 import type { Evidence, PayloadOf, Sense, SignalSource, SymptomClass } from '@software-factory/events';
 import { COLOR_SCHEMES, clearedOnWords, SENSES, sameVersion } from '@software-factory/events';
 import { artifactRef, evidence as evidenceSchema } from '@software-factory/events/schemas';
-import { CANARY_ANY_ROUTE } from '@software-factory/triage';
+import { CANARY_ANY_ROUTE } from '@software-factory/triage/events';
 import { z } from 'zod';
 import { objectives as OBJECTIVES, type Objectives } from '../../../../policy/objectives.ts';
 import { release as RELEASE, type Release } from '../../../../policy/release.ts';

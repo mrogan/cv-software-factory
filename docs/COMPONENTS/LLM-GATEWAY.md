@@ -2,7 +2,7 @@
 
 Credentials, budgets, logging, redaction and model routing, with live, record and replay modes (spec 7.1). Part of the [factory plane](README.md#factory-plane).
 
-- **v1:** `apps/factory/src/gateway`, a TypeScript service in the `factory` namespace, run by `factory gateway`. It is the only pod with a model provider's key.
+- **v1:** `apps/factory/src/gateway`, a TypeScript service in the `factory` namespace, run by `factory gateway`. It is the only pod with a model provider's key: `apps/factory/test/credentials.test.ts` fails if any other in a profile's rendered manifests names the `anthropic` or `typesafe` Secret.
 - **Later:** Bedrock on `aws` (milestone 11); LiteLLM behind the same interface.
 
 ```mermaid

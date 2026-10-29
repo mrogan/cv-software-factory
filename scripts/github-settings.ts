@@ -6,10 +6,13 @@
  *     node scripts/github-settings.ts <owner/repo>     # one of them
  *     node scripts/github-settings.ts --check          # change nothing: say where the live settings differ
  *
- * `--check` reads each repository's rulesets and its `review` environment and compares them with the ones here, and
- * names any ruleset it does not know, such as one added in the browser. It exits 1 if anything differs.
+ * `--check` reads each repository's rulesets and environments and compares them with the ones here, and names any
+ * ruleset it does not know, such as one added in the browser. It exits 1 if anything differs. drift-check.yml runs it
+ * weekly.
  *
- * Needs the GitHub CLI, signed in as an admin of the repository.
+ * Needs the GitHub CLI, signed in as an admin of the repository. `--check` changes nothing, so it needs only a read:
+ * `GH_TOKEN` set to an installation token of the drift check App (`APPS.driftCheck`) is enough, and is how the
+ * workflow runs it.
  */
 import { execFileSync } from 'node:child_process';
 
@@ -32,7 +35,7 @@ export const REPOSITORIES: Record<string, string[]> = {
 };
 
 /** GitHub Actions, as the app that reports check runs. */
-const GITHUB_ACTIONS = 15368;
+export const GITHUB_ACTIONS = 15368;
 
 /**
  * The review App (ADR 0014), as the app that reports the `review` check: Martin opened the pull request, or approved
@@ -43,11 +46,70 @@ export const REVIEW_APP = 5470762;
 /** The check the review App posts, `scripts/review-gate.ts`. */
 export const REVIEW_CHECK = 'review';
 
-/** The environment that holds the review App's key, and the one branch whose workflows may use it. */
-export const REVIEW_ENVIRONMENT = 'review';
-export const REVIEW_BRANCH = 'main';
-/** The review App's key, as review.yml reads it from the environment. */
-export const REVIEW_KEY = 'REVIEW_APP_PRIVATE_KEY';
+/** An environment that holds an App's key, which only workflows on `main` may use (ADR 0014). */
+export interface KeyEnvironment {
+  name: string;
+  /** The App's key, as its workflow reads it from the environment. */
+  key: string;
+}
+
+/** The one branch whose workflows may use an environment that holds a key. */
+export const KEY_BRANCH = 'main';
+
+/** The review App's key, which review.yml reads. */
+export const REVIEW_ENVIRONMENT: KeyEnvironment = { name: 'review', key: 'REVIEW_APP_PRIVATE_KEY' };
+
+/**
+ * The drift check App's key, which drift-check.yml reads, with its Client ID beside it as the variable
+ * `DRIFT_CHECK_APP_CLIENT_ID`. Only this repository runs the drift check, for both.
+ */
+export const DRIFT_CHECK_ENVIRONMENT: KeyEnvironment = { name: 'drift-check', key: 'DRIFT_CHECK_APP_PRIVATE_KEY' };
+
+/**
+ * Each repository's environments that hold a key, the only ones its workflows may read a secret from
+ * (scripts/workflows.test.ts). `--check` reads these, and not the repository's own secrets or other environments.
+ */
+export const ENVIRONMENTS: Record<string, KeyEnvironment[]> = {
+  'the-roganator/cv-software-factory': [REVIEW_ENVIRONMENT, DRIFT_CHECK_ENVIRONMENT],
+  'the-roganator/cv-worlds-worst-website': [REVIEW_ENVIRONMENT],
+};
+
+/** An App's permission, as GitHub names it, and its level. */
+export type Permissions = Record<string, 'read' | 'write'>;
+
+/**
+ * The organisation's GitHub Apps, what each may do, and what holds its key. None may write variables or administer
+ * a repository: either would let it change what the gates read (the app's `AUTONOMY` variable) or the ruleset itself.
+ * These say what each may hold; nothing here reads the installations.
+ */
+export const APPS = {
+  /** The factory's (ADR 0005): it opens pull requests, and posts the reviewer's check run, which no ruleset requires. */
+  factory: {
+    slug: 'mrogan-software-factory',
+    id: 5187559,
+    clientId: 'Iv23liE1Dj3iYkwWX59z',
+    holder: 'the GitHub worker (deploy/base/factory/github.yaml), alone',
+    permissions: { checks: 'write', contents: 'write', issues: 'write', metadata: 'read', pull_requests: 'write' },
+  },
+  /** The review gate's (ADR 0014): it posts `review`, and reads the pull request it judges. */
+  review: {
+    slug: 'the-roganator-review-gate',
+    id: REVIEW_APP,
+    clientId: 'Iv23liFNqAvApddT27zU',
+    holder: `review.yml, from the "${REVIEW_ENVIRONMENT.name}" environment`,
+    permissions: { checks: 'write', metadata: 'read', pull_requests: 'read' },
+  },
+  /**
+   * The drift check's: it reads the rulesets (administration), the environments and their branch policies (actions,
+   * as GitHub files them) and the names of their secrets (environments), and changes nothing. Martin makes it, so its
+   * id and Client ID are not written here; its Client ID is in its environment.
+   */
+  driftCheck: {
+    slug: 'the-roganator-drift-check',
+    holder: `drift-check.yml, from the "${DRIFT_CHECK_ENVIRONMENT.name}" environment`,
+    permissions: { actions: 'read', administration: 'read', environments: 'read', metadata: 'read' },
+  },
+} satisfies Record<string, { slug: string; id?: number; clientId?: string; holder: string; permissions: Permissions }>;
 
 /**
  * The one ruleset on main (ADR 0014), which nobody bypasses: every change is a pull request, squash-merged, signed
@@ -118,13 +180,13 @@ export const MERGE_QUEUE = {
 export const RETIRED = ['main: review'];
 
 /**
- * The `review` environment, which holds the review App's key: only workflows on main may use it, so a pull request
- * into another branch, which runs that branch's copy of the gate, never reads the key (ADR 0014).
+ * Each environment that holds a key: only workflows on main may use it, so a pull request into another branch, which
+ * runs that branch's copy of the workflow, never reads the key (ADR 0014).
  */
 export const environment = {
   deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
 };
-export const branchPolicies = [{ name: REVIEW_BRANCH, type: 'branch' }];
+export const branchPolicies = [{ name: KEY_BRANCH, type: 'branch' }];
 
 let repo = '';
 
@@ -155,31 +217,46 @@ export function matches(live: unknown, wanted: unknown): boolean {
   return live === wanted;
 }
 
-/** Compares a repository's live rulesets and review environment with these, and says what differs. */
+/** Compares a repository's live rulesets and environments with these, and says what differs. */
 function check(requiredChecks: string[]): string[] {
   const wanted = [rules(requiredChecks)];
-  const live = JSON.parse(gh('GET', '/rulesets')) as { id: number; name: string }[];
+  const live = JSON.parse(gh('GET', '/rulesets?per_page=100')) as { id: number; name: string }[];
   const problems = live
     .filter((r) => !wanted.some((w) => w.name === r.name))
     .map((r) => `ruleset "${r.name}" is not one of these`);
   for (const ruleset of wanted) {
     const found = live.find((r) => r.name === ruleset.name);
     if (!found) problems.push(`ruleset "${ruleset.name}" is missing`);
-    else if (!matches(JSON.parse(gh('GET', `/rulesets/${found.id}`)), ruleset)) {
-      problems.push(`ruleset "${ruleset.name}" differs from this script's`);
-    }
+    else problems.push(...rulesetProblems(JSON.parse(gh('GET', `/rulesets/${found.id}`)), ruleset));
   }
-  return [...problems, ...checkEnvironment()];
+  return [...problems, ...(ENVIRONMENTS[repo] ?? []).flatMap(checkEnvironment)];
 }
 
-/** Compares the live `review` environment with this script's: present, and usable from main alone. */
-function checkEnvironment(): string[] {
-  const path = `/environments/${REVIEW_ENVIRONMENT}`;
+/**
+ * What differs between a live ruleset and this script's. GitHub shows who may bypass a ruleset only to those who may
+ * change it, so a reader that cannot change it sees no `bypass_actors` at all: that is a problem of its own, never
+ * read as nobody, and the rest is still compared.
+ */
+export function rulesetProblems(live: unknown, wanted: ReturnType<typeof rules>): string[] {
+  const seesBypass = !!live && typeof live === 'object' && 'bypass_actors' in live;
+  const { bypass_actors: _, ...rest } = wanted;
+  const problems = seesBypass
+    ? []
+    : [
+        `ruleset "${wanted.name}": this token cannot see who may bypass it, which GitHub shows only to those who may change it`,
+      ];
+  if (!matches(live, seesBypass ? wanted : rest)) problems.push(`ruleset "${wanted.name}" differs from this script's`);
+  return problems;
+}
+
+/** Compares a live environment with this script's: present, usable from main alone, and holding its key. */
+function checkEnvironment(wanted: KeyEnvironment): string[] {
+  const path = `/environments/${wanted.name}`;
   const live = found(() => JSON.parse(gh('GET', path)));
-  if (live === undefined) return [`environment "${REVIEW_ENVIRONMENT}" is missing`];
+  if (live === undefined) return [`environment "${wanted.name}" is missing`];
   const policies = JSON.parse(gh('GET', `${path}/deployment-branch-policies`)) as { branch_policies: unknown[] };
-  const problems = environmentProblems(live, policies.branch_policies);
-  if (!hasKey()) problems.push(`environment "${REVIEW_ENVIRONMENT}" holds no ${REVIEW_KEY}`);
+  const problems = environmentProblems(wanted.name, live, policies.branch_policies);
+  if (!hasKey(wanted)) problems.push(`environment "${wanted.name}" holds no ${wanted.key}`);
   return problems;
 }
 
@@ -193,25 +270,25 @@ function found<T>(read: () => T): T | undefined {
   }
 }
 
-/** Whether the review environment holds the review App's key, by name: GitHub never shows a secret's value. */
-function hasKey(): boolean {
+/** Whether an environment holds its App's key, by name: GitHub never shows a secret's value. */
+function hasKey(wanted: KeyEnvironment): boolean {
   const secrets = found(
     () =>
-      JSON.parse(gh('GET', `/environments/${REVIEW_ENVIRONMENT}/secrets?per_page=100`)) as {
+      JSON.parse(gh('GET', `/environments/${wanted.name}/secrets?per_page=100`)) as {
         secrets: { name: string }[];
       },
   );
-  return secrets?.secrets.some((s) => s.name === REVIEW_KEY) ?? false;
+  return secrets?.secrets.some((s) => s.name === wanted.key) ?? false;
 }
 
 /** What differs between a live environment and its branch policies and this script's. */
-export function environmentProblems(live: unknown, policies: unknown[]): string[] {
+export function environmentProblems(name: string, live: unknown, policies: unknown[]): string[] {
   const problems: string[] = [];
   if (!matches(live, environment)) {
-    problems.push(`environment "${REVIEW_ENVIRONMENT}" is not limited to the branches it names`);
+    problems.push(`environment "${name}" is not limited to the branches it names`);
   }
   if (!matches(policies, branchPolicies)) {
-    problems.push(`environment "${REVIEW_ENVIRONMENT}" may be used from other branches than ${REVIEW_BRANCH} alone`);
+    problems.push(`environment "${name}" may be used from other branches than ${KEY_BRANCH} alone`);
   }
   return problems;
 }
@@ -306,31 +383,33 @@ function apply(name: string, requiredChecks: string[]): void {
     else gh('POST', '/labels', deployLabel);
   });
 
-  // The environment first: the ruleset requires the check the key in it posts.
-  step(`environment "${REVIEW_ENVIRONMENT}": used only from ${REVIEW_BRANCH}`, () => {
-    const path = `/environments/${REVIEW_ENVIRONMENT}`;
-    gh('PUT', path, environment);
-    const live = JSON.parse(gh('GET', `${path}/deployment-branch-policies`)) as {
-      branch_policies: { id: number; name: string; type?: string }[];
-    };
-    for (const policy of live.branch_policies) {
-      if (!branchPolicies.some((p) => p.name === policy.name && p.type === (policy.type ?? 'branch'))) {
-        gh('DELETE', `${path}/deployment-branch-policies/${policy.id}`);
+  // The environments first: the ruleset requires the check the review App's key posts.
+  for (const { name: env } of ENVIRONMENTS[repo] ?? []) {
+    step(`environment "${env}": used only from ${KEY_BRANCH}`, () => {
+      const path = `/environments/${env}`;
+      gh('PUT', path, environment);
+      const live = JSON.parse(gh('GET', `${path}/deployment-branch-policies`)) as {
+        branch_policies: { id: number; name: string; type?: string }[];
+      };
+      for (const policy of live.branch_policies) {
+        if (!branchPolicies.some((p) => p.name === policy.name && p.type === (policy.type ?? 'branch'))) {
+          gh('DELETE', `${path}/deployment-branch-policies/${policy.id}`);
+        }
       }
-    }
-    for (const policy of branchPolicies) {
-      if (!live.branch_policies.some((p) => p.name === policy.name && (p.type ?? 'branch') === policy.type)) {
-        gh('POST', `${path}/deployment-branch-policies`, policy);
+      for (const policy of branchPolicies) {
+        if (!live.branch_policies.some((p) => p.name === policy.name && (p.type ?? 'branch') === policy.type)) {
+          gh('POST', `${path}/deployment-branch-policies`, policy);
+        }
       }
-    }
-  });
+    });
+  }
 
   // Without the key, review.yml posts no check, and a ruleset requiring it would hold every pull request, the one that
   // fixes it included: nobody bypasses it. So the ruleset waits for the key (ADR 0014's order: key, a posted check,
   // then these settings).
-  if (!hasKey()) {
+  if (!hasKey(REVIEW_ENVIRONMENT)) {
     throw new Error(
-      `${repo}: environment "${REVIEW_ENVIRONMENT}" holds no ${REVIEW_KEY}, so nothing would post the review check the ruleset requires. Add the key, see a review check posted, then run this again.`,
+      `${repo}: environment "${REVIEW_ENVIRONMENT.name}" holds no ${REVIEW_ENVIRONMENT.key}, so nothing would post the review check the ruleset requires. Add the key, see a review check posted, then run this again.`,
     );
   }
 

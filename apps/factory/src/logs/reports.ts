@@ -12,7 +12,7 @@
  * read the same way.
  */
 import type { InboxSignal } from '@software-factory/events';
-import { uuidFrom } from '@software-factory/triage';
+import { uuidFrom } from '@software-factory/triage/events';
 import type { Objectives } from '../../../../policy/objectives.ts';
 import { quoted } from '../alerts/queries.ts';
 import type { LogRecord } from '../clients/loki.ts';

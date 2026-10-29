@@ -20,7 +20,7 @@
  * earlier attempts' failed runs are its own, each sent once: each failed the version the line watched.
  */
 import type { InboxSignal, PayloadOf, SymptomClass } from '@software-factory/events';
-import { uuidFrom } from '@software-factory/triage';
+import { uuidFrom } from '@software-factory/triage/events';
 import type { Regression } from '../gates/journeys.ts';
 import type { RoutesWorse } from './read.ts';
 import { type Recorded, short } from './recorded.ts';

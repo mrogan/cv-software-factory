@@ -2,7 +2,7 @@
 
 A single path for change. Part of the [GitHub plane](README.md#github-plane).
 
-- **v1:** one ruleset on `main`, the merge queue and the review gate (ADR 0014), and a `review` environment, applied to both public repositories by `scripts/github-settings.ts`.
+- **v1:** one ruleset on `main`, the merge queue and the review gate (ADR 0014), and the environments that hold an App's key, applied to both public repositories by `scripts/github-settings.ts` and checked weekly for drift.
 
 ## Where they live
 
@@ -20,7 +20,19 @@ There is no rule that a branch be up to date with `main`: the queue tests each p
 
 `review` is required from the review App alone (App ID `5470762`), so no workflow's job of that name stands in for it. `review.yml` judges each pull request with `scripts/review-gate.ts`, and posts the check as the review App: it passes when Martin opened the pull request, by his account's id, or approved its head after the last push. `review-requested.yml` asks for it when a pull request opens, moves or is edited, on a review, and in the merge queue, and `review.yml` runs only after it, on `workflow_run`, as `main` has it, or as the app's repository calls it, never on `pull_request_target`. Every other required check runs in the queue too: `check.yml` and `pr-title.yml`, and the app's gates (`app-gates.yml`), which the app's repository calls from its queue, read-only and with no secret.
 
-The review App's key is kept only in each repository's `review` environment, as `REVIEW_APP_PRIVATE_KEY`, which only workflows on `main` may use. `github-settings.ts --check` reports the environment as drift if it is missing or any other branch may use it.
+The review App's key is kept only in each repository's `review` environment, as `REVIEW_APP_PRIVATE_KEY`, which only workflows on `main` may use. `github-settings.ts --check` reports the environment as drift if it is missing, any other branch may use it, or it holds no key.
+
+No required check is the reviewer agent's (`factory review`) or posted by the factory's App: each is pinned to GitHub Actions or the review App, and `scripts/github-settings.test.ts` fails if one is not. `scripts/merge-decisions.test.ts` walks the imports of the app's gates, the line's reading of the checks and the review gate, and fails if any reaches the gateway, Jev, the agents or a package it does not name, so no model decides a merge.
+
+## The drift check
+
+`drift-check.yml` runs `github-settings.ts --check` on Mondays and by hand, with a workflow token that may only read this repository's contents, for its checkout, and fails if either repository's rulesets or key environments differ from the script's. A failed run reaches Martin as any failed scheduled run does, by GitHub's email.
+
+Who may bypass a ruleset and the names of an environment's secrets are shown only to an admin's read, which no workflow token has, so it reads as the drift check App (`the-roganator-drift-check`), installed on both repositories, which may read administration, Actions and environments and nothing else. Its key is in this repository's `drift-check` environment, which only `main` may use, as `DRIFT_CHECK_APP_PRIVATE_KEY`, with its Client ID beside it as the variable `DRIFT_CHECK_APP_CLIENT_ID`; until both are there, the run fails, saying so. If GitHub shows a ruleset's bypass list only to a reader who may change it, the check says it cannot see it, and fails, rather than reading it as nobody.
+
+## The workflows
+
+`scripts/workflows.test.ts` reads every workflow and fails if one runs on `pull_request_target` or on a runner that is not GitHub-hosted, or if any but `review.yml` and `drift-check.yml` holds a secret. Those two take theirs from an environment only `main` may use, only that environment's key, and check out nothing but a sparse copy of `main`'s own files at the workflow's commit.
 
 ## Also
 

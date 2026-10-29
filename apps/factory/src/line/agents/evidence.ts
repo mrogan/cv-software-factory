@@ -12,7 +12,7 @@
  * app's answer to a request the sense made itself.
  */
 import type { PayloadOf } from '@software-factory/events';
-import { CANARY_ANY_ROUTE } from '@software-factory/triage';
+import { CANARY_ANY_ROUTE } from '@software-factory/triage/events';
 import { count } from './agent.ts';
 
 /** A sense's signal as an agent sees it: everything but a visitor's report. */

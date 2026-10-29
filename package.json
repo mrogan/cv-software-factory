@@ -23,6 +23,7 @@
     "pixelmatch": "^8.0.0",
     "pngjs": "^7.0.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "yaml": "^2.9.1"
   }
 }
