@@ -15,6 +15,7 @@ import {
   RETIRED,
   REVIEW_APP,
   REVIEW_ENVIRONMENT,
+  reportLines,
   rules,
   rulesetProblems,
 } from './github-settings.ts';
@@ -86,16 +87,69 @@ describe('the ruleset on main (ADR 0014)', () => {
   });
 });
 
-describe('a ruleset read without the right to change it', () => {
-  it('is drift of its own, never read as nobody bypassing it, and the rest is still compared', () => {
-    const wanted = rules(checks);
-    expect(rulesetProblems(structuredClone(wanted), wanted)).toEqual([]);
-    const { bypass_actors: _, ...unseen } = structuredClone(wanted);
-    expect(rulesetProblems(unseen, wanted)).toEqual([
-      'ruleset "main": this token cannot see who may bypass it, which GitHub shows only to those who may change it',
+describe('who may bypass a live ruleset', () => {
+  const wanted = rules(checks);
+  const bypasser = { actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'always' };
+
+  it('passes when the list is there and empty', () => {
+    expect(rulesetProblems({ ...structuredClone(wanted), id: 7, bypass_actors: [] }, wanted)).toEqual({
+      problems: [],
+      unseen: [],
+    });
+  });
+
+  it('fails when the list is there and names anyone, whoever read it', () => {
+    const live = { ...structuredClone(wanted), bypass_actors: [bypasser] };
+    expect(rulesetProblems(live, wanted)).toEqual({ problems: ['ruleset "main" lets someone bypass it'], unseen: [] });
+    // A list GitHub sends as something other than a list is not an empty one.
+    expect(rulesetProblems({ ...structuredClone(wanted), bypass_actors: null }, wanted).problems).toEqual([
+      'ruleset "main" lets someone bypass it',
     ]);
-    parametersOf(unseen as typeof wanted, 'pull_request').allowed_merge_methods = ['merge'];
-    expect(rulesetProblems(unseen, wanted)).toHaveLength(2);
+  });
+
+  it('is unseen, never read as nobody, when GitHub leaves it out, and only then: the rest is still compared', () => {
+    const { bypass_actors: _, ...live } = structuredClone(wanted);
+    const { problems, unseen } = rulesetProblems(live, wanted);
+    expect(problems).toEqual([]);
+    expect(unseen).toHaveLength(1);
+    expect(unseen[0]).toMatch(/cannot see who may bypass it/);
+    expect(unseen[0]).toMatch(/make guardrails/);
+    parametersOf(live as typeof wanted, 'pull_request').allowed_merge_methods = ['merge'];
+    expect(rulesetProblems(live, wanted)).toEqual({ problems: ['ruleset "main" differs from this script\'s'], unseen });
+  });
+});
+
+describe("--check's report", () => {
+  const unseen = ['ruleset "main": this token cannot see who may bypass it'];
+
+  it('warns in GitHub Actions of what it could not see, as an annotation, and still says the rest matched', () => {
+    expect(reportLines('o/r', { problems: [], unseen }, true)).toEqual([
+      `::warning title=o/r::${unseen[0]}`,
+      '  ✓ o/r: the rulesets are as this script makes them, as far as this token can see',
+    ]);
+    expect(reportLines('o/r', { problems: [], unseen }, false)[0]).toBe(`  ! o/r: ${unseen[0]}`);
+  });
+
+  it('says plainly that all matched when it saw everything, and never that anything matched when it did not', () => {
+    expect(reportLines('o/r', { problems: [], unseen: [] }, true)).toEqual([
+      '  ✓ o/r: the rulesets are as this script makes them',
+    ]);
+    // Drift is an error annotation in Actions, so the warning never stands alone on a failed run's summary.
+    expect(reportLines('o/r', { problems: ['ruleset "main" is missing'], unseen }, true)).toEqual([
+      '::error title=o/r::ruleset "main" is missing',
+      `::warning title=o/r::${unseen[0]}`,
+    ]);
+    expect(reportLines('o/r', { problems: ['ruleset "main" is missing'], unseen: [] }, false)).toEqual([
+      '  ✗ o/r: ruleset "main" is missing',
+    ]);
+  });
+
+  it('escapes what a live read named, so it cannot end an annotation or start a command of its own', () => {
+    const named = 'ruleset "x\n::add-mask::y 100%" is not one of these';
+    expect(reportLines('o/r', { problems: [named], unseen: [] }, true)).toEqual([
+      '::error title=o/r::ruleset "x%0A::add-mask::y 100%25" is not one of these',
+    ]);
+    expect(reportLines('o:r,1', { problems: [], unseen: ['u'] }, true)[0]).toBe('::warning title=o%3Ar%2C1::u');
   });
 });
 

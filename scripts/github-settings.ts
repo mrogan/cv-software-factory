@@ -7,8 +7,10 @@
  *     node scripts/github-settings.ts --check          # change nothing: say where the live settings differ
  *
  * `--check` reads each repository's rulesets and environments and compares them with the ones here, and names any
- * ruleset it does not know, such as one added in the browser. It exits 1 if anything differs. drift-check.yml runs it
- * weekly.
+ * ruleset it does not know, such as one added in the browser. It exits 1 if anything it can see differs.
+ * drift-check.yml runs it weekly. GitHub shows who may bypass a ruleset only to a reader who may change it: with a
+ * token that cannot, such as the drift check App's, `--check` warns that it did not compare that list, and compares
+ * the rest; with an admin's `gh`, it compares that too, and fails if anyone may bypass.
  *
  * Needs the GitHub CLI, signed in as an admin of the repository. `--check` changes nothing, so it needs only a read:
  * `GH_TOKEN` set to an installation token of the drift check App (`APPS.driftCheck`) is enough, and is how the
@@ -217,37 +219,83 @@ export function matches(live: unknown, wanted: unknown): boolean {
   return live === wanted;
 }
 
+/** What a check found: drift, which fails it, and what it could not see, which it says and does not fail on. */
+export interface Findings {
+  problems: string[];
+  unseen: string[];
+}
+
 /** Compares a repository's live rulesets and environments with these, and says what differs. */
-function check(requiredChecks: string[]): string[] {
+function check(requiredChecks: string[]): Findings {
   const wanted = [rules(requiredChecks)];
   const live = JSON.parse(gh('GET', '/rulesets?per_page=100')) as { id: number; name: string }[];
   const problems = live
     .filter((r) => !wanted.some((w) => w.name === r.name))
     .map((r) => `ruleset "${r.name}" is not one of these`);
+  const unseen: string[] = [];
   for (const ruleset of wanted) {
     const found = live.find((r) => r.name === ruleset.name);
-    if (!found) problems.push(`ruleset "${ruleset.name}" is missing`);
-    else problems.push(...rulesetProblems(JSON.parse(gh('GET', `/rulesets/${found.id}`)), ruleset));
+    if (!found) {
+      problems.push(`ruleset "${ruleset.name}" is missing`);
+      continue;
+    }
+    const findings = rulesetProblems(JSON.parse(gh('GET', `/rulesets/${found.id}`)), ruleset);
+    problems.push(...findings.problems);
+    unseen.push(...findings.unseen);
   }
-  return [...problems, ...(ENVIRONMENTS[repo] ?? []).flatMap(checkEnvironment)];
+  return { problems: [...problems, ...(ENVIRONMENTS[repo] ?? []).flatMap(checkEnvironment)], unseen };
 }
 
 /**
  * What differs between a live ruleset and this script's. GitHub shows who may bypass a ruleset only to those who may
- * change it, so a reader that cannot change it sees no `bypass_actors` at all: that is a problem of its own, never
- * read as nobody, and the rest is still compared.
+ * change it, so a reader that cannot change it gets no `bypass_actors` key at all. Whether the key is there decides,
+ * not whose token read it: with it, the list is compared like the rest, and anyone it names is drift; without it, the
+ * list is unseen, never read as nobody, and the rest is still compared.
  */
-export function rulesetProblems(live: unknown, wanted: ReturnType<typeof rules>): string[] {
+export function rulesetProblems(live: unknown, wanted: ReturnType<typeof rules>): Findings {
   const seesBypass = !!live && typeof live === 'object' && 'bypass_actors' in live;
   const { bypass_actors: _, ...rest } = wanted;
-  const problems = seesBypass
+  const problems: string[] = [];
+  if (seesBypass && !matches((live as { bypass_actors: unknown }).bypass_actors, wanted.bypass_actors)) {
+    problems.push(`ruleset "${wanted.name}" lets someone bypass it`);
+  }
+  if (!matches(live, rest)) problems.push(`ruleset "${wanted.name}" differs from this script's`);
+  const unseen = seesBypass
     ? []
     : [
-        `ruleset "${wanted.name}": this token cannot see who may bypass it, which GitHub shows only to those who may change it`,
+        `ruleset "${wanted.name}": this token cannot see who may bypass it, which GitHub shows only to those who may change it, so that was not compared; an admin's \`--check\` compares it, as \`make guardrails\` (milestone 7 task 21) is to`,
       ];
-  if (!matches(live, seesBypass ? wanted : rest)) problems.push(`ruleset "${wanted.name}" differs from this script's`);
-  return problems;
+  return { problems, unseen };
 }
+
+/**
+ * The lines `--check` prints for a repository. In GitHub Actions, drift is an `::error::` annotation and what it
+ * could not see a `::warning::`, so both show on the run's summary, and the warning never stands alone beside a
+ * failure.
+ */
+export function reportLines(name: string, { problems, unseen }: Findings, actions: boolean): string[] {
+  const title = annotationProperty(name);
+  const lines = problems.map((p) => (actions ? `::error title=${title}::${annotationData(p)}` : `  ✗ ${name}: ${p}`));
+  lines.push(...unseen.map((u) => (actions ? `::warning title=${title}::${annotationData(u)}` : `  ! ${name}: ${u}`)));
+  if (!problems.length) {
+    lines.push(
+      unseen.length
+        ? `  ✓ ${name}: the rulesets are as this script makes them, as far as this token can see`
+        : `  ✓ ${name}: the rulesets are as this script makes them`,
+    );
+  }
+  return lines;
+}
+
+/**
+ * A workflow command's message, escaped as GitHub reads it back, so a name from a live read (a ruleset added in the
+ * browser) can neither end the annotation nor start a command of its own on the next line.
+ */
+export const annotationData = (text: string): string =>
+  text.replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
+
+/** A workflow command's property, such as its title, where `:` and `,` would also end it. */
+const annotationProperty = (text: string): string => annotationData(text).replaceAll(':', '%3A').replaceAll(',', '%2C');
 
 /** Compares a live environment with this script's: present, usable from main alone, and holding its key. */
 function checkEnvironment(wanted: KeyEnvironment): string[] {
@@ -305,10 +353,9 @@ function main(args: string[]): number {
     if (only && name !== only) continue;
     repo = name;
     if (checking) {
-      const problems = check(requiredChecks);
-      for (const p of problems) console.log(`  ✗ ${repo}: ${p}`);
-      if (!problems.length) console.log(`  ✓ ${repo}: the rulesets are as this script makes them`);
-      drift ||= problems.length > 0;
+      const findings = check(requiredChecks);
+      for (const line of reportLines(repo, findings, process.env.GITHUB_ACTIONS === 'true')) console.log(line);
+      drift ||= findings.problems.length > 0;
       continue;
     }
     apply(name, requiredChecks);
