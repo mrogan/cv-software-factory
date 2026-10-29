@@ -504,48 +504,55 @@ describe('the alerts on the factory’s health, releases and spend', () => {
 describe('the alert that alerts do not reach the phone', () => {
   const rule = martinRules().find((r) => r.alert === PHONE_OFF);
   const fires = { exp_labels: {}, exp_annotations: rule?.annotations };
-
-  it('has no level, so it reaches no one, and reads only the admin service’s series', () => {
-    expect(rule?.labels).toEqual({});
-    expect(rule?.expr).toContain(METRICS_FROM_THE_ADMIN_SERVICE);
+  const adminSays = (values: string, pod = 'admin-1') => ({
+    series: admin('admin_alerts_phone', `pod="${pod}"`),
+    values,
+  });
+  const lineSays = (values: string, pod = 'line-1') => ({ series: line('line_alerts_phone', `pod="${pod}"`), values });
+  const never = (input_series: Case['input_series'], at = '1m'): Case => ({
+    interval: '1m',
+    input_series,
+    alert_rule_test: [{ eval_time: at, alertname: PHONE_OFF, exp_alerts: [] }],
   });
 
-  it('fires while the admin service says they are off, and not while it says on, or says nothing', () => {
+  it('has no level, so it reaches no one, and reads only the admin service’s and the line’s series', () => {
+    expect(rule?.labels).toEqual({});
+    expect(rule?.expr).toContain(METRICS_FROM_THE_ADMIN_SERVICE);
+    expect(rule?.expr).toContain(METRICS_FROM_THE_LINE);
+  });
+
+  it('fires only while the admin service and the line both say off', () => {
     const { ok, output } = promtool(
       [
         {
+          // Both off from the second minute; the line says on again at the fourth, the admin service at the fifth.
           interval: '1m',
-          input_series: [{ series: admin('admin_alerts_phone', 'pod="admin-1"'), values: each(1, 1, 0, 0, 1) }],
+          input_series: [adminSays(each(1, 1, 0, 0, 0, 1)), lineSays(each(1, 1, 0, 0, 1, 1))],
           alert_rule_test: [
             { eval_time: '1m', alertname: PHONE_OFF, exp_alerts: [] },
             { eval_time: '2m', alertname: PHONE_OFF, exp_alerts: [fires] },
             { eval_time: '3m', alertname: PHONE_OFF, exp_alerts: [fires] },
             { eval_time: '4m', alertname: PHONE_OFF, exp_alerts: [] },
+            { eval_time: '5m', alertname: PHONE_OFF, exp_alerts: [] },
           ],
         },
-        {
-          // The admin service down, or not yet scraped: nothing is muted, and every alert reaches the phone.
-          interval: '1m',
-          input_series: [
-            { series: admin('admin_alerts_phone', 'pod="admin-1"'), values: each(0, '_', '_', '_', '_', '_', '_') },
-          ],
-          alert_rule_test: [{ eval_time: '6m', alertname: PHONE_OFF, exp_alerts: [] }],
-        },
-        {
-          // Any replica that says on is enough.
-          interval: '1m',
-          input_series: [
-            { series: admin('admin_alerts_phone', 'pod="admin-1"'), values: each(0, 0) },
-            { series: admin('admin_alerts_phone', 'pod="admin-2"'), values: each(1, 1) },
-          ],
-          alert_rule_test: [{ eval_time: '1m', alertname: PHONE_OFF, exp_alerts: [] }],
-        },
-        {
-          // Another worker cannot keep alerts from the phone.
-          interval: '1m',
-          input_series: [{ series: other('admin_alerts_phone', 'pod="triage-1"'), values: each(0, 0) }],
-          alert_rule_test: [{ eval_time: '1m', alertname: PHONE_OFF, exp_alerts: [] }],
-        },
+        // One says off and the other on: the admin service alone cannot keep alerts from Martin, nor the line.
+        never([adminSays(each(0, 0)), lineSays(each(1, 1))]),
+        never([adminSays(each(1, 1)), lineSays(each(0, 0))]),
+        // One says off and the other says nothing, or both say nothing: nothing is muted.
+        never([adminSays(each(0, 0))]),
+        never([lineSays(each(0, 0))]),
+        never([adminSays(each(0, '_', '_', '_', '_', '_', '_')), lineSays(each(0, 0, 0, 0, 0, 0, 0))], '6m'),
+        never([]),
+        // Any replica that says on is enough.
+        never([adminSays(each(0, 0)), adminSays(each(1, 1), 'admin-2'), lineSays(each(0, 0))]),
+        never([adminSays(each(0, 0)), lineSays(each(0, 0)), lineSays(each(1, 1), 'line-2')]),
+        // Another worker cannot speak for either.
+        never([
+          { series: other('admin_alerts_phone', 'pod="triage-1"'), values: each(0, 0) },
+          { series: other('line_alerts_phone', 'pod="triage-1"'), values: each(0, 0) },
+        ]),
+        never([adminSays(each(0, 0)), { series: other('line_alerts_phone', 'pod="triage-1"'), values: each(0, 0) }]),
       ],
       'martin',
     );

@@ -439,8 +439,12 @@ export function flagRules(): Rule[] {
   ];
 }
 
-/** Whether alerts reach Martin's phone, from the admin service's switch in force (`admin/phone.ts`): 1 if so, 0 if not. */
+/**
+ * Whether alerts reach Martin's phone, from the admin service's switch in force (`admin/phone.ts`), and from the line's
+ * read of the same in the store (`line/phone.ts`): 1 if so, 0 if not.
+ */
 export const PHONE = fromTheAdminService('admin_alerts_phone');
+export const LINE_PHONE = fromTheLine('line_alerts_phone');
 
 /** The alert that mutes every alert with a level in Alertmanager while it fires. */
 export const PHONE_OFF = 'PhoneOff';
@@ -458,9 +462,11 @@ const RECENT = '5m';
  *   from Martin, and nothing here makes one. A silence that matches this alert keeps it quiet too: the limit the dead
  *   man's switch covers (milestone 10). The rule takes the highest of any series by that name, so another can only page
  *   him more, never less;
- * - `PhoneOff`, with no level, while the admin service says alerts do not reach his phone (`PHONE`): Alertmanager mutes
- *   every alert with a level while it fires, but for switching the phone itself (`PHONE_KINDS`). The highest of its
- *   replicas' is taken, so one that says on is enough, and none says nothing: alerts reach the phone;
+ * - `PhoneOff`, with no level, while both the admin service and the line say alerts do not reach his phone (`PHONE`,
+ *   `LINE_PHONE`): Alertmanager mutes every alert with a level while it fires, but for switching the phone itself
+ *   (`PHONE_KINDS`). The admin service appends the switch, so its word alone is not enough; the line reads only what
+ *   Martin's roles stored. The highest of each one's replicas' is taken, so any that says on is enough, and either
+ *   saying nothing leaves every alert reaching the phone;
  * - a notification for each hold that waits for him, once, whoever started it, naming its work item, which Alertmanager
  *   links to its sheet in the console and, with its pull request, to that on GitHub (`holdRule`). Only a line that
  *   takes work reports the holds that wait; while none does, a hold triage starts is told by its cause alone, from the
@@ -504,10 +510,11 @@ export function martinRules(): Rule[] {
       },
     },
     {
-      // No level, so it reaches no one; Alertmanager mutes every alert with a level while it fires. With no series
-      // (the admin service down, or not yet scraped) it cannot fire, and every alert reaches the phone.
+      // No level, so it reaches no one; Alertmanager mutes every alert with a level while it fires. Only while both the
+      // admin service and the line say off: neither alone can keep alerts from Martin, and with either's series
+      // missing (down, or not yet scraped) it cannot fire, and every alert reaches the phone.
       alert: PHONE_OFF,
-      expr: `max(${PHONE}) == 0`,
+      expr: `max(${PHONE}) == 0 and on () max(${LINE_PHONE}) == 0`,
       for: '0s',
       labels: {},
       annotations: {
