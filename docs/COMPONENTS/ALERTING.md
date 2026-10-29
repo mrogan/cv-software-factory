@@ -2,7 +2,7 @@
 
 The app's objectives, and what Martin must hear about, watched by the standard tools. Part of the [runtime plane](README.md#runtime-plane).
 
-- **v1:** Prometheus's alerting rules, generated from policy, and Alertmanager, which sends the objectives' alerts to the intake and pages, notifies or informs Martin through Pushover, of his security events, the holds that wait for him, and the factory's health, releases and spend; and Grafana's Alerts dashboard, which shows every alert, whatever its level.
+- **v1:** Prometheus's alerting rules, generated from policy, and Alertmanager, which sends the objectives' alerts to the intake and pages, notifies or informs Martin through Pushover, of his security events, the holds that wait for him, and the factory's health, releases and spend, while [a switch in Controls](#alerts-to-the-phone) sends them to his phone, off on the laptop; and Grafana's Alerts dashboard, which shows every alert, whatever its level.
 - **Later:** alerts on the factory's images' vulnerabilities (milestone 7, Part D); a dead man's switch and a check from outside, since alerts from inside a cluster stop with it (milestone 10).
 
 ```mermaid
@@ -12,7 +12,7 @@ flowchart LR
   prometheus --> alertmanager[Alertmanager]
   alertmanager -- "objective alerts: POST /v1/alerts" --> intake[Intake]
   intake -- metrics signal --> inbox[(Inbox)]
-  alertmanager -- "level: page, notify or inform" --> pushover((Pushover)) --> phone[Martin's phone]
+  alertmanager -- "level: page, notify or inform, unless PhoneOff fires" --> pushover((Pushover)) --> phone[Martin's phone]
   prometheus -- every alert, firing or pending --> grafana[Grafana's Alerts dashboard]
 ```
 
@@ -33,10 +33,10 @@ Each rule says how loudly it is told by a `level` label, and Alertmanager routes
 
 | Level | Label | Sent to | For |
 |---|---|---|---|
-| Page | `level: page` | Pushover, at high priority, which sounds through Martin's quiet hours | the console or the app down, the probes silent, the line stuck, a lease run out unreleased, the store down, a worker crash-looping, a spend cap reached; the security events that loosen a guardrail or change who can sign in, the security events' count missing or stale, a silence in place, a narrowing or Off of a flag the app has not taken within a minute |
+| Page | `level: page` | Pushover, at high priority, which sounds through Martin's quiet hours | the console or the app down, the probes silent, the line stuck, a lease run out unreleased, the store down, a worker crash-looping, a spend cap reached; the security events that loosen a guardrail, change who can sign in or keep alerts from his phone, the security events' count missing or stale, a silence in place, a narrowing or Off of a flag the app has not taken within a minute |
 | Notify | `level: notify` | Pushover, at normal priority | a release rolled back, aborted or in error, an Argo CD application Degraded or OutOfSync for half an hour, each hold that waits for Martin, the shop's pod 25 days old, the security events that widen what the line does (an improvement asked for or its spec approved among them) or a feature flag, act on a release, change a setting or tighten autonomy, the app holding other flags than those set, or not checked, for more than five minutes |
 | Inform | `level: inform` | Pushover, at low priority, with no sound or vibration | the security events that tighten, but for autonomy, or only record Martin's own use |
-| Dashboard only | none | no one: a receiver that sends nothing; [Grafana's Alerts dashboard](#seeing-them) shows it | everything else |
+| Dashboard only | none | no one: a receiver that sends nothing; [Grafana's Alerts dashboard](#seeing-them) shows it | `PhoneOff`, and everything else |
 
 - **The app's objective alerts carry no level,** and go to the intake, matched by their `objective` label: they are the senses' signals, not alerts to Martin. An alert with a level never reaches the intake, which would make a signal of it.
 - **Each message to Martin is one of its own,** never folded into another's, sent once when it fires and again every four hours while it still does, and not when it resolves.
@@ -55,11 +55,22 @@ Anything that reached it could make a silence, and a silence keeps a page from M
 
 Grafana's Alerts dashboard ([`dashboards/alerts.json`](../../deploy/base/telemetry/dashboards/alerts.json)), linked from every dashboard's Dashboards row, shows every alert Prometheus has, firing or pending, whatever its level, from Prometheus's own `ALERTS` series:
 
-- **Now:** how many fire at each level (Page, Notify, Inform, Dashboard only), and how many are pending;
+- **Now:** how many fire at each level (Page, Notify, Inform, Dashboard only), how many are pending, and whether alerts are reaching the phone: No while `PhoneOff` fires;
 - **Every alert now:** its name, state and level, then its labels, the app's objective alerts among them;
 - **Over the range:** when each was pending and when it fired.
 
 An alert Alertmanager [mutes](#one-cause-one-page) is still there: the dashboard shows what fired, and Alertmanager decides what reaches the phone.
+
+## Alerts to the phone
+
+One switch in the console's Controls sends every alert with a level to Martin's phone, or none: alerts carry more false positives than useful ones, no tuning makes them right under simulated load, and on the laptop they exist only to be tried before the cloud. Grafana's [Alerts dashboard](#seeing-them) is where he sees and checks them while it is off.
+
+- **On by default on the cloud profiles, off on the laptop** (`PHONE_DEFAULT` in `policy/phone.ts`, by `FACTORY_PROFILE`), until he switches it: his latest `alerts.switched` is in force after that, on any profile ([admin service](ADMIN-SERVICE.md#alerts-to-the-phone)).
+- **Switching it off needs the passkey again,** and pages him (`phone-off`): it loosens what reaches him, as nothing will. So on the cloud the last message before quiet says so. Switching it on informs him (`phone-on`).
+- **How it mutes:** the admin service reports the switch in force (`admin_alerts_phone`, 1 or 0, read from its own pod alone). While it reads 0, `PhoneOff` fires, with no level, so it reaches no one; and Alertmanager mutes every alert with a level (`page`, `notify`, `inform`) while `PhoneOff` fires, but switching the phone itself, either way: off must reach him, and on would otherwise race `PhoneOff` resolving, and often lose. The app's objective alerts carry no level, go to the intake, and are never muted.
+- **Failing loud:** with no series, from an admin service that is down, not yet scraped or started without the store, `PhoneOff` cannot fire, and every alert reaches the phone. Once it has read the switch, an admin service that cannot read the store again goes on reporting the switch it read last, which only Martin changes.
+- **Prometheus still has every alert,** muted or not: the dashboard shows them all, and says whether they are reaching the phone.
+- **Proved** by `apps/factory/test/factory-alerts.test.ts` (`PhoneOff` fires on 0 and on no other worker's series, and not on 1 or on nothing) and `apps/factory/test/alertmanager.test.ts` (it mutes every alert the rules raise with a level, but the two switches, and none of the objectives').
 
 ## The intake
 
@@ -88,6 +99,7 @@ Martin is alerted to each of his security events, at its kind's level, counted f
 | `new-work-on`, `new-work-off` | `controls.changed` that lets agents take new work, or stops them | Notify, Inform |
 | `auto-merge-on`, `auto-merge-off` | `controls.changed` that turns auto-merge of low-risk changes on or off | Notify, Inform |
 | `take-widened`, `take-narrowed` | `controls.changed` that widens or narrows what the line takes | Notify, Inform |
+| `phone-on`, `phone-off` | `alerts.switched` that sends every alert to his phone, or none | Inform, Page |
 | `flag-widened`, `flag-narrowed`, `flag-off` | `flag.staged` that widens a feature flag (to Checks too, and turning one back on for everyone), narrows it, or turns it off | Notify, Inform, Inform |
 | `improvement-requested` | every `improvement.requested`, from the console's "+" | Notify |
 | `improvement-approved` | `hold.answered` approving a `spec` hold, read from the hold it answers, on a work item opened as an improvement | Notify |
@@ -96,7 +108,7 @@ Giving the passkey again (`admin.stepped-up`) alerts no one, though the audit lo
 
 Every change of the line's controls alerts him, each told from the stored change's before and after alone (`policy/line.ts`), as every change of the settings does, and every move of a feature flag, from its stages before and after alone (`policy/flag-moves.ts`). Auto-rollback off, which the access table marks too, has no event until Part C gives it a switch, and a test fails until it is counted.
 
-- **Each kind has its level** (`SECURITY_LEVELS` in `apps/factory/src/alerts/rules.ts`, typed so a new kind cannot go without one). What loosens a guardrail, or changes who can sign in, pages him; what widens what the line does (asking for an improvement, or approving its spec, sets it building something new), or acts on a release, notifies him; what tightens, or only records his own use, informs him, but for tightening autonomy, which notifies him. Every kind still reaches his phone: only how loudly differs.
+- **Each kind has its level** (`SECURITY_LEVELS` in `apps/factory/src/alerts/rules.ts`, typed so a new kind cannot go without one). What loosens a guardrail, changes who can sign in, or keeps alerts from his phone, pages him; what widens what the line does (asking for an improvement, or approving its spec, sets it building something new), or acts on a release, notifies him; what tightens, or only records his own use, informs him, but for tightening autonomy, which notifies him. Every kind still reaches his phone: only how loudly differs.
 - **One rule for each kind** alerts when its count rises: the first of a kind too, as each count starts at 0. Several of a kind within five minutes are one message.
 - **Another pages when the count is missing or stale:** gone for ten minutes after being there in the six hours before, or the line unable to read the store for five. Meanwhile no security event would reach him.
 - **A silence pages,** while Alertmanager has one in place, active or pending, from its own `alertmanager_silences`. Nothing here makes one, and only Prometheus and Grafana reach Alertmanager.
@@ -194,9 +206,10 @@ Alertmanager mutes what follows from a cause while the cause fires (`inhibit_rul
 | `SpendCapReached` | `LineStuck` | The line starts no step until the cap clears; it already reports nothing while it does |
 | `WorkerCrashLooping` | whatever is said of that worker, by its `worker` label: `LineStuck`, `LeaseOverrun` and `SecurityEventsUncounted` of the line, `ConsoleDown` of the console, `ProbesDown` of the probes, `FlagsUnchecked` of the admin service | The crash loop is the cause, and its page names the pod |
 | `WorkerCrashLooping` | `ArgoCDDegraded` of `root` | A crash-looping pod makes `root` Degraded |
+| `PhoneOff` | every alert with a level, but the security events of switching the phone (`phone-off`, `phone-on`) | Martin switched alerts to his phone off, or the profile has them off ([alerts to the phone](#alerts-to-the-phone)) |
 
 - **`ProbesDown` mutes nothing:** `ConsoleDown` and `AppDown` cannot fire without the probes' checks, so there is nothing to mute.
-- **Nothing mutes a security event,** a silence, a hold or the shop's pod: each is its own occasion. A crash loop never mutes another.
+- **No cause mutes a security event,** a silence, a hold or the shop's pod: each is its own occasion. Only `PhoneOff`, which is no cause but Martin's choice, mutes them, as it mutes everything with a level. A crash loop never mutes another.
 - **Martin's own causes are not inhibitions:** the line told to stop, a cap or the local model's pace are left out where the line reports what it carries, so nothing fires.
 - **Held to it by a test** (`apps/factory/test/alertmanager.test.ts`), which mutes as Alertmanager does, from the values as written, and checks every alert a rule names is one the rules raise.
 

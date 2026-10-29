@@ -26,10 +26,10 @@ COPY apps/console/vite.config.ts apps/console/
 COPY apps/console/web apps/console/web
 COPY packages/events/src packages/events/src
 # The bounds of Martin's settings and of the line's controls, and the one check of each (policy/settings.ts,
-# policy/line.ts), which the page shares with the line and the admin service, and the settings with the gateway; and
-# the feature flags' stages and the rules of moving one (policy/flags.ts, policy/flag-moves.ts), which the page judges
+# policy/line.ts), which the page shares with the line and the admin service, and the settings with the gateway;
+# whether alerts reach Martin's phone (policy/phone.ts), which it shares with the admin service; and the feature flags' stages and the rules of moving one (policy/flags.ts, policy/flag-moves.ts), which the page judges
 # each stop of a flag's slider by, in the admin service's own words.
-COPY policy/models.ts policy/spend.ts policy/settings.ts policy/line.ts policy/flags.ts policy/flag-moves.ts policy/
+COPY policy/models.ts policy/spend.ts policy/settings.ts policy/line.ts policy/phone.ts policy/flags.ts policy/flag-moves.ts policy/
 COPY docs/design/system/tokens.css docs/design/system/station.ts docs/design/system/
 COPY docs/design/system/mark/icon.svg docs/design/system/mark/
 ARG GIT_COMMIT=unknown

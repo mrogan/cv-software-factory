@@ -11,11 +11,17 @@ import {
   KEEP_FIRING,
   LEVELS,
   martinRules,
+  PHONE_OFF,
   RULES_FILE,
   WORKERS,
 } from '../src/alerts/rules.ts';
 import { TARGETS } from '../src/probes/health.ts';
-import { METRICS_FROM_THE_GATEWAY, METRICS_FROM_THE_LINE, METRICS_FROM_THE_PROBES } from '../src/provenance.ts';
+import {
+  METRICS_FROM_THE_ADMIN_SERVICE,
+  METRICS_FROM_THE_GATEWAY,
+  METRICS_FROM_THE_LINE,
+  METRICS_FROM_THE_PROBES,
+} from '../src/provenance.ts';
 import { manifests } from './deploy.ts';
 
 /**
@@ -32,11 +38,11 @@ interface Rule {
   annotations: Record<string, string>;
 }
 
-const committed = () => {
+const committed = (name = 'factory') => {
   const values = parse(readFileSync(RULES_FILE, 'utf8')) as {
     serverFiles: { 'alerting_rules.yml': { groups: { name: string; rules: Rule[] }[] } };
   };
-  return values.serverFiles['alerting_rules.yml'].groups.filter((group) => group.name === 'factory');
+  return values.serverFiles['alerting_rules.yml'].groups.filter((group) => group.name === name);
 };
 
 /** A series as the named worker's pod sends it, by what the collector stamps on it. */
@@ -44,6 +50,7 @@ const from = (stamp: string) => (name: string, labels: string) => `${name}{${lab
 const line = from(METRICS_FROM_THE_LINE);
 const probes = from(METRICS_FROM_THE_PROBES);
 const gateway = from(METRICS_FROM_THE_GATEWAY);
+const admin = from(METRICS_FROM_THE_ADMIN_SERVICE);
 /** The same, as another worker's pod would send it. */
 const other = from('k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="triage"');
 
@@ -68,9 +75,9 @@ interface Case {
 }
 
 /** Runs promtool over the committed rules with these cases, and gives back what it says when any fails. */
-function promtool(tests: Case[]): { ok: boolean; output: string } {
+function promtool(tests: Case[], group = 'factory'): { ok: boolean; output: string } {
   const folder = mkdtempSync(join(tmpdir(), 'factory-alerts-'));
-  writeFileSync(join(folder, 'rules.yml'), stringify({ groups: committed() }));
+  writeFileSync(join(folder, 'rules.yml'), stringify({ groups: committed(group) }));
   writeFileSync(
     join(folder, 'tests.yml'),
     stringify({ rule_files: ['rules.yml'], evaluation_interval: '1m', tests }, { lineWidth: 0 }),
@@ -491,5 +498,57 @@ describe('the alerts on the factory’s health, releases and spend', () => {
         },
       ]),
     );
+  });
+});
+
+describe('the alert that alerts do not reach the phone', () => {
+  const rule = martinRules().find((r) => r.alert === PHONE_OFF);
+  const fires = { exp_labels: {}, exp_annotations: rule?.annotations };
+
+  it('has no level, so it reaches no one, and reads only the admin service’s series', () => {
+    expect(rule?.labels).toEqual({});
+    expect(rule?.expr).toContain(METRICS_FROM_THE_ADMIN_SERVICE);
+  });
+
+  it('fires while the admin service says they are off, and not while it says on, or says nothing', () => {
+    const { ok, output } = promtool(
+      [
+        {
+          interval: '1m',
+          input_series: [{ series: admin('admin_alerts_phone', 'pod="admin-1"'), values: each(1, 1, 0, 0, 1) }],
+          alert_rule_test: [
+            { eval_time: '1m', alertname: PHONE_OFF, exp_alerts: [] },
+            { eval_time: '2m', alertname: PHONE_OFF, exp_alerts: [fires] },
+            { eval_time: '3m', alertname: PHONE_OFF, exp_alerts: [fires] },
+            { eval_time: '4m', alertname: PHONE_OFF, exp_alerts: [] },
+          ],
+        },
+        {
+          // The admin service down, or not yet scraped: nothing is muted, and every alert reaches the phone.
+          interval: '1m',
+          input_series: [
+            { series: admin('admin_alerts_phone', 'pod="admin-1"'), values: each(0, '_', '_', '_', '_', '_', '_') },
+          ],
+          alert_rule_test: [{ eval_time: '6m', alertname: PHONE_OFF, exp_alerts: [] }],
+        },
+        {
+          // Any replica that says on is enough.
+          interval: '1m',
+          input_series: [
+            { series: admin('admin_alerts_phone', 'pod="admin-1"'), values: each(0, 0) },
+            { series: admin('admin_alerts_phone', 'pod="admin-2"'), values: each(1, 1) },
+          ],
+          alert_rule_test: [{ eval_time: '1m', alertname: PHONE_OFF, exp_alerts: [] }],
+        },
+        {
+          // Another worker cannot keep alerts from the phone.
+          interval: '1m',
+          input_series: [{ series: other('admin_alerts_phone', 'pod="triage-1"'), values: each(0, 0) }],
+          alert_rule_test: [{ eval_time: '1m', alertname: PHONE_OFF, exp_alerts: [] }],
+        },
+      ],
+      'martin',
+    );
+    expect(ok, output).toBe(true);
   });
 });

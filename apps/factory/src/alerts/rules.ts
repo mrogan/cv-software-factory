@@ -109,6 +109,9 @@ export const SECURITY_LEVELS: Record<SecurityKind, Level> = {
   'flag-widened': LEVELS.notify,
   'improvement-requested': LEVELS.notify,
   'improvement-approved': LEVELS.notify,
+  // Off loosens what reaches him, as nothing will; Alertmanager lets both through its mute (`PHONE_KINDS`).
+  'phone-off': LEVELS.page,
+  'phone-on': LEVELS.inform,
   'release-control': LEVELS.notify,
   'setting-changed': LEVELS.notify,
   'line-started': LEVELS.notify,
@@ -193,7 +196,22 @@ const SECURITY_WORDS: Record<SecurityKind, { summary: string; description: strin
     summary: "An improvement's spec was approved",
     description: "An improvement's spec was approved in the console: the line will build it.",
   },
+  'phone-off': {
+    summary: 'Alerts no longer reach your phone',
+    description:
+      "Alerts to your phone were switched off in the console: none reaches it until they are switched on again. Grafana's Alerts dashboard still shows every alert.",
+  },
+  'phone-on': {
+    summary: 'Alerts reach your phone again',
+    description: 'Alerts to your phone were switched on in the console: every alert reaches it, at its level.',
+  },
 };
+
+/**
+ * The kinds of security event that reach the phone whatever the switch says: switching alerts off, so the last message
+ * before quiet says so, and switching them on, which would otherwise race `PhoneOff` resolving, and often lose.
+ */
+export const PHONE_KINDS = ['phone-off', 'phone-on'] as const satisfies readonly SecurityKind[];
 
 /** One of the line's series, with any matcher given first, as only the line's pods send it. */
 const fromTheLine = (name: string, matcher?: string) =>
@@ -421,6 +439,12 @@ export function flagRules(): Rule[] {
   ];
 }
 
+/** Whether alerts reach Martin's phone, from the admin service's switch in force (`admin/phone.ts`): 1 if so, 0 if not. */
+export const PHONE = fromTheAdminService('admin_alerts_phone');
+
+/** The alert that mutes every alert with a level in Alertmanager while it fires. */
+export const PHONE_OFF = 'PhoneOff';
+
 /** How far back an alert to Martin looks for a new event: one or several in it are one message. */
 const RECENT = '5m';
 
@@ -434,6 +458,9 @@ const RECENT = '5m';
  *   from Martin, and nothing here makes one. A silence that matches this alert keeps it quiet too: the limit the dead
  *   man's switch covers (milestone 10). The rule takes the highest of any series by that name, so another can only page
  *   him more, never less;
+ * - `PhoneOff`, with no level, while the admin service says alerts do not reach his phone (`PHONE`): Alertmanager mutes
+ *   every alert with a level while it fires, but for switching the phone itself (`PHONE_KINDS`). The highest of its
+ *   replicas' is taken, so one that says on is enough, and none says nothing: alerts reach the phone;
  * - a notification for each hold that waits for him, once, whoever started it, naming its work item, which Alertmanager
  *   links to its sheet in the console and, with its pull request, to that on GitHub (`holdRule`). Only a line that
  *   takes work reports the holds that wait; while none does, a hold triage starts is told by its cause alone, from the
@@ -474,6 +501,19 @@ export function martinRules(): Rule[] {
       annotations: {
         summary: 'Alerts are silenced',
         description: 'Alertmanager has a silence in place, which keeps the alerts it matches from your phone.',
+      },
+    },
+    {
+      // No level, so it reaches no one; Alertmanager mutes every alert with a level while it fires. With no series
+      // (the admin service down, or not yet scraped) it cannot fire, and every alert reaches the phone.
+      alert: PHONE_OFF,
+      expr: `max(${PHONE}) == 0`,
+      for: '0s',
+      labels: {},
+      annotations: {
+        summary: 'Alerts are not reaching your phone',
+        description:
+          "Alerts to your phone are switched off in the console's Controls, or have not been switched on on this profile: Alertmanager sends none of them, and Grafana's Alerts dashboard shows them all.",
       },
     },
     ...HOLD_CAUSES.map(holdRule),
@@ -894,8 +934,7 @@ export function render(o: Objectives, stuck = STUCK): string {
         (rule) => `          - alert: ${rule.alert}
             expr: ${JSON.stringify(rule.expr)}
             for: ${rule.for}${rule.keepFiringFor ? `\n            keep_firing_for: ${rule.keepFiringFor}` : ''}
-            labels:
-${map(rule.labels, '              ')}
+            labels:${Object.keys(rule.labels).length ? `\n${map(rule.labels, '              ')}` : ' {}'}
             annotations:
 ${map(rule.annotations, '              ')}`,
       )

@@ -344,7 +344,7 @@
       "gridPos": {
         "x": 16,
         "y": 1,
-        "w": 8,
+        "w": 4,
         "h": 3
       },
       "datasource": {
@@ -402,6 +402,85 @@
               }
             ]
           }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Reaching the phone",
+      "description": "Whether Alertmanager sends the alerts with a level to Martin's phone: No while PhoneOff fires, which it does while the console's switch is off, as it is by default on the local profile; this dashboard shows every alert either way. Yes while the admin service says nothing, so alerts fail loud. Switching the phone itself always reaches it.",
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 3
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "1 - (count(ALERTS{alertname=\"PhoneOff\", alertstate=\"firing\"}) or vector(0))",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "No answer from Prometheus",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "No",
+                  "color": "#fab219",
+                  "index": 0
+                },
+                "1": {
+                  "text": "Yes",
+                  "color": "#0ca30c",
+                  "index": 1
+                }
+              }
+            }
+          ]
         },
         "overrides": []
       }

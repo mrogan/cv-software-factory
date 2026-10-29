@@ -2,7 +2,17 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { factoryRules, flagRules, HOLD_ALERT_MINUTES, LEVELS, martinRules } from '../src/alerts/rules.ts';
+import { objectives } from '../../../policy/objectives.ts';
+import {
+  factoryRules,
+  flagRules,
+  HOLD_ALERT_MINUTES,
+  LEVELS,
+  martinRules,
+  PHONE_KINDS,
+  PHONE_OFF,
+  rulesFor,
+} from '../src/alerts/rules.ts';
 import { APP_REPOSITORY } from '../src/line/worker.ts';
 import { DEPLOY, manifests } from './deploy.ts';
 
@@ -476,7 +486,29 @@ describe('Alertmanager’s inhibitions: a cause pages, and what follows from it 
     }
   });
 
-  it('never mute a security event, a silence, or a hold', async () => {
+  it('mute every alert with a level while alerts to the phone are off, but switching the phone itself', async () => {
+    const off = alert(PHONE_OFF);
+    // It has no level, so it reaches no one, and nothing mutes it.
+    expect(off).toEqual({ alertname: PHONE_OFF });
+    const levelled = [...factoryRules(), ...martinRules(), ...flagRules()].filter((rule) => rule.labels.level);
+    expect(new Set(levelled.map((rule) => rule.labels.level))).toEqual(new Set(Object.values(LEVELS)));
+    for (const rule of levelled) {
+      const raised = { alertname: rule.alert, ...rule.labels };
+      const kind = rule.labels.kind ?? '';
+      const reaches = (PHONE_KINDS as readonly string[]).includes(kind);
+      expect(muted(await rules(), raised, [off]), `${rule.alert} ${kind}`).toBe(!reaches);
+    }
+    expect(PHONE_KINDS.length).toBeGreaterThan(0);
+  });
+
+  it('leave the app’s objective alerts to reach the intake while alerts to the phone are off', async () => {
+    for (const rule of rulesFor(objectives)) {
+      const raised = { alertname: rule.alert, ...rule.labels, http_route: '/basket' };
+      expect(muted(await rules(), raised, [alert(PHONE_OFF)]), rule.alert).toBe(false);
+    }
+  });
+
+  it('never mute a security event, a silence, or a hold for another alert’s cause', async () => {
     const everything = [...factoryRules(), ...flagRules()].map((r) => alert(r.alert, { worker: 'line' }));
     const crash = [crashLooping('line'), crashLooping('console')];
     for (const name of ['SecurityEvent', 'AlertmanagerSilenced', 'HoldWaits', 'HoldStarted']) {

@@ -47,6 +47,7 @@ Every route it answers is in [`policy/access.ts`](../../policy/access.ts), and i
 | `line.stop` | `POST /admin/line/stop` | a write's four checks |
 | `line.start` | `POST /admin/line/start` | a write's four checks, and the passkey given within five minutes |
 | `line.controls` | `POST /admin/line/controls` | a write's four checks, and the passkey given within five minutes when the change loosens (`autonomy.loosen`, `auto-merge.on`, `take.widen`) |
+| `phone.switch` | `POST /admin/alerts/phone` | a write's four checks, and the passkey given within five minutes to switch alerts off (`phone.off`) |
 | `flag.stage` | `POST /admin/flags/:flag/stage` | a write's four checks, and the passkey given within five minutes when the move widens past Checks or turns a flag back on (`flag.widen`, `flag.back-on`) |
 | `improvement.request` | `POST /admin/improvements` | a write's four checks, and the passkey given within five minutes |
 
@@ -113,6 +114,16 @@ The console's header stops and starts the line (`admin/line.ts`), each with Mart
 - **The next few count from when he chose them,** to the microsecond by the store's clock. Any number chosen, larger, smaller or the same, starts the count again from then: "the next two" are two from now.
 - **What each does:** the line reads the take and the switch for new work at its next pass ([orchestrator](ORCHESTRATOR.md#taking-work)). Nothing routes by the autonomy level or auto-merge until approval routing comes (Part C): every merge still waits for Martin. Auto-rollback has no route: a failing canary is always rolled back until Part C gives it a switch.
 - **Each change alerts Martin,** as a [security event](ALERTING.md#security-events) of its own kind, at its kind's level: loosening autonomy pages him, tightening it or a widening notifies him, and any other tightening informs him.
+
+## Alerts to the phone
+
+`POST /admin/alerts/phone` switches whether alerts reach Martin's phone (`admin/phone.ts`), every one at its level or none, with `{"phone": true}` or `{"phone": false}`, from the console's Controls ([alerting](ALERTING.md#alerts-to-the-phone)).
+
+- **One event a switch,** `alerts.switched`, with the switch as it now stands. Its summary says what he did ("Martin stopped alerts reaching his phone"), and its public view is the event as it is. A switch to what is already in force records nothing (200, `changed: false`). Switches are taken one at a time, under the lock every append takes.
+- **In force:** his latest switch, or before he makes one the profile's default (`policy/phone.ts`, by `FACTORY_PROFILE`): off on the laptop, on in the cloud.
+- **The passkey again to switch them off,** asked after the lock: off loosens what reaches him, as nothing would. On asks nothing.
+- **What it does:** the service reports the switch in force as `admin_alerts_phone` (1 on, 0 off), read from the store each time its SDK collects, and while it reads 0 Prometheus's `PhoneOff` fires, which mutes every alert with a level in Alertmanager. An admin service that is down, or never scraped, reports nothing, and nothing is muted.
+- **Each switch alerts Martin,** past the mute: off pages him, so the last message before quiet says so, and on informs him.
 
 ## The flags' stages
 
@@ -193,7 +204,7 @@ Martin answers a hold from its card in Needs you (`admin/holds.ts`): `POST /admi
 
 ## What it records
 
-Every action is an event with Martin as its actor, appended in the same transaction as the action, so it is done and recorded or neither: `passkey.enrolled`, `admin.signed-in`, `admin.signed-out` (here, everywhere, or by signing in again over a live session in the same browser), `admin.stepped-up` (the passkey given again), `passkey.revoked` (from the console, or the command line) `release.controlled` (a control of the canary: which, the release, its version, the canary's weight then, for a promotion the weight it goes to, and whether it was Stop the line's abort), `line.stopped` and `line.started` (with his reason), `controls.changed` (the line's controls, with the one changed before and after), `flag.staged` (a flag's stage, from and to, what the move was, the revision written, any flag set by hand that it dropped, his reason, and whether his passkey was fresh, on the work item whose improvement's spec names the flag), `improvement.requested` (his words, and that his passkey was fresh, after the `work-item.opened` of the improvement it opens), `settings.changed` (the settings, with each change before and after), with a `hold.answered` for each `spend` hold a raised work item's cap clears, and `hold.answered` (his answer to a hold from Needs you, naming the hold). Each is one of [Martin's commands](EVENT-STORE.md#martins-commands), which no worker can append. Their public views say what he did and never with which passkey: no name, id, address or browser.
+Every action is an event with Martin as its actor, appended in the same transaction as the action, so it is done and recorded or neither: `passkey.enrolled`, `admin.signed-in`, `admin.signed-out` (here, everywhere, or by signing in again over a live session in the same browser), `admin.stepped-up` (the passkey given again), `passkey.revoked` (from the console, or the command line) `release.controlled` (a control of the canary: which, the release, its version, the canary's weight then, for a promotion the weight it goes to, and whether it was Stop the line's abort), `line.stopped` and `line.started` (with his reason), `controls.changed` (the line's controls, with the one changed before and after), `alerts.switched` (whether alerts reach his phone), `flag.staged` (a flag's stage, from and to, what the move was, the revision written, any flag set by hand that it dropped, his reason, and whether his passkey was fresh, on the work item whose improvement's spec names the flag), `improvement.requested` (his words, and that his passkey was fresh, after the `work-item.opened` of the improvement it opens), `settings.changed` (the settings, with each change before and after), with a `hold.answered` for each `spend` hold a raised work item's cap clears, and `hold.answered` (his answer to a hold from Needs you, naming the hold). Each is one of [Martin's commands](EVENT-STORE.md#martins-commands), which no worker can append. Their public views say what he did and never with which passkey: no name, id, address or browser.
 
 ## Settings
 

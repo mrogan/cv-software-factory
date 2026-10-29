@@ -14,6 +14,8 @@
  *   stop aborts the canary in flight, and the start needs the passkey again.
  * - The line's controls (`line.ts`): `POST /admin/line/controls` with one change of the autonomy level, the switches
  *   or what the line takes, within policy, with the passkey again when it loosens.
+ * - Alerts to the phone (`phone.ts`): `POST /admin/alerts/phone` with whether they reach it, with the passkey again to
+ *   switch them off.
  * - The settings (`settings.ts`): `POST /admin/settings` with what the save changes, each agent's model and effort and
  *   the spend caps, within policy, with the passkey again when anything in it raises.
  * - The feature flags' stages (`flags.ts`): `POST /admin/flags/:flag/stage` with the stage the slider showed, the one
@@ -44,6 +46,7 @@ import { fromConsole, type Guard, guardOf, refuseWrite } from './guard.ts';
 import { ANSWER, answerHold, WORK_ITEM } from './holds.ts';
 import { REQUEST, requestImprovement } from './improvements.ts';
 import { CHANGE, changeControls, REASON, startLine, stopLine } from './line.ts';
+import { SWITCH, switchPhone } from './phone.ts';
 import type { ReleaseControls } from './rollout.ts';
 import { codeHash, isSessionId, newChallenge, newSessionId, normalCode, tokenOf } from './secrets.ts';
 import { SAVE, saveSettings } from './settings.ts';
@@ -394,6 +397,12 @@ export function createAdminApp({
       const given = CHANGE.safeParse(body);
       if (!given.success) return refused(400, 'body', 'Send one control, and what it changes to.');
       return { status: 200, body: await changeControls(store, session as Session, given.data) };
+    },
+
+    'phone.switch': async ({ body, session }) => {
+      const given = SWITCH.safeParse(body);
+      if (!given.success) return refused(400, 'body', 'Send whether alerts reach your phone.');
+      return { status: 200, body: await switchPhone(store, config.profile, session as Session, given.data) };
     },
 
     'settings.save': async ({ body, session }) => {

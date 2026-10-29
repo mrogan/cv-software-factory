@@ -1,7 +1,7 @@
 /**
  * Controls, the right of the bottom row, beside Needs you (`NeedsYou.tsx`), for everyone: the line's controls
- * (Autonomy, Switches, What the line takes), the feature flags (`Flags.tsx`), then Spend, a key to the key, and links to
- * the settings and the audit log.
+ * (Autonomy, Switches, What the line takes), Alerts, the feature flags (`Flags.tsx`), then Spend, a key to the key, and
+ * links to the settings and the audit log.
  * The settings page draws the line's controls (`LineControls`) and Spend from here too.
  *
  * The line's controls are Martin's, in force as the latest `controls.changed` and policy's check say
@@ -10,6 +10,10 @@
  * What a change did shows as its event arrives: the control moves. A visitor, or Martin previewing as one, sees every
  * control in its read-only form: the choice filled, a switch's track faded, nothing to press.
  *
+ * Alerts is one switch, whether alerts reach Martin's phone (`policy/phone.ts`): his latest `alerts.switched`, or the
+ * profile's default, off on the laptop. Each switch is one write (`POST /admin/alerts/phone`); off asks for the
+ * passkey again.
+ *
  * Spend is three meters in ink, since spend is no fault: the models today against the day's cap, this month against
  * the month's, and the dearest work item today against a work item's cap, with when the day resets, in UTC. A meter at
  * its cap turns `attn`.
@@ -17,7 +21,9 @@
 import { type Autonomy, AUTONOMY as LEVELS, TAKES, type TakeKind } from '@software-factory/events';
 import { type ReactNode, useId, useState } from 'react';
 import { type ControlChange, controlAction, TAKE, type Take } from '../../../../../policy/line.ts';
-import { CONTROL_STEP_UP } from '../access.ts';
+import { phoneInForce } from '../../../../../policy/phone.ts';
+import type { Profile } from '../../../../../policy/spend.ts';
+import { CONTROL_STEP_UP, PHONE_STEP_UP } from '../access.ts';
 import { type Admin, said, write } from '../admin.ts';
 import { AUTONOMY, money, shortWhen } from '../format.ts';
 import type { HeldAnswer } from '../held.ts';
@@ -124,8 +130,9 @@ function takeWords(take: Take | null, nextFew: ControlsView['nextFew'], viewer: 
 /** A take as Martin sends it: the admin service stamps when the next few start. */
 type TakeBody = { kind: 'every' } | { kind: 'next-few'; count: number } | { kind: 'just-one'; workItem: string };
 
-/** What Martin may send: one change, as `POST /admin/line/controls` takes it. */
-type Change = { autonomy: Autonomy } | { newWork: boolean } | { autoMerge: boolean } | { take: TakeBody };
+/** What Martin may send: one change, as `POST /admin/line/controls` takes it, or a switch of alerts to his phone. */
+type Change = { autonomy: Autonomy } | { newWork: boolean } | { autoMerge: boolean } | { take: TakeBody } | Phone;
+type Phone = { phone: boolean };
 
 /** A wider take, as the passkey's dialog says it. */
 const takeAsked = (take: Take) =>
@@ -136,7 +143,7 @@ const takeAsked = (take: Take) =>
       : `The line takes only #${take.workItem}.`;
 
 /** A group's place in the panel, so a refusal shows under the control that was pressed. */
-type Where = 'autonomy' | 'switches' | 'take';
+type Where = 'autonomy' | 'switches' | 'take' | 'alerts';
 
 /** Martin's writes from Controls: each change, its passkey asked for when the service asks, and a refusal kept. */
 function useChange(admin: Admin) {
@@ -152,7 +159,8 @@ function useChange(admin: Admin) {
       cancelled = !(await stepUp.ask(asked));
       return !cancelled;
     };
-    const got = await write('/admin/line/controls', body, admin.session.token, ask);
+    const path = 'phone' in body ? '/admin/alerts/phone' : '/admin/line/controls';
+    const got = await write(path, body, admin.session.token, ask);
     setBusy(false);
     // Cancelled at the passkey: nothing changed, and nothing to say.
     if (cancelled) return false;
@@ -361,6 +369,38 @@ function SwitchesGroup({ controls, viewer, changer }: { controls: ControlsView; 
   );
 }
 
+/** Alerts: whether they reach Martin's phone, every one at its level, or none. Only off asks for the passkey. */
+function AlertsGroup({ on, viewer, changer }: { on: boolean; viewer: Viewer; changer: Changer }) {
+  const martin = viewer === 'martin';
+  return (
+    <div className="ctl-group">
+      <span className="label">
+        <span>Alerts</span>
+      </span>
+      <div className="switches">
+        <Switch
+          label={martin ? 'Alerts to my phone' : 'Alerts to Martin’s phone'}
+          note={DASHBOARD}
+          on={on}
+          live={martin}
+          keyed={martin && !changer.fresh && on && PHONE_STEP_UP['phone.off']}
+          busy={changer.busy}
+          onToggle={() =>
+            void changer.change(
+              'alerts',
+              { phone: !on },
+              { title: 'Stop alerts to your phone', what: <b>{DASHBOARD}</b>, why: 'It keeps every page from you' },
+            )
+          }
+        />
+      </div>
+      <Refusal changer={changer} where="alerts" />
+    </div>
+  );
+}
+
+const DASHBOARD = 'Off: none reaches the phone. Grafana’s Alerts dashboard still shows every one.';
+
 /** How many the next few's field offers first. */
 const FIRST_FEW = 3;
 
@@ -549,6 +589,8 @@ export function KeyLegend() {
 }
 
 export interface ControlsProps {
+  /** The page's profile, whose default says whether alerts reach the phone before Martin switches them. */
+  profile: Profile;
   spend: SpendView;
   controls: ControlsView;
   flags: FlagsView;
@@ -564,8 +606,9 @@ export interface ControlsProps {
   onMoved: () => void;
 }
 
-export function Controls({ spend, controls, flags, admin, app, held, now, onOpen, onMoved }: ControlsProps) {
+export function Controls({ profile, spend, controls, flags, admin, app, held, now, onOpen, onMoved }: ControlsProps) {
   const martin = admin.kind === 'martin';
+  const changer = useChange(admin);
   return (
     <article className="panel controls" aria-labelledby="controls-title">
       <div className="panel-head">
@@ -573,6 +616,11 @@ export function Controls({ spend, controls, flags, admin, app, held, now, onOpen
         {!martin && <span className="label">Read only</span>}
       </div>
       <LineControls controls={controls} admin={admin} />
+      <AlertsGroup
+        on={phoneInForce(profile, controls.phone)}
+        viewer={martin ? 'martin' : 'visitor'}
+        changer={changer}
+      />
       <FlagsGroup flags={flags} admin={admin} app={app} held={held} now={now} onOpen={onOpen} onMoved={onMoved} />
       <SpendGroup spend={spend} />
       <p className="help">
