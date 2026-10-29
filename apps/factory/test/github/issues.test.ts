@@ -472,9 +472,11 @@ describe('the watch of new issues', () => {
 });
 
 describe('the outside reply', () => {
-  it('is short, and names no one but Martin', () => {
+  it('is short, fixed, and names no one', () => {
     expect(OUTSIDE_REPLY.length).toBeLessThan(400);
-    expect(OUTSIDE_REPLY).toContain('Martin reads every issue');
+    expect(OUTSIDE_REPLY).toBe(
+      'Thank you for opening this.\n\nThis repository is looked after by an automated software factory. It acts only on what it finds itself and on what its operators ask of it directly, so it will not act on this issue. A human will read this issue.',
+    );
     expect(OUTSIDE_REPLY).not.toMatch(/@|\$\{|https?:/);
   });
 });

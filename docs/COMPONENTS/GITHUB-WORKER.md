@@ -51,7 +51,7 @@ An issue opened by anyone but Martin (user 6206459) or the App gets one comment,
 
 > Thank you for opening this.
 >
-> This repository is looked after by an automated software factory. It acts only on what it finds itself and on what Martin asks of it, so it will not act on this issue. Martin reads every issue, and will read this one.
+> This repository is looked after by an automated software factory. It acts only on what it finds itself and on what its operators ask of it directly, so it will not act on this issue. A human will read this issue.
 
 Nothing else is done to the issue. A watch of each repository's newest hundred open issues sends it ([watches](#watches)). The worker keeps no cursor: saying it once is its memory, as for every comment it makes, so a restarted worker reads each open outside issue's comments once more, and says it again only if the first reply has fallen beyond the first hundred. A dry run's memory is its own, so a restarted one records the reply again for each open outside issue. A reply GitHub refuses (a locked issue, one gone) is logged and not tried again while the worker runs; any other failure is tried at the next poll.
 

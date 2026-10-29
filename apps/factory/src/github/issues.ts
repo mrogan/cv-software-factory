@@ -40,7 +40,7 @@ export const OUTSIDE_REPLY = [
   'Thank you for opening this.',
   '',
   'This repository is looked after by an automated software factory. It acts only on what it finds itself and on ' +
-    'what Martin asks of it, so it will not act on this issue. Martin reads every issue, and will read this one.',
+    'what its operators ask of it directly, so it will not act on this issue. A human will read this issue.',
 ].join('\n');
 
 /** The actions the guard holds to the App's own issues and pull requests: every one that names one. */
