@@ -129,6 +129,7 @@ import {
   count,
   type EffectsContext,
   holdDraft,
+  LOCAL_MODEL_PACE,
   need,
   type StepContext,
   StepFailed,
@@ -156,7 +157,18 @@ import {
   STAGE_OF,
   type WorkItemState,
 } from './machine.ts';
-import { countRecorded, countStep, observeHolds, observeStages, type StepEnding, zeroCounts } from './metrics.ts';
+import {
+  type Carrying,
+  countRecorded,
+  countStep,
+  limitsFor,
+  observeHolds,
+  observeLeases,
+  observeStages,
+  observeTaken,
+  type StepEnding,
+  zeroCounts,
+} from './metrics.ts';
 import { stepCalls, workItemSpend } from './model-calls.ts';
 import { type Own, pagesFor } from './pictures.ts';
 import { type Pending, Queue, type QueueItem, type Takes, takesOf } from './queue.ts';
@@ -643,8 +655,16 @@ export class Line {
       await sendCounts();
     }
     // The stages as the store has them, while the line runs: with LINE_MODE off, nothing moves them. And each hold
-    // that waits for Martin, from the store too.
-    const unobserved = this.#o.takesWork ? [observeStages(this.#o.sql), observeHolds(this.#o.sql)] : [];
+    // that waits for Martin, what the line is carrying against its limits, and any lease held past its expiry, from
+    // the store too.
+    const unobserved = this.#o.takesWork
+      ? [
+          observeStages(this.#o.sql),
+          observeHolds(this.#o.sql),
+          observeTaken(this.#o.sql, () => this.#carrying()),
+          observeLeases(this.#o.sql),
+        ]
+      : [];
     const unobserve = () => {
       for (const stop of unobserved) stop();
     };
@@ -1558,6 +1578,18 @@ export class Line {
   /** An agent's turns and deadline, on the model its calls go to. */
   #bounds(agent: LineAgent): Bounds {
     return boundsOn(this.#o.agents[agent], this.#providerOf(agent));
+  }
+
+  /**
+   * What the line is carrying, as this pass read Martin's controls and the settings in force: the one work item it acts
+   * on, if only one, whether agents take new work, and each stage's limit, longer where its agents run on the local model.
+   */
+  #carrying(): Carrying {
+    return {
+      only: this.#only,
+      newWork: this.#newWork,
+      limits: limitsFor((agent) => this.#providerOf(agent), LOCAL_MODEL_PACE.deadline),
+    };
   }
 
   /** Where an agent's calls go under the settings in force. */

@@ -92,6 +92,28 @@ alertmanager:
         - receiver: inform
           matchers: [level="inform"]
           group_by: ["..."]
+    # A cause pages, and what follows from it does not (docs/COMPONENTS/ALERTING.md#one-cause-one-page). Each rule
+    # mutes its targets while its source fires, Alertmanager's own and not a silence; Prometheus still has every alert,
+    # and Grafana shows them all.
+    inhibit_rules:
+      # The store down: the line can neither move work nor let go of a lease, a worker that needs it crash-loops, the
+      # line cannot count the security events, and Argo CD sees the factory Degraded.
+      - source_matchers: [alertname="StoreDown"]
+        target_matchers:
+          - alertname=~"LineStuck|LeaseOverrun|WorkerCrashLooping|SecurityEventsUncounted"
+      - source_matchers: [alertname="StoreDown"]
+        target_matchers: [alertname="ArgoCDDegraded", name="root"]
+      # A spend cap reached: the line starts no step until it clears, and says so itself, so this is belt and braces.
+      - source_matchers: [alertname="SpendCapReached"]
+        target_matchers: [alertname="LineStuck"]
+      # A worker crash-looping: whatever is said of that worker (its `worker` label), and Argo CD seeing the factory
+      # Degraded.
+      - source_matchers: [alertname="WorkerCrashLooping"]
+        target_matchers: [alertname!="WorkerCrashLooping", worker=~".+"]
+        equal: [worker]
+      - source_matchers: [alertname="WorkerCrashLooping"]
+        target_matchers: [alertname="ArgoCDDegraded", name="root"]
+      # The probes down mute nothing: the console's and the app's alerts cannot fire without them.
     receivers:
       - name: dashboard
       - name: intake
@@ -168,6 +190,12 @@ configmapReload:
     enabled: false
 
 server:
+  # Where Prometheus sends its alerts: Alertmanager, named by its Service. Without this the chart has Prometheus find
+  # any pod in this namespace labelled as Alertmanager, through the Kubernetes API, and send each its service account's
+  # token; named, it reaches the one Alertmanager, and sends nothing of its own.
+  alertmanagers:
+    - static_configs:
+        - targets: [prometheus-alertmanager.telemetry.svc:9093]
   securityContext:
     runAsUser: 65534
     runAsGroup: 65534

@@ -53,3 +53,17 @@ export const METRICS_FROM_THE_ADMIN_SERVICE =
  */
 export const METRICS_FROM_THE_TRAFFIC_GENERATOR =
   'k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="traffic"';
+
+/**
+ * Which series are the probes': those from a pod in `factory` labelled `app.kubernetes.io/name: probes`, stamped by the
+ * collector as the line's are. Their checks of whether the console and the app answer page Martin, and so does their
+ * silence, so no other worker may send them: not to page him for nothing, nor to answer for a console that is down.
+ */
+export const METRICS_FROM_THE_PROBES = 'k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="probes"';
+
+/**
+ * Which series are the gateway's: those from a pod in `factory` labelled `app.kubernetes.io/name: gateway`, stamped by
+ * the collector as the line's are. Its spend against the caps pages Martin when a cap is reached, so no other worker may
+ * send it.
+ */
+export const METRICS_FROM_THE_GATEWAY = 'k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="gateway"';

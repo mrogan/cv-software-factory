@@ -13,6 +13,8 @@ import { DiskArtifacts, EventWriter, nextWorkItem } from '@software-factory/stor
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import type { Handback } from '../../../runner/src/step.ts';
+import { LOCAL_MODEL_PACE } from '../../src/line/agents/agent.ts';
+import type { Carrying } from '../../src/line/metrics.ts';
 import type { LineOptions } from '../../src/line/worker.ts';
 import { quiet } from '../github/fake.ts';
 import { type Agent, FakeGitHub, FakeProbes, FakeSteps } from './fakes.ts';
@@ -25,7 +27,9 @@ const meterProvider = new metrics.MeterProvider({ readers: [reader] });
 api.setGlobalMeterProvider(meterProvider);
 // Only now: each module takes its meter as it loads.
 const { Line } = await import('../../src/line/worker.ts');
-const { endingsIn, observeHolds, observeStages, OPEN_STAGES } = await import('../../src/line/metrics.ts');
+const { endingsIn, limitsFor, observeHolds, observeLeases, observeStages, observeTaken, OPEN_STAGES } = await import(
+  '../../src/line/metrics.ts'
+);
 const { openHolds } = await import('../../src/line/holds.ts');
 const { fold } = await import('../../src/line/machine.ts');
 
@@ -390,6 +394,156 @@ describe('the line’s metrics', () => {
     // Once stopped it reads the store no more: the SDK keeps the last figure it had.
     await database.as.line`update line set stage = 'plan'`;
     expect(at(await points('line.work_items'), { stage: 'held' })).toBe(2);
+  });
+
+  describe('what the line is carrying', () => {
+    const limits = limitsFor(() => 'anthropic', LOCAL_MODEL_PACE.deadline);
+    const carrying = (over: Partial<Carrying> = {}): Carrying => ({ only: null, newWork: true, limits, ...over });
+    /** The work items carried and the oldest's time at each stage, read now. */
+    const read = async (...stages: string[]) => {
+      const [items, oldest] = [await points('line.taken.work_items'), await points('line.taken.oldest')];
+      return stages.map((stage) => [at(items, { stage }), Math.floor(at(oldest, { stage }) / 60)]);
+    };
+    const three = async () => {
+      const [first, second, third] = [await ticket(), await ticket(), await ticket()];
+      await database.owner`
+        insert into line (work_item, stage, moved_at) values
+          (${first}, 'gates', clock_timestamp() - interval '70 minutes'),
+          (${second}, 'build', clock_timestamp() - interval '30 minutes'),
+          (${third}, 'ended', clock_timestamp() - interval '3 days')`;
+      return [first, second, third] as const;
+    };
+
+    it('limit each stage as policy/stuck.ts does, four times longer where its agents run on the local model', () => {
+      expect(limits).toEqual({
+        plan: 90 * 60,
+        build: 120 * 60,
+        waiting: null,
+        gates: 60 * 60,
+        review: 120 * 60,
+        release: 60 * 60,
+        verify: 25 * 60 * 60,
+        held: null,
+      });
+      // ALL_LOCAL: every step on the local model, and only the stages where steps run take longer.
+      expect(limitsFor(() => 'local', LOCAL_MODEL_PACE.deadline)).toEqual({
+        ...limits,
+        plan: 360 * 60,
+        build: 480 * 60,
+        review: 480 * 60,
+      });
+      // One agent sent there: its stage alone.
+      expect(
+        limitsFor((agent) => (agent === 'describer' ? 'local' : 'anthropic'), LOCAL_MODEL_PACE.deadline).review,
+      ).toBe(480 * 60);
+    });
+
+    it('report the work items it has taken, by stage, with the oldest’s time and the stage’s limit', async () => {
+      await three();
+      const stop = observeTaken(database.as.line, () => carrying());
+      try {
+        expect(await read('gates', 'build', 'plan', 'held')).toEqual([
+          [1, 70],
+          [1, 30],
+          [0, 0],
+          [0, 0],
+        ]);
+        const limit = await points('line.taken.limit');
+        expect(limit.map((p) => p.attributes.stage).sort()).toEqual(
+          OPEN_STAGES.filter((stage) => limits[stage] !== null).sort(),
+        );
+        expect(at(limit, { stage: 'gates' })).toBe(3600);
+      } finally {
+        stop();
+      }
+    });
+
+    it('report none while the line is stopped, or a day’s or month’s cap is reached, and again once it is not', async () => {
+      await three();
+      const martin = new EventWriter(database.admin, {
+        kind: 'real',
+        artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))),
+      });
+      const stop = observeTaken(database.as.line, () => carrying());
+      try {
+        await martin.append([event(null, 'line.stopped', { reason: 'Martin stopped the line' }, 'martin')]);
+        expect(await read('gates', 'build')).toEqual([
+          [0, 0],
+          [0, 0],
+        ]);
+        await martin.append([event(null, 'line.started', {}, 'martin')]);
+        expect(await read('gates', 'build')).toEqual([
+          [1, 70],
+          [1, 30],
+        ]);
+        const capped = { cap: 'day' as const, limitUsd: 20, spentUsd: 20, resets: '2026-10-07T00:00:00.000Z' };
+        await events.append([event(null, 'spend.capped', capped)]);
+        expect(await read('gates', 'build')).toEqual([
+          [0, 0],
+          [0, 0],
+        ]);
+        await events.append([event(null, 'spend.cleared', { cap: 'day' })]);
+        expect(await read('gates', 'build')).toEqual([
+          [1, 70],
+          [1, 30],
+        ]);
+        // A provider's own cap is not the factory's: the line says nothing of it, and its alerts do.
+        const provider = {
+          cap: 'provider' as const,
+          provider: 'anthropic' as const,
+          reason: 'credit' as const,
+          message: 'No credit.',
+        };
+        await events.append([event(null, 'spend.capped', provider)]);
+        expect(await read('gates', 'build')).toEqual([
+          [1, 70],
+          [1, 30],
+        ]);
+      } finally {
+        stop();
+      }
+    });
+
+    it('report only the one work item under Just one, and no step’s stage while agents take no new work', async () => {
+      const [, build] = await three();
+      const stop = observeTaken(database.as.line, () => carrying({ only: build }));
+      try {
+        expect(await read('gates', 'build')).toEqual([
+          [0, 0],
+          [1, 30],
+        ]);
+      } finally {
+        stop();
+      }
+      const again = observeTaken(database.as.line, () => carrying({ newWork: false }));
+      try {
+        expect(await read('gates', 'build')).toEqual([
+          [1, 70],
+          [0, 0],
+        ]);
+      } finally {
+        again();
+      }
+    });
+
+    it('report how long a lease has been held past its expiry, and 0 with none', async () => {
+      const [gates, build] = await three();
+      const stop = observeLeases(database.as.line);
+      try {
+        expect(at(await points('line.lease.overrun'), {})).toBe(0);
+        await database.owner`
+          update line set held_by = 'line-gone', held_until = clock_timestamp() - interval '8 minutes'
+          where work_item = ${gates}`;
+        await database.owner`
+          update line set held_by = 'line-1', held_until = clock_timestamp() + interval '8 minutes'
+          where work_item = ${build}`;
+        const overrun = at(await points('line.lease.overrun'), {});
+        expect(overrun).toBeGreaterThanOrEqual(480);
+        expect(overrun).toBeLessThan(540);
+      } finally {
+        stop();
+      }
+    });
   });
 
   it('report the stages while the line runs, every count from 0, and read them no more once it stops', async () => {
