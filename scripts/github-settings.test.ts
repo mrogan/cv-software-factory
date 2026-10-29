@@ -143,6 +143,14 @@ describe("--check's report", () => {
       '  ✗ o/r: ruleset "main" is missing',
     ]);
   });
+
+  it('escapes what a live read named, so it cannot end an annotation or start a command of its own', () => {
+    const named = 'ruleset "x\n::add-mask::y 100%" is not one of these';
+    expect(reportLines('o/r', { problems: [named], unseen: [] }, true)).toEqual([
+      '::error title=o/r::ruleset "x%0A::add-mask::y 100%25" is not one of these',
+    ]);
+    expect(reportLines('o:r,1', { problems: [], unseen: ['u'] }, true)[0]).toBe('::warning title=o%3Ar%2C1::u');
+  });
 });
 
 describe('the GitHub Apps', () => {

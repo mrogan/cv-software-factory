@@ -7,10 +7,10 @@
  *     node scripts/github-settings.ts --check          # change nothing: say where the live settings differ
  *
  * `--check` reads each repository's rulesets and environments and compares them with the ones here, and names any
- * ruleset it does not know, such as one added in the browser. It exits 1 if anything differs. drift-check.yml runs it
- * weekly. GitHub shows who may bypass a ruleset only to a reader who may change it: with a token that cannot, such as
- * the drift check App's, `--check` warns that it did not compare that list, and compares the rest; with an admin's
- * `gh`, it compares that too, and fails if anyone may bypass.
+ * ruleset it does not know, such as one added in the browser. It exits 1 if anything it can see differs.
+ * drift-check.yml runs it weekly. GitHub shows who may bypass a ruleset only to a reader who may change it: with a
+ * token that cannot, such as the drift check App's, `--check` warns that it did not compare that list, and compares
+ * the rest; with an admin's `gh`, it compares that too, and fails if anyone may bypass.
  *
  * Needs the GitHub CLI, signed in as an admin of the repository. `--check` changes nothing, so it needs only a read:
  * `GH_TOKEN` set to an installation token of the drift check App (`APPS.driftCheck`) is enough, and is how the
@@ -274,8 +274,9 @@ export function rulesetProblems(live: unknown, wanted: ReturnType<typeof rules>)
  * failure.
  */
 export function reportLines(name: string, { problems, unseen }: Findings, actions: boolean): string[] {
-  const lines = problems.map((p) => (actions ? `::error title=${name}::${p}` : `  ✗ ${name}: ${p}`));
-  lines.push(...unseen.map((u) => (actions ? `::warning title=${name}::${u}` : `  ! ${name}: ${u}`)));
+  const title = annotationProperty(name);
+  const lines = problems.map((p) => (actions ? `::error title=${title}::${annotationData(p)}` : `  ✗ ${name}: ${p}`));
+  lines.push(...unseen.map((u) => (actions ? `::warning title=${title}::${annotationData(u)}` : `  ! ${name}: ${u}`)));
   if (!problems.length) {
     lines.push(
       unseen.length
@@ -285,6 +286,16 @@ export function reportLines(name: string, { problems, unseen }: Findings, action
   }
   return lines;
 }
+
+/**
+ * A workflow command's message, escaped as GitHub reads it back, so a name from a live read (a ruleset added in the
+ * browser) can neither end the annotation nor start a command of its own on the next line.
+ */
+export const annotationData = (text: string): string =>
+  text.replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
+
+/** A workflow command's property, such as its title, where `:` and `,` would also end it. */
+const annotationProperty = (text: string): string => annotationData(text).replaceAll(':', '%3A').replaceAll(',', '%2C');
 
 /** Compares a live environment with this script's: present, usable from main alone, and holding its key. */
 function checkEnvironment(wanted: KeyEnvironment): string[] {
