@@ -19,6 +19,6 @@ export function cutTo(text: string, max: number): string {
  * whenever the cut falls between characters, so a name cut before stays the same name.
  */
 export function cutAt(text: string, max: number): string {
-  const kept = text.slice(0, max);
+  const kept = text.slice(0, Math.max(0, max));
   return kept.length < text.length && /[\uD800-\uDBFF]$/.test(kept) ? kept.slice(0, -1) : kept;
 }

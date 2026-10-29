@@ -14,7 +14,7 @@
  * gates, and are left out; nor is the review gate's (ADR 0014), which is Martin's say, not a gate a change can pass:
  * it waits for his approval, which comes after the gates.
  */
-import { type EventType, type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
+import { cutAt, cutTo, type EventType, type NewEvent, type PayloadOf, VERSIONS } from '@software-factory/events';
 import { APP_LOGIN } from '../github/actions.ts';
 import type { CheckRun, PullRequestState } from '../github/reads.ts';
 import { whatClearedOnLook } from './verify.ts';
@@ -117,7 +117,7 @@ export function gateEvents(
         type: 'work-item.closed',
         actor: cleared.by,
         summary: `PR #${pr.number} was closed unmerged, its signal cleared: verified`,
-        payload: { outcome: 'verified', reason: whatClearedOnLook(cleared.look).slice(0, 200) },
+        payload: { outcome: 'verified', reason: cutTo(whatClearedOnLook(cleared.look), 200) },
       },
     ];
   }
@@ -154,7 +154,7 @@ function gateRun(
   const pullRequest = pr.number;
 
   if (!record.started.has(commit)) {
-    const checks = [...new Set([...required, ...latest.keys()])].map((name) => name.slice(0, 80)).slice(0, 40);
+    const checks = [...new Set([...required, ...latest.keys()])].map((name) => cutAt(name, 80)).slice(0, 40);
     drafts.push({
       type: 'gates.started',
       actor: 'actions',
@@ -165,15 +165,16 @@ function gateRun(
   for (const run of latest.values()) {
     if (run.status !== 'completed' || record.finished.has(`${commit} ${run.name}`)) continue;
     const conclusion = outcome(run.conclusion);
-    const summary = run.title?.trim().slice(0, 200);
+    const title = run.title?.trim();
+    const summary = title === undefined ? undefined : cutTo(title, 200);
     drafts.push({
       type: 'gate.finished',
       actor: 'actions',
-      summary: `${run.name.slice(0, 80)} ${conclusion === 'success' ? 'passed' : conclusion === 'skipped' ? 'was skipped' : 'failed'}`,
+      summary: `${cutAt(run.name, 80)} ${conclusion === 'success' ? 'passed' : conclusion === 'skipped' ? 'was skipped' : 'failed'}`,
       payload: {
         pullRequest,
         commit,
-        check: run.name.slice(0, 80),
+        check: cutAt(run.name, 80),
         conclusion,
         required: required.includes(run.name),
         durationMs: durationOf(run),
@@ -190,7 +191,7 @@ function gateRun(
       summary: failed.length
         ? `${failed[0]} failed on PR #${pullRequest}`
         : unfinished.length
-          ? `PR #${pullRequest} merged before ${unfinished[0]?.slice(0, 80)} finished`
+          ? `PR #${pullRequest} merged before ${cutAt(unfinished[0] ?? '', 80)} finished`
           : `All ${judged.length} required checks passed on PR #${pullRequest}`,
       payload: {
         pullRequest,
@@ -235,7 +236,7 @@ export function judge(latest: ReadonlyMap<string, CheckRun>, everyRequired: read
   );
   const relevant = required.length ? required : all.map((run) => run.name);
   const unfinished = relevant.filter((name) => !judged.some((run) => run.name === name));
-  const failed = judged.filter((run) => outcome(run.conclusion) === 'failure').map((run) => run.name.slice(0, 80));
+  const failed = judged.filter((run) => outcome(run.conclusion) === 'failure').map((run) => cutAt(run.name, 80));
   const passed = finished.filter((run) => outcome(run.conclusion) === 'success').length;
   return { waiting, judged, unfinished, failed, passed };
 }

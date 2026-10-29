@@ -927,6 +927,13 @@ describe('Martin’s answer to a hold', () => {
     expect(decide(again, facts).next).toEqual({ do: 'step', agent: 'describer', round: 2 });
   });
 
+  it('cuts his words to fit the reason, never inside an emoji', () => {
+    const lead = 'Martin sent it back: '.length;
+    const words = `${'a'.repeat(198 - lead)}😀 and more`;
+    const waiting = [...approvedAndDescribed, held('merge', 'review'), answer('answered', words)];
+    expect(decide(waiting, facts).next).toMatchObject({ reason: `Martin sent it back: ${'a'.repeat(198 - lead)}…` });
+  });
+
   it('has a rule for every cause and every answer', () => {
     for (const cause of HOLD_CAUSES) {
       expect(Object.keys(ANSWERS[cause]).sort()).toEqual(['answered', 'approved', 'rejected']);
