@@ -54,6 +54,107 @@ export const STATE: Record<Status, { label: string; tone: 'faint' | 'signal' | '
   failed: { label: 'failed', tone: 'attn' },
 };
 
+/* ---- Motion worked out from the drawing ---------------------------------------------- */
+
+const f2 = (n: number) => n.toFixed(2);
+
+/** One keyframe rule from [percent, transform] pairs. */
+function keyframes(name: string, frames: [number, string][]): string {
+  return `@keyframes ${name} { ${frames.map(([at, t]) => `${f2(at)}% { transform: ${t}; }`).join(' ')} }`;
+}
+
+/*
+ * Plan's compass turns once about its needle point, on the roof's front edge, and the nib traces an ellipse centred there,
+ * so the near half of the circle crosses the machine's face. Each leg is a stroke of its rest length placed by translate,
+ * rotate and scaleY along its length, so its width never changes as it foreshortens; the hinge rides on top. The turn
+ * takes 16 steps over the first 75% of the cycle, and the compass rests while the circle fades.
+ */
+const NEEDLE = { x: 66, y: 44 };
+const HINGE = { dx: 9, dy: -34 }; // from the needle point, at rest
+const CIRCLE = { rx: 18, ry: 5 };
+const LEG = 35; // each leg as drawn, pointing up from its foot
+const TURN = 75;
+
+/** A leg from its foot (ax, ay) to the hinge (bx, by), as a transform of the upright stroke it is drawn as. */
+function leg(ax: number, ay: number, bx: number, by: number, rest: number): string {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const angle = (Math.atan2(dx, -dy) * 180) / Math.PI;
+  return `translate(${f2(ax)}px, ${f2(ay)}px) rotate(${f2(angle)}deg) scaleY(${(Math.hypot(dx, dy) / rest).toFixed(3)})`;
+}
+
+function compassAt(turn: number): { needle: string; nib: string; hinge: string } {
+  const c = Math.cos(turn);
+  const s = Math.sin(turn);
+  const hx = NEEDLE.x + HINGE.dx * c;
+  const hy = NEEDLE.y + HINGE.dy + HINGE.dx * (CIRCLE.ry / CIRCLE.rx) * s;
+  const px = NEEDLE.x + CIRCLE.rx * c;
+  const py = NEEDLE.y + CIRCLE.ry * s;
+  return {
+    needle: leg(NEEDLE.x, NEEDLE.y, hx, hy, Math.hypot(HINGE.dx, HINGE.dy)),
+    nib: leg(px, py, hx, hy, Math.hypot(HINGE.dx - CIRCLE.rx, HINGE.dy)),
+    hinge: `translate(${f2(hx)}px, ${f2(hy)}px)`,
+  };
+}
+
+const COMPASS_REST = compassAt(0);
+const COMPASS_STEPS = Array.from({ length: 17 }, (_, n) => [(TURN * n) / 16, compassAt((2 * Math.PI * n) / 16)] as const);
+const COMPASS_KEYFRAMES = (['needle', 'nib', 'hinge'] as const)
+  .map((part) => keyframes(part, [
+    ...COMPASS_STEPS.map(([at, pose]): [number, string] => [at, pose[part]]),
+    [100, COMPASS_REST[part]],
+  ]))
+  .join('\n');
+
+/*
+ * Verify's pen signs MR in one stroke, as in the mark: the M's last downstroke is the R's stem. The signature is drawn by
+ * stroke-dashoffset, which runs at an even pace along its length, so the pen's keyframes are points at equal lengths along
+ * the same curve, and the nib stays on the ink. It signs over the first 60% of the cycle, lifts away, and comes back.
+ */
+const SIG = 'M0 16 C1 10 2.5 4 3.5 0.5 C5 4 7 8 8.5 10.5 C10 7 11.5 3 13 0.5 C13 6 13 11 13 16 '
+  + 'C13 11 13 5 13 0.5 C20 -0.5 23 1.5 23 4 C23 7 18 8.5 13.5 8 C17 10 20 13.5 22.5 16 C26 19 32 17 36 12';
+const SIGNED = 60;
+const PEN_UP = 'translate(40px, -4px)';
+
+function alongSignature(steps: number): [number, number][] {
+  const n = (SIG.match(/-?[\d.]+/g) ?? []).map(Number);
+  const points: [number, number][] = [];
+  let x = n[0] ?? 0;
+  let y = n[1] ?? 0;
+  for (let i = 2; i + 5 < n.length; i += 6) {
+    const [x1, y1, x2, y2, x3, y3] = n.slice(i, i + 6) as [number, number, number, number, number, number];
+    for (let j = 0; j < 200; j++) {
+      const t = j / 200;
+      const u = 1 - t;
+      points.push([
+        u * u * u * x + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3,
+        u * u * u * y + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3,
+      ]);
+    }
+    x = x3;
+    y = y3;
+  }
+  points.push([x, y]);
+  const lengths = [0];
+  for (let i = 1; i < points.length; i++) {
+    const [ax, ay] = points[i - 1] as [number, number];
+    const [bx, by] = points[i] as [number, number];
+    lengths.push((lengths[i - 1] as number) + Math.hypot(bx - ax, by - ay));
+  }
+  const total = lengths[lengths.length - 1] as number;
+  return Array.from({ length: steps + 1 }, (_, k) => {
+    const i = lengths.findIndex((l) => l >= (total * k) / steps - 1e-9);
+    return points[i] as [number, number];
+  });
+}
+
+const PEN_STEPS = alongSignature(36);
+const PEN_START = `translate(${f2(PEN_STEPS[0]?.[0] ?? 0)}px, ${f2(PEN_STEPS[0]?.[1] ?? 0)}px)`;
+const SIGN_KEYFRAMES = keyframes('sign', [
+  ...PEN_STEPS.map(([x, y], k): [number, string] => [(SIGNED * k) / 36, `translate(${f2(x)}px, ${f2(y)}px)`]),
+  [68, PEN_UP], [92, PEN_UP], [100, PEN_START],
+]);
+
 const CSS = `
 :host {
   display: inline-block; position: relative; vertical-align: top;
@@ -124,12 +225,23 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
 :host([bird="out"]) .bird-ok, :host([bird="out"]) .bird-down { visibility: hidden; }
 
 /* Pivots, in the SVG's user units */
-.pivot, .sense-dish, .plan-arm, .build-arm, .gate-boom, .lens, .bird-ok, .stamp, .belt-run,
-.eyes, .bar, .drop, .puff, .sparks, .rattle, .note, .wave, .light, .glint, .alarm, .zz path {
+.pivot, .sense-dish, .needle, .nib, .hinge, .pen, .build-arm, .gate-boom, .lens, .bird-ok, .belt-run,
+.eyes, .bar, .sift, .reject, .pass, .puff, .sparks, .rattle, .note, .wave, .glint, .alarm, .zz path {
   transform-box: view-box;
 }
 .sense-dish { transform-origin: 74px 31px; }
-.plan-arm   { transform-origin: 74px 8px; }
+/* Triage's funnel is drawn at 85%: its strokes are thickened to match, so they keep the line's weight. */
+.funnel .part   { stroke-width: 2.06; }
+.funnel .parcel { stroke-width: 1.76; }
+.reject     { transform-origin: 65px 11px; }
+.needle     { transform: ${COMPASS_REST.needle}; }
+.nib        { transform: ${COMPASS_REST.nib}; }
+.hinge      { transform: ${COMPASS_REST.hinge}; }
+.lens       { transform-origin: 56px 10px; }
+.glass      { fill: var(--_steel); fill-opacity: .5; stroke: var(--_ink); stroke-width: 2.25; }
+.tick       { opacity: 0; }
+.s-passing .tick { opacity: 1; }
+.pen        { transform: ${PEN_UP}; }
 .build-arm  { transform-origin: 74px 38px; transform: rotate(-18deg); }
 .gate-boom  { transform-origin: 59px 16.5px; }
 .s-passing .gate-boom { transform: rotate(-55deg); }
@@ -170,28 +282,40 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
   :host(:not([motion="off"])) .s-working .wave,
   :host(:not([motion="off"])) .s-returning .wave { animation: pulse-op 1.6s ease-in-out infinite; }
   :host(:not([motion="off"])) .wave + .wave { animation-delay: .4s; }
-  :host(:not([motion="off"])) .s-working .drop,
-  :host(:not([motion="off"])) .s-returning .drop { animation: drop 1.5s ease-in infinite; }
-  :host(:not([motion="off"])) .s-working .light,
-  :host(:not([motion="off"])) .s-returning .light { animation: pulse-op 1.5s ease-in-out infinite; }
-  :host(:not([motion="off"])) .light:nth-of-type(2) { animation-delay: .5s; }
-  :host(:not([motion="off"])) .light:nth-of-type(3) { animation-delay: 1s; }
-  :host(:not([motion="off"])) .s-working .plan-arm,
-  :host(:not([motion="off"])) .s-returning .plan-arm { animation: swing 2.2s ease-in-out infinite; }
+  :host(:not([motion="off"])) .s-working .sift,
+  :host(:not([motion="off"])) .s-returning .sift { animation: sift 2.8s linear infinite; }
+  :host(:not([motion="off"])) .s-working .reject,
+  :host(:not([motion="off"])) .s-returning .reject { animation: reject 2.8s linear infinite; }
+  :host(:not([motion="off"])) .s-working .pass,
+  :host(:not([motion="off"])) .s-returning .pass { animation: pass 2.8s linear infinite; }
+  :host(:not([motion="off"])) .s-working .needle,
+  :host(:not([motion="off"])) .s-returning .needle { animation: needle 3.2s linear infinite; }
+  :host(:not([motion="off"])) .s-working .nib,
+  :host(:not([motion="off"])) .s-returning .nib { animation: nib 3.2s linear infinite; }
+  :host(:not([motion="off"])) .s-working .hinge,
+  :host(:not([motion="off"])) .s-returning .hinge { animation: hinge 3.2s linear infinite; }
   :host(:not([motion="off"])) .s-working .arc,
-  :host(:not([motion="off"])) .s-returning .arc { animation: draw 2.2s ease-in-out infinite; }
+  :host(:not([motion="off"])) .s-returning .arc { animation: trace 3.2s linear infinite; }
   :host(:not([motion="off"])) .s-working .build-arm,
   :host(:not([motion="off"])) .s-returning .build-arm { animation: hammer .7s ease-in-out infinite; }
   :host(:not([motion="off"])) .s-working .gate-boom,
   :host(:not([motion="off"])) .s-returning .gate-boom { animation: wobble 1.2s ease-in-out infinite; }
   :host(:not([motion="off"])) .s-working .lens,
-  :host(:not([motion="off"])) .s-returning .lens { animation: scan 2.6s ease-in-out infinite; }
+  :host(:not([motion="off"])) .s-returning .lens { animation: read 4.8s ease-in-out infinite; }
+  :host(:not([motion="off"])) .s-working .tick,
+  :host(:not([motion="off"])) .s-returning .tick { animation: tick-1 4.8s linear infinite; }
+  :host(:not([motion="off"])) .s-working .tick + .tick,
+  :host(:not([motion="off"])) .s-returning .tick + .tick { animation-name: tick-2; }
+  :host(:not([motion="off"])) .s-working .tick + .tick + .tick,
+  :host(:not([motion="off"])) .s-returning .tick + .tick + .tick { animation-name: tick-3; }
   :host(:not([motion="off"])) .s-working .bird-ok,
   :host(:not([motion="off"])) .s-returning .bird-ok { animation: bob .6s ease-in-out infinite; }
   :host(:not([motion="off"])) .s-passing .bird-ok { animation: bob 1.2s ease-in-out infinite; }
   :host(:not([motion="off"])) .note { animation: pulse-op 1.6s ease-in-out infinite; }
-  :host(:not([motion="off"])) .s-working .stamp,
-  :host(:not([motion="off"])) .s-returning .stamp { animation: press .9s ease-in-out infinite; }
+  :host(:not([motion="off"])) .s-working .pen,
+  :host(:not([motion="off"])) .s-returning .pen { animation: sign 3.6s linear infinite; }
+  :host(:not([motion="off"])) .s-working .sig,
+  :host(:not([motion="off"])) .s-returning .sig { animation: ink 3.6s linear infinite; }
 }
 @keyframes belt      { to { transform: translateX(21px); } }
 @keyframes belt-back { to { transform: translateX(-21px); } }
@@ -204,19 +328,41 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
 @keyframes puff      { from { transform: translateY(0) scale(1); opacity: .7; } to { transform: translateY(-36px) scale(2.4); opacity: 0; } }
 @keyframes sweep     { 0%, 100% { transform: rotate(-14deg); } 50% { transform: rotate(14deg); } }
 @keyframes pulse-op  { 0%, 100% { opacity: .15; } 50% { opacity: 1; } }
-@keyframes drop      { from { transform: translateY(-4px); opacity: 1; } 80% { opacity: 1; } to { transform: translateY(20px); opacity: 0; } }
-@keyframes swing     { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(12deg); } }
-@keyframes draw      { from { stroke-dashoffset: 30; } to { stroke-dashoffset: 0; } }
+/* Triage: a big parcel lands, then a small one; a shake, and the big one is tossed out while the small one goes down. */
+@keyframes reject    { 0% { transform: translateY(-30px); opacity: 0; animation-timing-function: ease-in; } 6% { opacity: 1; }
+  20% { transform: translateY(0); animation-timing-function: ease-out; } 25% { transform: translateY(-3px); animation-timing-function: ease-in; }
+  30%, 62% { transform: translateY(0); opacity: 1; animation-timing-function: ease-out; }
+  72% { transform: translate(-14px, -14px) rotate(-40deg); opacity: 1; animation-timing-function: ease-in; }
+  86%, 100% { transform: translate(-28px, 10px) rotate(-90deg); opacity: 0; } }
+@keyframes pass      { 0%, 26% { transform: translateY(-34px); opacity: 0; animation-timing-function: ease-in; } 30% { opacity: 1; }
+  42% { transform: translateY(0); animation-timing-function: ease-out; } 46% { transform: translateY(-2px); animation-timing-function: ease-in; }
+  50%, 66% { transform: translateY(0); opacity: 1; animation-timing-function: ease-in-out; }
+  72% { transform: translate(-4.5px, 4px); animation-timing-function: ease-in; } 90%, 100% { transform: translate(-4.5px, 28px); opacity: 1; } }
+@keyframes sift      { 0%, 52%, 67%, 100% { transform: translateX(0); } 55% { transform: translateX(-2px); }
+  58% { transform: translateX(2px); } 61% { transform: translateX(-2px); } 64% { transform: translateX(1.5px); } }
+/* Plan: the compass's turn, worked out above, and its circle drawn as the nib goes round, then faded. */
+${COMPASS_KEYFRAMES}
+@keyframes trace     { 0% { stroke-dashoffset: 100; opacity: 1; } 75% { stroke-dashoffset: 0; } 88% { opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+/* Review: the lens reads a line, leans in at its end, and a tick goes in the margin; three lines, then back to the top. */
+@keyframes read      { 0% { transform: translate(0, 0); } 14% { transform: translate(18px, 0) scale(1); } 19% { transform: translate(18px, 0) scale(1.18); }
+  25% { transform: translate(18px, 0) scale(1); } 32% { transform: translate(0, 8px); } 46% { transform: translate(18px, 8px) scale(1); }
+  51% { transform: translate(18px, 8px) scale(1.18); } 57% { transform: translate(18px, 8px) scale(1); } 64% { transform: translate(0, 16px); }
+  78% { transform: translate(18px, 16px) scale(1); } 83% { transform: translate(18px, 16px) scale(1.18); } 89% { transform: translate(18px, 16px) scale(1); }
+  100% { transform: translate(0, 0); } }
+@keyframes tick-1    { 0%, 21% { opacity: 0; } 23%, 94% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tick-2    { 0%, 53% { opacity: 0; } 55%, 94% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tick-3    { 0%, 85% { opacity: 0; } 87%, 94% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes hammer    { 0%, 100% { transform: rotate(-32deg); } 55% { transform: rotate(14deg); } }
 @keyframes wobble    { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(-3deg); } }
-@keyframes scan      { 0%, 100% { transform: translateX(-12px); } 50% { transform: translateX(12px); } }
 @keyframes bob       { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 @keyframes sparks    { 0% { opacity: 1; transform: scale(1); } 6% { opacity: .2; transform: scale(1.25); } 10% { opacity: 1; transform: scale(.9); } 16%, 100% { opacity: 0; } }
 @keyframes rattle    { 0%, 64%, 100% { transform: translate(0, 0) rotate(0); }
   67% { transform: translate(-1.5px, -.5px) rotate(-1.4deg); } 70% { transform: translate(1.5px, 0) rotate(1.2deg); }
   73% { transform: translate(-1px, -.8px) rotate(-1deg); } 76% { transform: translate(1.2px, 0) rotate(.9deg); }
   79% { transform: translate(-.6px, -.3px) rotate(-.5deg); } 82% { transform: translate(0, 0) rotate(0); } }
-@keyframes press     { 0%, 100% { transform: translateY(0); } 45% { transform: translateY(6px); } }
+/* Verify: the pen signs along the signature, worked out above, lifts, and the signature fades for the next. */
+${SIGN_KEYFRAMES}
+@keyframes ink       { 0% { stroke-dashoffset: 100; opacity: 1; } ${SIGNED}% { stroke-dashoffset: 0; } 88% { opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
 `;
 
 /* ---- Tools: what the stage does ------------------------------------------------------ */
@@ -234,21 +380,18 @@ const TOOLS: Record<Kind, (status: Status) => string> = {
       <path class="tone wave" stroke-width="2" d="M104 6 q10 12 0 24"/>
     </g>`,
 
+  // At rest, both parcels sit in the funnel.
   triage: () => `
-    <rect class="parcel drop" x="70" y="-6" width="8" height="8" rx="1"/>
-    <path class="part" d="M50 10 H98 L80 30 V44 H68 V30 Z"/>
-    <circle class="tone-fill light" cx="62" cy="17" r="2.6"/>
-    <circle class="tone-fill light" cx="74" cy="17" r="2.6"/>
-    <circle class="tone-fill light" cx="86" cy="17" r="2.6"/>`,
-
-  plan: () => `
-    <rect class="steel" x="30" y="32" width="26" height="11" rx="5.5"/>
-    <circle class="ink" cx="36" cy="37.5" r="2"/>
-    <path class="tone arc" stroke-width="2" stroke-dasharray="30" d="M62 42 Q74 32 86 42"/>
-    <g class="plan-arm">
-      <path class="line" stroke-width="2" d="M74 8 L61 43 M74 8 L87 43"/>
-      <circle class="part" cx="74" cy="8" r="4.5"/>
+    <g class="funnel" transform="translate(74 44) scale(.85) translate(-74 -44)">
+      <g class="sift">
+        <path class="part" d="M50 10 H98 L80 30 V44 H68 V30 Z"/>
+        <rect class="parcel reject" x="59" y="5" width="12" height="12" rx="1.5"/>
+        <rect class="parcel pass" x="75" y="18" width="7" height="7" rx="1"/>
+      </g>
     </g>`,
+
+  // The compass is drawn over the chassis (FRONT, below).
+  plan: () => '',
 
   build: () => `
     <rect class="ink" x="64" y="36" width="20" height="8" rx="1.5"/>
@@ -268,12 +411,19 @@ const TOOLS: Record<Kind, (status: Status) => string> = {
     </g>
     <circle class="ink" cx="59" cy="16.5" r="3.5"/>`,
 
+  // A page; the lens shows the line under it larger and bolder, and a tick goes in the margin as each line is read.
   review: () => `
+    <path class="part" d="M46 0 H84 L92 8 V44 H46 Z"/>
+    <path class="thin" d="M84 0 V8 H92"/>
+    <path class="thin" d="M52 10 h12 m3 0 h9 M56 18 h8 m3 0 h12 M52 26 h15 m3 0 h5 M52 34 h9"/>
+    <path class="tone tick" stroke-width="2" d="M83 10 l2.5 2.5 4.5 -5"/>
+    <path class="tone tick" stroke-width="2" d="M83 18 l2.5 2.5 4.5 -5"/>
+    <path class="tone tick" stroke-width="2" d="M83 26 l2.5 2.5 4.5 -5"/>
     <g class="lens">
-      <path class="line" stroke-width="5" d="M81 23 L92 38"/>
-      <circle class="steel" cx="72" cy="14" r="12" stroke-width="2.5"/>
-      <path class="thin glare" d="M64 10 q3 -4 8 -4"/>
-      <circle class="ink" cx="74" cy="15" r="3.5"/>
+      <path class="line" stroke-width="5" d="M48.22 17.78 l-9.5 9.5"/>
+      <circle class="glass" cx="56" cy="10" r="11"/>
+      <path class="line" stroke-width="2.5" d="M47.5 10 h8 m2.5 0 h7.5"/>
+      <path class="thin glare" d="M48 7 q2 -3 6 -3"/>
     </g>`,
 
   release: (status) => {
@@ -305,13 +455,31 @@ const TOOLS: Record<Kind, (status: Status) => string> = {
     return cage + bird + bars + note;
   },
 
+  // A card with a dotted line to sign on; the pen signs MR.
   verify: () => `
-    <g class="stamp">
-      <rect class="ink" x="70" y="10" width="8" height="13"/>
-      <circle class="tone-fill rim" cx="74" cy="5" r="6.5" stroke-width="2"/>
-      <rect class="part" x="56" y="22" width="36" height="11" rx="2.5"/>
-      <rect class="tone-fill rim" x="59" y="33" width="30" height="4" rx="1" stroke-width="1.5"/>
+    <rect class="part" x="50" y="10" width="48" height="34" rx="1.5"/>
+    <path class="thin" stroke-dasharray="2 2.5" d="M54 37 H94"/>
+    <g transform="translate(57 17)">
+      <path class="tone sig" stroke-width="2" pathLength="100" stroke-dasharray="100" d="${SIG}"/>
+      <g class="pen">
+        <path class="part" d="M2.5 -5.5 L14 -17 L17 -14 L5.5 -2.5 Z"/>
+        <path class="ink" d="M0 0 L2.5 -5.5 L5.5 -2.5 Z"/>
+        <path class="ink" d="M14 -17 L16.5 -19.5 L19.5 -16.5 L17 -14 Z"/>
+      </g>
     </g>`,
+};
+
+/** Drawn over the chassis: the compass's circle lies across the roof and over its front edge. */
+const FRONT: Partial<Record<Kind, (status: Status) => string>> = {
+  plan: () => `
+    <ellipse class="tone arc" stroke-width="2" pathLength="100" stroke-dasharray="100"
+      cx="${NEEDLE.x}" cy="${NEEDLE.y}" rx="${CIRCLE.rx}" ry="${CIRCLE.ry}"/>
+    <path class="line needle" stroke-width="2" d="M0 0 V-${LEG}"/>
+    <g class="nib">
+      <path class="line" stroke-width="2" d="M0 -5.5 V-${LEG}"/>
+      <path class="tone" stroke-width="3" d="M0 0 V-5.5"/>
+    </g>
+    <circle class="part hinge" r="4.5"/>`,
 };
 
 /* ---- Faces, hatches and extras: how it is doing -------------------------------------- */
@@ -409,6 +577,7 @@ function render(kind: Kind, status: Status, beacon: Beacon | undefined): string 
   <rect class="face" x="42" y="58" width="84" height="48" rx="8"/>
   <rect class="steel" x="40" y="118" width="88" height="22" rx="4" stroke-width="1.5"/>
   <circle class="ink" cx="36" cy="52" r="1.6"/><circle class="ink" cx="36" cy="142" r="1.6"/><circle class="ink" cx="132" cy="142" r="1.6"/>
+  ${FRONT[kind]?.(status) ?? ''}
 
   <!-- beacon -->
   <rect class="ink" x="116" y="36" width="18" height="8" rx="1.5"/>
