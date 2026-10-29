@@ -7,6 +7,7 @@
  *     GET  /health
  */
 import { createServer, type Server } from 'node:http';
+import { cutAt } from '@software-factory/events';
 import type { ArtifactStore } from '@software-factory/store';
 import { capture } from '../capture.ts';
 import type { BrowserSense } from '../senses/browser.ts';
@@ -21,7 +22,7 @@ export function passagesOf(text: string): string[] {
   const passages: string[] = [];
   for (const line of text.split(/\n+/)) {
     for (const sentence of line.split(/(?<=[.!?])\s+/)) {
-      const passage = sentence.replace(/\s+/g, ' ').trim().slice(0, MAX_PASSAGE_LENGTH).trim();
+      const passage = cutAt(sentence.replace(/\s+/g, ' ').trim(), MAX_PASSAGE_LENGTH).trim();
       if (!passage || seen.has(passage)) continue;
       seen.add(passage);
       passages.push(passage);

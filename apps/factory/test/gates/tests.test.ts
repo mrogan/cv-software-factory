@@ -343,6 +343,15 @@ describe('journeys, as the canary’s analysis Job reports them', () => {
     ]);
   });
 
+  it('cuts a check’s name as before, with no mark, and its words with one, neither inside an emoji', () => {
+    const named = { ...regressed, check: `${'c'.repeat(79)}😀 more`, message: `${'m'.repeat(298)}😀 more` };
+    const [cut] = regressionsIn(comparisonMessage(comparison([named]))) ?? [];
+    expect(cut?.check).toBe('c'.repeat(79));
+    expect(cut?.message).toBe(`${'m'.repeat(298)}…`);
+    const plain = { ...regressed, check: 'c'.repeat(100) };
+    expect(regressionsIn(comparisonMessage(comparison([plain])))?.[0]?.check).toBe('c'.repeat(80));
+  });
+
   it('fits Kubernetes’s 4 KiB, naming as many as fit and counting the rest', () => {
     const long = Array.from({ length: 20 }, (_, i) => ({
       ...regressed,

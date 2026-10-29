@@ -3,7 +3,7 @@
  * post can tell they need no reply. The form's fields are found by what they are (an email box, a message box), not
  * by what their labels say.
  */
-import type { Evidence } from '@software-factory/events';
+import { cutTo, type Evidence } from '@software-factory/events';
 import type { BrowserCheck } from '../senses/browser.ts';
 import { evidenceOf } from '../senses/http.ts';
 import { badStatus, type Context, fail, type Shop, visit } from './site.ts';
@@ -75,7 +75,7 @@ async function send(context: Context, message: Message) {
           .catch(() => '')
       : (text.match(new RegExp(`[^.\\n]*${COMPLAINT.source}[^.\\n]*`, 'i'))?.[0] ?? '');
     if (said.trim()) {
-      return fail('rejects-valid-input', `The contact form refused a valid message: "${said.trim().slice(0, 120)}".`, {
+      return fail('rejects-valid-input', `The contact form refused a valid message: "${cutTo(said.trim(), 120)}".`, {
         evidence,
         look,
       });

@@ -106,4 +106,12 @@ describe('the page reader', () => {
     const [passage] = passagesOf(`${'Long '.repeat(80)}end.`);
     expect(passage?.length).toBeLessThanOrEqual(MAX_PASSAGE_LENGTH);
   });
+
+  it('cuts a passage as a fingerprint keeps it: as before with no emoji, and never inside one', () => {
+    const plain = `${'Long '.repeat(80)}end.`;
+    expect(passagesOf(plain)[0]).toBe(plain.slice(0, MAX_PASSAGE_LENGTH).trim());
+    // The emoji's first half would be the passage's last unit: it goes with its second, and no mark is added.
+    const [passage] = passagesOf(`${'a'.repeat(MAX_PASSAGE_LENGTH - 1)}😀 and more.`);
+    expect(passage).toBe('a'.repeat(MAX_PASSAGE_LENGTH - 1));
+  });
 });

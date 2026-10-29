@@ -298,7 +298,15 @@ describe('a release, from the Rollout and its runs', () => {
         weight: 25,
         reason: message,
         failed: [
-          { name: 'latency', phase: 'failed', value: 0.2473, limit: 0, message: 'x'.repeat(300), series, failures: 2 },
+          {
+            name: 'latency',
+            phase: 'failed',
+            value: 0.2473,
+            limit: 0,
+            message: `${'x'.repeat(299)}…`,
+            series,
+            failures: 2,
+          },
         ],
         dryRun: false,
       },

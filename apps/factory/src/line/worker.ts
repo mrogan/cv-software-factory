@@ -88,7 +88,15 @@ import type {
   SignalSource,
   SymptomClass,
 } from '@software-factory/events';
-import { returnWords, SENSES, scopesOverlap, upcast, WORDS_LEAVE_HELD, workItemsWords } from '@software-factory/events';
+import {
+  cutTo,
+  returnWords,
+  SENSES,
+  scopesOverlap,
+  upcast,
+  WORDS_LEAVE_HELD,
+  workItemsWords,
+} from '@software-factory/events';
 import {
   askedByMartin,
   byMartin,
@@ -2007,7 +2015,7 @@ function acceptedWords(findings: number, suggestions: number): string {
 export function waitReason(on: readonly string[], files: readonly string[]): string {
   const who = workItemsWords(on, '').replace(/^work items? /, '');
   const what = files.length > 2 ? `${files.slice(0, 2).join(', ')} and ${files.length - 2} more` : files.join(' and ');
-  return `Waits for ${who}, whose spec${on.length > 1 ? 's also change' : ' also changes'} ${what}`.slice(0, 300);
+  return cutTo(`Waits for ${who}, whose spec${on.length > 1 ? 's also change' : ' also changes'} ${what}`, 300);
 }
 
 /**

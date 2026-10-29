@@ -21,10 +21,21 @@ export function runnerLog(env: NodeJS.ProcessEnv, pod: Pod, write: (line: string
 }
 
 /**
+ * `text` at most `max` characters long: as it is when it fits, or its start ending in `…`, cut between characters and
+ * never inside an emoji. The factory's `cutTo` (`packages/events/src/text.ts`), copied: the runner's image holds this
+ * app and its own dependencies, and none of the factory's packages.
+ */
+export function cutTo(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const kept = text.slice(0, Math.max(0, max - 1));
+  return `${/[\uD800-\uDBFF]$/.test(kept) ? kept.slice(0, -1) : kept}…`;
+}
+
+/**
  * Free text on a line, cut to a bound: the line keeps a pod's last lines, so each must be short for those lines to
  * fit. The same bound as a handback's error.
  */
-export const bounded = (text: string): string => text.slice(0, 4000);
+export const bounded = (text: string): string => cutTo(text, 4000);
 
 /** An error's own words, as a line's `error`. */
 export const errorText = (error: unknown): string => bounded(error instanceof Error ? error.message : String(error));
