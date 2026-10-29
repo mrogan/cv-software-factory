@@ -23,10 +23,9 @@ import { chromium } from '@playwright/test';
 import { enrolThroughTheDoor, startHarness, virtualPasskey } from '../e2e/admin.ts';
 
 /**
- * ZAP 2.17.0, by digest, moved by hand. The pin fixes ZAP, not its rules: zap-baseline.py, started without `-silent`,
- * updates ZAP's add-ons and installs the beta passive rules as it starts (`-addonupdate -addoninstall pscanrulesBeta`),
- * so each scan reads with ZAP's newest rules, beta ones included. A new rule can fail a pull request that changed
- * nothing; its finding is read, and fixed or given an exception in `rules.tsv`, like any other.
+ * ZAP 2.17.0, by digest, moved by hand. It caps the rules but does not fix them: zap-baseline.py, started without
+ * `-silent`, updates ZAP's add-ons and installs the beta passive rules as it starts, so each scan takes the newest rules
+ * this ZAP can run (docs/COMPONENTS/CI-PIPELINE.md).
  */
 const ZAP_IMAGE =
   'ghcr.io/zaproxy/zaproxy:2.17.0@sha256:5ccfff9a411743ab2615136a2edd7416bec9ce41572fa94e935df38c14adb2b6';

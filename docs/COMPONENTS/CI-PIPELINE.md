@@ -23,7 +23,7 @@ Deterministic gates (spec 4.1). Part of the [GitHub plane](README.md#github-plan
 - **Any finding fails it,** unless `apps/console/zap/rules.tsv` keeps an exception with its reason beside it; a test fails an exception with none.
 - **A scan that reached nothing fails too:** it must have read the page and Martin's session, signed in.
 - **A ZAP that stops before it answers stops the scan then,** with ZAP's log, rather than after zap-baseline's ten-minute wait. Its proxy has a port of its own, below the range outgoing connections take theirs from, since on Linux it shares the runner's network.
-- **Its rules are ZAP's newest on each scan,** beta ones included: ZAP's image moves by hand, but zap-baseline.py, started without `-silent`, updates ZAP's add-ons and installs the beta passive rules as it starts. A rule published after the pin still finds what it looks for, so a new finding can fail a pull request that changed nothing, and is read and fixed or given an exception in `rules.tsv` like any other.
+- **Its rules are the newest this ZAP can run, on each scan,** beta ones included: ZAP's image moves by hand, but zap-baseline.py, started without `-silent`, updates ZAP's add-ons (`-addonupdate`) and installs the beta passive rules (`-addoninstall pscanrulesBeta`) as it starts, when ZAP's add-on store answers. A rule published after the pin still finds what it looks for, unless it needs a newer ZAP, so a new finding can fail a pull request that changed nothing, and is read and fixed or given an exception in `rules.tsv` like any other.
 - The report is the job's artifact, `zap-report`.
 - It passes into the required `browser tests` check, as the browser tests do.
 
