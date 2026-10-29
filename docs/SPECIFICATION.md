@@ -217,7 +217,7 @@ Each is enforced by a mechanism, not an instruction, and has a test or demo prov
 7. **Hard spend caps** (daily, monthly, per task, visitor). At the cap, agents stop and the console says so.
 8. **All inputs are untrusted:** reports, logs, issues, web content.
 9. **Everything is reversible:** automatic rollback; stop the line always works.
-10. **Public means hostile.** The factory acts only on issues it created or Martin labelled; outside issues get a polite bot reply. Outside PRs are never run with secrets, reviewed with credentials or merged automatically. No self-hosted runners on public repos.
+10. **Public means hostile.** The factory acts only on issues it created, and reads none as work: Martin asks for work in the console. An issue anyone else opens gets one polite bot reply, and nothing more. Outside PRs are never run with secrets, reviewed with credentials or merged automatically: the review gate passes none Martin has not approved at its head. No self-hosted runners on public repos.
 11. **No fix widens its ticket.** Each acceptance criterion names the evidence it comes from, and a change tagged out-of-scope waits for a human in every autonomy mode.
 
 ## 7. Architecture

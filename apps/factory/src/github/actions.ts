@@ -12,7 +12,8 @@
  * Commits go through GraphQL's `createCommitOnBranch`, never `git push`: GitHub makes the commit and signs it as the
  * App, which `main`'s ruleset requires, and the factory never runs git in a working tree it does not control.
  *
- * Both refuse to move, delete or commit to a branch the factory does not own (`branches.ts`), whatever they are asked.
+ * Both refuse to move, delete or commit to a branch the factory does not own (`branches.ts`), and to comment on,
+ * label, close or reopen an issue the App did not open (`issues.ts`), whatever they are asked.
  */
 import type { ArtifactStore } from '@software-factory/store';
 import type { Logger } from 'pino';
@@ -20,6 +21,7 @@ import { z } from 'zod';
 import { guardBranch } from './branches.ts';
 import { type GitHub, GitHubError } from './client.ts';
 import { carriesSection, type Deploy, DeployRefused, deployTarget, deployTitle, withCarries } from './deploys.ts';
+import { type IssueAction, IssueGuard, openedBy } from './issues.ts';
 import { applyTo, filesIn, PatchRefused } from './patches.ts';
 import { CODEOWNERS_PATHS, inScope, protectedFrom } from './paths.ts';
 
@@ -167,6 +169,7 @@ export interface Actions {
    * same again changes nothing.
    */
   describeDeploy(repo: string, number: number, deploy: Deploy): Promise<boolean>;
+  /** Labels an issue or pull request the App opened. */
   addLabels(repo: string, number: number, labels: string[]): Promise<void>;
   /** Marks a draft pull request ready for review. */
   readyForReview(repo: string, pullRequest: PullRequestRef): Promise<void>;
@@ -189,12 +192,12 @@ export interface Actions {
   updateCheckRun(repo: string, id: number, report: Partial<CheckRunReport>): Promise<void>;
   openIssue(repo: string, issue: { title: string; body: string; labels?: string[] }): Promise<number>;
   /**
-   * Closes an issue. With a comment, it first says why on the issue, and only while the issue is open and does not say
+   * Closes an issue the App opened. With a comment, it first says why on the issue, and only while the issue is open and does not say
    * it already: closing one already closed, or trying again after a close that failed, says nothing again.
    */
   closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned', comment?: string): Promise<void>;
   /**
-   * Opens a closed issue again, first saying why on it. Only while the issue is closed, and without saying it twice:
+   * Opens a closed issue the App opened again, first saying why on it. Only while the issue is closed, and without saying it twice:
    * reopening one already open, or trying again after a reopening that failed, says nothing again.
    */
   reopenIssue(repo: string, number: number, comment: string): Promise<void>;
@@ -204,8 +207,9 @@ export interface Actions {
    */
   closePullRequest(repo: string, number: number, comment: string): Promise<void>;
   /**
-   * Says something on an issue or pull request, unless it says it already, word for word: trying again after a failure,
-   * or after a crash before the caller recorded it, says nothing twice.
+   * Says something on an issue or pull request the App opened, unless it says it already, word for word: trying again
+   * after a failure, or after a crash before the caller recorded it, says nothing twice. The one exception is the
+   * outside reply (`issues.ts`), on an issue opened by anyone but Martin or the App.
    */
   comment(repo: string, number: number, body: string): Promise<void>;
 }
@@ -313,10 +317,13 @@ export class LiveActions implements Actions {
    * older than one that landed meanwhile; the line describes the moved pull request again, for its new commit.
    */
   readonly #bodies = new Map<string, Promise<unknown>>();
+  readonly #guard: IssueGuard;
 
-  constructor(github: GitHub) {
+  /** `guard` holds the issue actions to the App's own issues; by default it asks GitHub, and keeps no record. */
+  constructor(github: GitHub, { guard }: { guard?: IssueGuard } = {}) {
     this.#github = github;
     this.#read = contentsReader(github);
+    this.#guard = guard ?? new IssueGuard({ openedBy: openedBy(github) });
   }
 
   async applyPatch(repo: string, { branch, expectedHead, patch, message }: PatchCommit): Promise<string> {
@@ -380,7 +387,8 @@ export class LiveActions implements Actions {
       { ...draft, draft: draft.draft ?? false },
       z.object({ number: NUMBER, html_url: z.string(), node_id: z.string().min(1) }),
     );
-    if (labels?.length) await this.addLabels(repo, made.number, labels);
+    // Its own pull request, just opened: nothing to ask the guard.
+    if (labels?.length) await this.#label(repo, made.number, labels);
     return { number: made.number, url: made.html_url, nodeId: made.node_id };
   }
 
@@ -421,6 +429,11 @@ export class LiveActions implements Actions {
   }
 
   async addLabels(repo: string, number: number, labels: string[]): Promise<void> {
+    await this.#guard.check(repo, number, 'addLabels');
+    await this.#label(repo, number, labels);
+  }
+
+  async #label(repo: string, number: number, labels: string[]): Promise<void> {
     await this.#github.write(repo, 'POST', `/repos/${repo}/issues/${number}/labels`, { labels });
   }
 
@@ -483,6 +496,7 @@ export class LiveActions implements Actions {
   }
 
   async closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned', comment?: string): Promise<void> {
+    await this.#guard.check(repo, number, 'closeIssue');
     if (comment !== undefined) {
       const issue = await this.#github.read(repo, `/repos/${repo}/issues/${number}`, ISSUE);
       if (issue.state !== 'open') return;
@@ -503,6 +517,7 @@ export class LiveActions implements Actions {
   }
 
   async reopenIssue(repo: string, number: number, comment: string): Promise<void> {
+    await this.#guard.check(repo, number, 'reopenIssue');
     const issue = await this.#github.read(repo, `/repos/${repo}/issues/${number}`, ISSUE);
     if (issue.state !== 'closed') return;
     // Only what was said since it closed counts: an earlier reopening may have said the same.
@@ -539,6 +554,7 @@ export class LiveActions implements Actions {
   }
 
   async comment(repo: string, number: number, body: string): Promise<void> {
+    await this.#guard.check(repo, number, 'comment', body);
     if (!(await this.#said(repo, number, body, null))) await this.#post(repo, number, body);
   }
 
@@ -618,6 +634,8 @@ export class DryRunActions implements Actions {
    * and far beyond any this repository will reach, so none can be taken for a real one.
    */
   #next = DRY_RUN_NUMBERS_FROM;
+  /** Holds the issue actions to the App's own issues, as the live actions' guard does, for those GitHub has. */
+  readonly #guard: IssueGuard;
 
   constructor(
     artifacts: ArtifactStore,
@@ -626,11 +644,30 @@ export class DryRunActions implements Actions {
     read: ReadFile = async () => {
       throw new Error('This dry run reads no files.');
     },
+    guard: IssueGuard = new IssueGuard({
+      openedBy: async () => {
+        throw new Error('This dry run reads no issues.');
+      },
+      artifacts,
+      log,
+      now,
+    }),
   ) {
     this.#artifacts = artifacts;
     this.#log = log;
     this.#now = now;
     this.#read = read;
+    this.#guard = guard;
+  }
+
+  /**
+   * Refuses an issue action the live actions' guard would, on an issue GitHub has. An issue or pull request numbered
+   * from `DRY_RUN_NUMBERS_FROM` up is one this dry run made, which GitHub never had, as the App: it passes, whether
+   * this worker remembers it or has started again since.
+   */
+  async #guarded(repo: string, number: number, action: IssueAction, body?: string): Promise<void> {
+    if (number >= DRY_RUN_NUMBERS_FROM) return;
+    await this.#guard.check(repo, number, action, body);
   }
 
   /** A commit this dry run would have made, or undefined for any other. */
@@ -753,6 +790,7 @@ export class DryRunActions implements Actions {
   }
 
   async addLabels(repo: string, number: number, labels: string[]): Promise<void> {
+    await this.#guarded(repo, number, 'addLabels');
     await this.#record('addLabels', repo, { number, labels });
   }
 
@@ -796,10 +834,12 @@ export class DryRunActions implements Actions {
   }
 
   async closeIssue(repo: string, number: number, reason: 'completed' | 'not_planned', comment?: string): Promise<void> {
+    await this.#guarded(repo, number, 'closeIssue');
     await this.#record('closeIssue', repo, { number, reason, ...(comment === undefined ? {} : { comment }) });
   }
 
   async reopenIssue(repo: string, number: number, comment: string): Promise<void> {
+    await this.#guarded(repo, number, 'reopenIssue');
     await this.#record('reopenIssue', repo, { number, comment });
   }
 
@@ -815,11 +855,14 @@ export class DryRunActions implements Actions {
     const on = `${repo}#${number}`;
     const said = this.#said.get(on) ?? new Set<string>();
     if (said.has(body)) return;
-    // Taken before it is recorded, so two asked at once record it once; given back if the record fails.
+    // Taken before it is guarded and recorded, so two asked at once record it once; given back if either fails.
     this.#said.set(on, said.add(body));
-    await this.#record('comment', repo, { number, body }).catch((error: unknown) => {
+    try {
+      await this.#guarded(repo, number, 'comment', body);
+      await this.#record('comment', repo, { number, body });
+    } catch (error) {
       said.delete(body);
       throw error;
-    });
+    }
   }
 }

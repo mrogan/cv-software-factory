@@ -10,6 +10,7 @@ import { GitHub } from './client.ts';
 import type { GitHubConfig } from './config.ts';
 import { DEPLOYS, DeployProposals, deployWatch } from './deploys.ts';
 import { DryRunReads } from './dry-run-reads.ts';
+import { IssueGuard, openedBy, outsideIssuesWatch } from './issues.ts';
 import { Poller } from './poller.ts';
 import { LiveReads } from './reads.ts';
 import { Registry } from './registry.ts';
@@ -23,11 +24,12 @@ export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
   const signatures = new Signatures({ registry, cachePath: config.tufCacheDir });
   // configFromEnv refuses a dry run with nowhere to record it; this holds even if it is called some other way.
   if (config.dryRun && !config.artifactsDir) throw new Error('A dry run needs ARTIFACTS_DIR to record to.');
+  const artifacts = config.artifactsDir ? new DiskArtifacts(config.artifactsDir) : undefined;
+  // One guard for both: an issue the App did not open is refused, live or in a dry run, and each refusal is kept.
+  const guard = new IssueGuard({ openedBy: openedBy(github), artifacts, log });
   // One dry run, remembered for as long as the worker runs, for a worker in dry-run mode and for any request that asks.
-  const dryRun = config.artifactsDir
-    ? new DryRunActions(new DiskArtifacts(config.artifactsDir), log, undefined, contentsReader(github))
-    : undefined;
-  const actions: Actions = config.dryRun && dryRun ? dryRun : new LiveActions(github);
+  const dryRun = artifacts ? new DryRunActions(artifacts, log, undefined, contentsReader(github), guard) : undefined;
+  const actions: Actions = config.dryRun && dryRun ? dryRun : new LiveActions(github, { guard });
   // What each deploy watch proposes, which the line reads to say what a deploy carries.
   const proposals = new DeployProposals();
   const liveReads = new LiveReads(github, { registry, signatures, proposals });
@@ -45,6 +47,9 @@ export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
         deployWatch({ github, registry, signatures, actions, log, proposals }, target),
       );
     }
+    // Each issue opened by anyone but Martin or the App gets one reply, recorded instead in a dry run.
+    for (const repo of config.repositories)
+      poller.watch(`issues in ${repo}`, outsideIssuesWatch(github, repo, actions, log));
     if (mode === 'live') {
       quietReleasePlease(log);
       for (const repo of config.repositories) poller.watch(`releases in ${repo}`, releaseWatch(github, repo, log));

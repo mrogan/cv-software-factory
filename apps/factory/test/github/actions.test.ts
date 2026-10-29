@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { DryRunActions, LiveActions } from '../../src/github/actions.ts';
 import { GitHub } from '../../src/github/client.ts';
 import { carriesIn, carriesSection, DEPLOYS, DeployRefused, deployTitle, type Pin } from '../../src/github/deploys.ts';
+import { APP_USER, IssueGuard } from '../../src/github/issues.ts';
 import { createWorkerServer } from '../../src/github/server.ts';
 import { GitHubWorker } from '../../src/github/worker-client.ts';
 import {
@@ -23,6 +24,11 @@ import {
   type Sent,
   SHA,
 } from './fake.ts';
+
+/** A guard for a dry run with no GitHub behind it, for which every issue is the App's. */
+const appsOwn = () => new IssueGuard({ openedBy: async () => ({ by: APP_USER, pullRequest: false }) });
+/** GitHub's answer for an issue the App opened, as the guard reads it. */
+const BY_APP = { user: { id: APP_USER } };
 
 const APP_DEPLOY = DEPLOYS.find((t) => t.repo === REPO) as (typeof DEPLOYS)[number];
 const CARRIES = [{ workItem: '1001', title: 'Redirect loop on /departments', issue: 16, pullRequest: 17 }];
@@ -241,6 +247,7 @@ describe('acting in GitHub', () => {
     const { github, sent } = client([
       { method: 'POST', path: `/repos/${REPO}/check-runs`, answer: () => ({ status: 201, body: { id: 5 } }) },
       { method: 'PATCH', path: `/repos/${REPO}/check-runs/5`, answer: () => ({ body: {} }) },
+      { method: 'GET', path: `/repos/${REPO}/issues/3`, answer: () => ({ body: BY_APP }) },
       { method: 'PATCH', path: `/repos/${REPO}/issues/3`, answer: () => ({ body: {} }) },
     ]);
     const actions = new LiveActions(github);
@@ -258,7 +265,11 @@ describe('acting in GitHub', () => {
       summary: '…',
     });
     await actions.closeIssue(REPO, 3, 'completed');
-    expect(calls(sent).map((s) => s.body)).toEqual([
+    expect(
+      calls(sent)
+        .filter((s) => s.method !== 'GET')
+        .map((s) => s.body),
+    ).toEqual([
       {
         name: 'factory review',
         head_sha: SHA,
@@ -275,7 +286,7 @@ describe('acting in GitHub', () => {
     let failClose = 1;
     const comments: { body: string }[] = [];
     const { github, sent } = client([
-      { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: { state } }) },
+      { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: { ...BY_APP, state } }) },
       { method: 'GET', path: /^\/repos\/.+\/issues\/16\/events/, answer: () => ({ body: [] }) },
       { method: 'GET', path: /^\/repos\/.+\/issues\/16\/comments/, answer: () => ({ body: comments }) },
       {
@@ -320,7 +331,7 @@ describe('acting in GitHub', () => {
     let failReopen = 1;
     const comments: { body: string; created_at: string }[] = [];
     const { github, sent } = client([
-      { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: issue }) },
+      { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: { ...BY_APP, ...issue } }) },
       {
         method: 'GET',
         path: /^\/repos\/.+\/issues\/16\/comments/,
@@ -373,7 +384,7 @@ describe('acting in GitHub', () => {
   it('says again on a reopened issue what an earlier closing said, as it closes it again', async () => {
     const said = [{ body: 'Verified in production.' }];
     const { github, sent } = client([
-      { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: { state: 'open' } }) },
+      { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: { ...BY_APP, state: 'open' } }) },
       {
         method: 'GET',
         path: /^\/repos\/.+\/issues\/16\/events/,
@@ -531,7 +542,13 @@ describe('a dry run', () => {
 
   it('records the issue it would have closed, with what it would have said on it', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
-    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    const actions = new DryRunActions(
+      new DiskArtifacts(dir),
+      quiet,
+      () => new Date('2026-10-04T12:00:00Z'),
+      undefined,
+      appsOwn(),
+    );
     await actions.closeIssue(REPO, 16, 'completed', 'Verified in production.');
     const [record] = await Promise.all(
       (await readdir(dir)).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),
@@ -660,6 +677,7 @@ describe('commenting on an issue', () => {
     const comments: { body: string }[] = [{ body: 'Something said before.\r\nOn two lines.' }];
     let failPost = 1;
     const { github, sent } = client([
+      { method: 'GET', path: `/repos/${REPO}/issues/31`, answer: () => ({ body: BY_APP }) },
       { method: 'GET', path: /^\/repos\/.+\/issues\/31\/comments/, answer: () => ({ body: comments }) },
       {
         method: 'POST',
@@ -689,7 +707,13 @@ describe('commenting on an issue', () => {
 
   it('records what a dry run would have said on an issue once', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
-    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    const actions = new DryRunActions(
+      new DiskArtifacts(dir),
+      quiet,
+      () => new Date('2026-10-04T12:00:00Z'),
+      undefined,
+      appsOwn(),
+    );
     await Promise.all([
       actions.comment(REPO, 31, 'Released behind its flag.'),
       actions.comment(REPO, 31, 'Released behind its flag.'),
@@ -706,7 +730,13 @@ describe('commenting on an issue', () => {
 describe('reopening an issue in a dry run', () => {
   it('records the issue it would have reopened, with what it would have said on it', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
-    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    const actions = new DryRunActions(
+      new DiskArtifacts(dir),
+      quiet,
+      () => new Date('2026-10-04T12:00:00Z'),
+      undefined,
+      appsOwn(),
+    );
     await actions.reopenIssue(REPO, 16, 'It came back.');
     const [record] = await Promise.all(
       (await readdir(dir)).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),

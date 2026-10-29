@@ -7,6 +7,8 @@ The factory's identity in GitHub. Part of the [factory plane](README.md#factory-
 
 Only the [GitHub worker](GITHUB-WORKER.md) holds its key.
 
+Its issues and pull requests are opened by its bot user, `mrogan-software-factory[bot]`, user id 337765427 (not the App's id, 5187559). The worker knows the App's own issues by that id ([its issues only](GITHUB-WORKER.md#its-issues-only)).
+
 ## Permissions
 
 - **Allowed:** contents (branches), pull requests, checks, issues.

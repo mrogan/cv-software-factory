@@ -23,6 +23,7 @@ import {
   scratchBranch,
   withCarries,
 } from '../../src/github/deploys.ts';
+import { APP_USER } from '../../src/github/issues.ts';
 import { type Registry, RegistryError } from '../../src/github/registry.ts';
 import { releaseWatch } from '../../src/github/releases.ts';
 import { pipeline, type Signatures, type Signer, UnsignedError } from '../../src/github/signatures.ts';
@@ -119,6 +120,8 @@ function github(
       answer: () => ({ body: pulls.map((p) => ({ ...p, head: { sha: branches.get(target.branch) } })) }),
     },
     { method: 'GET', path: /\/pulls\/\d+$/, answer: () => ({ body: { mergeable } }) },
+    // Its deploy pull requests are the App's, as the issue guard asks before it labels one.
+    { method: 'GET', path: /\/issues\/\d+$/, answer: () => ({ body: { user: { id: APP_USER }, pull_request: {} } }) },
     {
       method: 'GET',
       path: /\/git\/ref\/heads\//,
