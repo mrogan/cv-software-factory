@@ -37,6 +37,8 @@ const CARRIES = [{ workItem: '1001', title: 'Redirect loop on /departments', iss
 function deployPull(pull: { state?: string; head?: string; fork?: boolean; body?: string | null } = {}) {
   let body = pull.body === undefined ? 'Runs `aaaaaaa` on the local cluster.' : pull.body;
   const routes: Route[] = [
+    // The deploy pull request is the App's, as the guard asks before it is moved.
+    { method: 'GET', path: `/repos/${REPO}/issues/30`, answer: () => ({ body: { ...BY_APP, pull_request: {} } }) },
     {
       method: 'GET',
       path: `/repos/${REPO}/pulls/30`,
@@ -484,11 +486,13 @@ describe('describing a deploy', () => {
     const move = actions.updatePullRequest(REPO, 30, { body: 'Runs `bbbbbbb` on the local cluster.' });
     const describing = actions.describeDeploy(REPO, 30, { commit: SHA, carries: CARRIES });
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(calls(sent)).toEqual([]);
+    // Only the guard's read of who opened it, in the move's turn, before its write.
+    const toPull = () => calls(sent).filter((c) => !c.path.endsWith('/issues/30'));
+    expect(toPull()).toEqual([]);
     letGo();
     await Promise.all([move, describing]);
     // The description read the body the move wrote, and kept it.
-    expect(calls(sent).map((c) => c.method)).toEqual(['PATCH', 'GET', 'PATCH']);
+    expect(toPull().map((c) => c.method)).toEqual(['PATCH', 'GET', 'PATCH']);
     expect(pull.body()).toBe(`Runs \`bbbbbbb\` on the local cluster.\n\n${carriesSection(CARRIES)}`);
   });
 });

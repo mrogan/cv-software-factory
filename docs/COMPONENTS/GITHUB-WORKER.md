@@ -24,24 +24,24 @@ Workers ask for actions over HTTP, `POST /v1/actions/<action>`, each body checke
 
 - branches;
 - signed commits through GraphQL's `createCommitOnBranch`, never `git push`;
-- opening, updating, labelling and readying pull requests, and putting them back to draft, and updating a branch;
+- opening, updating, labelling and readying pull requests (updating and labelling only the App's own, [as for issues](#its-issues-and-pull-requests-only)), and putting them back to draft, and updating a branch;
 - closing a pull request unmerged with a comment once (`closePullRequest`), as the line does for a held or waiting work item whose defect went with another change; one already closed is left as it is, and one from a branch the factory does not own is refused;
 - comment reviews anchored to lines, and resolving their threads (`resolveThreads`): on each open thread the App began with a finding now answered (matched by path, line and words), the reply it is given, made once, then the thread resolved. The reply names the commit when a later review finds the finding put right or the suggestion taken, gives the coder's reason when it declines a suggestion, and says Martin accepted the review when he approves its hold in the console;
 - check runs;
 - issues and comments:
   - opening one;
-  - only on an issue the App opened ([its issues only](#its-issues-only));
+  - only on an issue the App opened ([its issues and pull requests only](#its-issues-and-pull-requests-only));
   - closing one, as completed, with a comment once (which a fix verified in production gets);
   - reopening one with a comment (`reopenIssue`, only while it is closed, saying it once since it closed);
   - a comment on its own (`comment`), as the line's hand-over of an improvement makes, made only when the issue does not say it already, word for word, so asking again after a failure or a crash says it once.
 
 The line names the work item an action is for in `x-factory-work-item`, and the agent whose step it carries out in `x-factory-agent`, and the worker's log of the action, or of its failure, carries both, so a fix's commit or pull request is found by its work item. A deploy pull request's description, which carries many work items, names none. Neither header changes what is done.
 
-### Its issues only
+### Its issues and pull requests only
 
 Guardrail 10, as built (`github/issues.ts`). The factory reads no issue as work: Martin asks the line for work with the console's "+", and no issue, or label on one, does.
 
-- **The guard.** Commenting on, labelling, closing or reopening an issue the App did not open is refused before GitHub is asked to change anything, whoever asks. It reads the issue's author by numeric id, never by login: the App's bot user (337765427) passes, and anyone else is refused. A pull request is an issue to GitHub, so one the App opened passes too.
+- **The guard.** Commenting on, labelling, closing or reopening an issue, or retitling or rewriting a pull request (`updatePullRequest`), the App did not open is refused before GitHub is asked to change anything, whoever asks. It reads the author by numeric id, never by login: the App's bot user (337765427) passes, and anyone else is refused. A pull request is an issue to GitHub, so a comment or label on one the App opened passes too. The only callers of `updatePullRequest` act on the App's own: the deploy watch, on its deploy pull request, and the describer, on the pull request the line opened.
 - **A refusal** is answered 403, `issue-refused`, as GitHub answers an issue the App may not change, so the line leaves the issue and goes on. It is kept as an `action.refused` record (mechanism `scope-fence`) in the artifact store, whose hash the answer and the worker's log carry. The worker touches no store, so the record is not an event yet.
 - **A dry run** is guarded the same way: an issue numbered from a billion up is one the dry run opened, and passes; any other is asked of GitHub, and a refusal is recorded beside the dry run's actions.
 

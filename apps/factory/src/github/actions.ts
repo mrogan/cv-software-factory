@@ -12,8 +12,9 @@
  * Commits go through GraphQL's `createCommitOnBranch`, never `git push`: GitHub makes the commit and signs it as the
  * App, which `main`'s ruleset requires, and the factory never runs git in a working tree it does not control.
  *
- * Both refuse to move, delete or commit to a branch the factory does not own (`branches.ts`), and to comment on,
- * label, close or reopen an issue the App did not open (`issues.ts`), whatever they are asked.
+ * Both refuse to move, delete or commit to a branch the factory does not own (`branches.ts`), to comment on, label,
+ * close or reopen an issue the App did not open, and to update a pull request it did not open (`issues.ts`), whatever
+ * they are asked.
  */
 import type { ArtifactStore } from '@software-factory/store';
 import type { Logger } from 'pino';
@@ -162,6 +163,7 @@ export interface Actions {
   /** Applies a runner's patch to the files at the branch's head, outside the sandbox, and commits it. */
   applyPatch(repo: string, patch: PatchCommit): Promise<string>;
   openPullRequest(repo: string, draft: PullRequestDraft): Promise<PullRequestRef>;
+  /** Retitles or rewrites a pull request the App opened. */
   updatePullRequest(repo: string, number: number, change: { title?: string; body?: string }): Promise<void>;
   /**
    * Says what a deploy pull request carries, in its body's Carries section (`deploys.ts`), when the pull request is
@@ -393,7 +395,11 @@ export class LiveActions implements Actions {
   }
 
   async updatePullRequest(repo: string, number: number, change: { title?: string; body?: string }): Promise<void> {
-    await this.#inTurn(repo, number, () => this.#github.write(repo, 'PATCH', `/repos/${repo}/pulls/${number}`, change));
+    // Guarded within its turn, which it takes as it is asked: a description asked after it still waits for it.
+    await this.#inTurn(repo, number, async () => {
+      await this.#guard.check(repo, number, 'updatePullRequest');
+      await this.#github.write(repo, 'PATCH', `/repos/${repo}/pulls/${number}`, change);
+    });
   }
 
   async describeDeploy(repo: string, number: number, { commit, carries, more }: Deploy): Promise<boolean> {
@@ -781,6 +787,7 @@ export class DryRunActions implements Actions {
   }
 
   async updatePullRequest(repo: string, number: number, change: { title?: string; body?: string }): Promise<void> {
+    await this.#guarded(repo, number, 'updatePullRequest');
     await this.#record('updatePullRequest', repo, { number, ...change });
   }
 

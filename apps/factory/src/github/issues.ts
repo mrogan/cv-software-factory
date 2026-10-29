@@ -1,9 +1,11 @@
 /**
- * Guardrail 10 (public means hostile), as the GitHub worker keeps it: the factory acts only on issues it opened, and
- * reads none as work. Martin asks the line for work with the console's "+"; no issue, and no label on one, does.
+ * Guardrail 10 (public means hostile), as the GitHub worker keeps it: the factory acts only on the issues and pull
+ * requests it opened, and reads no issue as work. Martin asks the line for work with the console's "+"; no issue, and
+ * no label on one, does.
  *
- * - **The guard.** Commenting on, labelling, closing or reopening an issue the App did not open is refused before
- *   GitHub is asked, whoever asks: the line through the worker's step API, or a watch. Each refusal is kept as an
+ * - **The guard.** Commenting on, labelling, closing or reopening an issue, or retitling or rewriting a pull request,
+ *   the App did not open is refused before GitHub is asked, whoever asks: the line through the worker's step API, or
+ *   a watch. Each refusal is kept as an
  *   `action.refused` record in the artifact store, logged with its hash, and the action fails with `IssueRefused`,
  *   which the worker answers 403, as GitHub answers an issue the App may not change. A pull request is an issue to
  *   GitHub, so one the App opened passes, as its issues do.
@@ -41,8 +43,8 @@ export const OUTSIDE_REPLY = [
     'what Martin asks of it, so it will not act on this issue. Martin reads every issue, and will read this one.',
 ].join('\n');
 
-/** The issue actions the guard holds to the App's own issues. */
-export type IssueAction = 'comment' | 'addLabels' | 'closeIssue' | 'reopenIssue';
+/** The actions the guard holds to the App's own issues and pull requests. */
+export type IssueAction = 'comment' | 'addLabels' | 'closeIssue' | 'reopenIssue' | 'updatePullRequest';
 
 /** What an issue's opener is, as the guard asks: their numeric id (null for a deleted account), and whether it is a pull request. */
 export interface Opened {
@@ -95,6 +97,7 @@ const DOING: Record<IssueAction, string> = {
   addLabels: 'Label',
   closeIssue: 'Close',
   reopenIssue: 'Reopen',
+  updatePullRequest: 'Update',
 };
 
 export interface IssueGuardOptions {
@@ -132,7 +135,7 @@ export class IssueGuard {
       action: `${DOING[action]} ${what} #${number} in ${repo}`,
       output:
         `${repo}#${number} was opened by ${opened.by === null ? 'a deleted account' : `user ${opened.by}`}, ` +
-        `not the factory's App: the factory acts only on the issues it opened (guardrail 10).`,
+        `not the factory's App: the factory acts only on the issues and pull requests it opened (guardrail 10).`,
     });
     const record: RefusalRecord = { type: 'action.refused', repo, number, at: this.#now().toISOString(), payload };
     const artifact = await this.#artifacts?.put(new TextEncoder().encode(`${JSON.stringify(record, null, 2)}\n`));

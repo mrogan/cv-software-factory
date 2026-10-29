@@ -75,6 +75,7 @@ function github(extra: Route[] = []) {
       },
       { method: 'POST', path: /\/issues\/\d+\/labels$/, answer: () => ({ body: [] }) },
       { method: 'PATCH', path: /\/issues\/\d+$/, answer: () => ({ body: {} }) },
+      { method: 'PATCH', path: /\/pulls\/\d+$/, answer: () => ({ body: {} }) },
     ]),
   };
 }
@@ -159,7 +160,7 @@ describe('the issue guard', () => {
       payload: {
         mechanism: 'scope-fence',
         action: `Close issue #120 in ${REPO}`,
-        output: `${REPO}#120 was opened by user ${MARTIN}, not the factory's App: the factory acts only on the issues it opened (guardrail 10).`,
+        output: `${REPO}#120 was opened by user ${MARTIN}, not the factory's App: the factory acts only on the issues and pull requests it opened (guardrail 10).`,
       },
     });
     expect(PAYLOADS['action.refused'].safeParse(record.payload).success).toBe(true);
@@ -170,6 +171,38 @@ describe('the issue guard', () => {
       openedBy: MARTIN,
       artifact: (refused as IssueRefused).artifact,
     });
+  });
+});
+
+describe('the guard on pull requests', () => {
+  it('updates a pull request the App opened, and refuses, and records, one anyone else opened', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'refusals-'));
+    const { github: gh, sent } = github();
+    const guard = new IssueGuard({ openedBy: openedBy(gh), artifacts: new DiskArtifacts(dir), log: quiet, now: AT });
+    const actions = new LiveActions(gh, { guard });
+    await actions.updatePullRequest(REPO, 17, { title: 'fix(search): escape the quote', body: 'Described.' });
+    await expect(actions.updatePullRequest(REPO, 121, { body: 'Rewritten.' })).rejects.toBeInstanceOf(IssueRefused);
+    await expect(actions.updatePullRequest(REPO, 131, { title: 'x' })).rejects.toBeInstanceOf(IssueRefused);
+    expect(writes(sent).map((s) => `${s.method} ${s.path}`)).toEqual([`PATCH /repos/${REPO}/pulls/17`]);
+    expect((await records(dir)).map((r) => r.payload.action).sort()).toEqual([
+      `Update pull request #121 in ${REPO}`,
+      `Update pull request #131 in ${REPO}`,
+    ]);
+  });
+
+  it('updates in a dry run the pull requests it opened without asking GitHub, and refuses one Martin opened', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
+    const { github: gh, sent } = github();
+    const artifacts = new DiskArtifacts(dir);
+    const guard = new IssueGuard({ openedBy: openedBy(gh), artifacts, log: quiet, now: AT });
+    const actions = new DryRunActions(artifacts, quiet, AT, undefined, guard);
+    const pr = await actions.openPullRequest(REPO, { head: 'factory/1001-cart', base: 'main', title: 't', body: 'b' });
+    await actions.updatePullRequest(REPO, pr.number, { body: 'Described.' });
+    expect(calls(sent)).toEqual([]);
+    await expect(actions.updatePullRequest(REPO, 121, { body: 'Rewritten.' })).rejects.toBeInstanceOf(IssueRefused);
+    const kept = await records(dir);
+    expect(kept.filter((r) => r.action === 'updatePullRequest').map((r) => r.args.number)).toEqual([pr.number]);
+    expect(kept.filter((r) => r.type === 'action.refused')).toHaveLength(1);
   });
 });
 
