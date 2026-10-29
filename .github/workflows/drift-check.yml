@@ -6,9 +6,10 @@
 # has. The job reads them as the drift check App, installed on both repositories, which may read administration,
 # environments and Actions and nothing else (APPS.driftCheck in scripts/github-settings.ts), so it can change nothing
 # it checks. Its key is the secret DRIFT_CHECK_APP_PRIVATE_KEY and its Client ID the variable DRIFT_CHECK_APP_CLIENT_ID,
-# both in the `drift-check` environment, which only main may use. Until both are there, the run fails, saying so. If
-# GitHub shows who may bypass a ruleset only to a reader who may change it, the check says it cannot see them, and
-# fails, rather than read them as nobody.
+# both in the `drift-check` environment, which only main may use. Until both are there, the run fails, saying so.
+# GitHub shows who may bypass a ruleset only to a reader who may change it, which the App may not, so the check warns
+# (an annotation on the run) that it did not compare that list, and passes on the rest; an admin's `--check`, as
+# `make guardrails` (milestone 7 task 21) is to run, compares it.
 #
 # The workflow's own token may only read this repository's contents, for the checkout.
 #
