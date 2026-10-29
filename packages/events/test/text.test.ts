@@ -7,6 +7,8 @@ describe('cutting text to fit', () => {
     expect(cutTo('a longer line', 8)).toBe('a longe…');
     expect(cutTo('a longer line', 8)).toHaveLength(8);
     expect(cutTo('ab', 1)).toBe('…');
+    // No space is left before the mark.
+    expect(cutTo('abc   def', 5)).toBe('abc…');
   });
 
   it('cuts between characters, never inside one held as two units', () => {

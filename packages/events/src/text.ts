@@ -6,11 +6,11 @@
 
 /**
  * `text` at most `max` characters long: as it is when it fits, or its start ending in `…`, the mark counted, cut
- * between characters and never inside one. For words someone reads.
+ * between characters and never inside one, with no space left before the mark. For words someone reads.
  */
 export function cutTo(text: string, max: number): string {
   if (text.length <= max) return text;
-  return `${cutAt(text, Math.max(0, max - 1))}…`;
+  return `${cutAt(text, Math.max(0, max - 1)).trimEnd()}…`;
 }
 
 /**

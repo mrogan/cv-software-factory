@@ -17,7 +17,7 @@
  * thing allowed is the app's preview cookie, once a check of the pass has asked for a preview (`preview`), and only as
  * its contract says (`senses/device.ts`).
  */
-import type { ArtifactRef, Evidence } from '@software-factory/events';
+import { type ArtifactRef, cutAt, cutTo, type Evidence } from '@software-factory/events';
 import type { ArtifactStore } from '@software-factory/store';
 import { type Browser, type BrowserContext, chromium, type Page, type Request, type Response } from 'playwright';
 import { capture } from '../capture.ts';
@@ -365,13 +365,13 @@ function watching(page: Page, origin: string) {
     const { url, lineNumber } = message.location();
     consoleErrors.push({
       level: 'error',
-      text: message.text().trim().slice(0, 300),
-      ...(url && { source: `${pathOf(url).split('?')[0]}:${lineNumber}`.slice(0, 300) }),
+      text: cutTo(message.text().trim(), 300),
+      ...(url && { source: cutAt(`${pathOf(url).split('?')[0]}:${lineNumber}`, 300) }),
       page: page.url(),
     });
   };
   const onPageError = (error: Error) =>
-    consoleErrors.push({ level: 'error', text: `Uncaught ${error.message}`.slice(0, 300), page: page.url() });
+    consoleErrors.push({ level: 'error', text: cutTo(`Uncaught ${error.message}`, 300), page: page.url() });
   const onRequest = (request: Request) => {
     const url = new URL(request.url());
     if (/^https?:$/.test(url.protocol) && url.origin !== origin) asked.add(url.origin);

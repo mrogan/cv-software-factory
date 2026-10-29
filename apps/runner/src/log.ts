@@ -22,13 +22,13 @@ export function runnerLog(env: NodeJS.ProcessEnv, pod: Pod, write: (line: string
 
 /**
  * `text` at most `max` characters long: as it is when it fits, or its start ending in `…`, cut between characters and
- * never inside an emoji. The factory's `cutTo` (`packages/events/src/text.ts`), copied: the runner's image holds this
+ * never inside an emoji, with no space before the mark. The factory's `cutTo` (`packages/events/src/text.ts`), copied: the runner's image holds this
  * app and its own dependencies, and none of the factory's packages.
  */
 export function cutTo(text: string, max: number): string {
   if (text.length <= max) return text;
   const kept = text.slice(0, Math.max(0, max - 1));
-  return `${/[\uD800-\uDBFF]$/.test(kept) ? kept.slice(0, -1) : kept}…`;
+  return `${(/[\uD800-\uDBFF]$/.test(kept) ? kept.slice(0, -1) : kept).trimEnd()}…`;
 }
 
 /**

@@ -10,7 +10,7 @@
  * The clock and the polling are the caller's: `tick()` does one poll of the version, and `start()` calls it on a
  * timer. Tests call `tick()` themselves.
  */
-import type { InboxSignal } from '@software-factory/events';
+import { cutTo, type InboxSignal } from '@software-factory/events';
 import type { Logger } from 'pino';
 import type { Look } from '../pictures/index.ts';
 import type { Sense } from './types.ts';
@@ -130,7 +130,7 @@ export class SenseRunner {
             symptom: finding.symptom,
             ...(evidence?.length && { evidence }),
             observedAt: new Date(this.now()).toISOString(),
-            summary: finding.message.trim().slice(0, 200).trim(),
+            summary: cutTo(finding.message.trim(), 200),
             artifacts: observation.artifacts,
           });
           run.signalled++;
