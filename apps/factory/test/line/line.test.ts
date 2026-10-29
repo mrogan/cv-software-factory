@@ -11,6 +11,7 @@ import { type Database, freshDatabase } from '../../../../packages/store/test/da
 import type { Handback } from '../../../runner/src/step.ts';
 import { DryRunActions } from '../../src/github/actions.ts';
 import { DryRunReads } from '../../src/github/dry-run-reads.ts';
+import { APP_USER, IssueGuard } from '../../src/github/issues.ts';
 import type { Reads } from '../../src/github/reads.ts';
 import { createWorkerServer } from '../../src/github/server.ts';
 import { GitHubWorker, GitHubWorkerError } from '../../src/github/worker-client.ts';
@@ -2507,7 +2508,9 @@ describe('the line', () => {
         deployProposal: async () => null,
       };
       const dir = mkdtempSync(join(tmpdir(), 'dry-run-'));
-      const made = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date(now));
+      // Its pull request, #12, is the App's, as the GitHub worker's guard would read it from GitHub.
+      const own = new IssueGuard({ openedBy: async () => ({ by: APP_USER, pullRequest: true }) });
+      const made = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date(now), undefined, own);
       const server = createWorkerServer({
         actions: made,
         reads,

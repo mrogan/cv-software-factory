@@ -190,6 +190,27 @@ describe('the guard on pull requests', () => {
     ]);
   });
 
+  it('refuses every other action on a pull request it did not open, and asks GitHub who opened it once', async () => {
+    const { github: gh, sent } = github();
+    const actions = new LiveActions(gh);
+    const ref = { number: 121, url: '', nodeId: 'PR_121' };
+    const SHA40 = 'a'.repeat(40);
+    const thread = { path: 'src/a.ts', line: 1, body: 'b', reply: 'r' };
+    const attempts: [string, () => Promise<unknown>][] = [
+      ['review', () => actions.review(REPO, 121, { commit: SHA40, body: 'b', comments: [] })],
+      ['resolve threads', () => actions.resolveThreads(REPO, 121, [thread])],
+      ['ready', () => actions.readyForReview(REPO, ref)],
+      ['back to draft', () => actions.convertToDraft(REPO, ref)],
+      ['close', () => actions.closePullRequest(REPO, 121, 'Closing.')],
+      ['describe a deploy', () => actions.describeDeploy(REPO, 121, { commit: SHA40, carries: [] })],
+    ];
+    for (const [what, attempt] of attempts) {
+      await expect(attempt(), what).rejects.toBeInstanceOf(IssueRefused);
+    }
+    // Who opened it never changes: asked once, and nothing else sent.
+    expect(calls(sent).map((s) => `${s.method} ${s.path}`)).toEqual([`GET /repos/${REPO}/issues/121`]);
+  });
+
   it('updates in a dry run the pull requests it opened without asking GitHub, and refuses one Martin opened', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
     const { github: gh, sent } = github();
@@ -200,9 +221,15 @@ describe('the guard on pull requests', () => {
     await actions.updatePullRequest(REPO, pr.number, { body: 'Described.' });
     expect(calls(sent)).toEqual([]);
     await expect(actions.updatePullRequest(REPO, 121, { body: 'Rewritten.' })).rejects.toBeInstanceOf(IssueRefused);
+    await expect(actions.review(REPO, 121, { commit: 'a'.repeat(40), body: 'b', comments: [] })).rejects.toBeInstanceOf(
+      IssueRefused,
+    );
+    await expect(actions.closePullRequest(REPO, 121, 'Closing.')).rejects.toBeInstanceOf(IssueRefused);
+    await actions.readyForReview(REPO, pr);
     const kept = await records(dir);
     expect(kept.filter((r) => r.action === 'updatePullRequest').map((r) => r.args.number)).toEqual([pr.number]);
-    expect(kept.filter((r) => r.type === 'action.refused')).toHaveLength(1);
+    expect(kept.filter((r) => r.action === 'readyForReview').map((r) => r.args.number)).toEqual([pr.number]);
+    expect(kept.filter((r) => r.type === 'action.refused')).toHaveLength(3);
   });
 });
 
@@ -308,7 +335,10 @@ describe('the issue guard over HTTP, as the line asks', () => {
     const issue = await worker.act('openIssue', REPO, { title: 'A broken link', body: '…' }, { workItem: '1001' });
     await closeIssue(worker, REPO, { number: issue, reason: 'completed', comment: 'Verified.' }, '1001', log);
     await closeIssue(worker, REPO, { number: 120, reason: 'completed', comment: 'Verified.' }, '1002', log);
-    expect(warned).toHaveLength(1);
+    // Told apart from an issue that is gone.
+    expect(warned).toEqual([
+      [expect.objectContaining({ issue: 120 }), 'the GitHub worker refused to close an issue the App did not open'],
+    ]);
     const kept = await records(dir);
     expect(kept.filter((r) => r.action === 'closeIssue').map((r) => r.args.number)).toEqual([issue]);
     // Refused twice, at the same moment, in the same words: the store keeps one record of it, by its hash.
@@ -396,6 +426,26 @@ describe('the watch of new issues', () => {
     expect(comments.get(140)).toEqual([{ body: OUTSIDE_REPLY }]);
     await watch();
     expect(comments.get(130)).toEqual([{ body: OUTSIDE_REPLY }]);
+  });
+
+  it('gives up on a reply GitHub refuses, such as on a locked issue, rather than asking every minute', async () => {
+    const list = listed([{ number: 130, by: SOMEONE }]);
+    let posts = 0;
+    const { github: gh } = github([
+      list.route,
+      {
+        method: 'POST',
+        path: `/repos/${REPO}/issues/130/comments`,
+        answer: () => {
+          posts += 1;
+          return { status: 403, body: { message: 'Unable to create comment because issue is locked.' } };
+        },
+      },
+    ]);
+    const watch = outsideIssuesWatch(gh, REPO, new LiveActions(gh), quiet);
+    await watch();
+    await watch();
+    expect(posts).toBe(1);
   });
 
   it('records the reply in a dry run, and sends nothing', async () => {

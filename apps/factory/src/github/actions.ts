@@ -12,9 +12,8 @@
  * Commits go through GraphQL's `createCommitOnBranch`, never `git push`: GitHub makes the commit and signs it as the
  * App, which `main`'s ruleset requires, and the factory never runs git in a working tree it does not control.
  *
- * Both refuse to move, delete or commit to a branch the factory does not own (`branches.ts`), to comment on, label,
- * close or reopen an issue the App did not open, and to update a pull request it did not open (`issues.ts`), whatever
- * they are asked.
+ * Both refuse to move, delete or commit to a branch the factory does not own (`branches.ts`), and to act on an issue
+ * or pull request the App did not open (`issues.ts`), whatever they are asked: only opening one takes none.
  */
 import type { ArtifactStore } from '@software-factory/store';
 import type { Logger } from 'pino';
@@ -404,6 +403,7 @@ export class LiveActions implements Actions {
 
   async describeDeploy(repo: string, number: number, { commit, carries, more }: Deploy): Promise<boolean> {
     return this.#inTurn(repo, number, async () => {
+      await this.#guard.check(repo, number, 'describeDeploy');
       const pull = await this.#github.read(repo, `/repos/${repo}/pulls/${number}`, DEPLOY_PULL);
       // A fork's branch of the same name is not the deploy branch.
       if (pull.head.repo?.full_name !== repo) throw new DeployRefused(`Pull request #${number} is not from ${repo}.`);
@@ -444,11 +444,30 @@ export class LiveActions implements Actions {
   }
 
   async readyForReview(repo: string, pullRequest: PullRequestRef): Promise<void> {
-    await this.#github.graphql(repo, READY, { id: pullRequest.nodeId }, z.unknown());
+    await this.#github.graphql(repo, READY, { id: await this.#own(repo, pullRequest, 'readyForReview') }, z.unknown());
   }
 
   async convertToDraft(repo: string, pullRequest: PullRequestRef): Promise<void> {
-    await this.#github.graphql(repo, TO_DRAFT, { id: pullRequest.nodeId }, z.unknown());
+    await this.#github.graphql(
+      repo,
+      TO_DRAFT,
+      { id: await this.#own(repo, pullRequest, 'convertToDraft') },
+      z.unknown(),
+    );
+  }
+
+  /**
+   * The GraphQL id of a pull request the App opened, read from GitHub by its number once the guard has passed it, so
+   * the pull request acted on is the one guarded, whatever id the caller sent.
+   */
+  async #own(repo: string, pullRequest: PullRequestRef, action: IssueAction): Promise<string> {
+    await this.#guard.check(repo, pullRequest.number, action);
+    const pull = await this.#github.read(
+      repo,
+      `/repos/${repo}/pulls/${pullRequest.number}`,
+      z.object({ node_id: z.string().min(1) }),
+    );
+    return pull.node_id;
   }
 
   async review(
@@ -456,6 +475,7 @@ export class LiveActions implements Actions {
     number: number,
     { commit, body, comments }: { commit: string; body: string; comments: ReviewComment[] },
   ): Promise<number> {
+    await this.#guard.check(repo, number, 'review');
     const made = await this.#github.write(
       repo,
       'POST',
@@ -472,6 +492,7 @@ export class LiveActions implements Actions {
   }
 
   async resolveThreads(repo: string, number: number, threads: ThreadAnswer[]): Promise<void> {
+    await this.#guard.check(repo, number, 'resolveThreads');
     const [owner, name] = repo.split('/');
     const answer = await this.#github.graphql(repo, THREADS, { owner, name, number }, THREADS_ANSWER);
     for (const thread of answer.repository.pullRequest.reviewThreads.nodes) {
@@ -535,6 +556,7 @@ export class LiveActions implements Actions {
   }
 
   async closePullRequest(repo: string, number: number, comment: string): Promise<void> {
+    await this.#guard.check(repo, number, 'closePullRequest');
     const pull = await this.#github.read(
       repo,
       `/repos/${repo}/pulls/${number}`,
@@ -792,6 +814,7 @@ export class DryRunActions implements Actions {
   }
 
   async describeDeploy(repo: string, number: number, deploy: Deploy): Promise<boolean> {
+    await this.#guarded(repo, number, 'describeDeploy');
     await this.#record('describeDeploy', repo, { number, ...deploy });
     return true;
   }
@@ -802,12 +825,14 @@ export class DryRunActions implements Actions {
   }
 
   async readyForReview(repo: string, pullRequest: PullRequestRef): Promise<void> {
+    await this.#guarded(repo, pullRequest.number, 'readyForReview');
     await this.#record('readyForReview', repo, { number: pullRequest.number });
     const pull = this.#pulls.get(pullRequest.number);
     if (pull?.draft) Object.assign(pull, { draft: false, readiedAt: this.#now() });
   }
 
   async convertToDraft(repo: string, pullRequest: PullRequestRef): Promise<void> {
+    await this.#guarded(repo, pullRequest.number, 'convertToDraft');
     await this.#record('convertToDraft', repo, { number: pullRequest.number });
     const pull = this.#pulls.get(pullRequest.number);
     if (pull && !pull.draft) Object.assign(pull, { draft: true, readiedAt: null });
@@ -818,11 +843,13 @@ export class DryRunActions implements Actions {
     number: number,
     review: { commit: string; body: string; comments: ReviewComment[] },
   ): Promise<number> {
+    await this.#guarded(repo, number, 'review');
     await this.#record('review', repo, { number, ...review });
     return this.#number();
   }
 
   async resolveThreads(repo: string, number: number, threads: ThreadAnswer[]): Promise<void> {
+    await this.#guarded(repo, number, 'resolveThreads');
     await this.#record('resolveThreads', repo, { number, threads });
   }
 
@@ -854,6 +881,7 @@ export class DryRunActions implements Actions {
     // One it closed already is left as it is, as GitHub's would be, and recorded once.
     const pull = this.#pulls.get(number);
     if (pull?.closedAt) return;
+    await this.#guarded(repo, number, 'closePullRequest');
     await this.#record('closePullRequest', repo, { number, comment });
     if (pull) pull.closedAt = this.#now();
   }

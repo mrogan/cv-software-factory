@@ -3,9 +3,9 @@
  * requests it opened, and reads no issue as work. Martin asks the line for work with the console's "+"; no issue, and
  * no label on one, does.
  *
- * - **The guard.** Commenting on, labelling, closing or reopening an issue, or retitling or rewriting a pull request,
- *   the App did not open is refused before GitHub is asked, whoever asks: the line through the worker's step API, or
- *   a watch. Each refusal is kept as an
+ * - **The guard.** Any action on an issue or pull request the App did not open (commenting, labelling, closing,
+ *   reopening; updating, describing, readying or drafting, reviewing, resolving threads) is refused before GitHub is
+ *   asked to change anything, whoever asks: the line through the worker's step API, or a watch. Each refusal is kept as an
  *   `action.refused` record in the artifact store, logged with its hash, and the action fails with `IssueRefused`,
  *   which the worker answers 403, as GitHub answers an issue the App may not change. A pull request is an issue to
  *   GitHub, so one the App opened passes, as its issues do.
@@ -26,7 +26,7 @@ import type { ArtifactStore } from '@software-factory/store';
 import type { Logger } from 'pino';
 import { z } from 'zod';
 import type { Actions } from './actions.ts';
-import type { GitHub } from './client.ts';
+import { type GitHub, GitHubError } from './client.ts';
 import type { Watch } from './poller.ts';
 
 /** Martin's GitHub account (`mrogan`), as `scripts/review-gate.ts` knows him. */
@@ -43,8 +43,19 @@ export const OUTSIDE_REPLY = [
     'what Martin asks of it, so it will not act on this issue. Martin reads every issue, and will read this one.',
 ].join('\n');
 
-/** The actions the guard holds to the App's own issues and pull requests. */
-export type IssueAction = 'comment' | 'addLabels' | 'closeIssue' | 'reopenIssue' | 'updatePullRequest';
+/** The actions the guard holds to the App's own issues and pull requests: every one that names one. */
+export type IssueAction =
+  | 'comment'
+  | 'addLabels'
+  | 'closeIssue'
+  | 'reopenIssue'
+  | 'updatePullRequest'
+  | 'describeDeploy'
+  | 'readyForReview'
+  | 'convertToDraft'
+  | 'review'
+  | 'resolveThreads'
+  | 'closePullRequest';
 
 /** What an issue's opener is, as the guard asks: their numeric id (null for a deleted account), and whether it is a pull request. */
 export interface Opened {
@@ -98,6 +109,12 @@ const DOING: Record<IssueAction, string> = {
   closeIssue: 'Close',
   reopenIssue: 'Reopen',
   updatePullRequest: 'Update',
+  describeDeploy: 'Describe the deploy on',
+  readyForReview: 'Ready',
+  convertToDraft: 'Put back to draft',
+  review: 'Review',
+  resolveThreads: 'Resolve the threads on',
+  closePullRequest: 'Close',
 };
 
 export interface IssueGuardOptions {
@@ -113,6 +130,8 @@ export class IssueGuard {
   readonly #artifacts: ArtifactStore | undefined;
   readonly #log: Logger | undefined;
   readonly #now: () => Date;
+  /** Who opened each issue it has asked about, which never changes: asked of GitHub once. */
+  readonly #opened = new Map<string, Opened>();
 
   constructor({ openedBy, artifacts, log, now = () => new Date() }: IssueGuardOptions) {
     this.#openedBy = openedBy;
@@ -126,7 +145,7 @@ export class IssueGuard {
    * opened by anyone but Martin or the App. Anything else is recorded, and thrown as `IssueRefused`.
    */
   async check(repo: string, number: number, action: IssueAction, body?: string): Promise<void> {
-    const opened = await this.#openedBy(repo, number);
+    const opened = await this.#openerOf(repo, number);
     if (opened.by === APP_USER) return;
     if (action === 'comment' && body === OUTSIDE_REPLY && !opened.pullRequest && outside(opened.by)) return;
     const what = opened.pullRequest ? 'pull request' : 'issue';
@@ -145,7 +164,23 @@ export class IssueGuard {
     );
     throw new IssueRefused(payload, artifact);
   }
+
+  async #openerOf(repo: string, number: number): Promise<Opened> {
+    const key = `${repo}#${number}`;
+    const known = this.#opened.get(key);
+    if (known) return known;
+    const opened = await this.#openedBy(repo, number);
+    // A guard against a leak, not a working limit: the factory acts on a few hundred issues in a worker's life.
+    if (this.#opened.size >= 10_000) this.#opened.clear();
+    this.#opened.set(key, opened);
+    return opened;
+  }
 }
+
+/** A failure asking again would not mend: the guard's refusal, or GitHub's refused, not found or not valid. */
+const final = (error: unknown) =>
+  error instanceof IssueRefused ||
+  (error instanceof GitHubError && ['refused', 'not-found', 'conflict'].includes(error.kind));
 
 const OPEN_ISSUES = z.array(
   z.object({
@@ -159,7 +194,8 @@ const OPEN_ISSUES = z.array(
 /**
  * Watches a repository's open issues, newest first, and says `OUTSIDE_REPLY` once on each opened by anyone but
  * Martin or the App. A hundred at a minute's interval: more than that are not opened here in a minute. An issue whose
- * reply failed is tried again at the next poll, without holding back the others.
+ * reply failed is tried again at the next poll, without holding back the others; one GitHub or the guard refuses (a
+ * locked issue, one gone, one the guard will not pass) is logged once, and not tried again while the worker runs.
  */
 export function outsideIssuesWatch(
   github: GitHub,
@@ -178,6 +214,8 @@ export function outsideIssuesWatch(
     );
     if (!changed && !retry) return;
     const issues = body.filter((issue) => issue.pull_request === undefined);
+    // Only what is open now is remembered: an issue closed since is forgotten.
+    for (const number of answered) if (!issues.some((issue) => issue.number === number)) answered.delete(number);
     const due = issues.filter((issue) => !answered.has(issue.number) && outside(issue.user?.id ?? null));
     for (const issue of issues) if (!outside(issue.user?.id ?? null)) answered.add(issue.number);
     if (first) log.info({ repo, open: issues.length, outside: due.length }, 'read the open issues');
@@ -190,7 +228,10 @@ export function outsideIssuesWatch(
         answered.add(number);
         log.info({ repo, issue: number, dryRun: actions.dryRun }, 'replied to an issue opened outside the factory');
       } catch (error) {
-        failure ??= error;
+        if (final(error)) {
+          answered.add(number);
+          log.warn({ repo, issue: number, err: error }, 'cannot reply to an issue opened outside the factory');
+        } else failure ??= error;
       }
     }
     retry = failure !== undefined;

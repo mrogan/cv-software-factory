@@ -6,7 +6,7 @@
  */
 import type { Logger } from 'pino';
 import type { ActionArgs } from '../github/server.ts';
-import { issueGone } from '../github/worker-client.ts';
+import { GitHubWorkerError, issueGone } from '../github/worker-client.ts';
 import type { GitHubPort } from './worker.ts';
 
 export async function closeIssue(
@@ -18,6 +18,12 @@ export async function closeIssue(
 ): Promise<void> {
   await github.act('closeIssue', repo, args, { workItem }).catch((error: unknown) => {
     if (!issueGone(error)) throw error;
-    log.warn({ workItem, issue: args.number, err: error }, 'the issue cannot be closed');
+    // The GitHub worker's guard refusing it (guardrail 10) is told apart from an issue that is gone: it is no issue
+    // of the App's, and the worker kept a record of the refusal.
+    const refused = error instanceof GitHubWorkerError && error.kind === 'issue-refused';
+    log.warn(
+      { workItem, issue: args.number, err: error },
+      refused ? 'the GitHub worker refused to close an issue the App did not open' : 'the issue cannot be closed',
+    );
   });
 }
