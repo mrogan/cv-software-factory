@@ -14,7 +14,9 @@
  * no browser, so a page open on the same machine cannot make it act. Each body is checked with Zod at the door, and names a repository the worker is configured for, or it is refused.
  * A GitHub failure keeps its meaning: refused 403, not found 404, conflict 409, rate limited 429, GitHub or the
  * network failing 502, and a write with no key 503. A patch that will not apply, a branch the factory does not
- * own, or a deploy pull request or image that is not one, is 422. GHCR failing is 502.
+ * own, or a deploy pull request or image that is not one, is 422. GHCR failing is 502. An issue the App did not
+ * open is 403 (`issue-refused`), as GitHub answers one the App may not change, with the hash of its `action.refused`
+ * record in the artifact store.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { Logger } from 'pino';
@@ -23,6 +25,7 @@ import type { Actions } from './actions.ts';
 import { BranchRefused } from './branches.ts';
 import { GitHubError } from './client.ts';
 import { DeployRefused, MAX_CARRIES } from './deploys.ts';
+import { IssueRefused } from './issues.ts';
 import { PatchRefused } from './patches.ts';
 import { plainPath } from './paths.ts';
 import type { Reads } from './reads.ts';
@@ -370,6 +373,14 @@ export function createWorkerServer({
       if (error instanceof BranchRefused) {
         log.warn({ ...about, message: error.message }, 'a branch was refused');
         return send(res, 422, { error: 'branch-refused', message: error.message });
+      }
+      if (error instanceof IssueRefused) {
+        log.warn({ ...about, message: error.message, artifact: error.artifact }, 'an issue action was refused');
+        return send(res, 403, {
+          error: 'issue-refused',
+          message: error.message,
+          ...(error.artifact ? { artifact: error.artifact } : {}),
+        });
       }
       if (error instanceof DeployRefused) {
         log.warn({ ...about, message: error.message }, 'a deploy was refused');

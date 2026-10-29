@@ -11,6 +11,7 @@ import { type Database, freshDatabase } from '../../../../packages/store/test/da
 import type { Handback } from '../../../runner/src/step.ts';
 import { DryRunActions } from '../../src/github/actions.ts';
 import { DryRunReads } from '../../src/github/dry-run-reads.ts';
+import { APP_USER, IssueGuard } from '../../src/github/issues.ts';
 import type { Reads } from '../../src/github/reads.ts';
 import { createWorkerServer } from '../../src/github/server.ts';
 import { GitHubWorker, GitHubWorkerError } from '../../src/github/worker-client.ts';
@@ -1834,8 +1835,9 @@ describe('the line', () => {
       deployProposal: async () => null,
     };
     const files: Record<string, string> = { 'src/search.ts': 'old\n' };
+    const recorded = mkdtempSync(join(tmpdir(), 'dry-run-'));
     const made = new DryRunActions(
-      new DiskArtifacts(mkdtempSync(join(tmpdir(), 'dry-run-'))),
+      new DiskArtifacts(recorded),
       quiet,
       () => new Date(now),
       async (_repo, path, ref) => (ref === MAIN ? (files[path] ?? null) : null),
@@ -1904,6 +1906,15 @@ describe('the line', () => {
       expect(ended).toContain('work-item.summarised');
       expect(ended.at(-1)).toBe('pull-request.merged');
       expect((await payloads(workItem, 'pull-request.merged'))[0]).toMatchObject({ by: 'factory' });
+      // The describer's description went on the pull request the line opened, which the guard passes as the dry run's.
+      const records = await Promise.all(
+        readdirSync(recorded).map(async (f) => JSON.parse(await readFile(join(recorded, f), 'utf-8'))),
+      );
+      const opened = records.find((r) => r.action === 'openPullRequest');
+      const described = records.filter((r) => r.action === 'updatePullRequest');
+      expect(described.length).toBeGreaterThan(0);
+      expect(records.filter((r) => r.type === 'action.refused')).toEqual([]);
+      expect(opened?.args.head).toMatch(/^factory\//);
     } finally {
       server.close();
     }
@@ -2497,7 +2508,9 @@ describe('the line', () => {
         deployProposal: async () => null,
       };
       const dir = mkdtempSync(join(tmpdir(), 'dry-run-'));
-      const made = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date(now));
+      // Its pull request, #12, is the App's, as the GitHub worker's guard would read it from GitHub.
+      const own = new IssueGuard({ openedBy: async () => ({ by: APP_USER, pullRequest: true }) });
+      const made = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date(now), undefined, own);
       const server = createWorkerServer({
         actions: made,
         reads,

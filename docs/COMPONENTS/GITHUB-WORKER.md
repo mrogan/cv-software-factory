@@ -9,7 +9,7 @@ flowchart LR
   line[The line] -- "POST /v1/actions/…<br>POST /v1/reads/…" --> worker[GitHub worker]
   worker -- "installation token;<br>its poller watches once a minute" --> github[GitHub]
   worker -- anonymous --> ghcr[GHCR]
-  worker -- dry run --> artifacts[(Artifact store)]
+  worker -- "dry run;<br>refusals" --> artifacts[(Artifact store)]
 ```
 
 ## Identity
@@ -24,17 +24,36 @@ Workers ask for actions over HTTP, `POST /v1/actions/<action>`, each body checke
 
 - branches;
 - signed commits through GraphQL's `createCommitOnBranch`, never `git push`;
-- opening, updating, labelling and readying pull requests, and putting them back to draft, and updating a branch;
+- opening, updating, labelling and readying pull requests (updating and labelling only the App's own, [as for issues](#its-issues-and-pull-requests-only)), and putting them back to draft, and updating a branch;
 - closing a pull request unmerged with a comment once (`closePullRequest`), as the line does for a held or waiting work item whose defect went with another change; one already closed is left as it is, and one from a branch the factory does not own is refused;
 - comment reviews anchored to lines, and resolving their threads (`resolveThreads`): on each open thread the App began with a finding now answered (matched by path, line and words), the reply it is given, made once, then the thread resolved. The reply names the commit when a later review finds the finding put right or the suggestion taken, gives the coder's reason when it declines a suggestion, and says Martin accepted the review when he approves its hold in the console;
 - check runs;
 - issues and comments:
   - opening one;
+  - only on an issue the App opened ([its issues and pull requests only](#its-issues-and-pull-requests-only));
   - closing one, as completed, with a comment once (which a fix verified in production gets);
   - reopening one with a comment (`reopenIssue`, only while it is closed, saying it once since it closed);
   - a comment on its own (`comment`), as the line's hand-over of an improvement makes, made only when the issue does not say it already, word for word, so asking again after a failure or a crash says it once.
 
 The line names the work item an action is for in `x-factory-work-item`, and the agent whose step it carries out in `x-factory-agent`, and the worker's log of the action, or of its failure, carries both, so a fix's commit or pull request is found by its work item. A deploy pull request's description, which carries many work items, names none. Neither header changes what is done.
+
+### Its issues and pull requests only
+
+Guardrail 10, as built (`github/issues.ts`). The factory reads no issue as work: Martin asks the line for work with the console's "+", and no issue, or label on one, does.
+
+- **The guard.** Every action that names an issue or pull request is refused, before GitHub is asked to change anything, on one the App did not open, whoever asks: commenting, labelling, closing and reopening an issue; updating, describing, readying, putting back to draft, reviewing, resolving the threads of and closing a pull request. It reads the author by numeric id, never by login, once for each issue, since it never changes: the App's bot user (337765427) passes, and anyone else is refused. Readying and putting back to draft act on the id GitHub gives that number, whatever id they were sent. Every caller acts on the App's own: the line on the work item's issue and the pull request it opened, the deploy watch on its deploy pull request.
+- **A refusal** is answered 403, `issue-refused`, as GitHub answers an issue the App may not change, so the line leaves the issue and goes on. It is kept as an `action.refused` record (mechanism `scope-fence`) in the artifact store, whose hash the answer and the worker's log carry. The worker touches no store, so the record is not an event yet. A worker with the key will not start without `ARTIFACTS_DIR`, so every refusal is kept.
+- **A dry run** is guarded the same way: an issue or pull request numbered from a billion up is one the dry run opened, and passes; any other is asked of GitHub, and a refusal is recorded beside the dry run's actions.
+
+#### The outside reply
+
+An issue opened by anyone but Martin (user 6206459) or the App gets one comment, the guard's one exception, and only in these words, which echo nothing of the issue or of who opened it:
+
+> Thank you for opening this.
+>
+> This repository is looked after by an automated software factory. It acts only on what it finds itself and on what its operators ask of it directly, so it will not act on this issue. A human will read this issue.
+
+Nothing else is done to the issue. A watch of each repository's newest hundred open issues sends it ([watches](#watches)). The worker keeps no cursor: saying it once is its memory, as for every comment it makes, so a restarted worker reads each open outside issue's comments once more, and says it again only if the first reply has fallen beyond the first hundred. A dry run's memory is its own, so a restarted one records the reply again for each open outside issue. A reply GitHub refuses (a locked issue, one gone) is logged and not tried again while the worker runs; any other failure is tried at the next poll.
 
 ### Its branches only
 
@@ -77,7 +96,9 @@ A poller runs watches once a minute with conditional requests, so an unchanged a
 
 Each change goes to whatever waits for it, and one a handler failed on is handed over again, without holding back the rest. Watches act on what they see, in both repositories.
 
-Two watches act on their own: deploys and releases. Neither runs without the key.
+Three watches act on their own: deploys, releases and outside issues. None runs without the key.
+
+- **Outside issues:** the newest hundred open issues of each repository, once a minute, each opened by anyone but Martin or the App answered with [the outside reply](#the-outside-reply), and recorded instead in a dry run. Its first read logs `read the open issues`, with how many are open and how many are due a reply; each reply logs `replied to an issue opened outside the factory`.
 
 ### Deploys
 
@@ -132,7 +153,7 @@ With no key it runs read-only, and says so:
 
 - it still serves the line's reads, unauthenticated, which reach public repositories and nothing more;
 - a write fails before it is sent;
-- the deploy and release watches do not run.
+- the deploy, release and outside issue watches do not run.
 
 ## Dry run
 

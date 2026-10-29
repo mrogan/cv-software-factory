@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { DryRunActions, LiveActions } from '../../src/github/actions.ts';
 import { GitHub } from '../../src/github/client.ts';
 import { carriesIn, carriesSection, DEPLOYS, DeployRefused, deployTitle, type Pin } from '../../src/github/deploys.ts';
+import { APP_USER, IssueGuard } from '../../src/github/issues.ts';
 import { createWorkerServer } from '../../src/github/server.ts';
 import { GitHubWorker } from '../../src/github/worker-client.ts';
 import {
@@ -24,6 +25,11 @@ import {
   SHA,
 } from './fake.ts';
 
+/** A guard for which every issue and pull request is the App's, as `issues.test.ts` tests the guard itself. */
+const appsOwn = () => new IssueGuard({ openedBy: async () => ({ by: APP_USER, pullRequest: false }) });
+/** GitHub's answer for an issue the App opened, as the guard reads it. */
+const BY_APP = { user: { id: APP_USER } };
+
 const APP_DEPLOY = DEPLOYS.find((t) => t.repo === REPO) as (typeof DEPLOYS)[number];
 const CARRIES = [{ workItem: '1001', title: 'Redirect loop on /departments', issue: 16, pullRequest: 17 }];
 
@@ -31,6 +37,8 @@ const CARRIES = [{ workItem: '1001', title: 'Redirect loop on /departments', iss
 function deployPull(pull: { state?: string; head?: string; fork?: boolean; body?: string | null } = {}) {
   let body = pull.body === undefined ? 'Runs `aaaaaaa` on the local cluster.' : pull.body;
   const routes: Route[] = [
+    // The deploy pull request is the App's, as the guard asks before it is moved.
+    { method: 'GET', path: `/repos/${REPO}/issues/30`, answer: () => ({ body: { ...BY_APP, pull_request: {} } }) },
     {
       method: 'GET',
       path: `/repos/${REPO}/pulls/30`,
@@ -65,7 +73,7 @@ describe('acting in GitHub', () => {
         answer: () => ({ body: { data: { createCommitOnBranch: { commit: { oid: OTHER_SHA } } } } }),
       },
     ]);
-    const oid = await new LiveActions(github).commit(REPO, {
+    const oid = await new LiveActions(github, { guard: appsOwn() }).commit(REPO, {
       branch: 'factory/1001-cart',
       expectedHead: SHA,
       message: 'fix(cart): count the last item\n\nThe loop stopped one short.',
@@ -99,7 +107,7 @@ describe('acting in GitHub', () => {
       { method: 'PATCH', path: /^\/repos\/.+\/git\/refs\/heads\//, answer: () => ({ body: {} }) },
       { method: 'POST', path: `/repos/${REPO}/git/refs`, answer: () => ({ status: 201, body: {} }) },
     ]);
-    const actions = new LiveActions(github);
+    const actions = new LiveActions(github, { guard: appsOwn() });
     await actions.setBranch(REPO, 'deploy/local', SHA, { force: true });
     await actions.setBranch(REPO, 'factory/1001-cart', SHA);
     // Whether it exists is asked first, not read off an error's words.
@@ -119,10 +127,11 @@ describe('acting in GitHub', () => {
         answer: () => ({ status: 201, body: { number: 7, html_url: 'https://github.test/pr/7', node_id: 'PR_7' } }),
       },
       { method: 'POST', path: `/repos/${REPO}/issues/7/labels`, answer: () => ({ body: [] }) },
+      { method: 'GET', path: `/repos/${REPO}/pulls/7`, answer: () => ({ body: { node_id: 'PR_7' } }) },
       { method: 'POST', path: '/graphql', answer: () => ({ body: { data: {} } }) },
       { method: 'POST', path: `/repos/${REPO}/pulls/7/reviews`, answer: () => ({ body: { id: 99 } }) },
     ]);
-    const actions = new LiveActions(github);
+    const actions = new LiveActions(github, { guard: appsOwn() });
     const pr = await actions.openPullRequest(REPO, {
       head: 'factory/1001-cart',
       base: 'main',
@@ -139,7 +148,9 @@ describe('acting in GitHub', () => {
       comments: [{ path: 'src/cart.ts', line: 12, body: 'Rule 2: …' }],
     });
     expect(review).toBe(99);
-    const bodies = calls(sent).map((s) => s.body);
+    const bodies = calls(sent)
+      .filter((s) => s.method !== 'GET')
+      .map((s) => s.body);
     expect(bodies[0]).toEqual({
       head: 'factory/1001-cart',
       base: 'main',
@@ -157,10 +168,15 @@ describe('acting in GitHub', () => {
     });
   });
 
-  it('puts a pull request back to draft by its node id', async () => {
-    const { github, sent } = client([{ method: 'POST', path: '/graphql', answer: () => ({ body: { data: {} } }) }]);
-    await new LiveActions(github).convertToDraft(REPO, { number: 7, url: '', nodeId: 'PR_7' });
-    const [body] = calls(sent).map((s) => s.body) as { query: string; variables: unknown }[];
+  it('puts a pull request back to draft by the node id GitHub gives its number, whatever id it was sent', async () => {
+    const { github, sent } = client([
+      { method: 'GET', path: `/repos/${REPO}/pulls/7`, answer: () => ({ body: { node_id: 'PR_7' } }) },
+      { method: 'POST', path: '/graphql', answer: () => ({ body: { data: {} } }) },
+    ]);
+    await new LiveActions(github, { guard: appsOwn() }).convertToDraft(REPO, { number: 7, url: '', nodeId: 'PR_8' });
+    const [body] = calls(sent)
+      .filter((s) => s.method === 'POST')
+      .map((s) => s.body) as { query: string; variables: unknown }[];
     expect(body?.query).toContain('convertPullRequestToDraft');
     expect(body?.variables).toEqual({ id: 'PR_7' });
   });
@@ -216,7 +232,7 @@ describe('acting in GitHub', () => {
             : { body: { data: {} } },
       },
     ]);
-    await new LiveActions(github).resolveThreads(REPO, 66, [
+    await new LiveActions(github, { guard: appsOwn() }).resolveThreads(REPO, 66, [
       { path: 'test/search.test.ts', line: 4, body: finding, reply },
       { path: 'src/search.ts', line: 4, body: finding, reply },
       { path: 'test/pages.test.ts', line: 4, body: finding, reply },
@@ -241,9 +257,10 @@ describe('acting in GitHub', () => {
     const { github, sent } = client([
       { method: 'POST', path: `/repos/${REPO}/check-runs`, answer: () => ({ status: 201, body: { id: 5 } }) },
       { method: 'PATCH', path: `/repos/${REPO}/check-runs/5`, answer: () => ({ body: {} }) },
+      { method: 'GET', path: `/repos/${REPO}/issues/3`, answer: () => ({ body: BY_APP }) },
       { method: 'PATCH', path: `/repos/${REPO}/issues/3`, answer: () => ({ body: {} }) },
     ]);
-    const actions = new LiveActions(github);
+    const actions = new LiveActions(github, { guard: appsOwn() });
     const id = await actions.createCheckRun(REPO, {
       name: 'factory review',
       headSha: SHA,
@@ -258,7 +275,11 @@ describe('acting in GitHub', () => {
       summary: '…',
     });
     await actions.closeIssue(REPO, 3, 'completed');
-    expect(calls(sent).map((s) => s.body)).toEqual([
+    expect(
+      calls(sent)
+        .filter((s) => s.method !== 'GET')
+        .map((s) => s.body),
+    ).toEqual([
       {
         name: 'factory review',
         head_sha: SHA,
@@ -275,7 +296,7 @@ describe('acting in GitHub', () => {
     let failClose = 1;
     const comments: { body: string }[] = [];
     const { github, sent } = client([
-      { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: { state } }) },
+      { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: { ...BY_APP, state } }) },
       { method: 'GET', path: /^\/repos\/.+\/issues\/16\/events/, answer: () => ({ body: [] }) },
       { method: 'GET', path: /^\/repos\/.+\/issues\/16\/comments/, answer: () => ({ body: comments }) },
       {
@@ -296,7 +317,7 @@ describe('acting in GitHub', () => {
         },
       },
     ]);
-    const actions = new LiveActions(github);
+    const actions = new LiveActions(github, { guard: appsOwn() });
     // The first close comments, and its closing fails; trying again closes it, saying nothing twice.
     await expect(actions.closeIssue(REPO, 16, 'completed', 'Verified in production.')).rejects.toThrow();
     await actions.closeIssue(REPO, 16, 'completed', 'Verified in production.');
@@ -320,7 +341,7 @@ describe('acting in GitHub', () => {
     let failReopen = 1;
     const comments: { body: string; created_at: string }[] = [];
     const { github, sent } = client([
-      { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: issue }) },
+      { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: { ...BY_APP, ...issue } }) },
       {
         method: 'GET',
         path: /^\/repos\/.+\/issues\/16\/comments/,
@@ -347,7 +368,7 @@ describe('acting in GitHub', () => {
         },
       },
     ]);
-    const actions = new LiveActions(github);
+    const actions = new LiveActions(github, { guard: appsOwn() });
     // The first reopening comments, and fails to reopen; trying again reopens it, saying nothing twice.
     await expect(actions.reopenIssue(REPO, 16, 'It came back.')).rejects.toThrow();
     await actions.reopenIssue(REPO, 16, 'It came back.');
@@ -373,7 +394,7 @@ describe('acting in GitHub', () => {
   it('says again on a reopened issue what an earlier closing said, as it closes it again', async () => {
     const said = [{ body: 'Verified in production.' }];
     const { github, sent } = client([
-      { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: { state: 'open' } }) },
+      { method: 'GET', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: { ...BY_APP, state: 'open' } }) },
       {
         method: 'GET',
         path: /^\/repos\/.+\/issues\/16\/events/,
@@ -392,7 +413,7 @@ describe('acting in GitHub', () => {
       { method: 'POST', path: `/repos/${REPO}/issues/16/comments`, answer: () => ({ status: 201, body: {} }) },
       { method: 'PATCH', path: `/repos/${REPO}/issues/16`, answer: () => ({ body: {} }) },
     ]);
-    await new LiveActions(github).closeIssue(REPO, 16, 'completed', 'Verified in production.');
+    await new LiveActions(github, { guard: appsOwn() }).closeIssue(REPO, 16, 'completed', 'Verified in production.');
     expect(calls(sent).filter((s) => s.method === 'POST')).toHaveLength(1);
   });
 });
@@ -401,7 +422,7 @@ describe('describing a deploy', () => {
   it('writes what the deploy pull request carries into its body, and leaves a body that says it already', async () => {
     const pull = deployPull();
     const { github, sent } = client(pull.routes);
-    const actions = new LiveActions(github);
+    const actions = new LiveActions(github, { guard: appsOwn() });
     expect(await actions.describeDeploy(REPO, 30, { commit: SHA, carries: CARRIES })).toBe(true);
     expect(pull.body()).toBe(`Runs \`aaaaaaa\` on the local cluster.\n\n${carriesSection(CARRIES)}`);
     expect(await actions.describeDeploy(REPO, 30, { commit: SHA, carries: CARRIES })).toBe(false);
@@ -419,7 +440,10 @@ describe('describing a deploy', () => {
     ] as const) {
       const { routes } = deployPull(pull);
       const { github, sent } = client(routes);
-      const describing = new LiveActions(github).describeDeploy(REPO, 30, { commit, carries: CARRIES });
+      const describing = new LiveActions(github, { guard: appsOwn() }).describeDeploy(REPO, 30, {
+        commit,
+        carries: CARRIES,
+      });
       if (refusal === DeployRefused) await expect(describing).rejects.toBeInstanceOf(DeployRefused);
       else await expect(describing).rejects.toMatchObject(refusal);
       expect(calls(sent).filter((c) => c.method === 'PATCH')).toEqual([]);
@@ -443,7 +467,10 @@ describe('describing a deploy', () => {
         }),
       },
     ]);
-    const describing = new LiveActions(github).describeDeploy(factory.repo, 30, { commit: SHA, carries: CARRIES });
+    const describing = new LiveActions(github, { guard: appsOwn() }).describeDeploy(factory.repo, 30, {
+      commit: SHA,
+      carries: CARRIES,
+    });
     await expect(describing).rejects.toThrow(/more than one pin file/);
     expect(calls(sent).filter((c) => c.method === 'PATCH')).toEqual([]);
   });
@@ -469,15 +496,17 @@ describe('describing a deploy', () => {
         return fake.fetch(input, init);
       }) as typeof fetch,
     });
-    const actions = new LiveActions(github);
+    const actions = new LiveActions(github, { guard: appsOwn() });
     const move = actions.updatePullRequest(REPO, 30, { body: 'Runs `bbbbbbb` on the local cluster.' });
     const describing = actions.describeDeploy(REPO, 30, { commit: SHA, carries: CARRIES });
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(calls(sent)).toEqual([]);
+    // Only the guard's read of who opened it, in the move's turn, before its write.
+    const toPull = () => calls(sent).filter((c) => !c.path.endsWith('/issues/30'));
+    expect(toPull()).toEqual([]);
     letGo();
     await Promise.all([move, describing]);
     // The description read the body the move wrote, and kept it.
-    expect(calls(sent).map((c) => c.method)).toEqual(['PATCH', 'GET', 'PATCH']);
+    expect(toPull().map((c) => c.method)).toEqual(['PATCH', 'GET', 'PATCH']);
     expect(pull.body()).toBe(`Runs \`bbbbbbb\` on the local cluster.\n\n${carriesSection(CARRIES)}`);
   });
 });
@@ -485,7 +514,13 @@ describe('describing a deploy', () => {
 describe('a dry run', () => {
   it('writes each action to the artifact store, sends nothing, and makes nothing that could pass for real', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
-    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    const actions = new DryRunActions(
+      new DiskArtifacts(dir),
+      quiet,
+      () => new Date('2026-10-04T12:00:00Z'),
+      undefined,
+      appsOwn(),
+    );
     const oid = await actions.commit(REPO, {
       branch: 'factory/1001-cart',
       expectedHead: SHA,
@@ -516,7 +551,13 @@ describe('a dry run', () => {
 
   it('records what it would have said a deploy carries', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
-    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    const actions = new DryRunActions(
+      new DiskArtifacts(dir),
+      quiet,
+      () => new Date('2026-10-04T12:00:00Z'),
+      undefined,
+      appsOwn(),
+    );
     expect(await actions.describeDeploy(REPO, 30, { commit: SHA, carries: CARRIES })).toBe(true);
     const [record] = await Promise.all(
       (await readdir(dir)).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),
@@ -531,7 +572,13 @@ describe('a dry run', () => {
 
   it('records the issue it would have closed, with what it would have said on it', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
-    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    const actions = new DryRunActions(
+      new DiskArtifacts(dir),
+      quiet,
+      () => new Date('2026-10-04T12:00:00Z'),
+      undefined,
+      appsOwn(),
+    );
     await actions.closeIssue(REPO, 16, 'completed', 'Verified in production.');
     const [record] = await Promise.all(
       (await readdir(dir)).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),
@@ -546,7 +593,13 @@ describe('a dry run', () => {
 describe('resolving threads in a dry run', () => {
   it('records the threads it would have resolved, with what it would have said on them', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
-    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    const actions = new DryRunActions(
+      new DiskArtifacts(dir),
+      quiet,
+      () => new Date('2026-10-04T12:00:00Z'),
+      undefined,
+      appsOwn(),
+    );
     const threads = [
       {
         path: 'src/search.ts',
@@ -594,7 +647,7 @@ describe('closing a pull request', () => {
         },
       },
     ]);
-    const actions = new LiveActions(github);
+    const actions = new LiveActions(github, { guard: appsOwn() });
     await expect(actions.closePullRequest(REPO, 66, 'Closed unmerged.')).rejects.toThrow();
     await actions.closePullRequest(REPO, 66, 'Closed unmerged.');
     await actions.closePullRequest(REPO, 66, 'Closed unmerged.');
@@ -617,13 +670,21 @@ describe('closing a pull request', () => {
         answer: () => ({ body: { state: 'open', head: { ref: 'dependabot/npm_and_yarn/pino-10.4.0' } } }),
       },
     ]);
-    await expect(new LiveActions(github).closePullRequest(REPO, 67, 'Closed unmerged.')).rejects.toThrow();
+    await expect(
+      new LiveActions(github, { guard: appsOwn() }).closePullRequest(REPO, 67, 'Closed unmerged.'),
+    ).rejects.toThrow();
     expect(calls(sent).filter((s) => s.method !== 'GET')).toEqual([]);
   });
 
   it('records the pull request a dry run would have closed, with what it would have said', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
-    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    const actions = new DryRunActions(
+      new DiskArtifacts(dir),
+      quiet,
+      () => new Date('2026-10-04T12:00:00Z'),
+      undefined,
+      appsOwn(),
+    );
     await actions.closePullRequest(REPO, 66, 'Closed unmerged.');
     const [record] = await Promise.all(
       (await readdir(dir)).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),
@@ -638,7 +699,13 @@ describe('closing a pull request', () => {
 
   it('records a dry run’s close of its own pull request once', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
-    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    const actions = new DryRunActions(
+      new DiskArtifacts(dir),
+      quiet,
+      () => new Date('2026-10-04T12:00:00Z'),
+      undefined,
+      appsOwn(),
+    );
     const { number } = await actions.openPullRequest(REPO, {
       head: 'factory/1-a',
       base: 'main',
@@ -660,6 +727,7 @@ describe('commenting on an issue', () => {
     const comments: { body: string }[] = [{ body: 'Something said before.\r\nOn two lines.' }];
     let failPost = 1;
     const { github, sent } = client([
+      { method: 'GET', path: `/repos/${REPO}/issues/31`, answer: () => ({ body: BY_APP }) },
       { method: 'GET', path: /^\/repos\/.+\/issues\/31\/comments/, answer: () => ({ body: comments }) },
       {
         method: 'POST',
@@ -671,7 +739,7 @@ describe('commenting on an issue', () => {
         },
       },
     ]);
-    const actions = new LiveActions(github);
+    const actions = new LiveActions(github, { guard: appsOwn() });
     await expect(actions.comment(REPO, 31, 'Released behind its flag.')).rejects.toThrow();
     await actions.comment(REPO, 31, 'Released behind its flag.');
     await actions.comment(REPO, 31, 'Released behind its flag.');
@@ -689,7 +757,13 @@ describe('commenting on an issue', () => {
 
   it('records what a dry run would have said on an issue once', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
-    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    const actions = new DryRunActions(
+      new DiskArtifacts(dir),
+      quiet,
+      () => new Date('2026-10-04T12:00:00Z'),
+      undefined,
+      appsOwn(),
+    );
     await Promise.all([
       actions.comment(REPO, 31, 'Released behind its flag.'),
       actions.comment(REPO, 31, 'Released behind its flag.'),
@@ -706,7 +780,13 @@ describe('commenting on an issue', () => {
 describe('reopening an issue in a dry run', () => {
   it('records the issue it would have reopened, with what it would have said on it', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
-    const actions = new DryRunActions(new DiskArtifacts(dir), quiet, () => new Date('2026-10-04T12:00:00Z'));
+    const actions = new DryRunActions(
+      new DiskArtifacts(dir),
+      quiet,
+      () => new Date('2026-10-04T12:00:00Z'),
+      undefined,
+      appsOwn(),
+    );
     await actions.reopenIssue(REPO, 16, 'It came back.');
     const [record] = await Promise.all(
       (await readdir(dir)).map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf-8'))),
@@ -727,7 +807,7 @@ describe('the worker over HTTP', () => {
 
   async function serve(actions: ConstructorParameters<typeof LiveActions>[0] | DryRunActions) {
     const server = createWorkerServer({
-      actions: actions instanceof DryRunActions ? actions : new LiveActions(actions),
+      actions: actions instanceof DryRunActions ? actions : new LiveActions(actions, { guard: appsOwn() }),
       repositories: [REPO],
       health: () => ({ mode: 'test' }),
       log: quiet,

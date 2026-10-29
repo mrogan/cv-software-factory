@@ -461,7 +461,7 @@ The review gate becomes the approval-routing check, as "Autonomy (Part C)" decid
 
 ### 26. Guardrail 10 as written
 
-- **The factory reads no issue as input** (settled above), and replies once to an issue opened by anyone but Martin or the App, by numeric id: a fixed, polite text that echoes nothing of the issue, saying the factory acts only on what it finds itself and what Martin asks, and that Martin reads every issue. The poller gains a watch of new issues in both repositories.
+- **The factory reads no issue as input** (settled above), and replies once to an issue opened by anyone but Martin or the App, by numeric id: a fixed, polite text that echoes nothing of the issue, saying the factory acts only on what it finds itself and what its operators ask of it directly, and that a human will read the issue. The poller gains a watch of new issues in both repositories.
 - **The App's issue actions act only on its own issues:** commenting on, closing or reopening an issue the App did not open is refused by the GitHub worker's guard, recorded as `action.refused`.
 - **Outside pull requests:** task 20's tests prove none runs with a secret or a self-hosted runner, and the gate never passes one Martin has not approved at its head.
 - **Spec 6's guardrail 10** says what is built: the factory acts only on issues it created, and an outside one gets a polite reply.

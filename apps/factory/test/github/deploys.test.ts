@@ -23,6 +23,7 @@ import {
   scratchBranch,
   withCarries,
 } from '../../src/github/deploys.ts';
+import { APP_USER, IssueRefused } from '../../src/github/issues.ts';
 import { type Registry, RegistryError } from '../../src/github/registry.ts';
 import { releaseWatch } from '../../src/github/releases.ts';
 import { pipeline, type Signatures, type Signer, UnsignedError } from '../../src/github/signatures.ts';
@@ -72,7 +73,14 @@ interface Pull {
  */
 function github(
   target: DeployTarget,
-  options: { pins?: Record<string, string>; pulls?: Pull[]; failCommit?: boolean; mergeable?: boolean | null } = {},
+  options: {
+    pins?: Record<string, string>;
+    pulls?: Pull[];
+    failCommit?: boolean;
+    mergeable?: boolean | null;
+    /** Who opened its pull requests, by numeric id: the App's bot, unless a test says otherwise. */
+    openedBy?: number;
+  } = {},
 ) {
   const { repo } = target;
   const sent: Sent[] = [];
@@ -119,6 +127,12 @@ function github(
       answer: () => ({ body: pulls.map((p) => ({ ...p, head: { sha: branches.get(target.branch) } })) }),
     },
     { method: 'GET', path: /\/pulls\/\d+$/, answer: () => ({ body: { mergeable } }) },
+    // Its deploy pull requests are the App's, as the issue guard asks before it labels or moves one.
+    {
+      method: 'GET',
+      path: /\/issues\/\d+$/,
+      answer: () => ({ body: { user: { id: options.openedBy ?? APP_USER }, pull_request: {} } }),
+    },
     {
       method: 'GET',
       path: /\/git\/ref\/heads\//,
@@ -441,6 +455,19 @@ Argo CD deploys them from \`deploy/overlays/local\` once this merges. A newer bu
       title: 'chore(deploy): run the factory bbbbbbb on the local cluster',
       body: expect.stringContaining(`/commit/${commit('b')})`),
     });
+  });
+
+  it('asks who opened the pull request before it moves it, and moves none the App did not open', async () => {
+    const older = 'chore(deploy): run the factory aaaaaaa on the local cluster';
+    const label = [{ name: 'deploy: local' }];
+    const pulls: Pull[] = [{ number: 69, title: older, state: 'open', merged_at: null, labels: label }];
+    const own = github(FACTORY, { pulls });
+    await watch(own, FACTORY)();
+    expect(own.sent.some((s) => s.method === 'GET' && s.path === `/repos/${FACTORY.repo}/issues/69`)).toBe(true);
+    // One opened from the deploy branch by anyone else is refused, and never retitled or rewritten.
+    const theirs = github(FACTORY, { pulls, openedBy: 6206459 });
+    await expect(watch(theirs, FACTORY)()).rejects.toBeInstanceOf(IssueRefused);
+    expect(writes(theirs.sent).filter((s) => s.path.endsWith('/pulls/69'))).toEqual([]);
   });
 
   it('moves the deploy branch from the older build straight to the newer, so GitHub never closes its pull request', async () => {
