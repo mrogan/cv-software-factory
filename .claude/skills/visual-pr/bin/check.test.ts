@@ -32,12 +32,12 @@ describe('check.ts', () => {
     ]);
   });
 
-  it('passes an attached video, which GitHub folds in a <details> whose <summary> has a class', () => {
+  it('passes an attached video, which GitHub folds in a <details> of its own, whose title is the file’s name', () => {
     const video = [
       '<details open="" class="details-reset border rounded-2">',
       '  <summary class="tmp-px-3 py-2">',
       '    <svg aria-hidden="true" class="octicon octicon-device-camera-video"><path d="M16 3.75"></path></svg>',
-      '    <span class="m-1">flight.webm</span>',
+      '    <span class="m-1">**flight**.webm</span>',
       '    <span class="dropdown-caret"></span>',
       '  </summary>',
       '  <video src="https://private-user-images.githubusercontent.com/1/flight.webm" controls="controls"></video>',
@@ -45,6 +45,12 @@ describe('check.ts', () => {
     ].join('\n');
     expect(problems('', `${FOLDED}\n${video}`, false)).toEqual([]);
     expect(problems('', `<details>\n${video}\n</details>`, false)).toEqual([
+      'a <details> has no <summary>, or one has two',
+    ]);
+  });
+
+  it('still holds a summary of the describer’s with an attribute to the rules', () => {
+    expect(problems('', '<details>\n<summary title="x">Tests</summary>\n</details>', false)).toEqual([
       'a <details> has no <summary>, or one has two',
     ]);
   });
