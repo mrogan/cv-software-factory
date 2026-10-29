@@ -246,6 +246,39 @@ serverFiles:
             annotations:
               summary: "Security events are not being counted"
               description: "The line has not counted sign-ins and the rest for some minutes, so none of them would reach you."
+          - alert: AdminActionUncounted
+            expr: "max by (action) (line_admin_actions_uncounted{action=\"flags\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}) == 1"
+            for: 2m
+            labels:
+              level: "page"
+            annotations:
+              summary: "The flags changed with no record"
+              description: "flagd's flags hold a stage or a revision that no move of yours recorded: they were changed outside the console, or the admin service changed them without recording it. Controls shows each flag's stage as it is: move each that differs there, which records it, and look in the admin service's log."
+          - alert: AdminActionUncounted
+            expr: "max by (action) (line_admin_actions_uncounted{action=\"rollout\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}) == 1"
+            for: 2m
+            labels:
+              level: "page"
+            annotations:
+              summary: "The app's Rollout changed with no record"
+              description: "The app's Rollout was paused, resumed or promoted fully with no control of yours recorded: outside the Canary panel, or by the admin service without recording it. The Canary panel shows it as it is: act there, which records it, and look in the admin service's log."
+          - alert: AdminActionUncounted
+            expr: "max by (action) (line_admin_actions_uncounted{action=\"sessions\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}) == 1"
+            for: 2m
+            labels:
+              level: "page"
+            annotations:
+              summary: "A session started with no sign-in"
+              description: "The store holds a session of the last hour that no sign-in recorded: someone made it outside the admin service’s sign-in, or the admin service did without recording it. End every session with make enrol REVOKE_OTHERS=1, then enrol your passkey again. This ends an hour after the session started."
+          - alert: AdminActionUncounted
+            expr: "max by (action) (line_admin_actions_compared{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}) == 0"
+            for: 10m
+            labels:
+              level: "page"
+              worker: "line"
+            annotations:
+              summary: "The admin service's changes are not being compared"
+              description: "For ten minutes the line has not been able to compare what the admin service changes with the events that record it, so a change none records would not reach you. The line’s log says why."
           - alert: AlertmanagerSilenced
             expr: "max(alertmanager_silences{state=~\"active|pending\"}) > 0"
             for: 0s

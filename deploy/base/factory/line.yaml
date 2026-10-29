@@ -43,7 +43,7 @@ spec:
       labels: *labels
     spec:
       serviceAccountName: line
-      # The one worker that talks to the Kubernetes API, to start runners and read the app's release.
+      # The one worker that talks to the Kubernetes API, to start runners, read the app's release, and read the flags.
       automountServiceAccountToken: true
       securityContext:
         runAsNonRoot: true
@@ -135,6 +135,11 @@ spec:
               value: http://query.telemetry:3100
             - name: TEMPO_URL
               value: http://query.telemetry:3200
+            # The FeatureFlag the admin service stages Martin's flags in, which the line reads, by name and nothing else
+            # (deploy/base/flagd/line-reads-flags.yaml), to compare with his moves, as it compares the Rollout above
+            # with his controls and the sessions with his sign-ins: a change no event names pages him.
+            - name: FEATURE_FLAGS
+              value: flagd/flags
             # Where each runner pod's log is kept, as the step ends.
             - name: ARTIFACTS_DIR
               value: /var/lib/factory/artifacts

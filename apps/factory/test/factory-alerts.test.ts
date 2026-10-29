@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse, stringify } from 'yaml';
 import {
+  ADMIN_UNCOUNTED,
+  ADMIN_UNCOUNTED_FOR,
+  ADMIN_UNCOUNTED_WORDS,
   ARGO_CD_MINUTES,
   factoryRules,
   flagRules,
@@ -15,6 +18,7 @@ import {
   RULES_FILE,
   WORKERS,
 } from '../src/alerts/rules.ts';
+import { ADMIN_ACTIONS } from '../src/line/admin-actions.ts';
 import { TARGETS } from '../src/probes/health.ts';
 import {
   METRICS_FROM_THE_ADMIN_SERVICE,
@@ -550,5 +554,94 @@ describe('the alert that alerts do not reach the phone', () => {
       'martin',
     );
     expect(ok, output).toBe(true);
+  });
+});
+
+describe('the alert that a change the admin service makes is named by no event', () => {
+  const rules = martinRules().filter((r) => r.alert === ADMIN_UNCOUNTED);
+  const uncounted = (action: string) => line('line_admin_actions_uncounted', `action="${action}"`);
+  const compared = (action: string) => line('line_admin_actions_compared', `action="${action}"`);
+  const fires = (action: string, which: number) => {
+    const rule = rules[which];
+    return { exp_labels: { action, ...rule?.labels }, exp_annotations: rule?.annotations };
+  };
+
+  it('pages for each of the three, in its own words, and when the line cannot compare them, never keeping on firing', () => {
+    expect(rules.map((rule) => rule.labels.level)).toEqual(Array(ADMIN_ACTIONS.length + 1).fill(LEVELS.page));
+    expect(rules.map((rule) => rule.annotations)).toEqual([
+      ...ADMIN_ACTIONS.map((action) => ADMIN_UNCOUNTED_WORDS[action]),
+      expect.anything(),
+    ]);
+    // A change none names is no consequence of a worker's crash loop; not being able to compare is the line's.
+    expect(rules.map((rule) => rule.labels.worker)).toEqual([...ADMIN_ACTIONS.map(() => undefined), WORKERS.line]);
+    for (const rule of rules) {
+      expect(rule.keepFiringFor, rule.expr).toBeUndefined();
+      expect(rule.expr).toContain(METRICS_FROM_THE_LINE);
+    }
+  });
+
+  it(`fires once a change has stood unnamed for ${ADMIN_UNCOUNTED_FOR}, and not for a moment's gap, nor another worker's word`, () => {
+    expect(ADMIN_UNCOUNTED_FOR).toBe('2m');
+    expectPasses(
+      promtool(
+        [
+          {
+            interval: '1m',
+            input_series: [
+              // The flags: a moment unnamed (the write before its event), then a change none names, then named again.
+              { series: uncounted('flags'), values: each(0, 1, 0, 0, 1, 1, 1, 1, 0, 0) },
+              { series: compared('flags'), values: each(1, 1, 1, 1, 1, 1, 1, 1, 1, 1) },
+              { series: uncounted('sessions'), values: each(0, 0, 0, 0, 0, 0, 0, 0, 0, 0) },
+              // Another worker cannot page Martin through the line's figures.
+              { series: other('line_admin_actions_uncounted', 'action="rollout"'), values: each(1, 1, 1, 1, 1, 1) },
+            ],
+            alert_rule_test: [
+              { eval_time: '2m', alertname: ADMIN_UNCOUNTED, exp_alerts: [] },
+              { eval_time: '5m', alertname: ADMIN_UNCOUNTED, exp_alerts: [] },
+              { eval_time: '6m', alertname: ADMIN_UNCOUNTED, exp_alerts: [fires('flags', 0)] },
+              { eval_time: '7m', alertname: ADMIN_UNCOUNTED, exp_alerts: [fires('flags', 0)] },
+              // Named again, it resolves at once: a change set right in the console is no cause still there.
+              { eval_time: '8m', alertname: ADMIN_UNCOUNTED, exp_alerts: [] },
+            ],
+          },
+          {
+            interval: '1m',
+            input_series: [
+              { series: uncounted('rollout'), values: each(1, 1, 1, 1) },
+              { series: uncounted('sessions'), values: each(1, 1, 1, 1) },
+            ],
+            alert_rule_test: [
+              {
+                eval_time: '3m',
+                alertname: ADMIN_UNCOUNTED,
+                exp_alerts: [fires('rollout', 1), fires('sessions', 2)],
+              },
+            ],
+          },
+        ],
+        'martin',
+      ),
+    );
+  });
+
+  it('fires when the line has not compared one for ten minutes, and not for a read that failed once', () => {
+    expectPasses(
+      promtool(
+        [
+          {
+            interval: '1m',
+            input_series: [
+              { series: compared('rollout'), values: each(1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) },
+              { series: compared('flags'), values: each(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1) },
+            ],
+            alert_rule_test: [
+              { eval_time: '12m', alertname: ADMIN_UNCOUNTED, exp_alerts: [] },
+              { eval_time: '13m', alertname: ADMIN_UNCOUNTED, exp_alerts: [fires('rollout', ADMIN_ACTIONS.length)] },
+            ],
+          },
+        ],
+        'martin',
+      ),
+    );
   });
 });

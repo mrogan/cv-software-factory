@@ -1,0 +1,27 @@
+# The line compares `flags` with Martin's moves of each flag, recorded in the store, and pages him when a flag's stage
+# or the flag set's revision is one no move of his recorded: a change made outside the admin service, or by it without
+# its event (apps/factory/src/line/admin-actions.ts). So it may get `flags`, by name, and nothing else in `flagd`: not
+# list or watch it, and never write it. The service account is the line's own (deploy/base/factory/line.yaml), which
+# reads the app's Rollout the same way (deploy/base/analysis/line-reads-release.yaml).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: line-reads-flags
+rules:
+  - apiGroups: [core.openfeature.dev]
+    resources: [featureflags]
+    resourceNames: [flags]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: line-reads-flags
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: line-reads-flags
+subjects:
+  - kind: ServiceAccount
+    name: line
+    namespace: factory

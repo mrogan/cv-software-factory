@@ -19,6 +19,7 @@ import { type Objectives, objectives } from '../../../../policy/objectives.ts';
 import { STUCK, type StuckStage } from '../../../../policy/stuck.ts';
 import { REPORT_TEXT } from '../../../../policy/triage.ts';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
+import { ADMIN_ACTIONS, type AdminAction } from '../line/admin-actions.ts';
 import { NUMBER_PATTERN, RELEASE_ENDINGS } from '../line/metrics.ts';
 import { SECURITY_KINDS, type SecurityKind } from '../line/security.ts';
 import { TARGETS, type Target } from '../probes/health.ts';
@@ -222,6 +223,34 @@ export const HOLDS_STORED = fromTheLine('line_holds_stored_total');
 const TAKES_WORK = `max(${fromTheLine('line_work_items')})`;
 /** Whether the line's last read of them from the store succeeded. */
 const COUNTING = fromTheLine('line_security_events_counting');
+
+/** The alert that a change the admin service makes is named by no event, or cannot be compared with its events. */
+export const ADMIN_UNCOUNTED = 'AdminActionUncounted';
+
+/**
+ * How long a change may stand with no event naming it before Martin is paged: the admin service appends its event
+ * once the change is made, so for a moment none does, and the line compares every 15 seconds.
+ */
+export const ADMIN_UNCOUNTED_FOR = '2m';
+
+/** What the alert says of each change no event names, and what Martin does about it. */
+export const ADMIN_UNCOUNTED_WORDS: Record<AdminAction, { summary: string; description: string }> = {
+  flags: {
+    summary: 'The flags changed with no record',
+    description:
+      "flagd's flags hold a stage or a revision that no move of yours recorded: they were changed outside the console, or the admin service changed them without recording it. Controls shows each flag's stage as it is: move each that differs there, which records it, and look in the admin service's log.",
+  },
+  rollout: {
+    summary: "The app's Rollout changed with no record",
+    description:
+      "The app's Rollout was paused, resumed or promoted fully with no control of yours recorded: outside the Canary panel, or by the admin service without recording it. The Canary panel shows it as it is: act there, which records it, and look in the admin service's log.",
+  },
+  sessions: {
+    summary: 'A session started with no sign-in',
+    description:
+      'The store holds a session of the last hour that no sign-in recorded: someone made it outside the admin service’s sign-in, or the admin service did without recording it. End every session with make enrol REVOKE_OTHERS=1, then enrol your passkey again. This ends an hour after the session started.',
+  },
+};
 
 /**
  * What an alert says of each hold that waits for Martin, by its cause: its title, which names the work item, and a line
@@ -454,6 +483,9 @@ const RECENT = '5m';
  *   from the line's count of them in the store, which starts at 0; several of a kind within five minutes are one alert;
  * - a page when that count has gone missing for ten minutes, having been there in the six hours before, or the line
  *   has not been able to read the store for five: no security event would reach him meanwhile;
+ * - a page when a change the admin service makes (the flags, the app's Rollout, a session) stands for two minutes with
+ *   no event naming it, by the line's comparison of each with Martin's events (`line/admin-actions.ts`): someone got
+ *   round the audit log; and when the line has not been able to compare one for ten minutes;
  * - a page while Alertmanager has a silence in place, active or pending, from its own figures: a silence keeps pages
  *   from Martin, and nothing here makes one. A silence that matches this alert keeps it quiet too: the limit the dead
  *   man's switch covers (milestone 10). The rule takes the highest of any series by that name, so another can only page
@@ -491,6 +523,24 @@ export function martinRules(): Rule[] {
         summary: 'Security events are not being counted',
         description:
           'The line has not counted sign-ins and the rest for some minutes, so none of them would reach you.',
+      },
+    },
+    ...ADMIN_ACTIONS.map((action) => ({
+      alert: ADMIN_UNCOUNTED,
+      expr: `max by (action) (${fromTheLine('line_admin_actions_uncounted', `action="${action}"`)}) == 1`,
+      for: ADMIN_UNCOUNTED_FOR,
+      labels: { level: LEVELS.page },
+      annotations: ADMIN_UNCOUNTED_WORDS[action],
+    })),
+    {
+      alert: ADMIN_UNCOUNTED,
+      expr: `max by (action) (${fromTheLine('line_admin_actions_compared')}) == 0`,
+      for: '10m',
+      labels: { level: LEVELS.page, worker: WORKERS.line },
+      annotations: {
+        summary: "The admin service's changes are not being compared",
+        description:
+          'For ten minutes the line has not been able to compare what the admin service changes with the events that record it, so a change none records would not reach you. The line’s log says why.',
       },
     },
     {
