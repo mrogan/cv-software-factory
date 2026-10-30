@@ -93,8 +93,9 @@ test.describe('stations', () => {
 
   // The tools' motion, which the still poses above never draw: each animation stopped at a moment that shows the tool at
   // work (the big parcel tossed out, the compass partway round its circle, the lens leaning in over its first tick, the
-  // pen partway through the signature), the same moment every run, as the still poses' tests set t.
-  const MOMENTS = { triage: 2000, plan: 1200, review: 1150, verify: 1000 } as const;
+  // pen partway through the signature), the same moment every run, as the still poses' tests set t. Review's and Verify's
+  // loops start once the paper has come up, 900ms in, so their moments count from the start of the feed.
+  const MOMENTS = { triage: 2000, plan: 1200, review: 2050, verify: 2250 } as const;
   test('tools in motion, paper', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await page.goto(consoleUrl({ theme: 'paper' }));

@@ -134,12 +134,16 @@ const COMPASS_KEYFRAMES = (['needle', 'nib', 'hinge'] as const)
 /*
  * Verify's pen signs MR in one stroke, as in the mark: the M's last downstroke is the R's stem. The signature is drawn by
  * stroke-dashoffset, which runs at an even pace along its length, so the pen's keyframes are points at equal lengths along
- * the same curve, and the nib stays on the ink. It signs over the first 60% of the cycle, lifts away, and comes back.
+ * the same curve, and the nib stays on the ink. The pen stands in the inkwell, dips, signs from 14% of the cycle to 60%,
+ * lifts aside while the signature holds, and goes back to the inkwell.
  */
 const SIG = 'M0 16 C1 10 2.5 4 3.5 0.5 C5 4 7 8 8.5 10.5 C10 7 11.5 3 13 0.5 C13 6 13 11 13 16 '
   + 'C13 11 13 5 13 0.5 C20 -0.5 23 1.5 23 4 C23 7 18 8.5 13.5 8 C17 10 20 13.5 22.5 16 C26 19 32 17 36 12';
 const SIGNED = 60;
-const PEN_UP = 'translate(40px, -4px)';
+const INKED = 14;
+const PEN_INKWELL = 'translate(17px, 21px)';
+const PEN_DIPPED = 'translate(17px, 24px)';
+const PEN_ASIDE = 'translate(44px, -2px)';
 
 /** Points at equal lengths along the signature, which is one M and absolute C segments, as written. */
 function alongSignature(steps: number): [number, number][] {
@@ -166,10 +170,10 @@ function alongSignature(steps: number): [number, number][] {
 
 const PEN_STEP_COUNT = 36;
 const PEN_STEPS = alongSignature(PEN_STEP_COUNT);
-const PEN_START = `translate(${f2(PEN_STEPS[0]?.[0] ?? 0)}px, ${f2(PEN_STEPS[0]?.[1] ?? 0)}px)`;
 const SIGN_KEYFRAMES = keyframes('sign', [
-  ...PEN_STEPS.map(([x, y], k): [number, string] => [(SIGNED * k) / PEN_STEP_COUNT, `translate(${f2(x)}px, ${f2(y)}px)`]),
-  [68, PEN_UP], [92, PEN_UP], [100, PEN_START],
+  [0, PEN_INKWELL], [5, PEN_DIPPED], [10, PEN_INKWELL],
+  ...PEN_STEPS.map(([x, y], k): [number, string] => [INKED + ((SIGNED - INKED) * k) / PEN_STEP_COUNT, `translate(${f2(x)}px, ${f2(y)}px)`]),
+  [68, PEN_ASIDE], [88, PEN_ASIDE], [96, PEN_INKWELL], [100, PEN_INKWELL],
 ]);
 
 const CSS = `
@@ -242,7 +246,7 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
 :host([bird="out"]) .bird-ok, :host([bird="out"]) .bird-down { visibility: hidden; }
 
 /* Pivots, in the SVG's user units */
-.pivot, .sense-dish, .needle, .nib, .hinge, .pen, .build-arm, .gate-boom, .lens, .bird-ok, .belt-run,
+.pivot, .paper, .sense-dish, .needle, .nib, .hinge, .pen, .build-arm, .gate-boom, .lens, .bird-ok, .belt-run,
 .eyes, .bar, .sift, .reject, .pass, .puff, .sparks, .rattle, .note, .wave, .glint, .alarm, .zz path {
   transform-box: view-box;
 }
@@ -257,11 +261,19 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .lens       { transform-origin: 56px 10px; }
 .glass      { fill: var(--_steel); fill-opacity: .5; stroke: var(--_ink); stroke-width: 2.25; }
 .tick       { opacity: 0; }
+/* Review's page and Verify's card are put away behind the chassis at idle, and up whenever the stage has work. With no
+   page under it, the lens rests just above the roof and shows a flare, not a line. */
+.s-idle .paper { transform: translateY(46px); }
+.s-idle .lens { transform: translate(14px, 13px); }
+.flare      { opacity: 0; }
+.s-idle .zoom { opacity: 0; }
+.s-idle .flare { opacity: 1; }
 .s-passing .tick { opacity: 1; }
 /* Only a passed Verify shows a finished signature; at work, the pen writes it. */
 .sig        { opacity: 0; }
 .s-passing .sig { opacity: 1; }
-.pen        { transform: ${PEN_UP}; }
+.pen        { transform: ${PEN_INKWELL}; }
+.s-passing .pen { transform: ${PEN_ASIDE}; }
 .build-arm  { transform-origin: 74px 38px; transform: rotate(-18deg); }
 .gate-boom  { transform-origin: 59px 16.5px; }
 .s-passing .gate-boom { transform: rotate(-55deg); }
@@ -321,9 +333,11 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
   :host(:not([motion="off"])) .s-working .gate-boom,
   :host(:not([motion="off"])) .s-returning .gate-boom { animation: wobble 1.2s ease-in-out infinite; }
   :host(:not([motion="off"])) .s-working .lens,
-  :host(:not([motion="off"])) .s-returning .lens { animation: read 4.8s ease-in-out infinite; }
+  :host(:not([motion="off"])) .s-returning .lens { animation: read 4.8s ease-in-out .9s infinite; }
+  :host(:not([motion="off"])) .s-working .paper,
+  :host(:not([motion="off"])) .s-returning .paper { animation: feed .9s both; }
   :host(:not([motion="off"])) .s-working .tick,
-  :host(:not([motion="off"])) .s-returning .tick { animation: tick-1 4.8s linear infinite; }
+  :host(:not([motion="off"])) .s-returning .tick { animation: tick-1 4.8s linear .9s infinite; }
   :host(:not([motion="off"])) .s-working .tick + .tick,
   :host(:not([motion="off"])) .s-returning .tick + .tick { animation-name: tick-2; }
   :host(:not([motion="off"])) .s-working .tick + .tick + .tick,
@@ -333,9 +347,9 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
   :host(:not([motion="off"])) .s-passing .bird-ok { animation: bob 1.2s ease-in-out infinite; }
   :host(:not([motion="off"])) .note { animation: pulse-op 1.6s ease-in-out infinite; }
   :host(:not([motion="off"])) .s-working .pen,
-  :host(:not([motion="off"])) .s-returning .pen { animation: sign 3.6s linear infinite; }
+  :host(:not([motion="off"])) .s-returning .pen { animation: sign 3.6s linear .9s infinite; }
   :host(:not([motion="off"])) .s-working .sig,
-  :host(:not([motion="off"])) .s-returning .sig { animation: ink 3.6s linear infinite; }
+  :host(:not([motion="off"])) .s-returning .sig { animation: ink 3.6s linear .9s infinite; }
 }
 @keyframes belt      { to { transform: translateX(21px); } }
 @keyframes belt-back { to { transform: translateX(-21px); } }
@@ -369,6 +383,9 @@ ${COMPASS_KEYFRAMES}
   51% { transform: translate(18px, 8px) scale(1.18); } 57% { transform: translate(18px, 8px) scale(1); } 64% { transform: translate(0, 16px); }
   78% { transform: translate(18px, 16px) scale(1); } 83% { transform: translate(18px, 16px) scale(1.18); } 89% { transform: translate(18px, 16px) scale(1); }
   100% { transform: translate(0, 0); } }
+/* Review's page and Verify's card come up from behind the roof in four clicks, like a typewriter's line feed. */
+@keyframes feed      { 0% { transform: translateY(46px); animation-timing-function: ease-out; } 25% { transform: translateY(34px); animation-timing-function: ease-out; }
+  50% { transform: translateY(22px); animation-timing-function: ease-out; } 75% { transform: translateY(10px); animation-timing-function: ease-out; } 100% { transform: translateY(0); } }
 @keyframes tick-1    { 0%, 21% { opacity: 0; } 23%, 94% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes tick-2    { 0%, 53% { opacity: 0; } 55%, 94% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes tick-3    { 0%, 85% { opacity: 0; } 87%, 94% { opacity: 1; } 100% { opacity: 0; } }
@@ -380,9 +397,9 @@ ${COMPASS_KEYFRAMES}
   67% { transform: translate(-1.5px, -.5px) rotate(-1.4deg); } 70% { transform: translate(1.5px, 0) rotate(1.2deg); }
   73% { transform: translate(-1px, -.8px) rotate(-1deg); } 76% { transform: translate(1.2px, 0) rotate(.9deg); }
   79% { transform: translate(-.6px, -.3px) rotate(-.5deg); } 82% { transform: translate(0, 0) rotate(0); } }
-/* Verify: the pen signs along the signature, worked out above, lifts, and the signature fades for the next. */
+/* Verify: the pen dips, signs along the signature, worked out above, lifts aside, and the signature fades for the next. */
 ${SIGN_KEYFRAMES}
-@keyframes ink       { 0% { stroke-dashoffset: 100; opacity: 1; } ${SIGNED}% { stroke-dashoffset: 0; } 88% { opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes ink       { 0%, ${INKED}% { stroke-dashoffset: 100; opacity: 1; } ${SIGNED}% { stroke-dashoffset: 0; } 88% { opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
 `;
 
 /* ---- Tools: what the stage does ------------------------------------------------------ */
@@ -432,18 +449,24 @@ const TOOLS: Record<Kind, (status: Status) => string> = {
     <circle class="ink" cx="59" cy="16.5" r="3.5"/>`,
 
   // A page; the lens shows the line under it larger and bolder, and a tick goes in the margin as each line is read.
+  // At idle the page is put away, and the lens rests just above the roof with a flare.
   review: () => `
-    <path class="part" d="M46 0 H84 L92 8 V44 H46 Z"/>
-    <path class="thin" d="M84 0 V8 H92"/>
-    <path class="thin" d="M52 10 h12 m3 0 h9 M56 18 h8 m3 0 h12 M52 26 h15 m3 0 h5 M52 34 h9"/>
-    <path class="tone tick" stroke-width="2" d="M83 10 l2.5 2.5 4.5 -5"/>
-    <path class="tone tick" stroke-width="2" d="M83 18 l2.5 2.5 4.5 -5"/>
-    <path class="tone tick" stroke-width="2" d="M83 26 l2.5 2.5 4.5 -5"/>
+    <g class="paper">
+      <path class="part" d="M46 0 H84 L92 8 V44 H46 Z"/>
+      <path class="thin" d="M84 0 V8 H92"/>
+      <path class="thin" d="M52 10 h12 m3 0 h9 M56 18 h8 m3 0 h12 M52 26 h15 m3 0 h5 M52 34 h9"/>
+      <path class="tone tick" stroke-width="2" d="M83 10 l2.5 2.5 4.5 -5"/>
+      <path class="tone tick" stroke-width="2" d="M83 18 l2.5 2.5 4.5 -5"/>
+      <path class="tone tick" stroke-width="2" d="M83 26 l2.5 2.5 4.5 -5"/>
+    </g>
     <g class="lens">
       <path class="line" stroke-width="5" d="M48.22 17.78 l-9.5 9.5"/>
       <circle class="glass" cx="56" cy="10" r="11"/>
-      <path class="line" stroke-width="2.5" d="M47.5 10 h8 m2.5 0 h7.5"/>
-      <path class="thin glare" d="M48 7 q2 -3 6 -3"/>
+      <path class="line zoom" stroke-width="2.5" d="M47.5 10 h8 m2.5 0 h7.5"/>
+      <g class="flare">
+        <path class="thin glare" d="M48.5 8 q2 -4.5 7 -4.5"/>
+        <path class="thin glare" d="M61.5 14.5 q1.5 -1.5 1.8 -3.5"/>
+      </g>
     </g>`,
 
   release: (status) => {
@@ -475,18 +498,24 @@ const TOOLS: Record<Kind, (status: Status) => string> = {
     return cage + bird + bars + note;
   },
 
-  // A card with a dotted line to sign on; the pen signs MR.
+  // A card with a dotted line to sign on; the pen, drawn larger about its nib, signs MR and rests in the inkwell in front.
   verify: () => `
-    <rect class="part" x="50" y="10" width="48" height="34" rx="1.5"/>
-    <path class="thin" stroke-dasharray="2 2.5" d="M54 37 H94"/>
-    <g transform="translate(57 17)">
-      <path class="tone sig" stroke-width="2" pathLength="100" stroke-dasharray="100" d="${SIG}"/>
+    <g class="paper">
+      <rect class="part" x="50" y="4" width="48" height="40" rx="1.5"/>
+      <path class="thin" stroke-dasharray="2 2.5" d="M54 31 H94"/>
+      <path class="tone sig" transform="translate(57 11)" stroke-width="2" pathLength="100" stroke-dasharray="100" d="${SIG}"/>
+    </g>
+    <g transform="translate(57 11)">
       <g class="pen">
-        <path class="part" d="M2.5 -5.5 L14 -17 L17 -14 L5.5 -2.5 Z"/>
-        <path class="ink" d="M0 0 L2.5 -5.5 L5.5 -2.5 Z"/>
-        <path class="ink" d="M14 -17 L16.5 -19.5 L19.5 -16.5 L17 -14 Z"/>
+        <g transform="scale(1.35)">
+          <path class="part" d="M2.5 -5.5 L14 -17 L17 -14 L5.5 -2.5 Z"/>
+          <path class="ink" d="M0 0 L2.5 -5.5 L5.5 -2.5 Z"/>
+          <path class="ink" d="M14 -17 L16.5 -19.5 L19.5 -16.5 L17 -14 Z"/>
+        </g>
       </g>
-    </g>`,
+    </g>
+    <path class="part" d="M66 44 V38 Q66 35 69 35 H79 Q82 35 82 38 V44 Z"/>
+    <rect class="ink" x="71" y="31.5" width="6" height="4" rx="1"/>`,
 };
 
 /** Drawn over the chassis: the compass's circle lies across the roof and over its front edge. */
