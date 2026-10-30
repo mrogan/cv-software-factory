@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { objectives } from '../../../policy/objectives.ts';
 import {
+  ADMIN_UNCOUNTED,
   factoryRules,
   flagRules,
   HOLD_ALERT_MINUTES,
@@ -454,6 +455,21 @@ describe('Alertmanager’s inhibitions: a cause pages, and what follows from it 
       expect(muted(await rules(), alert(name), [store]), name).toBe(false);
     }
     expect(muted(await rules(), alert('ArgoCDDegraded', { name: 'website' }), [store])).toBe(false);
+  });
+
+  it('mute a change the admin service made with no event while the store is down, and only for that cause', async () => {
+    const uncounted = martinRules().filter((r) => r.alert === ADMIN_UNCOUNTED);
+    expect(uncounted.length).toBeGreaterThan(1);
+    for (const rule of uncounted) {
+      const raised = { alertname: rule.alert, ...rule.labels, action: 'flags' };
+      // Without the store the line can compare nothing; a change none names is still there to compare after.
+      expect(muted(await rules(), raised, [alert('StoreDown')])).toBe(true);
+      for (const cause of [alert('SpendCapReached', { cap: 'day' }), alert('ProbesDown'), crashLooping('admin')]) {
+        expect(muted(await rules(), raised, [cause]), cause.alertname).toBe(false);
+      }
+      // The line crash-looping mutes only its not being able to compare, which follows from it.
+      expect(muted(await rules(), raised, [crashLooping('line')])).toBe(rule.labels.worker === 'line');
+    }
   });
 
   it('mute the line stuck while a spend cap is reached, and nothing else', async () => {

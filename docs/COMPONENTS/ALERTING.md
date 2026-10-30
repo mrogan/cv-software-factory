@@ -33,7 +33,7 @@ Each rule says how loudly it is told by a `level` label, and Alertmanager routes
 
 | Level | Label | Sent to | For |
 |---|---|---|---|
-| Page | `level: page` | Pushover, at high priority, which sounds through Martin's quiet hours | the console or the app down, the probes silent, the line stuck, a lease run out unreleased, the store down, a worker crash-looping, a spend cap reached; the security events that loosen a guardrail, change who can sign in or keep alerts from his phone, the security events' count missing or stale, a silence in place, a narrowing or Off of a flag the app has not taken within a minute |
+| Page | `level: page` | Pushover, at high priority, which sounds through Martin's quiet hours | the console or the app down, the probes silent, the line stuck, a lease run out unreleased, the store down, a worker crash-looping, a spend cap reached; the security events that loosen a guardrail, change who can sign in or keep alerts from his phone, the security events' count missing or stale, a change by the admin service that no event records, or the line unable to compare them, a silence in place, a narrowing or Off of a flag the app has not taken within a minute |
 | Notify | `level: notify` | Pushover, at normal priority | a release rolled back, aborted or in error, an Argo CD application Degraded or OutOfSync for half an hour, each hold that waits for Martin, the shop's pod 25 days old, the security events that widen what the line does (an improvement asked for or its spec approved among them) or a feature flag, act on a release, change a setting or tighten autonomy, the app holding other flags than those set, or not checked, for more than five minutes |
 | Inform | `level: inform` | Pushover, at low priority, with no sound or vibration | the security events that tighten, but for autonomy, or only record Martin's own use |
 | Dashboard only | none | no one: a receiver that sends nothing; [Grafana's Alerts dashboard](#seeing-them) shows it | `PhoneOff`, and everything else |
@@ -118,8 +118,30 @@ Every change of the line's controls alerts him, each told from the stored change
 ### What they cannot do
 
 - **A silence can hide its own page.** A silence that matches every alert keeps this one quiet too. The cover is milestone 10's dead man's switch and check from outside, which no silence in the cluster reaches.
-- **They count what is stored.** An action the admin service takes without appending its event is not counted: a sign-in, or a change it makes to the app's Rollout. The factory acts on Martin's other commands only once they are stored, so those are counted when they take effect.
+- **They count what is stored.** An action the admin service takes without appending its event is not counted here: the line compares what it changes with the events instead, and pages when one is not recorded ([below](#changes-no-event-records)). The factory acts on Martin's other commands only once they are stored, so those are counted when they take effect.
 - **Alerts from inside the cluster stop with it.** Whether the factory is up is answered from outside it, in milestone 10.
+
+### Changes no event records
+
+The admin service is the one service of ours that changes the flags, the app's Rollout and Martin's sessions, and it records each change as an event, from which the security events are counted. A change it made without its event, or one made round it, would reach no one. So the line compares each with the events that name it ([`line/admin-actions.ts`](../../apps/factory/src/line/admin-actions.ts)), reading each and never writing it, and Martin is paged when a change has stood for two minutes that no event names (`AdminActionUncounted`, one rule for each, in its own words):
+
+| What | Named when | Read from |
+|---|---|---|
+| `flags` | each flag is at the stage Martin's latest move of it set (`flag.staged`), every other flag off, none in a shape no stage has, and the flag set's revision is one a move of his wrote | `flags` in `flagd`, by the line's Role there: get, by name, and nothing else (`deploy/base/flagd/line-reads-flags.yaml`) |
+| `rollout` | `spec.paused` is set only after his latest pause or resume was a pause, and cleared only after a control that clears it (a resume, a promotion, an abort, a retry) or the line stopped has followed his latest pause; `status.promoteFull` is set only after his full promotion of the release the line recorded starting last | the app's Rollout, by the Role the line watches releases with |
+| `sessions` | every session of the last hour has a sign-in of its own (`admin.signed-in`), appended at or within a minute after it started, as the one transaction that starts a session appends it | the store: when each session started, and nothing else of it (`0038_line-reads-sign-ins.sql`) |
+
+- **Recorded once made.** The admin service checks a change's event before it acts and appends it once the change is made ([admin service](ADMIN-SERVICE.md#what-it-records)), so the audit log never records a change that failed. A change stands unnamed for the moment between the two, then, and for good if the append fails twice. The line reads Kubernetes first, then the store, every 15 seconds, and the alert waits two minutes: only a change that was never recorded pages. A session and its sign-in are one transaction, and read in one statement.
+- **Only Martin's events name a change:** one his roles appended, never a sample's; and of a release's start, only the line's own record.
+- **Gone is a change too.** `flags` missing once a move of his set a flag there, or the Rollout missing once the line has recorded a release of it, is named by nothing: admission refuses the admin service either deletion.
+- **The stages, not only the revision.** A hand that kept the revision and widened a flag would pass a check of the revision alone, so every flag's stage is compared too.
+- **What the Rollout cannot say.** Argo Rollouts' controller writes the status's abort and step too, so the Rollout cannot tell whose they were: admission holds the admin service to the moves the controls make ([admission control](ADMISSION-CONTROL.md#the-admin-services-hold-on-the-rollout)), and the line records what each release did. A pause set with `kubectl argo rollouts`, or any of these changed with Martin's own kubeconfig, pages too: nothing records it. Of a pause, it cannot tell his own pause, cleared by a later control and set again by hand, from his; nor a pause cleared by hand after a control that could not clear it (the admin service then warns him his pause is still set). A pause holds a canary where it is, and the audit log has his controls either side.
+- **An hour of sessions,** so one made and ended at once is still there to compare: the alert resolves an hour after such a session started. The line reads when each started, never its hash or its passkey.
+- **What Martin does:** for the flags, move each that differs in Controls, which records it; for the Rollout, act in the Canary panel; for a session, `make enrol REVOKE_OTHERS=1`, which ends every session, then enrol his passkey again. Then the admin service's log, for whether it was the one.
+- **Not being able to compare pages too,** after ten minutes, for each of the three in words of its own, with the line as its worker (`line_admin_actions_compared` at 0): meanwhile a change none records would reach no one. A comparison that takes over ten seconds counts as not made, so the SDK never drops the collection and sends the last figures as if compared. The line's log says why.
+- **Each reads only the line's own series,** as the security events' alerts do, and only what it sent in the last minute: its series come over OTLP, with no staleness marker, so a line replaced since would otherwise be read for five minutes more.
+- **`PhoneOff` mutes it,** as it mutes every alert with a level, and only while the admin service and the line both report the phone off ([alerts to the phone](#alerts-to-the-phone)). So a compromised admin service cannot quiet it alone: muting it takes both pods, or an `alerts.switched` in the store that switches the phone off, which pages Martin (`phone-off`) whatever the switch says.
+- **Proved** by `apps/factory/test/line/admin-actions.test.ts`, against a store and a fake Kubernetes, and by `promtool` in `apps/factory/test/factory-alerts.test.ts`.
 
 ## Holds
 
@@ -205,15 +227,15 @@ Alertmanager mutes what follows from a cause while the cause fires (`inhibit_rul
 
 | While this fires | These are muted | Because |
 |---|---|---|
-| `StoreDown` | `LineStuck`, `LeaseOverrun`, `WorkerCrashLooping`, `SecurityEventsUncounted` | Without the store the line can neither move work nor let go of a lease, a worker that needs it crash-loops, and the line cannot count the security events |
+| `StoreDown` | `LineStuck`, `LeaseOverrun`, `WorkerCrashLooping`, `SecurityEventsUncounted`, `AdminActionUncounted` | Without the store the line can neither move work nor let go of a lease, a worker that needs it crash-loops, and the line can neither count the security events nor compare the admin service's changes with theirs. A change no event records is still there once the store answers, and pages then |
 | `StoreDown` | `ArgoCDDegraded` of `root` | `root` holds the store and the workers |
 | `SpendCapReached` | `LineStuck` | The line starts no step until the cap clears; it already reports nothing while it does |
-| `WorkerCrashLooping` | whatever is said of that worker, by its `worker` label: `LineStuck`, `LeaseOverrun` and `SecurityEventsUncounted` of the line, `ConsoleDown` of the console, `ProbesDown` of the probes, `FlagsUnchecked` of the admin service | The crash loop is the cause, and its page names the pod |
+| `WorkerCrashLooping` | whatever is said of that worker, by its `worker` label: `LineStuck`, `LeaseOverrun`, `SecurityEventsUncounted` and `AdminActionUncounted` for not comparing, of the line, `ConsoleDown` of the console, `ProbesDown` of the probes, `FlagsUnchecked` of the admin service | The crash loop is the cause, and its page names the pod |
 | `WorkerCrashLooping` | `ArgoCDDegraded` of `root` | A crash-looping pod makes `root` Degraded |
 | `PhoneOff` | every alert with a level, but the security events of switching the phone (`phone-off`, `phone-on`) | Martin switched alerts to his phone off, or the profile has them off ([alerts to the phone](#alerts-to-the-phone)) |
 
 - **`ProbesDown` mutes nothing:** `ConsoleDown` and `AppDown` cannot fire without the probes' checks, so there is nothing to mute.
-- **No cause mutes a security event,** a silence, a hold or the shop's pod: each is its own occasion. Only `PhoneOff`, which is no cause but Martin's choice, mutes them, as it mutes everything with a level. A crash loop never mutes another.
+- **No cause mutes a security event,** a silence, a hold or the shop's pod: each is its own occasion. Nor a change no event records, but while the store is down, when the line cannot tell; the line's crash loop mutes only its not comparing. Only `PhoneOff`, which is no cause but Martin's choice, mutes them, as it mutes everything with a level. A crash loop never mutes another.
 - **Martin's own causes are not inhibitions:** the line told to stop, a cap or the local model's pace are left out where the line reports what it carries, so nothing fires.
 - **Held to it by a test** (`apps/factory/test/alertmanager.test.ts`), which mutes as Alertmanager does, from the values as written, and checks every alert a rule names is one the rules raise.
 

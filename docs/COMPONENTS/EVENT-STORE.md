@@ -32,7 +32,7 @@ What it lacks is telemetry: OpenTelemetry instruments `pg` and not postgres.js, 
 
 | Role | May |
 |---|---|
-| Each worker's own | What that worker uses and nothing else, and append and read events, but Martin's commands, through a role they share |
+| Each worker's own | What that worker uses and nothing else, and append and read events, but Martin's commands, through a role they share. Of the tables of signing in, the line reads when each session started, and nothing else, to compare with his sign-ins ([alerting](ALERTING.md#changes-no-event-records)) |
 | Martin's command line (`factory_operator`) | Append any event, his commands among them, and read them: `make stop-the-line`, `make start-the-line` and `make samples` |
 | The admin service's (`factory_admin`) | Append Martin's commands and nothing else but the opening of an improvement he asks for, numbered from the work items' sequence, read the full events, and keep the tables of signing in ([admin service](ADMIN-SERVICE.md)) |
 | The enrolment's (`factory_enrol`) | Add an enrolment code, revoke passkeys and their sessions, and append the revocations; nothing else, and of the events it reads only those |

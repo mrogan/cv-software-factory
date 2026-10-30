@@ -30,9 +30,10 @@ export const TRACES_FROM_THE_APP = `resource.${APP_POD_ATTRIBUTE} != nil`;
 
 /**
  * Which series are the line's: those Prometheus has from a pod in `factory` labelled `app.kubernetes.io/name: line`, as
- * the collector says. It stamps the metrics from that namespace's pods with the namespace and that label, found by the
- * address each came from, after deleting any `k8s.namespace.*` or `k8s.pod.*` attribute a record brought; and the
- * scrapes drop both labels from whatever they take. So no other worker can send a series the alerts to Martin read as
+ * the collector says. Its counts of Martin's security events, and its comparison of what the admin service changes with
+ * the events that name each change, page him. The collector stamps the metrics from that namespace's pods with the
+ * namespace and that label, found by the address each came from, after deleting any `k8s.namespace.*` or `k8s.pod.*`
+ * attribute a record brought; and the scrapes drop both labels from whatever they take. So no other worker can send a series the alerts to Martin read as
  * the line's, and page him for nothing.
  */
 export const METRICS_FROM_THE_LINE = 'k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="line"';

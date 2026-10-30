@@ -97,10 +97,11 @@ alertmanager:
     # and Grafana shows them all.
     inhibit_rules:
       # The store down: the line can neither move work nor let go of a lease, a worker that needs it crash-loops, the
-      # line cannot count the security events, and Argo CD sees the factory Degraded.
+      # line can neither count the security events nor compare the admin service's changes with theirs (a change none
+      # names is still there to compare once the store answers, and pages then), and Argo CD sees the factory Degraded.
       - source_matchers: [alertname="StoreDown"]
         target_matchers:
-          - alertname=~"LineStuck|LeaseOverrun|WorkerCrashLooping|SecurityEventsUncounted"
+          - alertname=~"LineStuck|LeaseOverrun|WorkerCrashLooping|SecurityEventsUncounted|AdminActionUncounted"
       - source_matchers: [alertname="StoreDown"]
         target_matchers: [alertname="ArgoCDDegraded", name="root"]
       # A spend cap reached: the line starts no step until it clears, and says so itself, so this is belt and braces.

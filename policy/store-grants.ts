@@ -71,7 +71,7 @@ export const STORE_GRANTS = {
   factory_line: {
     for:
       "The line: its queue, its runners' job tokens and logs, spend, the pictures it names, and the signals it leaves " +
-      'triage.',
+      'triage; and when each session started, to compare with the sign-ins (0038_line-reads-sign-ins.sql).',
     memberOf: ['factory_worker'],
     on: {
       line: [
@@ -86,6 +86,7 @@ export const STORE_GRANTS = {
       flag_pictures: ['select'],
       looks: ['select'],
       inbox: [SIGNAL],
+      sessions: ['select (signed_in_at)'],
     },
     rows: { inbox: { insert: "sense in ('canary', 'planner')" }, looks: { select: 'true' } },
   },

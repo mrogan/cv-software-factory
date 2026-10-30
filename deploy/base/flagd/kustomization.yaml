@@ -2,7 +2,8 @@
 # of every flag. Only the FeatureFlag kind's definition is installed, not OpenFeature's operator. flagd's image is
 # admitted by digest in a copy of admission of its own, `flagd-images` (deploy/base/admission/flagd), which admits
 # nothing else, so `website-images` still admits no third-party image. The admin service's Role on `flags`
-# (admin-stages-flags.yaml) lets it stage Martin's flags, and nothing else here.
+# (admin-stages-flags.yaml) lets it stage Martin's flags, and nothing else here; the line's (line-reads-flags.yaml) lets
+# it read them, to compare with Martin's moves.
 #
 # In order: the definition and the fences with the namespace (wave -1), `flags` (wave 0), then flagd (wave 2).
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -14,3 +15,4 @@ resources:
   - flags.yaml
   - flagd.yaml
   - admin-stages-flags.yaml
+  - line-reads-flags.yaml
