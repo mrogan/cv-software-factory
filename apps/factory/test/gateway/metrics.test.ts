@@ -29,6 +29,7 @@ const { Gateway } = await import('../../src/gateway/gateway.ts');
 const { ProviderCaps } = await import('../../src/gateway/provider-caps.ts');
 const { Spend } = await import('../../src/gateway/spend.ts');
 const { TypeSafe } = await import('../../src/gateway/typesafe.ts');
+const { NO_CAP, observeCaps } = await import('../../src/gateway/metrics.ts');
 
 const typesafe = await fakeTypeSafe();
 afterAll(async () => {
@@ -178,9 +179,10 @@ describe("the gateway's metrics", () => {
     const spent = await points('gateway.cap.spent_usd');
     expect(at(spent, { cap: 'day', profile: 'local' })).toBeGreaterThan(0.002);
     expect(at(spent, { cap: 'month', profile: 'local' })).toBe(at(spent, { cap: 'day' }));
-    // No month cap in this policy, so no series for one.
+    // No month cap in this policy: it reads as none, a figure no cap can be.
     expect((await points('gateway.cap.limit_usd')).map((p) => [p.attributes.cap, p.value])).toEqual([
       ['day', 20],
+      ['month', NO_CAP],
       ['work-item', 0.002],
     ]);
     await expectNoWorkItems();
@@ -205,5 +207,27 @@ describe("the gateway's metrics", () => {
     expect(at(await points('gateway.cap.refusals'), { ...triage, cap: 'day' })).toBe(1);
     expect(at(await points('gateway.cap.limit_usd'), { cap: 'month' })).toBe(100);
     await expectNoWorkItems();
+  });
+
+  it('reports a month cap lifted as none at once, never its last figure, which would page for a cap that is gone', async () => {
+    let monthUsd: number | null = 5;
+    const stop = observeCaps(() => ({
+      profile: 'do',
+      dayUsd: 1,
+      monthUsd: 6,
+      limits: { dayUsd: 20, monthUsd, workItemUsd: 1 },
+    }));
+    try {
+      const month = async () =>
+        (await points('gateway.cap.limit_usd')).find(
+          (p) => p.attributes.cap === 'month' && p.attributes.profile === 'do',
+        )?.value;
+      expect(await month()).toBe(5);
+      monthUsd = null;
+      expect(await month()).toBe(NO_CAP);
+      expect(NO_CAP).toBeLessThan(0);
+    } finally {
+      stop();
+    }
   });
 });

@@ -604,12 +604,16 @@ function notAnswering(target: Target): string {
   return `${outcome('answered')} == 0 and on (address) ${outcome('failed')} > 0`;
 }
 
+/** The pods in `factory` a ReplicaSet owns, a Deployment's: one series a pod. */
+const REPLICA_SET_PODS = 'group by (namespace, pod) (kube_pod_owner{namespace="factory", owner_kind="ReplicaSet"})';
+
 /**
- * Every Deployment's pod by its worker's name: `line-7d9f8b6c4-x2b7q` is the line's. A pod of a StatefulSet or a Job
- * keeps no `worker` label, and is told by its pod's name alone.
+ * Each series of a pod in `factory`, a Deployment's by its worker's name: `line-7d9f8b6c4-x2b7q` is the line's. Only a
+ * pod a ReplicaSet owns is named so, as a CronJob's (`line-29361234-abcde`) would read the same; a pod of a
+ * StatefulSet or a Job keeps no `worker` label, and is told by its pod's name alone.
  */
 const byWorker = (selector: string) =>
-  `label_replace(${selector}, "worker", "$1", "pod", "(.+)-[a-z0-9]{5,10}-[a-z0-9]{5}")`;
+  `label_replace((${selector}) and on (namespace, pod) ${REPLICA_SET_PODS}, "worker", "$1", "pod", "(.+)-[a-z0-9]{5,10}-[a-z0-9]{5}") or ((${selector}) unless on (namespace, pod) ${REPLICA_SET_PODS})`;
 
 /**
  * The alerts on the factory's health, its releases and its spend (docs/COMPONENTS/ALERTING.md):
@@ -700,7 +704,8 @@ export function factoryRules(): Rule[] {
       },
     },
     {
-      alert: 'StoreDown',
+      // A name of its own: the store may be up, and StoreDown mutes what follows from the store being down.
+      alert: 'StoreUnwatched',
       expr: 'absent(pg_up)',
       for: '5m',
       keepFiringFor: KEEP_FIRING,
@@ -727,7 +732,7 @@ export function factoryRules(): Rule[] {
     },
     {
       alert: 'SpendCapReached',
-      expr: `max by (cap) (${fromTheGateway('gateway_cap_spent_usd', 'cap=~"day|month"')}) >= on (cap) min by (cap) (${fromTheGateway('gateway_cap_limit_usd', 'cap=~"day|month"')})`,
+      expr: `max by (cap) (${fromTheGateway('gateway_cap_spent_usd', 'cap=~"day|month"')}) >= on (cap) (min by (cap) (${fromTheGateway('gateway_cap_limit_usd', 'cap=~"day|month"')}) >= 0)`,
       for: '0s',
       labels: { level: LEVELS.page },
       annotations: {

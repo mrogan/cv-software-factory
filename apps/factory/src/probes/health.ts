@@ -34,7 +34,7 @@ export interface HealthCheck {
   target: Target;
   /** The address asked, whole. */
   url: string;
-  /** The address as its series names it: its origin, so a path never makes a series of its own. */
+  /** The address as its series names it: its origin and path, each checked and alerted on by itself; no query. */
   address: string;
 }
 
@@ -65,7 +65,7 @@ export function healthChecks(text: string | undefined): HealthCheck[] {
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
       throw new Error(`HEALTH_CHECKS: ${JSON.stringify(value)} is not an http or https address`);
     }
-    found.push({ target: target as Target, url: url.href, address: url.origin });
+    found.push({ target: target as Target, url: url.href, address: `${url.origin}${url.pathname}` });
   }
   return found;
 }
