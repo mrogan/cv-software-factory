@@ -320,6 +320,8 @@ test('Martin sends alerts to his phone, and stops them with his passkey again', 
   await harness.database.owner`update passkeys set revoked_at = now() where revoked_at is null`;
   await virtualPasskey(page);
   await enrolThroughTheDoor(page, await harness.code());
+  // The enrolment page stays where it is once the passkey is made: Controls is on the console's.
+  await page.goto('/?motion=off');
   const phone = controls(page).getByRole('switch', { name: /Alerts to my phone/ });
   await expect(phone).not.toBeChecked();
   const switched = async () => (await stored<{ phone: boolean }>('alerts.switched')).map((e) => e.payload.phone);

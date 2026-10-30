@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse, stringify } from 'yaml';
 import {
-  ADMIN_FRESH,
   ADMIN_UNCOUNTED,
   ADMIN_UNCOUNTED_FOR,
   ADMIN_UNCOUNTED_WORDS,
@@ -18,6 +17,7 @@ import {
   LEVELS,
   martinRules,
   PHONE_OFF,
+  PUSHED_FRESH,
   RULES_FILE,
   WORKERS,
 } from '../src/alerts/rules.ts';
@@ -709,7 +709,7 @@ describe('the alert that a change the admin service makes is named by no event',
   });
 
   it('takes only the line’s word of the last minute, so a line gone since holds nothing', () => {
-    expect(ADMIN_FRESH).toBe('1m');
+    expect(PUSHED_FRESH).toBe('1m');
     expectPasses(
       promtool(
         [

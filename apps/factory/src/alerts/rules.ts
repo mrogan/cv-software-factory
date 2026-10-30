@@ -214,6 +214,14 @@ const SECURITY_WORDS: Record<SecurityKind, { summary: string; description: strin
  */
 export const PHONE_KINDS = ['phone-off', 'phone-on'] as const satisfies readonly SecurityKind[];
 
+/**
+ * How long a pushed series' last sample is believed. The workers send their metrics over OTLP, which leaves Prometheus
+ * no staleness marker, so a worker that has gone would be read for the five minutes Prometheus looks back. They send
+ * every 15 seconds, so a minute always holds a live worker's latest. `PhoneOff` and `AdminActionUncounted` read their
+ * workers' word through it.
+ */
+export const PUSHED_FRESH = '1m';
+
 /** One of the line's series, with any matcher given first, as only the line's pods send it. */
 const fromTheLine = (name: string, matcher?: string) =>
   `${name}{${matcher ? `${matcher}, ` : ''}${METRICS_FROM_THE_LINE}}`;
@@ -232,13 +240,6 @@ export const ADMIN_UNCOUNTED = 'AdminActionUncounted';
  * once the change is made, so for a moment none does, and the line compares every 15 seconds.
  */
 export const ADMIN_UNCOUNTED_FOR = '2m';
-
-/**
- * How recent the line's word must be. Its series come over OTLP, which leaves Prometheus no staleness marker, so a pod
- * that has gone would be read for five minutes more: a figure from a line replaced since would hold the alert, or its
- * resolution, that long. The line sends every 15 seconds, so a minute always holds its latest.
- */
-export const ADMIN_FRESH = '1m';
 
 /** What the line compares, by its action, as the alert that it cannot names it. */
 const ADMIN_COMPARED_WORDS: Record<AdminAction, string> = {
@@ -489,9 +490,6 @@ export function flagRules(): Rule[] {
 export const PHONE = fromTheAdminService('admin_alerts_phone');
 export const LINE_PHONE = fromTheLine('line_alerts_phone');
 
-/** How recent a worker's word that alerts are off must be for `PhoneOff` to take it. */
-const PHONE_FRESH = '1m';
-
 /** The alert that mutes every alert with a level in Alertmanager while it fires. */
 export const PHONE_OFF = 'PhoneOff';
 
@@ -550,14 +548,14 @@ export function martinRules(): Rule[] {
     },
     ...ADMIN_ACTIONS.map((action) => ({
       alert: ADMIN_UNCOUNTED,
-      expr: `max by (action) (last_over_time(${fromTheLine('line_admin_actions_uncounted', `action="${action}"`)}[${ADMIN_FRESH}])) == 1`,
+      expr: `max by (action) (last_over_time(${fromTheLine('line_admin_actions_uncounted', `action="${action}"`)}[${PUSHED_FRESH}])) == 1`,
       for: ADMIN_UNCOUNTED_FOR,
       labels: { level: LEVELS.page },
       annotations: ADMIN_UNCOUNTED_WORDS[action],
     })),
     ...ADMIN_ACTIONS.map((action) => ({
       alert: ADMIN_UNCOUNTED,
-      expr: `max by (action) (last_over_time(${fromTheLine('line_admin_actions_compared', `action="${action}"`)}[${ADMIN_FRESH}])) == 0`,
+      expr: `max by (action) (last_over_time(${fromTheLine('line_admin_actions_compared', `action="${action}"`)}[${PUSHED_FRESH}])) == 0`,
       for: '10m',
       labels: { level: LEVELS.page, worker: WORKERS.line },
       annotations: {
@@ -582,7 +580,7 @@ export function martinRules(): Rule[] {
       alert: PHONE_OFF,
       // Each from a sample in the last minute (four of the workers' exports): pushed metrics leave no stale marker, so a
       // worker gone would otherwise go on saying off for the five minutes Prometheus looks back.
-      expr: `max(last_over_time(${PHONE}[${PHONE_FRESH}])) == 0 and on () max(last_over_time(${LINE_PHONE}[${PHONE_FRESH}])) == 0`,
+      expr: `max(last_over_time(${PHONE}[${PUSHED_FRESH}])) == 0 and on () max(last_over_time(${LINE_PHONE}[${PUSHED_FRESH}])) == 0`,
       for: '0s',
       labels: {},
       annotations: {
