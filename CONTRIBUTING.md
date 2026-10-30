@@ -27,12 +27,12 @@ mise install
 pnpm install
 make check    # lint, type-check, tests, design tokens, manifests
 pnpm dev      # the console on http://localhost:5173, with the samples
-make e2e      # the console in a browser (accessibility, security headers, speed, snapshots), and the probes
+make e2e      # every browser test CI runs: the console's (live ones against a throwaway Postgres), and the probes'
 ```
 
 The toolchain moves only when someone upgrades it. `mise upgrade` takes the newest release in each tool's range that is at least three days old (`--bump` goes past the range, and rewrites it), and writes `mise.lock`; both files go in a `chore(toolchain)` pull request, through the same checks as any other change. Dependabot does not read mise, so nothing proposes it. A tool held to a server's version (`kubectl`, `argocd`, `argo-rollouts`, `promtool`) moves past its minor release only with that server, Node only with the images (`scripts/image-pins.test.ts`), and pnpm with `packageManager` in `package.json` (`scripts/toolchain.test.ts` holds them together). That pnpm is the runners' too: the runner image installs the release `mise.lock` holds, checked against its checksum there, so each upgrade reaches the runners with the next image. The app pins its own pnpm and moves it on its own, within the same major; the runners install the app's dependencies with this repository's, and a new major is a deliberate `--bump` in both repositories. Without the lock, every install would take that day's release in each range, and CI would undo Dependabot's cooldown and pnpm's one-day minimum release age; with it, CI installs with `--locked`, and fails on a request the lock does not hold.
 
-A snapshot that fails only on CI usually comes down to timing, and CI's runner is slower than a laptop. It often reproduces in the pinned image given less CPU: run the `docker run` line from `make e2e` with `--cpus=1.5`, and pass `-g "<test name>" --repeat-each=15` to `in-docker.sh`.
+A snapshot that fails only on CI usually comes down to timing, and CI's runner is slower than a laptop. It often reproduces in the pinned image given less CPU: `make e2e CPUS=1.5 ARGS='-g "<test name>" --repeat-each=15'`, which runs only the console's tests, not the live ones, the speed test or the probes.
 
 Or open the repository in its dev container.
 

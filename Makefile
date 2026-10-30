@@ -7,6 +7,8 @@ KUBECTL := kubectl --context $(CONTEXT)
 ARGOCD_CHART := 10.9.5
 # The browser tests run in this image, so their snapshots match wherever they run. Its one pin is Dockerfile.browser's.
 PLAYWRIGHT := $(shell grep -oE 'mcr\.microsoft\.com/playwright:[^ ]+' apps/factory/Dockerfile.browser)
+# The Postgres the console's live browser tests run beside, as in CI: the cluster's, whose one pin is its StatefulSet's.
+POSTGRES := $(shell sed -nE 's/^ +image: (postgres:[^ ]+@sha256:[0-9a-f]{64})$$/\1/p' deploy/base/postgres/statefulset.yaml | head -1)
 # The branch Argo CD deploys this repository's deploy/ from. `make up REVISION=my-branch` tries a change there
 # before it merges; the charts' values and the app's repository are still read from main.
 REVISION ?= main
@@ -34,8 +36,16 @@ as-martin = $(call secret,factory,postgres-$(1),--from-literal=password="$$(open
 	PGUSER="$$role" PGPASSWORD="$$(secret $$from)" $(2); }
 as-operator = $(call as-martin,operator,$(1))
 
+# $(call namespace,name): create a namespace unless it exists, and never touch one that does. Argo CD makes each of ours
+# from deploy/base/namespaces.yaml, with its pod security label; applying a bare Namespace over one would take that
+# label, and Argo CD's tracking, away until Argo CD synced it again, and pods there would be admitted without the
+# restricted profile meanwhile. One made here gets them when Argo CD syncs it. Made only when the cluster says there is
+# none: any other failure to read it stops here.
+namespace = { made="$$($(KUBECTL) get namespace $(1) -o name --ignore-not-found)" && \
+	{ [ -n "$$made" ] || $(KUBECTL) create namespace $(1) >/dev/null; }; }
+
 # $(call secret,namespace,name,data): create a Secret unless it exists.
-secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null && \
+secret = $(call namespace,$(1)) && \
 	{ $(KUBECTL) -n $(1) get secret $(2) >/dev/null 2>&1 || $(KUBECTL) -n $(1) create secret generic $(2) $(3); }
 
 .DEFAULT_GOAL := help
@@ -91,7 +101,7 @@ down: ## Delete the local cluster, and everything in it
 local-tls: ## Make the console's certificate (and its local authority) if due, have the Mac trust it, and give it to Traefik
 	@node scripts/local-ca.ts issue
 	@node scripts/local-ca.ts trust
-	@$(KUBECTL) create namespace factory --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
+	@$(call namespace,factory)
 	@$(KUBECTL) -n factory create secret tls console-tls --cert="$(LOCAL_CA)/tls.crt" --key="$(LOCAL_CA)/tls.key" \
 		--dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
 
@@ -132,7 +142,7 @@ pushover-key: ## Give Alertmanager Pushover's keys from the Keychain (pushover-a
 	@token="$$(security find-generic-password -s pushover-app-token -w 2>/dev/null)"; \
 		user="$$(security find-generic-password -s pushover-user-key -w 2>/dev/null)"; \
 		if [ -n "$$token" ] && [ -n "$$user" ]; then \
-			$(KUBECTL) create namespace telemetry --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null && \
+			$(call namespace,telemetry) && \
 			printf 'app-token=%s\nuser-key=%s\n' "$$token" "$$user" | \
 				$(KUBECTL) -n telemetry create secret generic pushover --from-env-file=/dev/stdin --dry-run=client -o yaml | \
 				$(KUBECTL) apply -f - >/dev/null && echo "  Alertmanager has Pushover's keys, so pages and notifications reach Martin's phone."; \
@@ -147,7 +157,7 @@ pushover-key: ## Give Alertmanager Pushover's keys from the Keychain (pushover-a
 # It reads the key when it starts, so this restarts it. The migrations set the role's password from `factory`'s Secret
 # when Argo CD next syncs, so on a cluster made before the scoreboard, run this before the deploy that brings it.
 scoreboard-secrets: node_modules ## Give the scoreboard its password, and the answer key from the private checkout (PRIVATE_DIR)
-	@$(KUBECTL) create namespace scoreboard --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
+	@$(call namespace,scoreboard)
 	@$(KUBECTL) -n factory get secret postgres-scoreboard >/dev/null 2>&1 || \
 		printf %s "$$(openssl rand -hex 24)" | \
 		$(KUBECTL) -n factory create secret generic postgres-scoreboard --from-file=password=/dev/stdin >/dev/null
@@ -170,8 +180,7 @@ scoreboard-secrets: node_modules ## Give the scoreboard its password, and the an
 # user, the local kubeconfig's, write share-key (deploy/base/admission/website/share-key.yaml). The generator reads its
 # key when it starts, so a new one restarts it; the app reads share-key as its own pull request says.
 share-key: ## Give the traffic generator its signing key, made once, and the app its public half (the ConfigMap share-key)
-	@for namespace in factory website; do \
-		$(KUBECTL) create namespace $$namespace --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null || exit 1; done
+	@for namespace in factory website; do $(call namespace,$$namespace) || exit 1; done
 	@# Made only when the cluster says there is none: any other failure to read it stops here, and keeps the key.
 	@made="$$($(KUBECTL) -n factory get secret share-signing-key -o name --ignore-not-found)" || exit 1; \
 	if [ -z "$$made" ]; then \
@@ -224,10 +233,25 @@ check-static: ## All of `make check` but the tests
 check-tests: ## The unit and database tests; SHARD=1/3 runs the first of three parts
 	pnpm exec vitest run --project unit --project database $(if $(SHARD),--shard $(SHARD))
 
-e2e: ## Run the browser tests (the console's, and the probes') in the pinned Playwright image; UPDATE=1 rewrites the snapshots
-	docker run --rm --init --ipc=host -e UPDATE=$(UPDATE) -v "$(CURDIR):/src:ro" \
+# The live tests' Postgres is the store tests' throwaway kind (packages/store/test/postgres.ts): its data goes with it,
+# so it writes without waiting for the disk. UPDATE=1 runs no live test, so starts none. CPUS=1.5 gives the browsers
+# as little CPU as CI's runner, and ARGS goes to Playwright, which then runs only the console's tests: ARGS='-g "<name>"'.
+e2e: ## Run every browser test CI runs, in the pinned Playwright image beside a throwaway Postgres; UPDATE=1 rewrites the snapshots
+	@set -e; net=software-factory-e2e-$$$$; db=$$net-postgres; url=; \
+	trap 'docker rm -f -v $$db >/dev/null 2>&1 || true; docker network rm $$net >/dev/null 2>&1 || true' EXIT; \
+	trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM; \
+	docker network create $$net >/dev/null; \
+	if [ -z "$(UPDATE)" ]; then \
+		docker run -d --name $$db --network $$net -e POSTGRES_USER=factory -e POSTGRES_PASSWORD=test $(POSTGRES) \
+			-c fsync=off -c synchronous_commit=off -c full_page_writes=off >/dev/null; \
+		tries=0; until docker exec $$db psql -q -h 127.0.0.1 -U factory -c 'select 1' >/dev/null 2>&1; do \
+			tries=$$((tries + 1)); [ $$tries -lt 240 ] || { echo "Postgres did not start in a minute" >&2; exit 1; }; sleep 0.25; done; \
+		url=postgres://factory:test@$$db:5432/postgres; \
+	fi; \
+	docker run --rm --init --ipc=host --network $$net $(if $(CPUS),--cpus=$(CPUS)) -e UPDATE=$(UPDATE) \
+		-e TEST_DATABASE_URL=$$url -v "$(CURDIR):/src:ro" \
 		-v "$(CURDIR)/apps/console/e2e/snapshots:/out/snapshots" -v "$(CURDIR)/apps/console/e2e-results:/out/results" \
-		$(PLAYWRIGHT) /src/apps/console/e2e/in-docker.sh
+		$(PLAYWRIGHT) /src/apps/console/e2e/in-docker.sh $(ARGS)
 
 zap: node_modules ## ZAP's baseline scan of the console with Martin's session, as CI runs it (Docker, and Playwright's Chromium)
 	pnpm --filter @software-factory/console exec playwright install --only-shell chromium

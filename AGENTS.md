@@ -12,7 +12,7 @@ Everything you write here is public and part of the demo. Write for a thoughtful
 mise install && pnpm install   # the toolchain mise.lock holds, dependencies and git hooks
 make check                     # what CI requires: lint, types, tests, design tokens, manifests
 pnpm dev                       # the console on :5173 with the samples, reloading on change
-make e2e                       # the console in a browser, in the pinned Playwright image
+make e2e                       # every browser test CI runs, live ones too, in the pinned Playwright image
 make zap                       # ZAP's baseline scan of the console signed in as Martin, as CI runs it
 make up / make samples / make status / make down
 make enrol                     # a one-time code to enrol a passkey on the console
