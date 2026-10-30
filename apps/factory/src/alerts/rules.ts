@@ -240,6 +240,13 @@ export const ADMIN_UNCOUNTED_FOR = '2m';
  */
 export const ADMIN_FRESH = '1m';
 
+/** What the line compares, by its action, as the alert that it cannot names it. */
+const ADMIN_COMPARED_WORDS: Record<AdminAction, string> = {
+  flags: "the flags' stages",
+  rollout: "the app's Rollout's controls",
+  sessions: 'the sessions',
+};
+
 /** What the alert says of each change no event names, and what Martin does about it. */
 export const ADMIN_UNCOUNTED_WORDS: Record<AdminAction, { summary: string; description: string }> = {
   flags: {
@@ -548,17 +555,16 @@ export function martinRules(): Rule[] {
       labels: { level: LEVELS.page },
       annotations: ADMIN_UNCOUNTED_WORDS[action],
     })),
-    {
+    ...ADMIN_ACTIONS.map((action) => ({
       alert: ADMIN_UNCOUNTED,
-      expr: `max by (action) (last_over_time(${fromTheLine('line_admin_actions_compared')}[${ADMIN_FRESH}])) == 0`,
+      expr: `max by (action) (last_over_time(${fromTheLine('line_admin_actions_compared', `action="${action}"`)}[${ADMIN_FRESH}])) == 0`,
       for: '10m',
       labels: { level: LEVELS.page, worker: WORKERS.line },
       annotations: {
-        summary: "The admin service's changes are not being compared",
-        description:
-          'For ten minutes the line has not been able to compare what the admin service changes with the events that record it, so a change none records would not reach you. The line’s log says why.',
+        summary: `The line is not comparing ${ADMIN_COMPARED_WORDS[action]}`,
+        description: `For ten minutes the line has not been able to compare ${ADMIN_COMPARED_WORDS[action]} with the events that record them, so a change none records would not reach you. The line’s log says why.`,
       },
-    },
+    })),
     {
       alert: 'AlertmanagerSilenced',
       expr: 'max(alertmanager_silences{state=~"active|pending"}) > 0',

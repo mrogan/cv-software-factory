@@ -55,6 +55,11 @@ describe('the flags, named by Martin’s moves', () => {
   it('are named as Argo CD makes them, with no flag and no revision, and before any move', () => {
     expect(flagsNamed(readFlags({ flagSpec: { flags: {} } }), [])).toBe(true);
     expect(flagsNamed(readFlags(undefined), [])).toBe(true);
+    expect(flagsNamed(undefined, [])).toBe(true);
+  });
+
+  it('are not named gone, once a move of his set a flag there', () => {
+    expect(flagsNamed(undefined, moves)).toBe(false);
   });
 
   it('are not named with a revision no move wrote, as one bumped by hand', () => {
@@ -92,8 +97,13 @@ describe('the flags, named by Martin’s moves', () => {
 });
 
 describe('the Rollout’s controls, named by Martin’s', () => {
-  const control = (action: string) => ({ type: 'release.controlled' as const, action });
-  const started = { type: 'release.started' as const };
+  const control = (action: string, release = 'website-7d9f8b6c4-3') => ({
+    type: 'release.controlled' as const,
+    action,
+    release,
+  });
+  const startedOf = (release: string) => ({ type: 'release.started' as const, release });
+  const started = startedOf('website-7d9f8b6c4-3');
   const stopped = { type: 'line.stopped' as const };
   const as = (paused: boolean, promoteFull = false) => ({ paused, promoteFull });
 
@@ -117,12 +127,24 @@ describe('the Rollout’s controls, named by Martin’s', () => {
     expect(rolloutNamed(as(false), [control('pause'), started])).toBe(false);
   });
 
-  it('are named promoted fully only after his full promotion since the latest release started', () => {
+  it('are named promoted fully only after his full promotion of the release the line recorded starting last', () => {
     expect(rolloutNamed(as(false, true), [started, control('promote-fully')])).toBe(true);
     expect(rolloutNamed(as(false, true), [started, control('promote-fully'), control('abort')])).toBe(true);
-    expect(rolloutNamed(as(false, true), [control('promote-fully'), started])).toBe(false);
+    // The same release recorded starting again, on another work item it carries: still his.
+    expect(rolloutNamed(as(false, true), [started, control('promote-fully'), started])).toBe(true);
+    // Before the line has recorded any release, any full promotion of his.
+    expect(rolloutNamed(as(false, true), [control('promote-fully')])).toBe(true);
+    // A full promotion of the release before names none of the next.
+    const next = startedOf('website-5c8d7b9f4-4');
+    expect(rolloutNamed(as(false, true), [started, control('promote-fully'), next])).toBe(false);
     expect(rolloutNamed(as(false, true), [started, control('promote')])).toBe(false);
     expect(rolloutNamed(as(false, true), [])).toBe(false);
+  });
+
+  it('are named gone only before the line has recorded a release of it', () => {
+    expect(rolloutNamed(undefined, [])).toBe(true);
+    expect(rolloutNamed(undefined, [control('pause')])).toBe(true);
+    expect(rolloutNamed(undefined, [started])).toBe(false);
   });
 });
 
@@ -282,6 +304,20 @@ describe('the comparison, as the SDK collects it', () => {
       });
     } finally {
       none();
+    }
+  });
+
+  it('says it could not compare one that takes too long, so the SDK never drops the collection', async () => {
+    const slow: Kube = { ...kubeOf({}), get: () => new Promise(() => {}) };
+    const stop = observeAdminActions(
+      { sql: database.as.line, kube: slow, flags: FLAGS, rollout: null },
+      pino({ level: 'silent' }),
+      50,
+    );
+    try {
+      expect(await collected()).toEqual({ flags: { compared: 0 }, sessions: { uncounted: 0, compared: 1 } });
+    } finally {
+      stop();
     }
   });
 

@@ -11,7 +11,8 @@
  * - **The Rollout's controls** (RELEASE_ROLLOUT): the fields a control sets that nothing else does. `spec.paused` is set
  *   only after his latest pause or resume was a pause, and cleared only after something that clears it (a resume, a
  *   promotion, an abort, a retry or the line stopped) has followed his latest pause; `status.promoteFull` is set only
- *   after a full promotion of his since the line recorded the latest release start. The status's abort and step are
+ *   after a full promotion of his of the release the line recorded starting last. Gone, either is named only before
+ *   any move or release of it. The status's abort and step are
  *   written by Argo Rollouts' controller too, so the Rollout cannot say who moved them: admission holds the admin
  *   service to the moves the controls make, and the line records what each release did.
  * - **Sessions:** every session signed in within the last hour has a sign-in of its own (`admin.signed-in`), appended
@@ -52,6 +53,12 @@ export const SIGN_IN_WITHIN_MS = 60_000;
 /** How far back sessions are compared: long enough that a session made and ended at once is still there to compare. */
 export const SESSIONS_LOOKBACK = '1 hour';
 
+/**
+ * How long a comparison may take before it counts as not made: well inside the SDK's 30 seconds for a collection, past
+ * which it would drop every figure of this one, and the last would be sent again as if compared.
+ */
+export const COMPARE_TIMEOUT_MS = 10_000;
+
 /** The role whose records of a release's start the line believes: its own. */
 const LINE_ROLE = 'factory_line';
 
@@ -72,9 +79,11 @@ export type HeldFlags = ReturnType<typeof readFlags>;
  * Whether every flag `flags` holds, and its revision, is named by Martin's moves, oldest first: each flag at the stage
  * his latest move of it set, and off if none did or a later move dropped it; none in a shape no stage has, which only a
  * hand could write; and the revision one a move wrote. A `flags` with no flag and no revision, as Argo CD makes it,
- * names nothing, and needs no event.
+ * names nothing, and needs no event; nor does no `flags` at all, before his first move.
  */
-export function flagsNamed(held: HeldFlags, moves: readonly Move[]): boolean {
+export function flagsNamed(held: HeldFlags | undefined, moves: readonly Move[]): boolean {
+  // Gone, admission refusing its deletion: named only while no move of his ever set a flag there.
+  if (held === undefined) return moves.length === 0;
   if (held.outside.length > 0) return false;
   const expected = new Map<string, Stage>();
   for (const move of moves) {
@@ -100,9 +109,9 @@ export interface RolloutControls {
  * starting.
  */
 export type ControlEvent =
-  | { type: 'release.controlled'; action: string }
+  | { type: 'release.controlled'; action: string; release?: string | null }
   | { type: 'line.stopped' }
-  | { type: 'release.started' };
+  | { type: 'release.started'; release?: string | null };
 
 /**
  * Whether the Rollout's pause and full promotion are named by Martin's controls, oldest first:
@@ -110,16 +119,30 @@ export type ControlEvent =
  * - paused, only if his latest pause or resume was a pause. A promotion, an abort or a retry that could not clear his
  *   pause leaves it set (`STILL_PAUSED`), so they are not read here;
  * - not paused, only if something that clears a pause followed his latest pause, or he never paused it;
- * - promoted fully, only if he promoted fully since the line recorded the latest release starting.
+ * - promoted fully, only if he promoted fully the release the line recorded starting last, by its name, as the admin
+ *   service names it; any of his full promotions, before the line has recorded one;
+ * - not there at all, only before the line has recorded a release of it.
+ *
+ * Of a pause, it cannot tell his own pause cleared by a later control and set again by hand, or one cleared by hand
+ * after a control that could not clear it: either reads as his. A pause holds a canary where it is, and the audit log
+ * has his controls either side.
  */
-export function rolloutNamed(rollout: RolloutControls, events: readonly ControlEvent[]): boolean {
+export function rolloutNamed(rollout: RolloutControls | undefined, events: readonly ControlEvent[]): boolean {
+  const releases = events.filter((e) => e.type === 'release.started');
+  if (rollout === undefined) return releases.length === 0;
   const action = (event: ControlEvent | undefined) => (event?.type === 'release.controlled' ? event.action : undefined);
   const pauses = events.filter((e) => ['pause', 'resume'].includes(action(e) ?? ''));
   const lastPause = events.findLastIndex((e) => action(e) === 'pause');
   const cleared = events.slice(lastPause + 1).some((e) => e.type !== 'release.started');
   const paused = rollout.paused ? action(pauses.at(-1)) === 'pause' : lastPause === -1 || cleared;
-  const since = events.slice(events.findLastIndex((e) => e.type === 'release.started') + 1);
-  const promoted = !rollout.promoteFull || since.some((e) => action(e) === 'promote-fully');
+  const latest = releases.at(-1);
+  const promoted =
+    !rollout.promoteFull ||
+    events.some(
+      (e) =>
+        action(e) === 'promote-fully' &&
+        (latest === undefined || (e.type === 'release.controlled' && e.release === latest.release)),
+    );
   return paused && promoted;
 }
 
@@ -163,14 +186,13 @@ export interface Compared {
   rollout: RolloutRef | null;
 }
 
-/** Whether `flags`, read first, is named by Martin's moves: with no `flags` there is nothing to name. */
+/** Whether `flags`, read first, is named by Martin's moves. */
 export async function compareFlags({ sql, kube, flags }: Compared & { flags: RolloutRef }): Promise<boolean> {
   const read = await kube.get(
     `/apis/core.openfeature.dev/v1beta1/namespaces/${encodeURIComponent(flags.namespace)}` +
       `/featureflags/${encodeURIComponent(flags.name)}`,
     featureFlag,
   );
-  if (!read) return true;
   const rows = await sql<{ version: number; payload: Record<string, unknown> }[]>`
     select e.version, e.payload from events e
     where e.type = 'flag.staged' and ${byMartin(sql, 'e')}
@@ -179,25 +201,25 @@ export async function compareFlags({ sql, kube, flags }: Compared & { flags: Rol
     const read = upcast({ type: 'flag.staged', version: row.version, payload: row.payload });
     return read.ok ? [read.event.payload as Move] : [];
   });
-  return flagsNamed(readFlags(read.spec), moves);
+  return flagsNamed(read && readFlags(read.spec), moves);
 }
 
-/** Whether the Rollout's controls, read first, are named by Martin's: with no Rollout there is nothing to name. */
+/** Whether the Rollout's controls, read first, are named by Martin's. */
 export async function compareRollout({ sql, kube, rollout }: Compared & { rollout: RolloutRef }): Promise<boolean> {
   const read = await kube.get(
     `/apis/argoproj.io/v1alpha1/namespaces/${encodeURIComponent(rollout.namespace)}` +
       `/rollouts/${encodeURIComponent(rollout.name)}`,
     rolloutControls,
   );
-  if (!read) return true;
   const events = await sql<ControlEvent[]>`
-    select e.type, e.payload->>'action' as action from events e
+    select e.type, e.payload->>'action' as action, e.payload->>'release' as release from events e
     where not e.sample
       and ((e.type in ('release.controlled', 'line.stopped') and ${byMartin(sql, 'e')})
         or (e.type = 'release.started' and e.appended_by = ${LINE_ROLE}
             and coalesce(e.payload->>'dryRun', 'false') = 'false'))
     order by e.seq`;
-  return rolloutNamed({ paused: read.spec.paused === true, promoteFull: read.status?.promoteFull === true }, events);
+  const controls = read && { paused: read.spec.paused === true, promoteFull: read.status?.promoteFull === true };
+  return rolloutNamed(controls, events);
 }
 
 /** Whether every session of the last hour has its sign-in, both read in one statement, so of one snapshot. */
@@ -225,10 +247,10 @@ const compared = meter.createObservableGauge('line.admin_actions.compared', {
 
 /**
  * Compares each time the SDK collects, until the function it gives back is called: the flags and the Rollout only when
- * the line is given them, the sessions always. A comparison that fails reports 0 for `compared`, and nothing new for
- * `uncounted`, and is logged once until it is made again.
+ * the line is given them, the sessions always. A comparison that fails, or takes longer than `timeoutMs`, reports 0 for
+ * `compared`, and nothing new for `uncounted`, and is logged once until it is made again.
  */
-export function observeAdminActions(where: Compared, log: Logger): () => void {
+export function observeAdminActions(where: Compared, log: Logger, timeoutMs = COMPARE_TIMEOUT_MS): () => void {
   const failing = new Set<AdminAction>();
   const unnamed = new Set<AdminAction>();
   const { flags, rollout } = where;
@@ -241,7 +263,11 @@ export function observeAdminActions(where: Compared, log: Logger): () => void {
       [...comparisons].map(async ([action, compare]) => {
         let named: boolean;
         try {
-          named = await compare();
+          let timer: NodeJS.Timeout | undefined;
+          const late = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`no answer within ${timeoutMs} ms`)), timeoutMs);
+          });
+          named = await Promise.race([compare(), late]).finally(() => clearTimeout(timer));
         } catch (error) {
           if (!failing.has(action))
             log.warn({ err: error, action }, 'could not compare what the admin service changed');

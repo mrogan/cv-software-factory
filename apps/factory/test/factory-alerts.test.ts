@@ -628,13 +628,19 @@ describe('the alert that a change the admin service makes is named by no event',
   };
 
   it('pages for each of the three, in its own words, and when the line cannot compare them, never keeping on firing', () => {
-    expect(rules.map((rule) => rule.labels.level)).toEqual(Array(ADMIN_ACTIONS.length + 1).fill(LEVELS.page));
-    expect(rules.map((rule) => rule.annotations)).toEqual([
-      ...ADMIN_ACTIONS.map((action) => ADMIN_UNCOUNTED_WORDS[action]),
-      expect.anything(),
-    ]);
+    expect(rules.map((rule) => rule.labels.level)).toEqual(Array(ADMIN_ACTIONS.length * 2).fill(LEVELS.page));
+    expect(rules.slice(0, ADMIN_ACTIONS.length).map((rule) => rule.annotations)).toEqual(
+      ADMIN_ACTIONS.map((action) => ADMIN_UNCOUNTED_WORDS[action]),
+    );
+    // Not being able to compare names what it cannot, in words of its own for each.
+    const unable = rules.slice(ADMIN_ACTIONS.length);
+    expect(new Set(unable.map((rule) => rule.annotations.summary)).size).toBe(ADMIN_ACTIONS.length);
+    for (const [i, action] of ADMIN_ACTIONS.entries()) expect(unable[i]?.expr).toContain(`action="${action}"`);
     // A change none names is no consequence of a worker's crash loop; not being able to compare is the line's.
-    expect(rules.map((rule) => rule.labels.worker)).toEqual([...ADMIN_ACTIONS.map(() => undefined), WORKERS.line]);
+    expect(rules.map((rule) => rule.labels.worker)).toEqual([
+      ...ADMIN_ACTIONS.map(() => undefined),
+      ...ADMIN_ACTIONS.map(() => WORKERS.line),
+    ]);
     for (const rule of rules) {
       expect(rule.keepFiringFor, rule.expr).toBeUndefined();
       expect(rule.expr).toContain(METRICS_FROM_THE_LINE);
@@ -717,7 +723,11 @@ describe('the alert that a change the admin service makes is named by no event',
             ],
             alert_rule_test: [
               { eval_time: '12m', alertname: ADMIN_UNCOUNTED, exp_alerts: [] },
-              { eval_time: '13m', alertname: ADMIN_UNCOUNTED, exp_alerts: [fires('rollout', ADMIN_ACTIONS.length)] },
+              {
+                eval_time: '13m',
+                alertname: ADMIN_UNCOUNTED,
+                exp_alerts: [fires('rollout', ADMIN_ACTIONS.length + ADMIN_ACTIONS.indexOf('rollout'))],
+              },
             ],
           },
         ],

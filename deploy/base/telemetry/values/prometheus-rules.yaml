@@ -271,14 +271,32 @@ serverFiles:
               summary: "A session started with no sign-in"
               description: "The store holds a session of the last hour that no sign-in recorded: someone made it outside the admin service’s sign-in, or the admin service did without recording it. End every session with make enrol REVOKE_OTHERS=1, then enrol your passkey again. This ends an hour after the session started."
           - alert: AdminActionUncounted
-            expr: "max by (action) (last_over_time(line_admin_actions_compared{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[1m])) == 0"
+            expr: "max by (action) (last_over_time(line_admin_actions_compared{action=\"flags\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[1m])) == 0"
             for: 10m
             labels:
               level: "page"
               worker: "line"
             annotations:
-              summary: "The admin service's changes are not being compared"
-              description: "For ten minutes the line has not been able to compare what the admin service changes with the events that record it, so a change none records would not reach you. The line’s log says why."
+              summary: "The line is not comparing the flags' stages"
+              description: "For ten minutes the line has not been able to compare the flags' stages with the events that record them, so a change none records would not reach you. The line’s log says why."
+          - alert: AdminActionUncounted
+            expr: "max by (action) (last_over_time(line_admin_actions_compared{action=\"rollout\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[1m])) == 0"
+            for: 10m
+            labels:
+              level: "page"
+              worker: "line"
+            annotations:
+              summary: "The line is not comparing the app's Rollout's controls"
+              description: "For ten minutes the line has not been able to compare the app's Rollout's controls with the events that record them, so a change none records would not reach you. The line’s log says why."
+          - alert: AdminActionUncounted
+            expr: "max by (action) (last_over_time(line_admin_actions_compared{action=\"sessions\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[1m])) == 0"
+            for: 10m
+            labels:
+              level: "page"
+              worker: "line"
+            annotations:
+              summary: "The line is not comparing the sessions"
+              description: "For ten minutes the line has not been able to compare the sessions with the events that record them, so a change none records would not reach you. The line’s log says why."
           - alert: AlertmanagerSilenced
             expr: "max(alertmanager_silences{state=~\"active|pending\"}) > 0"
             for: 0s
