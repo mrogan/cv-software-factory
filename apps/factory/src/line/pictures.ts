@@ -13,7 +13,7 @@
  * Each screenshot named keeps only the boxes of the ticket's own check, and only on its own page: a ticket whose sense
  * boxes nothing (the logs, the metrics, the canary) has none on any page, nor a page after the rollout.
  */
-import type { PayloadOf, Screenshot } from '@software-factory/events';
+import { cutAt, type PayloadOf, type Screenshot } from '@software-factory/events';
 import type { Picture, Shot } from '../pictures/index.ts';
 
 /** The most pages a verification names (`verification.finished`'s schema). */
@@ -87,7 +87,7 @@ export function pagesFor(
     pages: chosen.map((p) => {
       const other = intendedFor(p);
       return {
-        page: p.path.slice(0, 60),
+        page: cutAt(p.path, 60),
         route: p.route,
         screenshot: p.after.hash,
         changed: p.changed,

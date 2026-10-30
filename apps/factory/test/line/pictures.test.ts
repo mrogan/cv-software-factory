@@ -144,3 +144,12 @@ describe('the pages a verification names', () => {
     });
   });
 });
+
+describe('a page a verification names', () => {
+  it('is named by its path cut as before, and never inside an emoji', () => {
+    const plain = `/${'a'.repeat(80)}`;
+    expect(pagesFor([picture(plain, '/:p', 0, 1)], { route: '/:p' }).pages[0]?.page).toBe(plain.slice(0, 60));
+    const emoji = `/${'a'.repeat(58)}\u{1F600}`;
+    expect(pagesFor([picture(emoji, '/:p', 0, 1)], { route: '/:p' }).pages[0]?.page).toBe(`/${'a'.repeat(58)}`);
+  });
+});

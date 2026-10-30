@@ -7,6 +7,7 @@
  */
 import { createHash } from 'node:crypto';
 import {
+  cutTo,
   type Dependency,
   type Environment,
   type EventType,
@@ -205,7 +206,7 @@ export function senseReopened(signal: Seen, signalId: string, workItem: string, 
     check: signal.check,
     route: signal.route,
     version: signal.version,
-    reason: reason.slice(0, 200),
+    reason: cutTo(reason, 200),
     dryRun: false,
   });
   return signalEvent(writer, signal).events;
@@ -261,7 +262,7 @@ export function environmentEvents(signal: Seen, signalId: string, workItem: stri
   const writer = new Writer(signalId, workItem, now);
   writer.add('work-item.opened', 'triage', `${sense} found a problem while ${which}`, {
     kind: 'defect-fix',
-    title: title.slice(0, 120),
+    title: cutTo(title, 120),
     sample: false,
     category: SYMPTOMS[signal.symptom as SymptomClass].category,
   });
@@ -274,13 +275,12 @@ export function environmentEvents(signal: Seen, signalId: string, workItem: stri
   });
   const looked = unhealthy.map((dependency) => `${DEPENDENCY_NAMES[dependency.name]}, ${dependency.saw}`).join('; ');
   return summarise(writer, {
-    title: title.slice(0, 120),
+    title: cutTo(title, 120),
     description: `${sense} found a new problem while ${which}. Triage held it for Martin before it had a ticket: no agent can mend the factory’s environment.`,
-    story:
-      `${sense} found a new problem on ${where(signal.route, signal.sense)} in version ${signal.version}: ${signal.check}. Before trusting it, triage looked at what the sense reads besides the app, as it stood then (${looked}). A sense reading a backend that stores nothing, or on a full disk, can see a fault in the app that is not there, and no agent can mend its environment: each ticket would cost a planner’s step and more for nothing. So triage opened none, and held it for Martin, for every new problem the sense found while it waited to join. Approving opens a ticket for each, as the sense’s would have been; rejecting closes them all, and a problem still there is found again.`.slice(
-        0,
-        1200,
-      ),
+    story: cutTo(
+      `${sense} found a new problem on ${where(signal.route, signal.sense)} in version ${signal.version}: ${signal.check}. Before trusting it, triage looked at what the sense reads besides the app, as it stood then (${looked}). A sense reading a backend that stores nothing, or on a full disk, can see a fault in the app that is not there, and no agent can mend its environment: each ticket would cost a planner’s step and more for nothing. So triage opened none, and held it for Martin, for every new problem the sense found while it waited to join. Approving opens a ticket for each, as the sense’s would have been; rejecting closes them all, and a problem still there is found again.`,
+      1200,
+    ),
   });
 }
 

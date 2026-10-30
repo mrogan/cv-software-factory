@@ -13,6 +13,7 @@
  * reads a description written in Markdown, as the describer's and Martin's are, not one written in HTML, as
  * Dependabot's are.
  */
+import { cutTo } from '@software-factory/events';
 import { type Fence, opens, outsideCode, QUOTED, within } from './code.ts';
 
 /** The tags that fold, opening or closing, at the start of a line, indented by three spaces at most. */
@@ -34,7 +35,7 @@ const MARKDOWN = /^(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```|~~~|\|)|\*\*|__|`|\]\(/;
  */
 const DETAILS = /<!--[\s\S]*?-->|(<\/?details\b)/gi;
 
-const quote = (line: string) => `“${line.trim().slice(0, 80)}”`;
+const quote = (line: string) => `“${cutTo(line.trim(), 80)}”`;
 
 /** What would not render in a description's folded sections, a line for each problem; none when they all render. */
 export function unrenderedFolds(markdown: string): string[] {

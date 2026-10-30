@@ -13,7 +13,7 @@
  * With no API key the gateway replays whatever mode was asked for. A replay costs nothing and is not held back by
  * a spend cap.
  */
-import { AGENTS, type Agent } from '@software-factory/events';
+import { AGENTS, type Agent, cutAt } from '@software-factory/events';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import type { Logger } from '../log.ts';
@@ -123,7 +123,7 @@ export class Gateway {
     const envelope = judgeRequest.safeParse(input);
     if (!envelope.success) throw new BadRequest(`The request is not valid (${problemsOf(envelope.error).join('; ')}).`);
     const { agent, workItem, questionSet, model } = envelope.data;
-    const call = { agent, workItem, model: model.slice(0, 80), questionSet };
+    const call = { agent, workItem, model: cutAt(model, 80), questionSet };
     let key: string | null = null;
     try {
       const sent = this.#prepare(envelope.data);

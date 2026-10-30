@@ -17,7 +17,7 @@
  * limit reached, or (for the local model) nothing listening. Anthropic signals billing by its error's type where it
  * can (`billing_error`, a 402); credit and the workspace's limit are otherwise told apart only by the message.
  */
-import type { ProviderCap } from '@software-factory/events';
+import { cutTo, type ProviderCap } from '@software-factory/events';
 
 export type ProviderName = 'anthropic' | 'local';
 
@@ -158,7 +158,7 @@ export function capOf(status: number, body: string): ProviderRefusal | undefined
   } catch {
     return undefined;
   }
-  const said = message.slice(0, 300) || `${status} ${type}`;
+  const said = cutTo(message, 300) || `${status} ${type}`;
   // Read here, once: callers get a ProviderRefusal and its kind, and never match the words again.
   if (/workspace/i.test(message) && /limit/i.test(message)) return new ProviderRefusal('workspace-limit', said);
   if (status === 402 || type === 'billing_error' || /credit balance/i.test(message)) {

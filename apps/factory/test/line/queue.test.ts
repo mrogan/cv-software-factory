@@ -81,6 +81,19 @@ describe('a kept handback', () => {
   });
 });
 
+describe('a failed step', () => {
+  it('keeps why, cut between characters and marked, for a hold reason to quote', async () => {
+    const queue = new Queue(database.as.line, 'test');
+    await database.as.line`insert into line (work_item, stage) values ('1001', 'review')`;
+    const why = `${'a'.repeat(498)}\u{1F600} and more`;
+    await queue.failed('1001', why);
+    expect((await queue.get('1001'))?.failure).toBe(`${'a'.repeat(498)}…`);
+    await queue.keep('1001', pending);
+    await queue.effectsFailed('1001', why, new Date());
+    expect((await queue.get('1001'))?.effects?.failure).toBe(`${'a'.repeat(498)}…`);
+  });
+});
+
 describe("a step's number", () => {
   it('counts on from the last, and from the job tokens of a row made afresh, so no job name comes round again', async () => {
     const queue = new Queue(database.as.line, 'test');

@@ -34,7 +34,7 @@
  * make twice, then the comment review, which is not, then the answered threads; each is done once for a handback
  * (`EffectsContext.once`), so GitHub failing between them tries only what is left, and never runs the reviewer again.
  */
-import { MAX_FINDINGS, PATH_CHARS, type PayloadOf } from '@software-factory/events';
+import { cutTo, MAX_FINDINGS, PATH_CHARS, type PayloadOf } from '@software-factory/events';
 import { z } from 'zod';
 import { type Answer, LIMITS, suggestionsGoBack, type WorkItemState } from '../machine.ts';
 import {
@@ -399,7 +399,7 @@ export const reviewer = defineAgent<ReviewerInput, ReviewerResult>({
       {
         type: 'review.submitted',
         actor: 'reviewer',
-        summary: `Review of PR #${pullRequest}: ${shown.check.title}`.slice(0, 200),
+        summary: cutTo(`Review of PR #${pullRequest}: ${shown.check.title}`, 200),
         payload: { pullRequest, verdict: review.verdict, note: review.note, findings: review.findings },
       },
     ];

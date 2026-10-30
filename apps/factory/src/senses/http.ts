@@ -2,7 +2,7 @@
  * Asking the app for something over HTTP, and keeping the exchange as evidence. For what a check needs without a
  * browser: the app's own JSON, and whether a link opens.
  */
-import type { Evidence } from '@software-factory/events';
+import { cutAt, type Evidence } from '@software-factory/events';
 import type { Response as BrowserResponse } from 'playwright';
 
 type HttpEvidence = Extract<Evidence, { kind: 'http' }>;
@@ -42,10 +42,13 @@ const HEADERS = ['content-type', 'cache-control', 'location'] as const;
 
 const MAX_REDIRECTS = 10;
 
+/** A header's value as an event records it: cut between characters, so the same value is always the same text. */
+const cutAtOrNull = (value: string | null | undefined, max: number) => (value == null ? null : cutAt(value, max));
+
 /** What a path asks for, as an event may record it: the path and its query, never the host. */
 export const pathOf = (url: string | URL, base?: string): string => {
   const { pathname, search } = new URL(url, base);
-  return `${pathname}${search}`.slice(0, 300);
+  return cutAt(`${pathname}${search}`, 300);
 };
 
 /** GETs a path of the app, following redirects by hand so each one is recorded. */
@@ -82,7 +85,7 @@ export async function exchange(
     const location = response.headers.get('location');
     if (response.status >= 300 && response.status < 400 && location) {
       await response.body?.cancel();
-      redirects.push({ status: response.status, location: location.slice(0, 300) });
+      redirects.push({ status: response.status, location: cutAt(location, 300) });
       url = new URL(location, url);
       // A visitor who is sent to another site has left the app: that is as far as the app's own answer goes.
       if (url.origin !== new URL(app).origin) return finish(response, '', null);
@@ -98,7 +101,7 @@ export async function exchange(
       method: 'GET',
       url: pathOf(path, app),
       status: response?.status ?? null,
-      headers: Object.fromEntries(recorded.map((name) => [name, response?.headers.get(name)?.slice(0, 300) ?? null])),
+      headers: Object.fromEntries(recorded.map((name) => [name, cutAtOrNull(response?.headers.get(name), 300)])),
       timings: { firstByteMs, totalMs: Math.round(performance.now() - started) },
       redirects,
     };
@@ -147,7 +150,7 @@ export async function evidenceOf(response: BrowserResponse): Promise<HttpEvidenc
     method: request.method() === 'POST' ? 'POST' : 'GET',
     url: pathOf(response.url()),
     status: response.status(),
-    headers: Object.fromEntries(HEADERS.map((name) => [name, headers[name]?.slice(0, 300) ?? null])),
+    headers: Object.fromEntries(HEADERS.map((name) => [name, cutAtOrNull(headers[name], 300)])),
     timings: {
       firstByteMs: Math.max(0, Math.round(timing.responseStart - timing.requestStart)),
       totalMs: Math.max(0, Math.round(timing.responseEnd)),

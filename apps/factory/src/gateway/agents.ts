@@ -28,6 +28,7 @@
  */
 
 import { context, propagation, ROOT_CONTEXT, type Span, SpanStatusCode, trace } from '@opentelemetry/api';
+import { cutTo } from '@software-factory/events';
 import { IgnoredCommands, jobForToken, lineStopped } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
@@ -336,7 +337,7 @@ export class AgentCalls {
     try {
       response = await target.send('/v1/messages', JSON.stringify(sent), forwardedHeaders(headers), signal);
     } catch (error) {
-      const message = `${provider} could not be reached (${causeOf(error)})`.slice(0, 300);
+      const message = cutTo(`${provider} could not be reached (${causeOf(error)})`, 300);
       // A runner that went away is not the provider's error.
       if (!gone?.aborted) providerError(signal.aborted ? 'timeout' : 'network');
       await audit('failed', undefined, message);

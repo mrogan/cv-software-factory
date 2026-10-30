@@ -1,7 +1,7 @@
 import { createServer, type IncomingHttpHeaders } from 'node:http';
 import { listenLocal } from '@software-factory/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { exchange, UNMEASURED, versionOf } from '../../src/senses/http.ts';
+import { exchange, pathOf, UNMEASURED, versionOf } from '../../src/senses/http.ts';
 
 const seen: IncomingHttpHeaders[] = [];
 const server = createServer((req, res) => {
@@ -27,5 +27,13 @@ describe('asking the app', () => {
     seen.length = 0;
     await versionOf(app);
     expect(Object.keys(UNMEASURED).filter((name) => name in (seen[0] ?? {}))).toEqual([]);
+  });
+
+  it('records a path cut as before, an emoji in it percent-encoded, so never split', () => {
+    const plain = `/search?q=${'a'.repeat(400)}`;
+    expect(pathOf(plain, 'http://app.test')).toBe(plain.slice(0, 300));
+    const emoji = pathOf(`/${'a'.repeat(298)}\u{1F600}`, 'http://app.test');
+    expect(emoji).toBe(`/${'a'.repeat(298)}%`);
+    expect(emoji.isWellFormed()).toBe(true);
   });
 });
