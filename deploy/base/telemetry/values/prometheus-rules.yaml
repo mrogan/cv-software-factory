@@ -519,7 +519,7 @@ serverFiles:
       - name: factory
         rules:
           - alert: ConsoleDown
-            expr: "max by (address) (increase(probes_checks_total{target=\"console\", outcome=\"answered\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"probes\"}[2m])) == 0 and on (address) max by (address) (increase(probes_checks_total{target=\"console\", outcome=\"failed\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"probes\"}[2m])) > 0"
+            expr: "max by (address) (increase(probes_checks_total{target=\"console\", outcome=\"answered\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"probes\"}[2m])) == 0 and on (address) max by (address) (increase(probes_checks_total{target=\"console\", outcome=\"failed\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"probes\"}[2m])) > 0 and on (address) max by (address) (count_over_time(probes_checks_total{target=\"console\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"probes\"}[1m])) > 0"
             for: 1m
             keep_firing_for: 10m
             labels:
@@ -529,7 +529,7 @@ serverFiles:
               summary: "The console is not answering"
               description: "For two minutes the probes have had no answer from the console at {{ $labels.address }}: you cannot see or steer the factory there."
           - alert: AppDown
-            expr: "max by (address) (increase(probes_checks_total{target=\"app\", outcome=\"answered\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"probes\"}[2m])) == 0 and on (address) max by (address) (increase(probes_checks_total{target=\"app\", outcome=\"failed\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"probes\"}[2m])) > 0"
+            expr: "max by (address) (increase(probes_checks_total{target=\"app\", outcome=\"answered\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"probes\"}[2m])) == 0 and on (address) max by (address) (increase(probes_checks_total{target=\"app\", outcome=\"failed\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"probes\"}[2m])) > 0 and on (address) max by (address) (count_over_time(probes_checks_total{target=\"app\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"probes\"}[1m])) > 0"
             for: 1m
             keep_firing_for: 10m
             labels:
@@ -595,7 +595,7 @@ serverFiles:
               summary: "A worker is crash-looping"
               description: "{{ $labels.pod }} in factory has restarted three times in five minutes, and Kubernetes waits longer each time to start it again."
           - alert: SpendCapReached
-            expr: "max by (cap) (gateway_cap_spent_usd{cap=~\"day|month\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"gateway\"}) >= on (cap) (min by (cap) (gateway_cap_limit_usd{cap=~\"day|month\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"gateway\"}) >= 0)"
+            expr: "max by (cap, profile) (gateway_cap_spent_usd{cap=~\"day|month\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"gateway\"}) >= on (cap, profile) (min by (cap, profile) (gateway_cap_limit_usd{cap=~\"day|month\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"gateway\"}) >= 0)"
             for: 0s
             labels:
               level: "page"
