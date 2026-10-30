@@ -2,7 +2,7 @@
  * Asking the app for something over HTTP, and keeping the exchange as evidence. For what a check needs without a
  * browser: the app's own JSON, and whether a link opens.
  */
-import type { Evidence } from '@software-factory/events';
+import { cutAt, type Evidence } from '@software-factory/events';
 import type { Response as BrowserResponse } from 'playwright';
 
 type HttpEvidence = Extract<Evidence, { kind: 'http' }>;
@@ -147,7 +147,12 @@ export async function evidenceOf(response: BrowserResponse): Promise<HttpEvidenc
     method: request.method() === 'POST' ? 'POST' : 'GET',
     url: pathOf(response.url()),
     status: response.status(),
-    headers: Object.fromEntries(HEADERS.map((name) => [name, headers[name]?.slice(0, 300) ?? null])),
+    headers: Object.fromEntries(
+      HEADERS.map((name) => {
+        const value = headers[name];
+        return [name, value === undefined ? null : cutAt(value, 300)];
+      }),
+    ),
     timings: {
       firstByteMs: Math.max(0, Math.round(timing.responseStart - timing.requestStart)),
       totalMs: Math.max(0, Math.round(timing.responseEnd)),

@@ -83,4 +83,10 @@ describe('folded sections', () => {
     );
     expect(unrenderedFolds(body)).toEqual([]);
   });
+
+  it('quote a long line whole: cut between characters, and marked', () => {
+    const [found] = unrenderedFolds(lines('<details>', `## ${'a'.repeat(75)}\u{1F600} more`, '</details>'));
+    expect(found).toBe(`a folded section shows “## ${'a'.repeat(75)}…” as text: leave a blank line before it`);
+    expect(found?.isWellFormed()).toBe(true);
+  });
 });

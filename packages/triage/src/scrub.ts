@@ -6,7 +6,7 @@
  * looking back over its local part and on over its domain, and neither can hold an `@`, so each scan stops at the
  * next one and no character is looked at more than a few times; and the number pattern cannot backtrack.
  */
-import { cutTo } from '@software-factory/events';
+import { cutAt, cutTo } from '@software-factory/events';
 
 /** Six digits or more, allowing the spaces and dashes people type in phone and card numbers. */
 const LONG_NUMBER = /\+?\d(?:[\s-]?\d){5,}/g;
@@ -140,7 +140,7 @@ export function privatePath(page: string): string {
       const scrubbed = scrub(decoded);
       return scrubbed === decoded ? segment : scrubbed.replace(/\s+/g, '-');
     });
-  return segments.join('/').slice(0, 200);
+  return cutAt(segments.join('/'), 200);
 }
 
 /**

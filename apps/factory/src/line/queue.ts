@@ -32,6 +32,7 @@
  * whatever the limit: it is one the line took already, and its defect is in the app. It is taken back once for each reopening, from wherever its row was
  * (ended, or not yet ended when it reopened), and until then the line hands it to nobody.
  */
+import { cutTo } from '@software-factory/events';
 import { askedByMartin, byMartin, lastEnd, openedAsImprovement } from '@software-factory/store';
 import type { JSONValue, Sql } from 'postgres';
 import type { Take } from '../../../../policy/line.ts';
@@ -333,7 +334,7 @@ export class Queue {
 
   /** Counts a failed attempt at the step in hand, with why: its handback, if one was kept, is over. */
   async failed(workItem: string, reason: string): Promise<void> {
-    await this.#sql`update line set failures = failures + 1, failure = ${reason.slice(0, 500)}, effects = null
+    await this.#sql`update line set failures = failures + 1, failure = ${cutTo(reason, 500)}, effects = null
                     where work_item = ${workItem}`;
   }
 
@@ -375,7 +376,7 @@ export class Queue {
   async effectsFailed(workItem: string, reason: string, retryAt: Date): Promise<void> {
     await this.#sql`
       update line set effects = effects || jsonb_build_object(
-        'tries', (effects->>'tries')::int + 1, 'failure', ${reason.slice(0, 500)}::text,
+        'tries', (effects->>'tries')::int + 1, 'failure', ${cutTo(reason, 500)}::text,
         'retryAt', ${retryAt.toISOString()}::text)
       where work_item = ${workItem} and effects is not null`;
   }

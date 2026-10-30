@@ -22,6 +22,7 @@ import { lookup } from 'node:dns/promises';
 import type { IncomingMessage, RequestListener } from 'node:http';
 import { isIP } from 'node:net';
 import { type Context, context, propagation, ROOT_CONTEXT } from '@opentelemetry/api';
+import { cutTo } from '@software-factory/events';
 import { endJobToken, issueJobToken, jobForToken } from '@software-factory/store';
 import type { Logger } from 'pino';
 import type { Sql } from 'postgres';
@@ -431,7 +432,7 @@ function endingOf(outcome: StepOutcome): [StepEnding, string | null] {
   return [outcome.kind, null];
 }
 
-const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 4000);
+const messageOf = (error: unknown) => cutTo(error instanceof Error ? error.message : String(error), 4000);
 
 const MAX_BODY = 2 * 1024 * 1024;
 

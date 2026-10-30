@@ -536,6 +536,18 @@ describe('reading the provider', () => {
     expect(capOf(400, error('invalid_request_error', 'max_tokens: too large'))).toBeUndefined();
   });
 
+  it('keeps a long refusal’s words whole: cut between characters, and marked', () => {
+    const said = `Your credit balance is too low${' '.repeat(268)}\u{1F4B8} and more`;
+    const refusal = capOf(402, JSON.stringify({ type: 'error', error: { type: 'billing_error', message: said } }));
+    expect(refusal?.message).toBe('Your credit balance is too low…');
+    expect(refusal?.message.isWellFormed()).toBe(true);
+    const plain = capOf(
+      402,
+      JSON.stringify({ type: 'error', error: { type: 'billing_error', message: 'a'.repeat(400) } }),
+    );
+    expect(plain?.message).toBe(`${'a'.repeat(299)}…`);
+  });
+
   it('keys a step without its session or its date', () => {
     expect(keyedRequest(agentRequest('2026-10-04', 'a'))).toEqual(keyedRequest(agentRequest('2027-01-31', 'b')));
   });

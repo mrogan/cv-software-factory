@@ -11,6 +11,7 @@
  * refused.
  */
 import { randomBytes } from 'node:crypto';
+import { cutTo } from '@software-factory/events';
 import type { Logger } from 'pino';
 import type { GitHubWorker } from '../github/worker-client.ts';
 import { type Fenced, fence } from './scope.ts';
@@ -104,7 +105,7 @@ export async function smoke({
       branch: SMOKE_BRANCH,
       expectedHead: base,
       patch: outcome.handback.patch,
-      message: `fix(smoke): count the last index from zero\n\n${outcome.handback.note}`.slice(0, 9_000),
+      message: cutTo(`fix(smoke): count the last index from zero\n\n${outcome.handback.note}`, 9_000),
     },
     { workItem, agent: 'coder' },
   );

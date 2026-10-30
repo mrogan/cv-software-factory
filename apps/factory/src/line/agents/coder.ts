@@ -516,7 +516,7 @@ export const coder = defineAgent<CoderInput, CoderResult>({
         {
           type: 'action.refused',
           actor: 'factory',
-          summary: `The scope fence refused the coder’s patch: ${fenced.outside.join(', ')}`.slice(0, 200),
+          summary: cutTo(`The scope fence refused the coder’s patch: ${fenced.outside.join(', ')}`, 200),
           payload: {
             mechanism: 'scope-fence',
             action: `Push the coder’s round ${round} to ${to}`,
@@ -529,7 +529,7 @@ export const coder = defineAgent<CoderInput, CoderResult>({
     // An improvement's branch is named from its request's title, as its public view has it: a branch is public.
     const named = state.request ? (await context.request()).title : need(state.ticket, 'a ticket').title;
     const branch = state.pullRequest?.branch ?? branchFor(workItem, named);
-    const message = `${title}\n\n${note}`.slice(0, 9_000);
+    const message = cutTo(`${title}\n\n${note}`, 9_000);
     const head = await context.once('push', async (again) => {
       // A first round starts the branch at the commit; so does a push that was begun and may have been made, so
       // the patch is never applied on top of itself.
