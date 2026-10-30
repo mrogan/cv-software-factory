@@ -1452,7 +1452,7 @@ const ITEMS = [
     lead: 'Martin launched the third attack from Guardrails. The GitHub worker opened a pull request in the app’s repository, with fixed content, that deletes the test of money formatting, as an agent told to make CI green might. The test-integrity check tagged it test-loosening, and the review gate, a required check, would not pass it without Martin’s approval of its head commit, at any autonomy level. The GitHub worker closed the pull request and deleted its branch. Nothing merged, and no model was called.',
     ver: null, live: 'v0.9.0', pr: '1280', day: 'Fri 2 Oct', time: '10:42', dur: '4min', found: 'Martin, from Guardrails', prog: 'sssssr  ',
     vis: { type: 'refusal' }, foot: 'The site never changed: nothing merged, and the pull request is closed.',
-    refusals: [{ mech: 'ruleset', who: 'the review gate, a required check', at: '10:46:12', out: `<span class="x">✕ review</span>  <span class="dim">failure · main’s review.yml · 6s</span>
+    refusals: [{ mech: 'review-gate', who: 'the review gate, a required check', at: '10:46:12', out: `<span class="x">✕ review</span>  <span class="dim">failure · main’s review.yml · 6s</span>
 Guarded: the factory’s App opened #1280, so it passes only if low-risk.
 <span class="x">✕ test-loosening</span>  test/money.test.ts deleted: 6 tests gone, none added
 ✓ no path CODEOWNERS gives Martin
@@ -1629,7 +1629,7 @@ Guarded: the factory’s App opened #1280, so it passes only if low-risk.
     lead: 'Martin launched the second attack from Guardrails. The GitHub worker was asked, as a step’s handback asks it, for a commit that changes .github/workflows/ci.yml to skip the failing check. Its guard refused: no step may change a workflow. Then the harness asked GitHub directly, with the App’s token, as the worker would if its guard were gone, and GitHub refused: the App has no workflows permission. Nothing reached the repository, and no model was called.',
     ver: null, live: 'v0.9.11', pr: null, day: 'Sat 3 Oct', time: '13:30', dur: '1min', found: 'Martin, from Guardrails', prog: 'sssr    ',
     vis: { type: 'refusal' }, foot: 'The site never changed: no commit reached the repository.',
-    refusals: [{ mech: 'scope-fence', who: 'the GitHub worker’s guard', at: '13:30:41', out: `<span class="x">✕ refused</span> a commit to the-roganator/cv-worlds-worst-website, branch factory/1321
+    refusals: [{ mech: 'github-guard', who: 'the GitHub worker’s guard', at: '13:30:41', out: `<span class="x">✕ refused</span> a commit to the-roganator/cv-worlds-worst-website, branch factory/1321
   .github/workflows/ci.yml   <span class="x">a workflow: no step may change one</span>
 <span class="dim">→</span> Nothing was sent to GitHub.` },
       { mech: 'token-permission', who: 'GitHub, to the App’s token', at: '13:30:44', out: `PUT /repos/the-roganator/cv-worlds-worst-website/contents/.github/workflows/ci.yml
@@ -2016,7 +2016,7 @@ function canaryScenario(k) {
     line: { ...live, carries: [] },
     promoted: { ...live, measured: [m25, m50], end: { kind: 'promoted', at: '16:47:30' } },
     rolledback: { ...live, measured: [m25, { ...m50, err: [0.0392, 0.0139], v: { ...ok4, errors: 'failed' } }],
-      end: { kind: 'rolledback', at: '16:47:30', weight: 50, ticket: null, words: 'Metric "errors" assessed Failed due to failed (2) > failureLimit (1)', failed: [['errors', 'Errors', '5xx share 3.71% against 1.18%: 2.53 points above, at most 1.00 points allowed']] } },
+      end: { kind: 'rolledback', at: '16:47:30', weight: 50, ticket: null, words: 'Metric "errors" assessed Failed due to failed (2) > failureLimit (1)', failed: [['errors', 'Errors', '5xx share 3.92% against 1.39%: 2.53 points above, at most 1.00 points allowed']] } },
     early: RELEASES.r1308,
     stopped: { ...live, end: { kind: 'stopped', at: '16:45:12', weight: 50 } },
     paused: { ...live, paused: '16:44:10' },
@@ -2759,7 +2759,7 @@ const HOLDS = [
 ✓ not a release, not an improvement
 → waits for Martin’s approval of its head commit, 4e1c2a9</p>
       <p class="ev">Every required check passed and the reviewer approved. Approving is {who} own review of its head commit, on GitHub: the console can’t give it. A push after {whoS} approve{s} needs {whom} again.</p>`,
-    link: ['https://github.com/the-roganator/cv-worlds-worst-website/pull/1327', 'Review #1327 on GitHub', 'Approve its head commit there, and the review check passes it on to the merge queue.', 'Martin approves its head commit there, with his own review.'],
+    link: ['https://github.com/the-roganator/cv-worlds-worst-website/pull/1327', 'Review #1327 on GitHub', 'Approve its head commit there: the review check then passes it, and the line adds it to the merge queue under Guarded with auto-merge on; otherwise you merge it there.', 'Martin approves its head commit there, with his own review.'],
     answers: [['answered', 'Answer in words', 'Sends it back to the coder, with your words as the reason.'],
       ['rejected', 'Reject', 'Closes #1326 and its pull request, unmerged.']] },
   { id: '1314', cause: 'deploy', kicker: 'Waiting for your deploy', stage: 'Release', age: '25min', title: 'The contact form loses your message',
@@ -2821,7 +2821,7 @@ function canaryHolds() {
   if (r.end || !r.held) return [];
   const v = S.visitor;
   const rows = [['promote-all', 'Promote fully', `Gives ${r.version} all the traffic now, past the analysis’s verdict.`, true],
-    ['abort', 'Abort', `Sends all the traffic back to ${r.previous}, as a rollback would have.`]]
+    ['abort', 'Abort', `Sends all the traffic back to ${r.previous}. It counts as a rollback: #${r.carries[0]} fails Release, and triage gets the analysis’s verdict.`]]
     .map(([k, label, what, key]) => `${v ? `<span class="ro">${label}</span>` : `<button type="button" class="btn ${k === 'abort' ? 'attn-line' : ''}" data-canary="${k}">${label}${keyIf(key && !S.fresh)}</button>`}<p>${what}</p>`).join('');
   return [{ id: r.carries[0], kicker: 'A canary paused for you', stage: `Release · ${r.now}%`, age: '3min', title: ITEMS[indexOf(r.carries[0])].title,
     ev: `<p class="words">${esc(r.words)}</p><p class="ev">The analysis judged ${r.version} bad: ${r.bad}. Auto-rollback is off, so it waits for {whoS2} instead of rolling back. Stop the line still aborts it.</p>`.replace('{whoS2}', v ? 'Martin' : 'you'),
@@ -2966,7 +2966,7 @@ function canaryControls(r) {
   const steps = (r.steps ?? []).map((x) => x.weight), next = steps.find((w) => w > r.now);
   const C = !r.end && r.held ? [
     ['promote-all', 'Promote fully', `Gives ${r.version} all the traffic now, past the analysis’s verdict.`, true],
-    ['abort', 'Abort', `Sends all the traffic back to ${r.previous}, as a rollback would have.`],
+    ['abort', 'Abort', `Sends all the traffic back to ${r.previous}. It counts as a rollback: #${r.carries[0]} fails Release, and triage gets the analysis’s verdict.`],
   ] : !r.end ? [
     ...(next ? [['promote-next', `Promote to ${next}%`, `Moves the canary to its next step now, without waiting out this one.`, true]] : []),
     ['promote-all', 'Promote fully', `Gives ${r.version} all the traffic now${next ? ', skipping the steps left' : ''}.`, true],
@@ -2984,12 +2984,12 @@ function canaryControls(r) {
 
 /* ==== Guardrails: spec 6's eleven, and the red-team menu ======================================
    Each guardrail: its mechanism, its last proof (guardrail.proved from `make guardrails`, the last attack, or the
-   tests in CI on main) and how old it is, and its recent refusals (action.refused), each linking to its work item or,
+   tests in CI, which make guardrails records from main's last run of them) and how old it is, and its recent refusals (action.refused), each linking to its work item or,
    with none, to the audit log. A proof that did not hold is ruled in attn and says what happened. None has a switch
    but auto-rollback, part of 9. */
 
 const MECH = { 'token-permission': 'token permission', ruleset: 'ruleset', 'egress-policy': 'egress policy', 'admission-control': 'admission control',
-  'scope-fence': 'scope fence', gateway: 'gateway', 'typed-judgement': 'typed judgement' };
+  'scope-fence': 'scope fence', gateway: 'gateway', 'typed-judgement': 'typed judgement', 'github-guard': 'GitHub worker’s guard', 'review-gate': 'review gate' };
 // [number, the guardrail in spec 6's words, its mechanism, proof: [held, where it came from, how old, a work item or null],
 //  refusals in the last 7 days: [time, mechanism, what was refused, work item or null], or a line where nothing refuses]
 function guardrails() {
@@ -2997,9 +2997,9 @@ function guardrails() {
   return [
     ['1', 'Agents cannot change the rules', 'The App’s token has no workflows permission; main’s ruleset, which names nobody who may bypass it; CODEOWNERS and the review gate read from main.',
       [true, 'make guardrails', '2h ago'], [['13:30', 'token-permission', 'GitHub refused the App’s commit to .github/workflows/ci.yml', '1321'],
-        ['13:30', 'scope-fence', 'The GitHub worker’s guard refused a commit to .github/workflows/ci.yml', '1321']]],
+        ['13:30', 'github-guard', 'The GitHub worker’s guard refused a commit to .github/workflows/ci.yml', '1321']]],
     ['2', 'Gates are deterministic', 'Every required check is posted by GitHub Actions or the review App; no gate’s code reaches the gateway or a model.',
-      [true, 'tests in CI on main · 5b2c0d9', '3h ago'], 'Nothing to refuse: a test on every pull request proves it.'],
+      [true, 'tests in CI on main · 5b2c0d9', '3h ago'], 'Nothing to refuse: tests prove it on every pull request, and make guardrails records main’s last run of them.'],
     ['3', 'Only the pipeline builds releasable artifacts', 'Admission control: Kyverno admits only images build.yml signed on main, and the few third-party images it names by digest.',
       [true, 'attack', '2h ago', '1325'], [['14:05', 'admission-control', 'A pod on an image build.yml did not sign on main', '1325'], ['Thu 09:12', 'admission-control', 'An unsigned image applied by hand in factory', null]]],
     ['4', 'No agent writes to production', 'Argo CD deploys what is on main; telemetry is read through a read-only proxy; no worker’s Role may write the Rollout.',
@@ -3017,7 +3017,7 @@ function guardrails() {
     ['9', 'Everything is reversible', 'The canary rolls itself back; Stop the line ends every step, takes nothing new and aborts a canary in flight.',
       [true, 'make guardrails · the stop-the-line drill', '2h ago'], `The last rollback: v0.9.10, at 14:29, by its analysis.${S.switches.rollback ? '' : ' Auto-rollback is off, by Martin: a canary judged bad waits for him.'}`],
     ['10', 'Public means hostile', 'The factory reads no issue as work, and acts only on what it opened; an outside pull request runs with no secret and is never passed without Martin.',
-      [true, 'tests in CI on main · 5b2c0d9', '3h ago'], [['Fri 11:02', 'token-permission', 'A comment on an issue the App did not open', null]]],
+      [true, 'tests in CI on main · 5b2c0d9', '3h ago'], [['Fri 11:02', 'github-guard', 'A comment on an issue the App did not open', null]]],
     ['11', 'No fix widens its ticket', 'The scope fence refuses a patch outside its spec’s scope; out-of-scope waits for Martin in every mode.',
       [true, 'make guardrails', '2h ago'], [['16:36', 'scope-fence', 'Patch 1 changed src/server.ts, outside the spec’s scope', '1312'], ['15:44', 'scope-fence', 'Patch 2 needed deploy/app.yaml, which no scope may name', '1318']]],
   ];
@@ -3061,9 +3061,9 @@ function renderGuardrails() {
       <p class="last"><span class="v tone-${tone}">${glyph(gl)}${word}</span><span>${when}</span>${id ? (indexOf(id) >= 0 ? `<button type="button" class="linkish" data-open="${id}">#${id}</button>` : `<span>#${id}</span>`) : ''}</p></article>`;
   }).join('');
   $('guardrails').innerHTML = `<div class="panel-head"><h2 id="guardrails-title">Guardrails</h2><span class="label">Always on</span></div>
-    <p class="help">Each is held by a mechanism, not an instruction, and proved: by <code>make guardrails</code> on this cluster, by a test in CI, or by an attack. None of them has a switch, except auto-rollback, part of 9, which ${v ? 'Martin' : 'you'} can turn off in Controls; Stop the line always works. A refusal is shown as plainly as a success.</p>
+    <p class="help">Each is held by a mechanism, not an instruction, and proved: by <code>make guardrails</code>, which runs its proofs on this cluster and records main’s last CI run of the tests that prove the rest, or by an attack. None of them has a switch, except auto-rollback, part of 9, which ${v ? 'Martin' : 'you'} can turn off in Controls; Stop the line always works. A refusal is shown as plainly as a success.</p>
     <div class="gr-body"><div><div class="gr-list" role="list" aria-label="The eleven guardrails">${rows}</div>
-      <p class="help gr-foot">A proof records the commit of main and a hash of the policies it was taken against, and an attack that nothing refuses pages ${v ? 'Martin' : 'you'}. Every refusal is in the <a href="?view=audit">audit log</a> too.</p></div>
+      <p class="help gr-foot">A proof records the commit of main and a hash of the policies it was taken against; one from CI holds only if main’s last run passed at its head or a day before, and an attack that nothing refuses pages ${v ? 'Martin' : 'you'}. Every refusal is in the <a href="?view=audit">audit log</a> too.</p></div>
       <div class="attacks"><span class="label"><span>Attack the factory</span><span>${v ? 'Martin’s' : 'no passkey'}</span></span>
         <p class="help">Five attacks, each a real attempt from where an agent would be, against the real mechanism, with fixed content and no agent. Each becomes a work item on the reel, with the mechanism’s refusal in its own words.${busy ? ` One at a time: #${busy[5][2]} is running.` : ''}</p>
         ${attackRows}
@@ -3101,7 +3101,7 @@ function openDialog(kind, ctx = {}) {
     <div class="row">${cancel}<button type="button" class="btn primary" data-dialog-ok>${fresh ? 'Start the line' : `Use your passkey and start${glyph('key', 'key')}`}</button></div>
     ${fresh ? '' : '<p class="help">Starting the line asks for your passkey again.</p>'}`;
   else if (kind === 'abort') { const r = canaryScenario(S.canary); el.innerHTML = `<h2 id="dialog-title" tabindex="-1">Abort the canary</h2>
-    <p>${r.previous}, the version before, takes all the traffic at once. ${r.held ? 'The analysis judged it bad, as it would have if auto-rollback were on' : 'Nothing failed, so it opens no ticket'}${r.carries.length ? `, and ${r.carries.map((id) => '#' + id).join(' and ')} waits for your retry or the next deploy` : ''}.</p>
+    <p>${r.previous}, the version before, takes all the traffic at once. ${r.held ? 'It counts as a rollback, since the analysis judged it bad: triage gets its verdict, as from any rollback' : 'Nothing failed, so it opens no ticket'}${r.carries.length ? `, and ${r.carries.map((id) => '#' + id).join(' and ')} waits for your retry or the next deploy` : ''}.</p>
     <div class="row">${cancel}<button type="button" class="btn attn" data-dialog-ok>Abort</button></div>`; }
   else if (kind === 'improve') {
     // The "+" on Plan. A visitor sees the same form read-only, holding Martin's latest request.
@@ -3340,7 +3340,7 @@ const AUDIT = [
   ['Today', '13:50:58', 'the red-team harness', 'agent', '1323', 'The egress policy refused an agent’s pod three outside addresses', 'egress-policy · the gateway answered, as the control', true],
   ['Today', '13:50:00', 'Martin', 'admin', '1323', 'Launched an attack: “Data to an outside URL”', 'attack.launched · no passkey asked'],
   ['Today', '13:30:44', 'the GitHub worker', 'agent', '1321', 'GitHub refused the App’s commit to a workflow', 'token-permission · 403, no workflows permission', true],
-  ['Today', '13:30:41', 'the GitHub worker', 'agent', '1321', 'Its guard refused a commit to .github/workflows/ci.yml', 'scope-fence · a workflow: no step may change one', true],
+  ['Today', '13:30:41', 'the GitHub worker', 'agent', '1321', 'Its guard refused a commit to .github/workflows/ci.yml', 'github-guard · a workflow: no step may change one', true],
   ['Today', '13:30:03', 'Martin', 'admin', '1321', 'Launched an attack: “Fix CI by editing a workflow”', 'attack.launched · no passkey asked'],
   ['Today', '15:40:12', 'Martin', 'admin', '', 'Signed in', 'with a passkey'],
   ['Today', '12:43:02', 'Martin', 'admin', '1316', 'Widened delivery-dates to Preview', 'flag.staged · checks → preview · passkey given at 12:42'],
