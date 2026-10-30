@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Runs the browser tests inside the pinned Playwright image (`make e2e`): the console's, so snapshots match from one
-# machine to the next, and the probes'. The repository is mounted read-only at /src and copied, without the host's
+# Runs the browser tests inside the pinned Playwright image (`make e2e`), as CI does: the console's, so snapshots match
+# from one machine to the next, the live ones against the Postgres TEST_DATABASE_URL names (`make e2e` starts one
+# beside this container), and the probes'. The repository is mounted read-only at /src and copied, without the host's
 # node_modules or build: this installs and builds its own. With UPDATE=1 the snapshots are rewritten and copied back
-# to /out/snapshots, and only the console's tests run.
+# to /out/snapshots, and only the console's tests run: the live ones take none.
 set -euo pipefail
 
 mkdir -p /work
@@ -14,9 +15,13 @@ pnpm --filter @software-factory/console build --logLevel warn
 cd apps/console
 export SF_PINNED_BROWSER=1
 status=0
-pnpm exec playwright test --project console ${UPDATE:+--update-snapshots} "$@" || status=$?
-# The speed test on its own, once the others are done. Its usual dependency, the live test, needs a Postgres this
-# image doesn't have.
+if [ -n "${UPDATE:-}" ]; then
+  pnpm exec playwright test --project console --update-snapshots "$@" || status=$?
+else
+  [ -n "${TEST_DATABASE_URL:-}" ] || { echo "The live tests need TEST_DATABASE_URL: run them with 'make e2e'" >&2; exit 1; }
+  pnpm exec playwright test --project console --project live "$@" || status=$?
+fi
+# The speed test on its own, once the others are done, as CI times it: with no other test's browser on its CPU.
 if [ -z "${UPDATE:-}" ]; then
   pnpm exec playwright test --project speed --no-deps --output e2e-results/speed || status=$?
 fi

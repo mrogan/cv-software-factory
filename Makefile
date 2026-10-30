@@ -7,6 +7,8 @@ KUBECTL := kubectl --context $(CONTEXT)
 ARGOCD_CHART := 10.9.5
 # The browser tests run in this image, so their snapshots match wherever they run. Its one pin is Dockerfile.browser's.
 PLAYWRIGHT := $(shell grep -oE 'mcr\.microsoft\.com/playwright:[^ ]+' apps/factory/Dockerfile.browser)
+# The Postgres the console's live browser tests run beside, as in CI: the cluster's, whose one pin is its StatefulSet's.
+POSTGRES := $(shell grep -oE 'postgres:[^ ]+@sha256:[0-9a-f]+' deploy/base/postgres/statefulset.yaml)
 # The branch Argo CD deploys this repository's deploy/ from. `make up REVISION=my-branch` tries a change there
 # before it merges; the charts' values and the app's repository are still read from main.
 REVISION ?= main
@@ -224,10 +226,18 @@ check-static: ## All of `make check` but the tests
 check-tests: ## The unit and database tests; SHARD=1/3 runs the first of three parts
 	pnpm exec vitest run --project unit --project database $(if $(SHARD),--shard $(SHARD))
 
-e2e: ## Run the browser tests (the console's, and the probes') in the pinned Playwright image; UPDATE=1 rewrites the snapshots
-	docker run --rm --init --ipc=host -e UPDATE=$(UPDATE) -v "$(CURDIR):/src:ro" \
+# CPUS=1.5 gives the browsers less CPU, as slow as CI's runner, and ARGS goes to Playwright: ARGS='-g "<test name>"'.
+e2e: ## Run every browser test CI runs, in the pinned Playwright image beside a throwaway Postgres; UPDATE=1 rewrites the snapshots
+	@set -e; net=software-factory-e2e-$$$$; db=$$net-postgres; \
+	trap 'docker rm -f $$db >/dev/null 2>&1; docker network rm $$net >/dev/null 2>&1' EXIT; trap 'exit 130' INT TERM; \
+	docker network create $$net >/dev/null; \
+	docker run -d --name $$db --network $$net -e POSTGRES_USER=factory -e POSTGRES_PASSWORD=test $(POSTGRES) >/dev/null; \
+	tries=0; until docker exec $$db pg_isready -q -h 127.0.0.1 -U factory; do \
+		tries=$$((tries + 1)); [ $$tries -lt 60 ] || { echo "Postgres did not start in a minute" >&2; exit 1; }; sleep 1; done; \
+	docker run --rm --init --ipc=host --network $$net $(if $(CPUS),--cpus=$(CPUS)) -e UPDATE=$(UPDATE) \
+		-e TEST_DATABASE_URL=postgres://factory:test@$$db:5432/postgres -v "$(CURDIR):/src:ro" \
 		-v "$(CURDIR)/apps/console/e2e/snapshots:/out/snapshots" -v "$(CURDIR)/apps/console/e2e-results:/out/results" \
-		$(PLAYWRIGHT) /src/apps/console/e2e/in-docker.sh
+		$(PLAYWRIGHT) /src/apps/console/e2e/in-docker.sh $(ARGS)
 
 zap: node_modules ## ZAP's baseline scan of the console with Martin's session, as CI runs it (Docker, and Playwright's Chromium)
 	pnpm --filter @software-factory/console exec playwright install --only-shell chromium
