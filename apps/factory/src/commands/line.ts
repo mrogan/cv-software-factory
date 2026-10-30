@@ -284,6 +284,9 @@ async function serve(): Promise<number> {
   // him read them (line/security.ts).
   const { observeSecurity } = await import('../line/security.ts');
   const unobserveSecurity = observeSecurity(sql, log);
+  // Any lease held past its expiry, whatever LINE_MODE is: a lease a dead pod left is paged on a line that is off too.
+  const { observeLeases } = await import('../line/metrics.ts');
+  const unobserveLeases = observeLeases(sql);
   // Whether alerts reach his phone, as the line reads it: `PhoneOff` mutes them only while this and the admin
   // service's both say off (line/phone.ts).
   const { observePhone } = await import('../line/phone.ts');
@@ -296,6 +299,7 @@ async function serve(): Promise<number> {
   abort.abort();
   await working;
   unobserveSecurity();
+  unobserveLeases();
   unobservePhone();
   await Promise.all([new Promise((r) => api.close(r)), new Promise((r) => handback.close(r))]);
   await Promise.all([sql.end(), shutdownTelemetry()]);

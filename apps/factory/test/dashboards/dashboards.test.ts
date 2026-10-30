@@ -315,6 +315,26 @@ describe('Grafana’s dashboards', () => {
   );
 });
 
+describe('a table of alerts', () => {
+  it('says why it is empty without saying so in every cell an alert leaves without a label', () => {
+    // Grafana's empty state fills each empty cell too, and alerts' labels differ from one alert to the next.
+    let seen = 0;
+    for (const { dashboard } of dashboards) {
+      for (const panel of drawn(dashboard).filter((p) => p.type === 'table')) {
+        if (!(panel.targets ?? []).some((t) => /\bALERTS\b/.test(t.expr ?? ''))) continue;
+        const strings = panel.fieldConfig?.overrides?.find(
+          (o) => o.matcher.id === 'byType' && o.matcher.options === 'string',
+        );
+        const cell = strings?.properties.find((p) => p.id === 'noValue')?.value;
+        expect(cell, `${dashboard.uid}: ${panel.title}`).toBeTruthy();
+        expect(cell).not.toBe(panel.fieldConfig?.defaults?.noValue);
+        seen++;
+      }
+    }
+    expect(seen).toBeGreaterThan(0);
+  });
+});
+
 describe('the thresholds drawn from the objectives', () => {
   const panel = (uid: string, title: string) =>
     drawn(

@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest';
 import { parse, stringify } from 'yaml';
 import {
   ARGO_CD_MINUTES,
+  CRASH_RESTARTS,
+  CRASH_WINDOW,
   factoryRules,
   flagRules,
   KEEP_FIRING,
@@ -371,24 +373,39 @@ describe('the alerts on the factory’s health, releases and spend', () => {
     );
   });
 
-  it('page when a pod in factory crash-loops, naming its worker, and not one elsewhere', () => {
-    const waiting = (namespace: string, pod: string) =>
-      `kube_pod_container_status_waiting_reason{namespace="${namespace}", pod="${pod}", container="c", reason="CrashLoopBackOff"}`;
+  it('page within minutes of a crash loop in factory, naming its worker, and not for one restart or one elsewhere', () => {
+    expect([CRASH_RESTARTS, CRASH_WINDOW]).toEqual([3, '5m']);
+    const restarts = (namespace: string, pod: string) =>
+      `kube_pod_container_status_restarts_total{namespace="${namespace}", pod="${pod}", container="c"}`;
     const pod = 'triage-7d9f8b6c4-x2b7q';
+    // Kubernetes' back-off from the first crash: restarts 10 s, 30 s, 70 s and 150 s in, then 310 s, read every 30 s.
+    // The waiting reason would clear at each, and a `for` on it would only hold once the back-off outgrew it.
+    const looping = each(0, 2, 2, 3, 3, 4, 4, 4, 4, 4, 5, 5);
     expectPasses(
       promtool([
         {
-          interval: '1m',
+          interval: '30s',
           input_series: [
-            { series: waiting('factory', pod), values: each(1, 1, 1, 1) },
-            { series: waiting('website', 'website-5c8d7b9f4-abcde'), values: each(1, 1, 1, 1) },
+            { series: restarts('factory', pod), values: looping },
+            { series: restarts('website', 'website-5c8d7b9f4-abcde'), values: looping },
             // A StatefulSet's pod has no worker's name to take.
-            { series: waiting('factory', 'postgres-0'), values: each(1, 1, 1, 1) },
+            { series: restarts('factory', 'postgres-0'), values: looping },
+            // One restart is not a loop.
+            { series: restarts('factory', 'line-6b5c4d3e2-qwert'), values: each(0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1) },
           ],
           alert_rule_test: [
             { eval_time: '1m', alertname: 'WorkerCrashLooping', exp_alerts: [] },
             {
               eval_time: '2m',
+              alertname: 'WorkerCrashLooping',
+              exp_alerts: [
+                firing('WorkerCrashLooping', { pod: 'postgres-0' }),
+                firing('WorkerCrashLooping', { pod, worker: 'triage' }),
+              ],
+            },
+            // Still within the five minutes, and then kept firing past them.
+            {
+              eval_time: '5m',
               alertname: 'WorkerCrashLooping',
               exp_alerts: [
                 firing('WorkerCrashLooping', { pod: 'postgres-0' }),

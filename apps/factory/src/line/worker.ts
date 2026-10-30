@@ -163,7 +163,6 @@ import {
   countStep,
   limitsFor,
   observeHolds,
-  observeLeases,
   observeStages,
   observeTaken,
   type StepEnding,
@@ -655,15 +654,9 @@ export class Line {
       await sendCounts();
     }
     // The stages as the store has them, while the line runs: with LINE_MODE off, nothing moves them. And each hold
-    // that waits for Martin, what the line is carrying against its limits, and any lease held past its expiry, from
-    // the store too.
+    // that waits for Martin, and what the line is carrying against its limits, from the store too.
     const unobserved = this.#o.takesWork
-      ? [
-          observeStages(this.#o.sql),
-          observeHolds(this.#o.sql),
-          observeTaken(this.#o.sql, () => this.#carrying()),
-          observeLeases(this.#o.sql),
-        ]
+      ? [observeStages(this.#o.sql), observeHolds(this.#o.sql), observeTaken(this.#o.sql, () => this.#carrying())]
       : [];
     const unobserve = () => {
       for (const stop of unobserved) stop();
