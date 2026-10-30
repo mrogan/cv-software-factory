@@ -8,7 +8,7 @@
  */
 
 import { AxeBuilder } from '@axe-core/playwright';
-import type { SymptomClass } from '@software-factory/events';
+import { cutAt, cutTo, type SymptomClass } from '@software-factory/events';
 import type { BrowserContext, Page } from 'playwright';
 import { aboutTheConnection } from '../senses/browser.ts';
 import { type Exchange, exchange, pathOf, type RequestHeaders } from '../senses/http.ts';
@@ -169,11 +169,11 @@ async function browse(context: BrowserContext, url: string, path: string, timeou
     if (aboutTheConnection(message.text())) return;
     const { url: source, lineNumber } = message.location();
     messages.push({
-      text: message.text().trim().slice(0, 300),
-      ...(source && { source: `${pathOf(source).split('?')[0]}:${lineNumber}`.slice(0, 300) }),
+      text: cutTo(message.text().trim(), 300),
+      ...(source && { source: cutAt(`${pathOf(source).split('?')[0]}:${lineNumber}`, 300) }),
     });
   });
-  page.on('pageerror', (error) => messages.push({ text: `Uncaught ${error.message}`.slice(0, 300) }));
+  page.on('pageerror', (error) => messages.push({ text: cutTo(`Uncaught ${error.message}`, 300) }));
   try {
     await page.goto(url, { waitUntil: 'load' });
     const references = (await page.evaluate(REFERENCES)) as { links: string[]; images: string[]; assets: string[] };
@@ -192,7 +192,7 @@ async function accessibility(page: Page): Promise<AccessibilityIssue[]> {
     if (!symptom) continue;
     const elements: AccessibilityIssue['elements'] = [];
     for (const node of violation.nodes.slice(0, 10)) {
-      const selector = String(Array.isArray(node.target[0]) ? node.target[0].at(-1) : node.target[0]).slice(0, 300);
+      const selector = cutAt(String(Array.isArray(node.target[0]) ? node.target[0].at(-1) : node.target[0]), 300);
       const found = await page
         .locator(selector)
         .first()
@@ -208,7 +208,7 @@ async function accessibility(page: Page): Promise<AccessibilityIssue[]> {
     issues.push({
       rule: violation.id,
       impact: violation.impact ?? 'minor',
-      help: violation.help.slice(0, 200),
+      help: cutTo(violation.help, 200),
       symptom,
       elements,
     });

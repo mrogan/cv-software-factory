@@ -12,7 +12,7 @@
  * Every request the crawl makes, from the browser and without it, carries `UNMEASURED`: a crawl is not a visit, and
  * must not weigh on the figures a canary or its baseline is judged on.
  */
-import type { Evidence, SymptomClass } from '@software-factory/events';
+import { cutAt, type Evidence, type SymptomClass } from '@software-factory/events';
 import type { ArtifactStore } from '@software-factory/store';
 import type { Browser } from 'playwright';
 import { capture } from '../capture.ts';
@@ -118,7 +118,7 @@ export class Crawler implements Sense {
           // Where no page was opened and none was missed, what a page shows is not a question.
           if (ofAPage && route !== '*' && !pageRoutes.has(route) && !found && !unknown) continue;
           observations.push({
-            check: `${symptom}@${route}`.slice(0, 80),
+            check: cutAt(`${symptom}@${route}`, 80),
             route,
             finding: found ?? null,
             ...(found ? await this.keep(context, found, version, template) : { artifacts: [] }),

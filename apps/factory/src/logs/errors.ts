@@ -2,7 +2,7 @@
  * From a new error pattern to a signal: the lines that show it, the trace ids they link to, and, when Tempo has
  * the trace already, its spans.
  */
-import type { InboxSignal } from '@software-factory/events';
+import { cutAt, type InboxSignal } from '@software-factory/events';
 import type { LogRecord } from '../clients/loki.ts';
 import type { Tempo } from '../clients/tempo.ts';
 import type { NewPattern } from './patterns.ts';
@@ -45,7 +45,7 @@ export function keptLine(record: LogRecord) {
   return {
     ts: record.time.toISOString(),
     level: levelOf(record),
-    message: messageOf(record).slice(0, MAX_MESSAGE),
+    message: cutAt(messageOf(record), MAX_MESSAGE),
     traceId: TRACE_ID.test(record.fields.trace_id ?? '') ? (record.fields.trace_id ?? null) : null,
   };
 }

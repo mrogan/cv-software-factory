@@ -836,7 +836,7 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
             stage,
             kind: 'held',
             cause: 'failures',
-            reason: `The ${agent} failed ${facts.failures} times${why}`.slice(0, 300),
+            reason: cutTo(`The ${agent} failed ${facts.failures} times${why}`, 300),
           },
         },
       };
@@ -894,7 +894,7 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
   }
   if (!s.gatesPassed) {
     if (s.gates?.conclusion !== 'failed') return { stage: 'gates', next: { do: 'wait', for: 'gates' } };
-    const reason = `The gates failed: ${s.gates.failed.join(', ') || 'a check'}`.slice(0, 200);
+    const reason = cutTo(`The gates failed: ${s.gates.failed.join(', ') || 'a check'}`, 200);
     if (s.gateReturns >= LIMITS.gateReturns) {
       return { stage: 'held', next: { do: 'hold', hold: { stage: 'gates', kind: 'held', cause: 'gates', reason } } };
     }
@@ -906,11 +906,11 @@ export function decide(events: readonly LineEvent[], facts: Facts): Decision {
       const cause = s.review.findings.some((f) => f.ticket) ? 'beyond-ticket' : 'review';
       return {
         stage: 'held',
-        next: { do: 'hold', hold: { stage: 'review', kind: 'held', cause, reason: s.review.note.slice(0, 300) } },
+        next: { do: 'hold', hold: { stage: 'review', kind: 'held', cause, reason: cutTo(s.review.note, 300) } },
       };
     }
     case 'changes-requested': {
-      const reason = `Review asked for changes: ${s.review.note}`.slice(0, 200);
+      const reason = cutTo(`Review asked for changes: ${s.review.note}`, 200);
       if (s.reviews.length >= LIMITS.reviews) {
         return {
           stage: 'held',
@@ -1048,10 +1048,10 @@ function afterMerge(s: WorkItemState): Decision {
   const on = `on ${verification.version ?? release.promoted.version}`;
   const persisted = s.persisted.length - s.persistedBefore;
   if (persisted >= LIMITS.persists) {
-    const reason = `${seen} ${on}, after ${persisted} fixes were released: it needs Martin`.slice(0, 300);
+    const reason = cutTo(`${seen} ${on}, after ${persisted} fixes were released: it needs Martin`, 300);
     return { stage: 'held', next: { do: 'hold', hold: { stage: 'verify', kind: 'held', cause: 'verify', reason } } };
   }
-  const reason = `${seen} ${on}, the release that carried the fix`.slice(0, 200);
+  const reason = cutTo(`${seen} ${on}, the release that carried the fix`, 200);
   return { stage: 'plan', next: { do: 'return', from: 'verify', to: 'plan', reason } };
 }
 
@@ -1089,11 +1089,11 @@ export function dryRunLeft(
  */
 export function unchangedHold(state: WorkItemState, why: string): PayloadOf<'hold.started'> {
   if (!state.rebuild) {
-    const reason = `The coder found nothing to fix: ${why}`.slice(0, 300);
+    const reason = cutTo(`The coder found nothing to fix: ${why}`, 300);
     return { stage: 'build', kind: 'held', cause: 'nothing-to-fix', reason };
   }
   const from = state.rebuild.from === 'gates' ? 'gates' : 'review';
-  const reason = `The coder changed nothing when the work came back from ${from}: ${why}`.slice(0, 300);
+  const reason = cutTo(`The coder changed nothing when the work came back from ${from}: ${why}`, 300);
   return { stage: from, kind: 'held', cause: from, reason };
 }
 
@@ -1147,13 +1147,13 @@ function afterAnswer(answer: NonNullable<WorkItemState['answer']>, merged: boole
       if (!merged) return undefined;
       return {
         stage: 'plan',
-        next: { do: 'return', from: answer.stage, to: 'plan', reason: `Martin sent it back${said}`.slice(0, 200) },
+        next: { do: 'return', from: answer.stage, to: 'plan', reason: cutTo(`Martin sent it back${said}`, 200) },
       };
     case 'close': {
       // Approving closes only a rejection, the planner's or the coder's finding nothing to fix: he agrees with it.
       const agent = answer.cause === 'nothing-to-fix' ? 'coder' : 'planner';
       const why = answer.decision === 'approved' ? `Martin agreed with the ${agent}` : 'Martin rejected it';
-      return { stage: 'held', next: { do: 'close', reason: `${why}${said}`.slice(0, 200), merged } };
+      return { stage: 'held', next: { do: 'close', reason: cutTo(`${why}${said}`, 200), merged } };
     }
     case 'wait':
       return { stage: 'held', next: { do: 'wait', for: 'martin' } };
@@ -1162,7 +1162,7 @@ function afterAnswer(answer: NonNullable<WorkItemState['answer']>, merged: boole
       if (STAGES.indexOf(answer.stage) <= STAGES.indexOf('build')) return undefined;
       return {
         stage: 'build',
-        next: { do: 'return', from: answer.stage, to: 'build', reason: `Martin sent it back${said}`.slice(0, 200) },
+        next: { do: 'return', from: answer.stage, to: 'build', reason: cutTo(`Martin sent it back${said}`, 200) },
       };
     default:
       return undefined;

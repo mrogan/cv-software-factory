@@ -54,7 +54,7 @@
  * A dry run's merge never shipped, so no Rollout will carry it: in a dry run, `dryRunEvents` releases it by the dry
  * run's word, marked `dryRun`, so a soak goes round.
  */
-import { measurementOf, type PayloadOf } from '@software-factory/events';
+import { cutTo, measurementOf, type PayloadOf } from '@software-factory/events';
 import type { Draft } from '../line/gates.ts';
 import { type Recorded, releaseName, short, type Target, type TargetRecord } from './recorded.ts';
 import {
@@ -219,7 +219,7 @@ const ENDINGS: Record<Measure['phase'], string> = {
 /** Argo's words, cut to what an event keeps; nothing when there are none. */
 const words = (text: string | undefined, max: number) => {
   const trimmed = text?.trim();
-  return trimmed ? trimmed.slice(0, max).trim() : undefined;
+  return trimmed ? cutTo(trimmed, max) : undefined;
 };
 
 /** A measurement's value: Argo keeps a Prometheus answer as text, such as `[0.0019]`. Null for none, or infinity. */
@@ -488,7 +488,7 @@ function forTarget(
       draft: {
         type: 'canary.measuring',
         actor: 'rollouts',
-        summary: `Canary at ${weight}%, a look: ${lookWords(measures)}`.slice(0, 200),
+        summary: cutTo(`Canary at ${weight}%, a look: ${lookWords(measures)}`, 200),
         payload: {
           release: name,
           version: started.version,
@@ -552,7 +552,7 @@ function forTarget(
     drafts.push({
       type: 'release.rolled-back',
       actor: 'rollouts',
-      summary: `Rolled back at ${weight}%: ${reason}`.slice(0, 200),
+      summary: cutTo(`Rolled back at ${weight}%: ${reason}`, 200),
       payload: {
         release: name,
         version: started.version,
@@ -576,7 +576,7 @@ function forTarget(
     drafts.push({
       type: 'release.errored',
       actor: 'rollouts',
-      summary: `Analysis error at ${weight}%: ${reason}`.slice(0, 200),
+      summary: cutTo(`Analysis error at ${weight}%: ${reason}`, 200),
       payload: {
         release: name,
         version: started.version,

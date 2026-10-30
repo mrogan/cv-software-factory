@@ -31,7 +31,7 @@
  */
 import { context, ROOT_CONTEXT } from '@opentelemetry/api';
 import type { Evidence, PayloadOf, Sense, SignalSource, SymptomClass } from '@software-factory/events';
-import { COLOR_SCHEMES, clearedOnWords, SENSES, sameVersion } from '@software-factory/events';
+import { COLOR_SCHEMES, clearedOnWords, cutAt, SENSES, sameVersion } from '@software-factory/events';
 import { artifactRef, evidence as evidenceSchema } from '@software-factory/events/schemas';
 import { CANARY_ANY_ROUTE } from '@software-factory/triage/events';
 import { z } from 'zod';
@@ -170,7 +170,7 @@ export async function look(signal: FirstSignal | undefined, target: Target, opti
       verification: {
         outcome: 'cleared',
         ...(sense ? { sense } : {}),
-        check: (signal?.check ?? 'the dry run').slice(0, 120),
+        check: cutAt(signal?.check ?? 'the dry run', 120),
         version: target.version,
         against: target.against,
         pages: [],
@@ -193,7 +193,7 @@ function finished(signal: FirstSignal, target: Target, outcome: 'cleared' | 'per
     verification: {
       outcome,
       ...(sense ? { sense } : {}),
-      check: signal.check.slice(0, 120),
+      check: cutAt(signal.check, 120),
       version: target.version,
       against: target.against,
       ...(kept ? { evidence: kept } : {}),

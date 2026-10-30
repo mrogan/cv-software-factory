@@ -2,6 +2,7 @@
  * New error patterns. Two errors that differ only in a number, an identifier or a quoted value are one error, so
  * each message is reduced to a pattern, and a pattern the log has not shown in the previous day is news.
  */
+import { cutAt } from '@software-factory/events';
 import { templatePattern } from '../alerts/queries.ts';
 import type { LogRecord } from '../clients/loki.ts';
 
@@ -37,7 +38,7 @@ export function reduce(message: string): string {
 export function keptPattern(kept: string, route: string): string {
   // A line was cut before its paths were put back, at a place that moves with the path's length: only the start of
   // the pattern is compared, short of where any cut could fall.
-  return withRoute(kept, route).slice(0, KEPT_COMPARED);
+  return cutAt(withRoute(kept, route), KEPT_COMPARED);
 }
 
 /** A kept line, its paths put back to the route, reduced: whole. */
@@ -60,7 +61,7 @@ export function sameError(record: LogRecord, line: string, kept: string, route: 
   const { exception_type: type, exception_message: message } = record.fields;
   if (!type && !message) return false;
   // The kept line is the record's line, then `: ` and the exception, cut: the exception's start is in it.
-  return withRoute(kept, route).includes(reduce(describe(record)).slice(0, EXCEPTION_COMPARED));
+  return withRoute(kept, route).includes(cutAt(reduce(describe(record)), EXCEPTION_COMPARED));
 }
 
 /** How much of an exception's pattern must be in a kept line: what survives the cut of most lines. */

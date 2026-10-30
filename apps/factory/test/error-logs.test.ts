@@ -71,6 +71,15 @@ describe('the error records Loki is asked for', () => {
     expect(keptLine(bareCut).level).toBe('warn');
     expect(await signal(bareCut)).toEqual(await signal(bare));
   });
+
+  it('keeps a line cut where it was with no emoji, and never cuts inside one', () => {
+    const long = (line: string): LogRecord => ({ ...record({}), line });
+    const plain = `GET /departments/kitchen failed: ${'x'.repeat(400)}`;
+    expect(keptLine(long(plain)).message).toBe(plain.slice(0, 300));
+    const emoji = `${'x'.repeat(299)}😀 failed`;
+    expect(keptLine(long(emoji)).message).toBe('x'.repeat(299));
+    expect(sameError(long(emoji), keptLine(long(emoji)).message, keptLine(long(emoji)).message, '*')).toBe(true);
+  });
 });
 
 describe('learning the day’s patterns when the watcher starts', () => {

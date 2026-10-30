@@ -14,6 +14,7 @@
  * it names none (`flags.ts`), each pictured in both colour schemes, light and dark, and compared scheme by scheme.
  */
 import type { ArtifactRef, PayloadOf, Screenshot } from '@software-factory/events';
+import { cutAt, cutTo } from '@software-factory/events';
 import type { StoredFlagCheck } from '@software-factory/store';
 import type { Checked, CheckedPage, FlagCheckRequest, NotClean } from '../probes/flag-check.ts';
 import { short } from '../release/recorded.ts';
@@ -75,10 +76,10 @@ export function requestOf(asked: CheckAsked): FlagCheckRequest {
 
 const asCheck = ({ sense, check, route, failed, message }: NotClean) => ({
   sense,
-  check: check.slice(0, 120),
+  check: cutAt(check, 120),
   route,
   failed,
-  ...(message?.trim() && { message: message.trim().slice(0, 300) }),
+  ...(message?.trim() && { message: cutTo(message.trim(), 300) }),
 });
 
 /** Each screenshot once, in the order given: an event's artifacts. */
@@ -133,7 +134,7 @@ export function checkedDraft(asked: CheckAsked, answer: Checked): Draft {
     journeys: { base: off?.journeys ?? null, change: journeys },
     regressions: regressions.slice(0, MOST_REGRESSIONS).map(asCheck),
     ...(regressions.length > MOST_REGRESSIONS && { more: regressions.length - MOST_REGRESSIONS }),
-    ...(reason && { reason: reason.slice(0, 300) }),
+    ...(reason && { reason: cutTo(reason, 300) }),
   };
   const summary = `${flag} at ${stageName[asked.stage]}: ${{ passed: 'passed', failed: 'failed', unsure: 'could not tell' }[outcome]}`;
   if (asked.stage === 'checks') {
@@ -158,7 +159,7 @@ export function checkedDraft(asked: CheckAsked, answer: Checked): Draft {
       artifacts: artifactsOf(pages.flatMap((p) => [p.off, p.on, p.diff])),
     };
   }
-  const cut = (things: string[]) => things.slice(0, MOST_KEPT).map((thing) => thing.slice(0, 200));
+  const cut = (things: string[]) => things.slice(0, MOST_KEPT).map((thing) => cutAt(thing, 200));
   return {
     type: 'flag.checked',
     actor: 'factory',

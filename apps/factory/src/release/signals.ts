@@ -19,7 +19,7 @@
  * older run still in the cluster, or a run of a release found live, was before the line watched. A retried release's
  * earlier attempts' failed runs are its own, each sent once: each failed the version the line watched.
  */
-import type { InboxSignal, PayloadOf, SymptomClass } from '@software-factory/events';
+import { cutTo, type InboxSignal, type PayloadOf, type SymptomClass } from '@software-factory/events';
 import { uuidFrom } from '@software-factory/triage/events';
 import type { Regression } from '../gates/journeys.ts';
 import type { RoutesWorse } from './read.ts';
@@ -109,9 +109,10 @@ export function canarySignal(failed: FailedMeasure, read: Read): { id: string; s
       },
     ],
     observedAt: new Date(at).toISOString(),
-    summary: `${short(started.version)} did worse than ${short(started.previous)} on ${measure.name}${where}: ${words}`
-      .slice(0, 200)
-      .trim(),
+    summary: cutTo(
+      `${short(started.version)} did worse than ${short(started.previous)} on ${measure.name}${where}: ${words}`,
+      200,
+    ),
     artifacts: [],
   };
   return { id: uuidFrom(`canary:${keyOf(failed)}`), signal };

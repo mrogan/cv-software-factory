@@ -113,6 +113,15 @@ describe('the gates, as events', () => {
     expect(gateEvents(pr(), [run(1, 'test', 'success')], ['test'], record)).toEqual([]);
   });
 
+  it('know a check by the name they recorded, so one named past 80 characters is recorded once', () => {
+    const long = `journeys / ${'a'.repeat(90)}`;
+    const first = gateEvents(pr(), [run(1, long, 'success')], [long], nothing);
+    const finished = first.filter((d) => d.type === 'gate.finished');
+    expect(finished.map((d) => (d.payload as { check: string }).check)).toEqual([long.slice(0, 80)]);
+    const record = gateRecord(first.map(({ type, payload }) => ({ type, payload })));
+    expect(gateEvents(pr(), [run(1, long, 'success')], [long], record)).toEqual([]);
+  });
+
   it('record Martin’s merge, and close a work item whose pull request closed unmerged', () => {
     expect(
       gateEvents(pr({ state: 'closed', merged: true, mergeCommit: MERGED, mergedBy: 'mrogan' }), [], [], nothing),
