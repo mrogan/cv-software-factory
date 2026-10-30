@@ -170,7 +170,6 @@ function alongSignature(steps: number): [number, number][] {
 
 const PEN_STEP_COUNT = 36;
 const PEN_STEPS = alongSignature(PEN_STEP_COUNT);
-const PEN_START = `translate(${f2(PEN_STEPS[0]?.[0] ?? 0)}px, ${f2(PEN_STEPS[0]?.[1] ?? 0)}px)`;
 const SIGN_KEYFRAMES = keyframes('sign', [
   [0, PEN_INKWELL], [5, PEN_DIPPED], [10, PEN_INKWELL],
   ...PEN_STEPS.map(([x, y], k): [number, string] => [INKED + ((SIGNED - INKED) * k) / PEN_STEP_COUNT, `translate(${f2(x)}px, ${f2(y)}px)`]),
@@ -263,10 +262,11 @@ svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .glass      { fill: var(--_steel); fill-opacity: .5; stroke: var(--_ink); stroke-width: 2.25; }
 .tick       { opacity: 0; }
 /* Review's page and Verify's card are put away behind the chassis at idle, and up whenever the stage has work. With no
-   page under it, the lens rests on the roof and shows a flare, not a line. */
+   page under it, the lens rests just above the roof and shows a flare, not a line. */
 .s-idle .paper { transform: translateY(46px); }
 .s-idle .lens { transform: translate(14px, 13px); }
-.s-idle .zoom, .flare { opacity: 0; }
+.flare      { opacity: 0; }
+.s-idle .zoom { opacity: 0; }
 .s-idle .flare { opacity: 1; }
 .s-passing .tick { opacity: 1; }
 /* Only a passed Verify shows a finished signature; at work, the pen writes it. */
@@ -449,7 +449,7 @@ const TOOLS: Record<Kind, (status: Status) => string> = {
     <circle class="ink" cx="59" cy="16.5" r="3.5"/>`,
 
   // A page; the lens shows the line under it larger and bolder, and a tick goes in the margin as each line is read.
-  // At idle the page is put away, and the lens rests on the roof with a flare.
+  // At idle the page is put away, and the lens rests just above the roof with a flare.
   review: () => `
     <g class="paper">
       <path class="part" d="M46 0 H84 L92 8 V44 H46 Z"/>
@@ -464,8 +464,8 @@ const TOOLS: Record<Kind, (status: Status) => string> = {
       <circle class="glass" cx="56" cy="10" r="11"/>
       <path class="line zoom" stroke-width="2.5" d="M47.5 10 h8 m2.5 0 h7.5"/>
       <g class="flare">
-        <path class="glare" stroke-linecap="round" d="M48.5 8 q2 -4.5 7 -4.5"/>
-        <path class="glare" stroke-linecap="round" d="M61.5 14.5 q1.5 -1.5 1.8 -3.5"/>
+        <path class="thin glare" d="M48.5 8 q2 -4.5 7 -4.5"/>
+        <path class="thin glare" d="M61.5 14.5 q1.5 -1.5 1.8 -3.5"/>
       </g>
     </g>`,
 
