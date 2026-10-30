@@ -1,6 +1,7 @@
 /**
  * Visual regression, in the pinned Playwright image (`make e2e`; UPDATE=1 rewrites the snapshots) with motion off
- * and t fixed: every station in every state in both themes, and the line, one card per picture and the sheet at
+ * and t fixed: every station in every state in both themes, Triage's, Plan's, Review's and Verify's tools paused
+ * at a moment of their motion, and the line, one card per picture and the sheet at
  * all three widths. Milestone 4's states come from its test data: a card for each new picture and outcome, the line
  * with tickets waiting and with a spend cap, Triage's panel, a ticket's and a quarantined report's sheets, and an
  * empty store for real events. Milestone 5's come from the samples: a card for each wait and hold, Review's panel,
@@ -89,6 +90,41 @@ test.describe('stations', () => {
       });
     }
   }
+
+  // The tools' motion, which the still poses above never draw: each animation stopped at a moment that shows the tool at
+  // work (the big parcel tossed out, the compass partway round its circle, the lens leaning in over its first tick, the
+  // pen partway through the signature), the same moment every run, as the still poses' tests set t.
+  const MOMENTS = { triage: 2000, plan: 1200, review: 1150, verify: 1000 } as const;
+  test('tools in motion, paper', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.goto(consoleUrl({ theme: 'paper' }));
+    await ready(page);
+    for (const [kind, at] of Object.entries(MOMENTS)) {
+      const running = await page.evaluate(
+        ([kind, at]) => {
+          const station = document.createElement('sf-station');
+          station.setAttribute('kind', kind);
+          station.setAttribute('status', 'working');
+          const specimen = document.createElement('div');
+          specimen.className = 'specimen';
+          specimen.append(station);
+          document.body.replaceChildren(specimen);
+          const animations = station.shadowRoot?.getAnimations() ?? [];
+          for (const animation of animations) {
+            animation.pause();
+            animation.currentTime = at;
+          }
+          return animations.length;
+        },
+        [kind, at] as const,
+      );
+      expect.soft(running, `${kind} moves`).toBeGreaterThan(0);
+      await expect.soft(page.locator('.specimen sf-station'), kind).toHaveScreenshot(`${kind}-motion-paper.png`, {
+        // Paused where they are: 'disabled', the default, would cancel them and draw the rest pose.
+        animations: 'allow',
+      });
+    }
+  });
 });
 
 /** One card for each kind of picture the design system draws. */

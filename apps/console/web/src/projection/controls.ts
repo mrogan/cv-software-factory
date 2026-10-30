@@ -25,6 +25,11 @@ export interface ControlsView extends ControlsInForce {
   nextFew: { since: number; taken: number } | undefined;
   /** When Martin last changed one of them, if he has. */
   at: number | undefined;
+  /**
+   * Martin's latest switch of alerts to his phone (`alerts.switched`), unchecked, or none: `policy/phone.ts`'s
+   * `phoneInForce` says what is in force on the page's profile.
+   */
+  phone: unknown;
 }
 
 /**
@@ -70,7 +75,8 @@ export function controlsOf(seen: readonly PublicEvent[]): ControlsView {
     }
     nextFew = { since, taken: [...first.values()].filter((at) => at >= since).length };
   }
-  return { ...controls, nextFew, at: last && Date.parse(last.ts) };
+  const phone = seen.findLast((event) => event.type === 'alerts.switched' && event.actor === 'martin')?.payload;
+  return { ...controls, nextFew, at: last && Date.parse(last.ts), phone };
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

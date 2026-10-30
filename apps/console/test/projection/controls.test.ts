@@ -37,13 +37,38 @@ const taken = (number: string, minute: number) =>
 
 describe('the line’s controls', () => {
   it('are policy’s defaults until Martin sets any', () => {
-    expect(controlsView([], at(0))).toEqual({ ...DEFAULT_CONTROLS, outside: [], nextFew: undefined, at: undefined });
+    expect(controlsView([], at(0))).toEqual({
+      ...DEFAULT_CONTROLS,
+      outside: [],
+      nextFew: undefined,
+      at: undefined,
+      phone: undefined,
+    });
   });
 
   it('are the latest Martin set, at t', () => {
     const events = [changed(1, { autonomy: 'guarded' }), changed(5, { autonomy: 'lights-out', newWork: false })];
     expect(controlsView(events, at(3))).toMatchObject({ autonomy: 'guarded', newWork: true, at: at(1) });
     expect(controlsView(events, at(6))).toMatchObject({ autonomy: 'lights-out', newWork: false, at: at(5) });
+  });
+
+  it('carry Martin’s latest switch of alerts to his phone, at t, and no one else’s', () => {
+    const switched = (minute: number, phone: boolean, actor = 'martin') =>
+      ({
+        id: `phone-${minute}`,
+        seq: minute,
+        ts: new Date(at(minute)).toISOString(),
+        work_item: null,
+        type: 'alerts.switched',
+        version: 1,
+        actor,
+        summary: 'Martin switched alerts',
+        payload: { phone },
+        artifacts: [],
+      }) as PublicEvent;
+    const events = [switched(1, true), switched(3, false), switched(4, true, 'factory')];
+    expect(controlsView(events, at(2)).phone).toEqual({ phone: true });
+    expect(controlsView(events, at(5)).phone).toEqual({ phone: false });
   });
 
   it('take nothing outside policy, control by control, and nothing anyone but Martin appended', () => {

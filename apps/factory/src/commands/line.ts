@@ -45,15 +45,19 @@
  * `GET /v1/work-items/<id>/logs`, through a person's port-forward (`runners/serve.ts`).
  *
  * Whatever LINE_MODE is, `serve` counts Martin's security events and the holds started, from the store, for the alerts
- * that reach his phone (`line/security.ts`).
+ * that reach his phone (`line/security.ts`), and compares what the admin service changes with the events that name it
+ * (`line/admin-actions.ts`): the sessions in the store, the app's Rollout at RELEASE_ROLLOUT, and the FeatureFlag at
+ * FEATURE_FLAGS (`<namespace>/<name>`, `flagd/flags`), each only read, and neither when its setting is unset.
  *
  * Settings: RUNNER_IMAGE, the `factory-runner` image; GITHUB_WORKER_URL (default http://github:8080);
  * RUNNER_GATEWAY_URL and RUNNER_HANDBACK_URL, how an agent pod reaches the gateway and the handback; PORT (8080) and
  * HANDBACK_PORT (8081); ARTIFACTS_DIR; KUBE_API_URL on a host (what `kubectl proxy` serves); LINE_MODE; LINE_ONLY; LINE_TAKE;
- * RELEASE_ROLLOUT, PROMETHEUS_URL and LINE_DRY_RUN_RELEASE_SECONDS; PROBES_URL, LOKI_URL and TEMPO_URL;
+ * RELEASE_ROLLOUT, PROMETHEUS_URL and LINE_DRY_RUN_RELEASE_SECONDS; PROBES_URL, LOKI_URL and TEMPO_URL; FEATURE_FLAGS;
  * FACTORY_PROFILE (default local) and ALL_LOCAL, as the gateway's, with Martin's settings within the profile's policy,
  * read at each pass (`settings.ts`): the cap on a work item's spend, which the line holds at, and where each agent's
- * calls go, so a step on a local model is given longer to finish. A step records the effort the gateway sent.
+ * calls go, so a step on a local model is given longer to finish. A step records the effort the gateway sent. The
+ * profile also gives whether alerts reach Martin's phone before he switches them, which the line reports
+ * (`line/phone.ts`).
  *
  * `bench` runs one agent's step on this machine, on a fixture's invented work (`line/bench/`), against the gateway at
  * GATEWAY_URL (default http://localhost:8180), and prints what the agent handed back, whether its result fits the
@@ -171,6 +175,13 @@ async function serve(): Promise<number> {
     console.error(`RELEASE_ROLLOUT is ${JSON.stringify(rolloutSetting)}; it must be <namespace>/<name>, or unset.`);
     return 2;
   }
+  // The flags the admin service stages, compared with Martin's moves, or none: a name of another shape stops it starting.
+  const flagsSetting = (process.env.FEATURE_FLAGS ?? '').trim();
+  const flags = rolloutRefOf(flagsSetting);
+  if (flags === undefined) {
+    console.error(`FEATURE_FLAGS is ${JSON.stringify(flagsSetting)}; it must be <namespace>/<name>, or unset.`);
+    return 2;
+  }
   // Without Prometheus every step would be recorded without its figures, and every rollback without its series.
   if (rollout && !(process.env.PROMETHEUS_URL ?? '').trim()) {
     console.error('RELEASE_ROLLOUT is set, and PROMETHEUS_URL is not: set it to where the line reads the figures.');
@@ -282,6 +293,16 @@ async function serve(): Promise<number> {
   // him read them (line/security.ts).
   const { observeSecurity } = await import('../line/security.ts');
   const unobserveSecurity = observeSecurity(sql, log);
+  // And whether every change the admin service makes is named by an event (line/admin-actions.ts).
+  const { observeAdminActions } = await import('../line/admin-actions.ts');
+  const unobserveAdminActions = observeAdminActions({ sql, kube, flags, rollout }, log);
+  // Any lease held past its expiry, whatever LINE_MODE is: a lease a dead pod left is paged on a line that is off too.
+  const { observeLeases } = await import('../line/metrics.ts');
+  const unobserveLeases = observeLeases(sql);
+  // Whether alerts reach his phone, as the line reads it: `PhoneOff` mutes them only while this and the admin
+  // service's both say off (line/phone.ts).
+  const { observePhone } = await import('../line/phone.ts');
+  const unobservePhone = observePhone(sql, profile, log);
   const abort = new AbortController();
   const working = line.run(abort.signal);
   await new Promise<void>((resolve) => {
@@ -290,6 +311,9 @@ async function serve(): Promise<number> {
   abort.abort();
   await working;
   unobserveSecurity();
+  unobserveAdminActions();
+  unobserveLeases();
+  unobservePhone();
   await Promise.all([new Promise((r) => api.close(r)), new Promise((r) => handback.close(r))]);
   await Promise.all([sql.end(), shutdownTelemetry()]);
   return 0;

@@ -531,6 +531,7 @@ const WRITES: [string, Body][] = [
   ['/admin/line/stop', { reason: 'Something is wrong' }],
   ['/admin/line/start', { reason: 'Fixed' }],
   ['/admin/line/controls', { newWork: true }],
+  ['/admin/alerts/phone', { phone: true }],
   ['/admin/settings', { caps: { dayUsd: 10 } }],
   ['/admin/holds/1/approve', { hold: crypto.randomUUID() }],
   ['/admin/holds/1/reject', { hold: crypto.randomUUID() }],
@@ -1916,6 +1917,83 @@ describe('the line’s controls', () => {
       body: { change: null },
     });
     expect(await changes()).toHaveLength(before);
+  });
+});
+
+describe('alerts to the phone', () => {
+  const switches = () =>
+    db.owner<{ appended_by: string; summary: string; payload: Body; public: Body }[]>`
+      select appended_by, summary, payload, public from events where type = 'alerts.switched' order by seq`;
+  /** The switch as stored, from Martin's command line's role, so each test starts from what it says. */
+  const stored = (phone: boolean) =>
+    new EventWriter(db.operator, { kind: 'real', artifacts: new DiskArtifacts('/nonexistent') }).append({
+      id: crypto.randomUUID(),
+      ts: new Date().toISOString(),
+      work_item: null,
+      type: 'alerts.switched',
+      version: VERSIONS['alerts.switched'],
+      actor: 'martin',
+      summary: 'alerts.switched for the test',
+      payload: { phone },
+      artifacts: [],
+    } as NewEvent);
+
+  it('switches them on without the passkey, and off only with it, as one public event each', async () => {
+    await stored(false);
+    const { browser, passkey } = await signedIn();
+    const before = (await switches()).length;
+    expect(await browser.post('/admin/alerts/phone', { phone: true })).toEqual({
+      status: 200,
+      body: { phone: true, changed: true },
+    });
+    const [on] = (await switches()).slice(before);
+    expect(on).toMatchObject({
+      appended_by: 'factory_admin',
+      summary: 'Martin sent every alert to his phone',
+      payload: { phone: true },
+    });
+    expect(on?.public).toMatchObject({ summary: on?.summary, payload: on?.payload });
+    expect(await browser.post('/admin/alerts/phone', { phone: false })).toMatchObject({
+      status: 403,
+      body: { refused: 'step-up' },
+    });
+    expect(await switches()).toHaveLength(before + 1);
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect(await browser.post('/admin/alerts/phone', { phone: false })).toMatchObject({
+      status: 200,
+      body: { phone: false, changed: true },
+    });
+    expect((await switches()).at(-1)).toMatchObject({
+      summary: 'Martin stopped alerts reaching his phone',
+      payload: { phone: false },
+    });
+  });
+
+  it('records nothing, and asks nothing, for what is already in force', async () => {
+    const { browser } = await signedIn();
+    await stored(true);
+    const before = (await switches()).length;
+    expect(await browser.post('/admin/alerts/phone', { phone: true })).toEqual({
+      status: 200,
+      body: { phone: true, changed: false },
+    });
+    await stored(false);
+    // Off already: the passkey not given again, and none asked for.
+    expect(await browser.post('/admin/alerts/phone', { phone: false })).toEqual({
+      status: 200,
+      body: { phone: false, changed: false },
+    });
+    expect(await switches()).toHaveLength(before + 1);
+  });
+
+  it('refuses anything but a yes or no', async () => {
+    const { browser } = await signedIn();
+    for (const body of [{}, { phone: 'off' }, { phone: true, level: 'page' }]) {
+      expect(await browser.post('/admin/alerts/phone', body), JSON.stringify(body)).toMatchObject({
+        status: 400,
+        body: { refused: 'body' },
+      });
+    }
   });
 });
 

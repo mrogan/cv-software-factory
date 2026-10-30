@@ -1,7 +1,8 @@
 /**
  * Prometheus's rules, generated from the policy: the alerting rules from the app's objectives
- * (policy/objectives.ts), the alerts to Martin (`martinRules`), and the recording rules the dashboards draw: each route
- * against the objectives, the objectives' error budget, and the line's stuck limits (policy/stuck.ts).
+ * (policy/objectives.ts), the alerts to Martin (`martinRules`, `flagRules`, and the factory's health, releases and
+ * spend in `factoryRules`), and the recording rules the dashboards draw: each route against the objectives, the
+ * objectives' error budget, and the line's stuck limits (policy/stuck.ts).
  *
  *     node apps/factory/src/alerts/rules.ts            # write the rules
  *     node apps/factory/src/alerts/rules.ts --check    # fail if they are out of date (make check, CI)
@@ -18,9 +19,16 @@ import { type Objectives, objectives } from '../../../../policy/objectives.ts';
 import { STUCK, type StuckStage } from '../../../../policy/stuck.ts';
 import { REPORT_TEXT } from '../../../../policy/triage.ts';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
-import { NUMBER_PATTERN } from '../line/metrics.ts';
+import { ADMIN_ACTIONS, type AdminAction } from '../line/admin-actions.ts';
+import { NUMBER_PATTERN, RELEASE_ENDINGS } from '../line/metrics.ts';
 import { SECURITY_KINDS, type SecurityKind } from '../line/security.ts';
-import { METRICS_FROM_THE_ADMIN_SERVICE, METRICS_FROM_THE_LINE } from '../provenance.ts';
+import { TARGETS, type Target } from '../probes/health.ts';
+import {
+  METRICS_FROM_THE_ADMIN_SERVICE,
+  METRICS_FROM_THE_GATEWAY,
+  METRICS_FROM_THE_LINE,
+  METRICS_FROM_THE_PROBES,
+} from '../provenance.ts';
 import * as query from './queries.ts';
 
 export const RULES_FILE = join(import.meta.dirname, '../../../../deploy/base/telemetry/values/prometheus-rules.yaml');
@@ -32,6 +40,8 @@ interface Rule {
   alert: string;
   expr: string;
   for: string;
+  /** How long it goes on firing once its expression no longer holds, so a cause that comes and goes pages once. */
+  keepFiringFor?: string;
   labels: Record<string, string>;
   annotations: Record<string, string>;
 }
@@ -100,6 +110,9 @@ export const SECURITY_LEVELS: Record<SecurityKind, Level> = {
   'flag-widened': LEVELS.notify,
   'improvement-requested': LEVELS.notify,
   'improvement-approved': LEVELS.notify,
+  // Off loosens what reaches him, as nothing will; Alertmanager lets both through its mute (`PHONE_KINDS`).
+  'phone-off': LEVELS.page,
+  'phone-on': LEVELS.inform,
   'release-control': LEVELS.notify,
   'setting-changed': LEVELS.notify,
   'line-started': LEVELS.notify,
@@ -184,7 +197,30 @@ const SECURITY_WORDS: Record<SecurityKind, { summary: string; description: strin
     summary: "An improvement's spec was approved",
     description: "An improvement's spec was approved in the console: the line will build it.",
   },
+  'phone-off': {
+    summary: 'Alerts no longer reach your phone',
+    description:
+      "Alerts to your phone were switched off in the console: none reaches it until they are switched on again. Grafana's Alerts dashboard still shows every alert.",
+  },
+  'phone-on': {
+    summary: 'Alerts reach your phone again',
+    description: 'Alerts to your phone were switched on in the console: every alert reaches it, at its level.',
+  },
 };
+
+/**
+ * The kinds of security event that reach the phone whatever the switch says: switching alerts off, so the last message
+ * before quiet says so, and switching them on, which would otherwise race `PhoneOff` resolving, and often lose.
+ */
+export const PHONE_KINDS = ['phone-off', 'phone-on'] as const satisfies readonly SecurityKind[];
+
+/**
+ * How long a pushed series' last sample is believed. The workers send their metrics over OTLP, which leaves Prometheus
+ * no staleness marker, so a worker that has gone would be read for the five minutes Prometheus looks back. They send
+ * every 15 seconds, so a minute always holds a live worker's latest. `PhoneOff` and `AdminActionUncounted` read their
+ * workers' word through it.
+ */
+export const PUSHED_FRESH = '1m';
 
 /** One of the line's series, with any matcher given first, as only the line's pods send it. */
 const fromTheLine = (name: string, matcher?: string) =>
@@ -195,6 +231,41 @@ export const HOLDS_STORED = fromTheLine('line_holds_stored_total');
 const TAKES_WORK = `max(${fromTheLine('line_work_items')})`;
 /** Whether the line's last read of them from the store succeeded. */
 const COUNTING = fromTheLine('line_security_events_counting');
+
+/** The alert that a change the admin service makes is named by no event, or cannot be compared with its events. */
+export const ADMIN_UNCOUNTED = 'AdminActionUncounted';
+
+/**
+ * How long a change may stand with no event naming it before Martin is paged: the admin service appends its event
+ * once the change is made, so for a moment none does, and the line compares every 15 seconds.
+ */
+export const ADMIN_UNCOUNTED_FOR = '2m';
+
+/** What the line compares, by its action, as the alert that it cannot names it. */
+const ADMIN_COMPARED_WORDS: Record<AdminAction, string> = {
+  flags: "the flags' stages",
+  rollout: "the app's Rollout's controls",
+  sessions: 'the sessions',
+};
+
+/** What the alert says of each change no event names, and what Martin does about it. */
+export const ADMIN_UNCOUNTED_WORDS: Record<AdminAction, { summary: string; description: string }> = {
+  flags: {
+    summary: 'The flags changed with no record',
+    description:
+      "flagd's flags hold a stage or a revision that no move of yours recorded: they were changed outside the console, or the admin service changed them without recording it. Controls shows each flag's stage as it is: move each that differs there, which records it, and look in the admin service's log.",
+  },
+  rollout: {
+    summary: "The app's Rollout changed with no record",
+    description:
+      "The app's Rollout was paused, resumed or promoted fully with no control of yours recorded: outside the Canary panel, or by the admin service without recording it. The Canary panel shows it as it is: act there, which records it, and look in the admin service's log.",
+  },
+  sessions: {
+    summary: 'A session started with no sign-in',
+    description:
+      'The store holds a session of the last hour that no sign-in recorded: someone made it outside the admin service’s sign-in, or the admin service did without recording it. End every session with make enrol REVOKE_OTHERS=1, then enrol your passkey again. This ends an hour after the session started.',
+  },
+};
 
 /**
  * What an alert says of each hold that waits for Martin, by its cause: its title, which names the work item, and a line
@@ -397,7 +468,7 @@ export function flagRules(): Rule[] {
       alert: 'FlagsUnchecked',
       expr: `max(${FLAGS_DIFFERING}) > ${differ} and on () max(max_over_time(${FLAGS_CHECKED}[${FLAGS_DIFFER_MINUTES}m])) == 0`,
       for: '0s',
-      labels: { level: LEVELS.notify },
+      labels: { level: LEVELS.notify, worker: WORKERS.admin },
       annotations: unchecked,
     },
     {
@@ -406,11 +477,21 @@ export function flagRules(): Rule[] {
       // that `flags` held a flag set. One that never held any, or an admin service never given `flags`, is not missed.
       expr: `max(last_over_time(${FLAGS_SET}[6h])) == 1 unless on () count(${FLAGS_SET})`,
       for: '0s',
-      labels: { level: LEVELS.notify },
+      labels: { level: LEVELS.notify, worker: WORKERS.admin },
       annotations: unchecked,
     },
   ];
 }
+
+/**
+ * Whether alerts reach Martin's phone, from the admin service's switch in force (`admin/phone.ts`), and from the line's
+ * read of the same in the store (`line/phone.ts`): 1 if so, 0 if not.
+ */
+export const PHONE = fromTheAdminService('admin_alerts_phone');
+export const LINE_PHONE = fromTheLine('line_alerts_phone');
+
+/** The alert that mutes every alert with a level in Alertmanager while it fires. */
+export const PHONE_OFF = 'PhoneOff';
 
 /** How far back an alert to Martin looks for a new event: one or several in it are one message. */
 const RECENT = '5m';
@@ -421,10 +502,18 @@ const RECENT = '5m';
  *   from the line's count of them in the store, which starts at 0; several of a kind within five minutes are one alert;
  * - a page when that count has gone missing for ten minutes, having been there in the six hours before, or the line
  *   has not been able to read the store for five: no security event would reach him meanwhile;
+ * - a page when a change the admin service makes (the flags, the app's Rollout, a session) stands for two minutes with
+ *   no event naming it, by the line's comparison of each with Martin's events (`line/admin-actions.ts`): someone got
+ *   round the audit log; and when the line has not been able to compare one for ten minutes;
  * - a page while Alertmanager has a silence in place, active or pending, from its own figures: a silence keeps pages
  *   from Martin, and nothing here makes one. A silence that matches this alert keeps it quiet too: the limit the dead
  *   man's switch covers (milestone 10). The rule takes the highest of any series by that name, so another can only page
  *   him more, never less;
+ * - `PhoneOff`, with no level, while both the admin service and the line say alerts do not reach his phone (`PHONE`,
+ *   `LINE_PHONE`): Alertmanager mutes every alert with a level while it fires, but for switching the phone itself
+ *   (`PHONE_KINDS`). The admin service appends the switch, so its word alone is not enough; the line reads only what
+ *   Martin's roles stored. The highest of each one's replicas' is taken, so any that says on is enough, and either
+ *   saying nothing leaves every alert reaching the phone;
  * - a notification for each hold that waits for him, once, whoever started it, naming its work item, which Alertmanager
  *   links to its sheet in the console and, with its pull request, to that on GitHub (`holdRule`). Only a line that
  *   takes work reports the holds that wait; while none does, a hold triage starts is told by its cause alone, from the
@@ -450,13 +539,30 @@ export function martinRules(): Rule[] {
       alert: 'SecurityEventsUncounted',
       expr: `(count(last_over_time(${SECURITY_EVENTS}[6h])) unless count(${SECURITY_EVENTS})) or max(${COUNTING}) == 0`,
       for: '5m',
-      labels: { level: LEVELS.page },
+      labels: { level: LEVELS.page, worker: WORKERS.line },
       annotations: {
         summary: 'Security events are not being counted',
         description:
           'The line has not counted sign-ins and the rest for some minutes, so none of them would reach you.',
       },
     },
+    ...ADMIN_ACTIONS.map((action) => ({
+      alert: ADMIN_UNCOUNTED,
+      expr: `max by (action) (last_over_time(${fromTheLine('line_admin_actions_uncounted', `action="${action}"`)}[${PUSHED_FRESH}])) == 1`,
+      for: ADMIN_UNCOUNTED_FOR,
+      labels: { level: LEVELS.page },
+      annotations: ADMIN_UNCOUNTED_WORDS[action],
+    })),
+    ...ADMIN_ACTIONS.map((action) => ({
+      alert: ADMIN_UNCOUNTED,
+      expr: `max by (action) (last_over_time(${fromTheLine('line_admin_actions_compared', `action="${action}"`)}[${PUSHED_FRESH}])) == 0`,
+      for: '10m',
+      labels: { level: LEVELS.page, worker: WORKERS.line },
+      annotations: {
+        summary: `The line is not comparing ${ADMIN_COMPARED_WORDS[action]}`,
+        description: `For ten minutes the line has not been able to compare ${ADMIN_COMPARED_WORDS[action]} with the events that record them, so a change none records would not reach you. The line’s log says why.`,
+      },
+    })),
     {
       alert: 'AlertmanagerSilenced',
       expr: 'max(alertmanager_silences{state=~"active|pending"}) > 0',
@@ -465,6 +571,22 @@ export function martinRules(): Rule[] {
       annotations: {
         summary: 'Alerts are silenced',
         description: 'Alertmanager has a silence in place, which keeps the alerts it matches from your phone.',
+      },
+    },
+    {
+      // No level, so it reaches no one; Alertmanager mutes every alert with a level while it fires. Only while both the
+      // admin service and the line say off: neither alone can keep alerts from Martin, and with either's series
+      // missing (down, or not yet scraped) it cannot fire, and every alert reaches the phone.
+      alert: PHONE_OFF,
+      // Each from a sample in the last minute (four of the workers' exports): pushed metrics leave no stale marker, so a
+      // worker gone would otherwise go on saying off for the five minutes Prometheus looks back.
+      expr: `max(last_over_time(${PHONE}[${PUSHED_FRESH}])) == 0 and on () max(last_over_time(${LINE_PHONE}[${PUSHED_FRESH}])) == 0`,
+      for: '0s',
+      labels: {},
+      annotations: {
+        summary: 'Alerts are not reaching your phone',
+        description:
+          "Alerts to your phone are switched off in the console's Controls, or have not been switched on on this profile: Alertmanager sends none of them, and Grafana's Alerts dashboard shows them all.",
       },
     },
     ...HOLD_CAUSES.map(holdRule),
@@ -491,6 +613,251 @@ export function martinRules(): Rule[] {
         description: `Its container logs on the node may hold a visitor's report, and they go only with the pod. Release the shop (merge a pending update, or its deploy pull request), so a new pod replaces it before a report in its logs is ${REPORT_TEXT.promisedDays} days old. With none pending, restart its Rollout: with one replica, the shop is down until the new pod is ready.`,
       },
     },
+  ];
+}
+
+/**
+ * The factory's workers an alert may be about, as their pods' `app.kubernetes.io/name` and Deployments name them: an
+ * alert about one carries it as `worker`, so Alertmanager mutes it while that worker crash-loops, which is the cause
+ * (deploy/base/telemetry/values/prometheus.yaml, `inhibit_rules`).
+ */
+export const WORKERS = { line: 'line', probes: 'probes', console: 'console', admin: 'admin' } as const;
+
+/** The health alerts go on firing this long after their cause has gone, so one that comes and goes pages once. */
+export const KEEP_FIRING = '10m';
+
+/** How long an Argo CD application stays Degraded or OutOfSync before Martin is notified: long, on every profile. */
+export const ARGO_CD_MINUTES = 30;
+
+/** A pod in `factory` crash-loops when its containers restart this often within this window. */
+export const CRASH_RESTARTS = 3;
+export const CRASH_WINDOW = '5m';
+const RESTARTS = 'kube_pod_container_status_restarts_total{namespace="factory"}';
+
+/** How far back the probes' checks are read: eight checks of each address, at one every fifteen seconds. */
+const CHECKS_WINDOW = '2m';
+
+/** One of the probes', the gateway's or the line's series, as only its own pods send it. */
+const fromTheProbes = (name: string, matcher?: string) =>
+  `${name}{${matcher ? `${matcher}, ` : ''}${METRICS_FROM_THE_PROBES}}`;
+const fromTheGateway = (name: string, matcher: string) => `${name}{${matcher}, ${METRICS_FROM_THE_GATEWAY}}`;
+
+/** The probes' count of their checks (`probes/health.ts`). */
+export const CHECKS = 'probes_checks_total';
+
+/** What an alert that a target stops answering says, and which worker it is about, if one of the factory's. */
+const DOWN: Record<Target, { alert: string; worker?: string; summary: string; description: string }> = {
+  console: {
+    alert: 'ConsoleDown',
+    worker: WORKERS.console,
+    summary: 'The console is not answering',
+    description: `For two minutes the probes have had no answer from the console at {{ $labels.address }}: you cannot see or steer the factory there.`,
+  },
+  app: {
+    alert: 'AppDown',
+    summary: 'The app is not answering',
+    description: `For two minutes the probes have had no answer from the app at {{ $labels.address }}: visitors see nothing.`,
+  },
+};
+
+/**
+ * Each address of a target that has answered none of the probes' checks over `CHECKS_WINDOW`, and failed at least one,
+ * while the probes still check it: one series an address, by what only the probes' pod sends.
+ */
+function notAnswering(target: Target): string {
+  const outcome = (o: string) =>
+    `max by (address) (increase(${fromTheProbes(CHECKS, `target="${target}", outcome="${o}"`)}[${CHECKS_WINDOW}]))`;
+  // And the probes still checking it, with a sample in the last minute: a probes pod that has fallen silent pages as
+  // ProbesDown, never as the console or the app down from the failures it counted last.
+  const fresh = `max by (address) (count_over_time(${fromTheProbes(CHECKS, `target="${target}"`)}[1m])) > 0`;
+  return `${outcome('answered')} == 0 and on (address) ${outcome('failed')} > 0 and on (address) ${fresh}`;
+}
+
+/** The pods in `factory` a ReplicaSet owns, a Deployment's: one series a pod. */
+const REPLICA_SET_PODS = 'group by (namespace, pod) (kube_pod_owner{namespace="factory", owner_kind="ReplicaSet"})';
+
+/**
+ * Each series of a pod in `factory`, a Deployment's by its worker's name: `line-7d9f8b6c4-x2b7q` is the line's. Only a
+ * pod a ReplicaSet owns is named so, as a CronJob's (`line-29361234-abcde`) would read the same; a pod of a
+ * StatefulSet or a Job keeps no `worker` label, and is told by its pod's name alone.
+ */
+const byWorker = (selector: string) =>
+  `label_replace((${selector}) and on (namespace, pod) ${REPLICA_SET_PODS}, "worker", "$1", "pod", "(.+)-[a-z0-9]{5,10}-[a-z0-9]{5}") or ((${selector}) unless on (namespace, pod) ${REPLICA_SET_PODS})`;
+
+/**
+ * The alerts on the factory's health, its releases and its spend (docs/COMPONENTS/ALERTING.md):
+ *
+ * - **pages** when the console or the app stops answering the probes, or the probes say nothing, so neither could be
+ *   told; when the line is stuck, carrying a work item past its stage's limit in force, or a lease is held five minutes
+ *   past its expiry; when the store stops answering, or nothing can say whether it does; when a pod in `factory`
+ *   crash-loops; and when the day's or the month's spend cap is reached;
+ * - **notifies** when a release ends rolled back or aborted, or in error, and when an Argo CD application stays
+ *   Degraded or OutOfSync for half an hour. A dry run's releases, which never shipped, are not counted.
+ *
+ * The health alerts keep firing ten minutes after their cause has gone (`KEEP_FIRING`), so one that comes and goes
+ * pages once. Each reads only its sender's own series (the line's, the probes', the gateway's), by what the collector
+ * stamps on them, or, for an exporter Prometheus scrapes, takes the figure so that another series by its name can only
+ * page Martin more, never less: the lowest `pg_up`, the highest of the rest.
+ */
+export function factoryRules(): Rule[] {
+  const health = { for: '0s', keepFiringFor: KEEP_FIRING };
+  const down = TARGETS.map((target): Rule => {
+    const { alert, worker, summary, description } = DOWN[target];
+    return {
+      alert,
+      expr: notAnswering(target),
+      for: '1m',
+      keepFiringFor: KEEP_FIRING,
+      labels: { level: LEVELS.page, ...(worker ? { worker } : {}) },
+      annotations: { summary, description },
+    };
+  });
+  const checks = fromTheProbes(CHECKS);
+  const releases = (outcomes: string[]) =>
+    `max by (outcome) (increase(${fromTheLine('line_releases_total', `outcome=~"${outcomes.join('|')}", dry_run="false"`)}[${RECENT}])) > 0`;
+  const argo = (alert: string, label: string, status: string, summary: string, description: string): Rule => ({
+    alert,
+    expr: `max by (name) (argocd_app_info{${label}="${status}"}) == 1`,
+    for: `${ARGO_CD_MINUTES}m`,
+    keepFiringFor: KEEP_FIRING,
+    labels: { level: LEVELS.notify },
+    annotations: { summary, description },
+  });
+  return [
+    ...down,
+    {
+      alert: 'ProbesDown',
+      // Gone for as long as Prometheus looks back for a sample (five minutes), or there and counting nothing.
+      expr: `sum(increase(${checks}[5m])) == 0 or absent(${checks})`,
+      for: '2m',
+      keepFiringFor: KEEP_FIRING,
+      labels: { level: LEVELS.page, worker: WORKERS.probes },
+      annotations: {
+        summary: 'The probes have stopped checking',
+        description:
+          'The probes have said nothing for some minutes of whether the console and the app answer, so neither going down would reach you.',
+      },
+    },
+    {
+      alert: 'LineStuck',
+      expr: `max by (stage) (${fromTheLine('line_taken_oldest_seconds')}) > on (stage) max by (stage) (${fromTheLine('line_taken_limit_seconds')})`,
+      ...health,
+      labels: { level: LEVELS.page, worker: WORKERS.line },
+      annotations: {
+        summary: 'The line is stuck at {{ $labels.stage }}',
+        description:
+          "A work item the line is carrying has stood at {{ $labels.stage }} longer than its limit: a step, a release or a look that should have ended has not. The line's dashboard shows which.",
+      },
+    },
+    {
+      alert: 'LeaseOverrun',
+      expr: `max(${fromTheLine('line_lease_overrun_seconds')}) > 300`,
+      ...health,
+      labels: { level: LEVELS.page, worker: WORKERS.line },
+      annotations: {
+        summary: 'A lease on the line has run out unreleased',
+        description:
+          'A work item has been held for more than five minutes past its lease: the worker that took it neither finished nor let it go, and no line has taken it back.',
+      },
+    },
+    {
+      alert: 'StoreDown',
+      expr: 'min(pg_up) == 0',
+      for: '1m',
+      keepFiringFor: KEEP_FIRING,
+      labels: { level: LEVELS.page },
+      annotations: {
+        summary: 'The store is not answering',
+        description:
+          'Postgres has not answered its exporter for a minute: the line, triage and the console cannot read or record anything.',
+      },
+    },
+    {
+      // A name of its own: the store may be up, and StoreDown mutes what follows from the store being down.
+      alert: 'StoreUnwatched',
+      expr: 'absent(pg_up)',
+      for: '5m',
+      keepFiringFor: KEEP_FIRING,
+      labels: { level: LEVELS.page },
+      annotations: {
+        summary: 'Nothing says whether the store answers',
+        description:
+          "Postgres's exporter has reported nothing for some minutes, so the store going down would not be told.",
+      },
+    },
+    {
+      alert: 'WorkerCrashLooping',
+      // Restarts counted, not the waiting reason: CrashLoopBackOff clears at each restart, so a `for` on it starts again
+      // each time, and holds only once the back-off outgrows it. Highest less lowest, as `increase` would extrapolate.
+      expr: `max by (pod, worker) (${byWorker(`max_over_time(${RESTARTS}[${CRASH_WINDOW}]) - min_over_time(${RESTARTS}[${CRASH_WINDOW}])`)}) >= ${CRASH_RESTARTS}`,
+      for: '0s',
+      keepFiringFor: KEEP_FIRING,
+      labels: { level: LEVELS.page },
+      annotations: {
+        summary: 'A worker is crash-looping',
+        description:
+          '{{ $labels.pod }} in factory has restarted three times in five minutes, and Kubernetes waits longer each time to start it again.',
+      },
+    },
+    {
+      alert: 'SpendCapReached',
+      // By profile too, so two profiles' figures, as a gateway restarted under another would leave for a while, never mix.
+      expr: `max by (cap, profile) (${fromTheGateway('gateway_cap_spent_usd', 'cap=~"day|month"')}) >= on (cap, profile) (min by (cap, profile) (${fromTheGateway('gateway_cap_limit_usd', 'cap=~"day|month"')}) >= 0)`,
+      for: '0s',
+      labels: { level: LEVELS.page },
+      annotations: {
+        summary: "The {{ $labels.cap }}'s spend cap is reached",
+        description:
+          'The gateway refuses every model call until the cap clears, when its window ends or you raise it in the console, and the line starts no step meanwhile.',
+      },
+    },
+    {
+      alert: 'ReleaseRolledBack',
+      expr: releases([RELEASE_ENDINGS['release.rolled-back']]),
+      for: '0s',
+      labels: { level: LEVELS.notify },
+      annotations: {
+        summary: 'A release rolled back',
+        description:
+          "The canary's analysis failed it, and the stable version serves every visitor again. Its work items wait for the next deploy.",
+      },
+    },
+    {
+      alert: 'ReleaseRolledBack',
+      expr: releases([RELEASE_ENDINGS['release.aborted']]),
+      for: '0s',
+      labels: { level: LEVELS.notify },
+      annotations: {
+        summary: 'A release was aborted',
+        description:
+          'Its canary was stopped, by Stop the line or by hand, and the stable version serves every visitor again. Its work items wait for your retry.',
+      },
+    },
+    {
+      alert: 'ReleaseErrored',
+      expr: releases([RELEASE_ENDINGS['release.errored']]),
+      for: '0s',
+      labels: { level: LEVELS.notify },
+      annotations: {
+        summary: 'A release ended in error',
+        description:
+          "The canary's analysis could not judge it, so it was stopped: the stable version still serves every visitor, and its work items wait for your retry.",
+      },
+    },
+    argo(
+      'ArgoCDDegraded',
+      'health_status',
+      'Degraded',
+      'Argo CD: {{ $labels.name }} is degraded',
+      `It has been Degraded for ${ARGO_CD_MINUTES} minutes: something it deploys is not healthy.`,
+    ),
+    argo(
+      'ArgoCDOutOfSync',
+      'sync_status',
+      'OutOfSync',
+      'Argo CD: {{ $labels.name }} is out of sync',
+      `For ${ARGO_CD_MINUTES} minutes what runs has not been what main says.`,
+    ),
   ];
 }
 
@@ -655,9 +1022,8 @@ export function render(o: Objectives, stuck = STUCK): string {
       .map(
         (rule) => `          - alert: ${rule.alert}
             expr: ${JSON.stringify(rule.expr)}
-            for: ${rule.for}
-            labels:
-${map(rule.labels, '              ')}
+            for: ${rule.for}${rule.keepFiringFor ? `\n            keep_firing_for: ${rule.keepFiringFor}` : ''}
+            labels:${Object.keys(rule.labels).length ? `\n${map(rule.labels, '              ')}` : ' {}'}
             annotations:
 ${map(rule.annotations, '              ')}`,
       )
@@ -684,6 +1050,9 @@ ${alerts(martinRules())}
       - name: flags
         rules:
 ${alerts(flagRules())}
+      - name: factory
+        rules:
+${alerts(factoryRules())}
   recording_rules.yml:
     groups:
       - name: routes

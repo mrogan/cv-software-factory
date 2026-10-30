@@ -17,12 +17,15 @@
  * in light and dark (`POST /v1/flag-check`, `probes/flag-check.ts`), one run at a time. Given CANARY_URL, the canary
  * Service's address, it pictures every page on the stable version and on the canary while a canary runs, and compares
  * them (`pictures/take.ts`), with requests that carry `UNMEASURED` too. After each release, it deletes the pictures no release needs any more.
+ * And every fifteen seconds it asks whether the console and the app answer, at each address HEALTH_CHECKS names, and
+ * counts each answer or failure for the alerts that page Martin when either stops answering (`probes/health.ts`).
  *
  * Settings, from the environment: APP_URL, the app's address; ARTIFACTS_DIR, the artifact store's folder (`once`
  * uses a temporary one without it); DATABASE_URL or the PG* variables, the store's Postgres, as its own role
  * (`factory_probes`); PROBE_INTERVAL, seconds between runs, 300 by default; VERSION_POLL, seconds between looks at the app's
  * version, 15 by default; CRAWL_LIMIT, the most resources a crawl that Verify asks for reads, 150 by default;
- * CANARY_URL, unset by default, when no pictures are taken.
+ * CANARY_URL, unset by default, when no pictures are taken; HEALTH_CHECKS, the addresses whose answers it counts, as
+ * `console=<address> app=<address>` and more of either, none by default.
  */
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -35,6 +38,7 @@ import { inbox } from '../outbox.ts';
 import { PictureIndex } from '../pictures/index.ts';
 import { Pictures } from '../pictures/take.ts';
 import { flagCheck, flagCheckKey } from '../probes/flag-check.ts';
+import { healthChecks, startHealthChecks } from '../probes/health.ts';
 import { PROBES, probes } from '../probes/index.ts';
 import { readerServer } from '../probes/reader.ts';
 import { Jobs, takingTurns, Verifications, verifyCheck, verifyServer } from '../probes/verify.ts';
@@ -99,6 +103,8 @@ async function once(sense: ReturnType<typeof probes>, app: string): Promise<numb
 }
 
 async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskArtifacts): Promise<number> {
+  // Read first: a mistyped address fails the start, rather than leaving the console unwatched.
+  const health = healthChecks(process.env.HEALTH_CHECKS);
   const sql = connect(process.env.DATABASE_URL);
   const index = new PictureIndex(sql);
   const runner = new SenseRunner({
@@ -182,6 +188,10 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
     await sql.end();
     throw error;
   }
+  const stopHealth = startHealthChecks(health);
+  if (health.length)
+    log.info({ checks: health.map(({ target, address }) => `${target} ${address}`) }, 'checking who answers');
+  else log.warn('HEALTH_CHECKS is unset: nothing says whether the console and the app answer');
   const stop = runner.start(seconds('VERSION_POLL', 15));
   const stopPictures = pictures ? pictures.start(seconds('VERSION_POLL', 15)) : async () => {};
   const stopForgetting = forgetFlagPictures(index, store);
@@ -191,6 +201,7 @@ async function loop(sense: ReturnType<typeof probes>, app: string, store: DiskAr
     process.once('SIGTERM', resolve);
   });
   await stop();
+  await stopHealth();
   await stopPictures();
   await stopForgetting();
   await new Promise((resolve) => reader.close(resolve));

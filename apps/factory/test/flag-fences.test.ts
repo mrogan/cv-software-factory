@@ -238,6 +238,26 @@ describe('who may write flags', () => {
   });
 });
 
+describe('the line’s read of flags', () => {
+  it('is one Role, in flagd: get flags, by name, and nothing else, bound to the line’s own service account alone', async () => {
+    const all = await manifests();
+    const roles = all.filter(
+      ({ manifest }) => manifest.kind === 'Role' && manifest.metadata?.name === 'line-reads-flags',
+    );
+    expect(roles.map(({ file, namespace }) => [file, namespace])).toEqual([
+      ['base/flagd/line-reads-flags.yaml', 'flagd'],
+    ]);
+    // Get, to compare with Martin's moves: never list, watch or write.
+    expect(roles[0]?.manifest.rules).toEqual([
+      { apiGroups: [GROUP], resources: ['featureflags'], resourceNames: ['flags'], verbs: ['get'] },
+    ]);
+    const bound = all.filter(({ manifest }) => manifest.roleRef?.name === 'line-reads-flags');
+    expect(bound.map(({ manifest, namespace }) => [manifest.kind, namespace, manifest.subjects])).toEqual([
+      ['RoleBinding', 'flagd', [{ kind: 'ServiceAccount', name: 'line', namespace: 'factory' }]],
+    ]);
+  });
+});
+
 describe('the admin service’s hold on flags', () => {
   it('is one Role, in flagd: get and update flags, by name, and nothing else', async () => {
     const all = await manifests();

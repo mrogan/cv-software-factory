@@ -1,8 +1,9 @@
 /**
  * How long a work item may stay at each stage of the line before the line counts as stuck there. Prometheus's
- * recording rules carry these figures (`line:stage_limit_seconds`, generated with the alerting rules by the factory's
- * `alerts/rules.ts`), so a dashboard and any alert read one definition, and `make check` fails if the generated rules
- * are out of date.
+ * recording rules carry these figures for the dashboards (`line:stage_limit_seconds`, generated with the alerting rules
+ * by the factory's `alerts/rules.ts`), and `make check` fails if the generated rules are out of date. The line reports
+ * them too, as they are in force, beside what it is carrying (`line/metrics.ts`), and the alert that it is stuck reads
+ * those: one definition either way.
  *
  * A limit is the longest the line's own bounds should let a work item stay, on Claude, and half an hour more: past
  * it, something the line should have done (end a step, hold for Martin, see a release end) has not happened. A step
@@ -11,7 +12,9 @@
  *
  * Two waits pass the limits by design. On the local model a step may take four times as long (`LOCAL_MODEL_PACE`), so
  * a night on Qwen can pass them at Plan and Build. And while the day's or the month's spend cap is reached, the line
- * starts no step, and work items stand where they are: the gateway's cap refusals say why.
+ * starts no step, and work items stand where they are: the gateway's cap refusals say why. The line allows for both
+ * in what it reports to the alert: the limits four times longer where a stage's agents run on the local model, and
+ * nothing carried while a cap is reached, or the line is stopped.
  *
  * `null` is no limit: a work item there waits on something that is not the line's to hurry. These figures are a
  * start, and Martin's to change.

@@ -57,11 +57,11 @@ Everything is denied in and out, then each pod is allowed what it needs.
 | Triage | The gateway; the probes' page reader; Prometheus, Loki and Tempo, through the read-only proxy | |
 | Intake | Prometheus and Loki, through the read-only proxy | Alertmanager |
 | Log watcher | Prometheus, Loki and Tempo, through the read-only proxy | |
-| Probes | The app, the canary's pods included | The line, on their verify port; triage, on their page reader |
+| Probes | The app, the canary's pods included; the console, to ask whether it answers | The line, on their verify port; triage, on their page reader |
 | Crawler | The app, the canary's pods included | Nothing |
 | Line | The GitHub worker, the Kubernetes API, the probes' verify port, and Prometheus, Loki and Tempo through the read-only proxy | The runners' agent pods, with their handbacks |
 | Traffic generator | Traefik and the collector, and nothing else but DNS | |
-| Console | Postgres and the collector | Traefik, only |
+| Console | Postgres and the collector | Traefik, and the probes |
 | Admin service | Postgres, the collector and the Kubernetes API, for Martin's controls of the canary and his flags' stages; the app's pods on 8080, each at its own address, to ask which flags it holds | Traefik, only |
 | Migrations (the hook Job) | Postgres | Nothing |
 | Postgres exporter | Postgres | Prometheus's server, on 9187 |
@@ -151,7 +151,7 @@ It has controls, which must reach what they reach:
 - Kyverno's admission controller reaches GHCR and Sigstore;
 - the traffic generator reaches the app only through Traefik;
 - the line reaches Loki, Tempo and the probes' verify port, but not their page reader;
-- the probes reach the canary;
+- the probes reach the canary, and the console;
 - the pod log collector reaches Loki;
 - Prometheus's server reaches the metrics of Kyverno, Argo Rollouts, the Postgres exporter and the pod log collector;
 - Tempo reaches Prometheus's remote-write receiver, and Argo Rollouts' controller reaches Prometheus;

@@ -2,8 +2,8 @@
 
 The app's objectives, and what Martin must hear about, watched by the standard tools. Part of the [runtime plane](README.md#runtime-plane).
 
-- **v1:** Prometheus's alerting rules, generated from policy, and Alertmanager, which sends the objectives' alerts to the intake and pages, notifies or informs Martin through Pushover.
-- **Later:** alerts on the factory's own health (a worker crash-looping, a lease stuck, the store down, Argo CD degraded), its releases and its spend (milestone 7, Part C), and its images' vulnerabilities (Part D); a dead man's switch and a check from outside, since alerts from inside a cluster stop with it (milestone 10).
+- **v1:** Prometheus's alerting rules, generated from policy, and Alertmanager, which sends the objectives' alerts to the intake and pages, notifies or informs Martin through Pushover, of his security events, the holds that wait for him, and the factory's health, releases and spend, while [a switch in Controls](#alerts-to-the-phone) sends them to his phone, off on the laptop; and Grafana's Alerts dashboard, which shows every alert, whatever its level.
+- **Later:** alerts on the factory's images' vulnerabilities (milestone 7, Part D); a dead man's switch and a check from outside, since alerts from inside a cluster stop with it (milestone 10).
 
 ```mermaid
 flowchart LR
@@ -12,7 +12,8 @@ flowchart LR
   prometheus --> alertmanager[Alertmanager]
   alertmanager -- "objective alerts: POST /v1/alerts" --> intake[Intake]
   intake -- metrics signal --> inbox[(Inbox)]
-  alertmanager -- "level: page, notify or inform" --> pushover((Pushover)) --> phone[Martin's phone]
+  alertmanager -- "level: page, notify or inform, unless PhoneOff fires" --> pushover((Pushover)) --> phone[Martin's phone]
+  prometheus -- every alert, firing or pending --> grafana[Grafana's Alerts dashboard]
 ```
 
 ## The objectives
@@ -24,7 +25,7 @@ flowchart LR
 
 ## The rules
 
-`apps/factory/src/alerts/rules.ts` generates Prometheus's alerting rules from it, and the alerts to Martin ([security events](#security-events), [holds](#holds), [the flags the app holds](#the-flags-the-app-holds) and [the shop's pod](#the-shops-pod)), into `deploy/base/telemetry/values/prometheus-rules.yaml`, labelled with the route and the symptom class (`server-error`, `slow-response`). Each rule compares every route's error ratio or p95 over the window, once it has had enough requests, with the objective, by the same expression Prometheus records for dashboards ([recording rules](TELEMETRY.md#each-route-against-the-objectives)), and reads only the app's own series. `make check` fails when the file is out of date.
+`apps/factory/src/alerts/rules.ts` generates Prometheus's alerting rules from it, and the alerts to Martin ([security events](#security-events), [holds](#holds), [the flags the app holds](#the-flags-the-app-holds), [the shop's pod](#the-shops-pod), and [the factory's health, releases and spend](#the-factorys-health)), into `deploy/base/telemetry/values/prometheus-rules.yaml`, labelled with the route and the symptom class (`server-error`, `slow-response`). Each rule compares every route's error ratio or p95 over the window, once it has had enough requests, with the objective, by the same expression Prometheus records for dashboards ([recording rules](TELEMETRY.md#each-route-against-the-objectives)), and reads only the app's own series. `make check` fails when the file is out of date.
 
 ## Levels and routes
 
@@ -32,10 +33,10 @@ Each rule says how loudly it is told by a `level` label, and Alertmanager routes
 
 | Level | Label | Sent to | For |
 |---|---|---|---|
-| Page | `level: page` | Pushover, at high priority, which sounds through Martin's quiet hours | the security events that loosen a guardrail or change who can sign in, the security events' count missing or stale, a silence in place, a narrowing or Off of a flag the app has not taken within a minute |
-| Notify | `level: notify` | Pushover, at normal priority | each hold that waits for Martin, the shop's pod 25 days old, the security events that widen what the line does (an improvement asked for or its spec approved among them) or a feature flag, act on a release, change a setting or tighten autonomy, the app holding other flags than those set, or not checked, for more than five minutes |
+| Page | `level: page` | Pushover, at high priority, which sounds through Martin's quiet hours | the console or the app down, the probes silent, the line stuck, a lease run out unreleased, the store down, a worker crash-looping, a spend cap reached; the security events that loosen a guardrail, change who can sign in or keep alerts from his phone, the security events' count missing or stale, a change by the admin service that no event records, or the line unable to compare them, a silence in place, a narrowing or Off of a flag the app has not taken within a minute |
+| Notify | `level: notify` | Pushover, at normal priority | a release rolled back, aborted or in error, an Argo CD application Degraded or OutOfSync for half an hour, each hold that waits for Martin, the shop's pod 25 days old, the security events that widen what the line does (an improvement asked for or its spec approved among them) or a feature flag, act on a release, change a setting or tighten autonomy, the app holding other flags than those set, or not checked, for more than five minutes |
 | Inform | `level: inform` | Pushover, at low priority, with no sound or vibration | the security events that tighten, but for autonomy, or only record Martin's own use |
-| Dashboard only | none | no one: a receiver that sends nothing | everything else |
+| Dashboard only | none | no one: a receiver that sends nothing; [Grafana's Alerts dashboard](#seeing-them) shows it | `PhoneOff`, and everything else |
 
 - **The app's objective alerts carry no level,** and go to the intake, matched by their `objective` label: they are the senses' signals, not alerts to Martin. An alert with a level never reaches the intake, which would make a signal of it.
 - **Each message to Martin is one of its own,** never folded into another's, sent once when it fires and again every four hours while it still does, and not when it resolves.
@@ -46,7 +47,31 @@ Each rule says how loudly it is told by a `level` label, and Alertmanager routes
 
 ## Who reaches Alertmanager
 
+Prometheus names it by its Service (`server.alertmanagers` in its values), and sends it no service account's token: the chart's default would find any pod in `telemetry` labelled as Alertmanager through the Kubernetes API, and send each the token.
+
 Anything that reached it could make a silence, and a silence keeps a page from Martin's phone. So its [fence](NETWORK-POLICIES.md#telemetry) lets in only Prometheus's server, which sends it alerts and scrapes its metrics, and Grafana. It reaches only DNS, the intake and the internet on 443, for Pushover. With one replica it has no peers, and listens on no gossip port.
+
+## Seeing them
+
+Grafana's Alerts dashboard ([`dashboards/alerts.json`](../../deploy/base/telemetry/dashboards/alerts.json)), linked from every dashboard's Dashboards row, shows every alert Prometheus has, firing or pending, whatever its level, from Prometheus's own `ALERTS` series:
+
+- **Now:** how many fire at each level (Page, Notify, Inform, Dashboard only), how many are pending, and whether alerts are reaching the phone: No while `PhoneOff` fires. Dashboard only leaves `PhoneOff` out, though it has no level: Reaching the phone says it, and it would otherwise read 1 whenever the phone is off;
+- **Every alert now:** its name, state and level, then its labels, the app's objective alerts among them;
+- **Over the range:** when each was pending and when it fired.
+
+An alert Alertmanager [mutes](#one-cause-one-page) is still there: the dashboard shows what fired, and Alertmanager decides what reaches the phone.
+
+## Alerts to the phone
+
+One switch in the console's Controls sends every alert with a level to Martin's phone, or none: alerts carry more false positives than useful ones, no tuning makes them right under simulated load, and on the laptop they exist only to be tried before the cloud. Grafana's [Alerts dashboard](#seeing-them) is where he sees and checks them while it is off.
+
+- **On by default on the cloud profiles, off on the laptop** (`PHONE_DEFAULT` in `policy/phone.ts`, by `FACTORY_PROFILE`), until he switches it: his latest `alerts.switched` is in force after that, on any profile ([admin service](ADMIN-SERVICE.md#alerts-to-the-phone)).
+- **Switching it off needs the passkey again,** and pages him (`phone-off`): it loosens what reaches him, as nothing will. So on the cloud the last message before quiet says so. Switching it on informs him (`phone-on`).
+- **How it mutes:** the admin service reports the switch in force (`admin_alerts_phone`, 1 or 0, read from its own pod alone), and so does the line, as it reads the switch in the store (`line_alerts_phone`, from the line's pod alone). While both read 0, `PhoneOff` fires, with no level, so it reaches no one; and Alertmanager mutes every alert with a level (`page`, `notify`, `inform`) while `PhoneOff` fires, but switching the phone itself, either way: off must reach him, and on would otherwise race `PhoneOff` resolving, and often lose. The app's objective alerts carry no level, go to the intake, and are never muted.
+- **Neither alone mutes them.** The admin service appends the switch, so a compromised one could report it off without Martin switching it; the line reads only what his roles stored, and a compromised admin service can neither reach the line nor change an event once stored. One that appended a switch off in his name would mute them as his own does, and page him as it does (`phone-off`, which the mute lets through). One reading on, from any replica, is enough for every alert to reach the phone.
+- **Failing loud:** with either series missing, from a worker that is down, not yet scraped or started without the store, `PhoneOff` cannot fire, and every alert reaches the phone. A worker that goes stops counting within a minute: the rule takes each worker's word only from a sample in the last minute, as pushed metrics leave Prometheus no stale marker, and it would otherwise read the last one for five. Once it has read the switch, a worker that cannot read the store again goes on reporting the switch it read last, which only Martin changes. So while the store is down the switch stands as he last set it: off, and `StoreDown` too stays off his phone, as he chose; on, and every alert reaches it; no switch can be recorded until the store is back.
+- **Prometheus still has every alert,** muted or not: the dashboard shows them all, and says whether they are reaching the phone.
+- **Proved** by `apps/factory/test/factory-alerts.test.ts` (`PhoneOff` fires only while both say 0: not with one on, one or both missing, or another worker's series) and `apps/factory/test/alertmanager.test.ts` (it mutes every alert the rules raise with a level, but the two switches, and none of the objectives').
 
 ## The intake
 
@@ -75,6 +100,7 @@ Martin is alerted to each of his security events, at its kind's level, counted f
 | `new-work-on`, `new-work-off` | `controls.changed` that lets agents take new work, or stops them | Notify, Inform |
 | `auto-merge-on`, `auto-merge-off` | `controls.changed` that turns auto-merge of low-risk changes on or off | Notify, Inform |
 | `take-widened`, `take-narrowed` | `controls.changed` that widens or narrows what the line takes | Notify, Inform |
+| `phone-on`, `phone-off` | `alerts.switched` that sends every alert to his phone, or none | Inform, Page |
 | `flag-widened`, `flag-narrowed`, `flag-off` | `flag.staged` that widens a feature flag (to Checks too, and turning one back on for everyone), narrows it, or turns it off | Notify, Inform, Inform |
 | `improvement-requested` | every `improvement.requested`, from the console's "+" | Notify |
 | `improvement-approved` | `hold.answered` approving a `spec` hold, read from the hold it answers, on a work item opened as an improvement | Notify |
@@ -83,7 +109,7 @@ Giving the passkey again (`admin.stepped-up`) alerts no one, though the audit lo
 
 Every change of the line's controls alerts him, each told from the stored change's before and after alone (`policy/line.ts`), as every change of the settings does, and every move of a feature flag, from its stages before and after alone (`policy/flag-moves.ts`). Auto-rollback off, which the access table marks too, has no event until Part C gives it a switch, and a test fails until it is counted.
 
-- **Each kind has its level** (`SECURITY_LEVELS` in `apps/factory/src/alerts/rules.ts`, typed so a new kind cannot go without one). What loosens a guardrail, or changes who can sign in, pages him; what widens what the line does (asking for an improvement, or approving its spec, sets it building something new), or acts on a release, notifies him; what tightens, or only records his own use, informs him, but for tightening autonomy, which notifies him. Every kind still reaches his phone: only how loudly differs.
+- **Each kind has its level** (`SECURITY_LEVELS` in `apps/factory/src/alerts/rules.ts`, typed so a new kind cannot go without one). What loosens a guardrail, changes who can sign in, or keeps alerts from his phone, pages him; what widens what the line does (asking for an improvement, or approving its spec, sets it building something new), or acts on a release, notifies him; what tightens, or only records his own use, informs him, but for tightening autonomy, which notifies him. Every kind still reaches his phone: only how loudly differs.
 - **One rule for each kind** alerts when its count rises: the first of a kind too, as each count starts at 0. Several of a kind within five minutes are one message.
 - **Another pages when the count is missing or stale:** gone for ten minutes after being there in the six hours before, or the line unable to read the store for five. Meanwhile no security event would reach him.
 - **A silence pages,** while Alertmanager has one in place, active or pending, from its own `alertmanager_silences`. Nothing here makes one, and only Prometheus and Grafana reach Alertmanager.
@@ -92,8 +118,30 @@ Every change of the line's controls alerts him, each told from the stored change
 ### What they cannot do
 
 - **A silence can hide its own page.** A silence that matches every alert keeps this one quiet too. The cover is milestone 10's dead man's switch and check from outside, which no silence in the cluster reaches.
-- **They count what is stored.** An action the admin service takes without appending its event is not counted: a sign-in, or a change it makes to the app's Rollout. The factory acts on Martin's other commands only once they are stored, so those are counted when they take effect.
+- **They count what is stored.** An action the admin service takes without appending its event is not counted here: the line compares what it changes with the events instead, and pages when one is not recorded ([below](#changes-no-event-records)). The factory acts on Martin's other commands only once they are stored, so those are counted when they take effect.
 - **Alerts from inside the cluster stop with it.** Whether the factory is up is answered from outside it, in milestone 10.
+
+### Changes no event records
+
+The admin service is the one service of ours that changes the flags, the app's Rollout and Martin's sessions, and it records each change as an event, from which the security events are counted. A change it made without its event, or one made round it, would reach no one. So the line compares each with the events that name it ([`line/admin-actions.ts`](../../apps/factory/src/line/admin-actions.ts)), reading each and never writing it, and Martin is paged when a change has stood for two minutes that no event names (`AdminActionUncounted`, one rule for each, in its own words):
+
+| What | Named when | Read from |
+|---|---|---|
+| `flags` | each flag is at the stage Martin's latest move of it set (`flag.staged`), every other flag off, none in a shape no stage has, and the flag set's revision is one a move of his wrote | `flags` in `flagd`, by the line's Role there: get, by name, and nothing else (`deploy/base/flagd/line-reads-flags.yaml`) |
+| `rollout` | `spec.paused` is set only after his latest pause or resume was a pause, and cleared only after a control that clears it (a resume, a promotion, an abort, a retry) or the line stopped has followed his latest pause; `status.promoteFull` is set only after his full promotion of the release the line recorded starting last | the app's Rollout, by the Role the line watches releases with |
+| `sessions` | every session of the last hour has a sign-in of its own (`admin.signed-in`), appended at or within a minute after it started, as the one transaction that starts a session appends it | the store: when each session started, and nothing else of it (`0038_line-reads-sign-ins.sql`) |
+
+- **Recorded once made.** The admin service checks a change's event before it acts and appends it once the change is made ([admin service](ADMIN-SERVICE.md#what-it-records)), so the audit log never records a change that failed. A change stands unnamed for the moment between the two, then, and for good if the append fails twice. The line reads Kubernetes first, then the store, every 15 seconds, and the alert waits two minutes: only a change that was never recorded pages. A session and its sign-in are one transaction, and read in one statement.
+- **Only Martin's events name a change:** one his roles appended, never a sample's; and of a release's start, only the line's own record.
+- **Gone is a change too.** `flags` missing once a move of his set a flag there, or the Rollout missing once the line has recorded a release of it, is named by nothing: admission refuses the admin service either deletion.
+- **The stages, not only the revision.** A hand that kept the revision and widened a flag would pass a check of the revision alone, so every flag's stage is compared too.
+- **What the Rollout cannot say.** Argo Rollouts' controller writes the status's abort and step too, so the Rollout cannot tell whose they were: admission holds the admin service to the moves the controls make ([admission control](ADMISSION-CONTROL.md#the-admin-services-hold-on-the-rollout)), and the line records what each release did. A pause set with `kubectl argo rollouts`, or any of these changed with Martin's own kubeconfig, pages too: nothing records it. Of a pause, it cannot tell his own pause, cleared by a later control and set again by hand, from his; nor a pause cleared by hand after a control that could not clear it (the admin service then warns him his pause is still set). A pause holds a canary where it is, and the audit log has his controls either side.
+- **An hour of sessions,** so one made and ended at once is still there to compare: the alert resolves an hour after such a session started. The line reads when each started, never its hash or its passkey.
+- **What Martin does:** for the flags, move each that differs in Controls, which records it; for the Rollout, act in the Canary panel; for a session, `make enrol REVOKE_OTHERS=1`, which ends every session, then enrol his passkey again. Then the admin service's log, for whether it was the one.
+- **Not being able to compare pages too,** after ten minutes, for each of the three in words of its own, with the line as its worker (`line_admin_actions_compared` at 0): meanwhile a change none records would reach no one. A comparison that takes over ten seconds counts as not made, so the SDK never drops the collection and sends the last figures as if compared. The line's log says why.
+- **Each reads only the line's own series,** as the security events' alerts do, and only what it sent in the last minute: its series come over OTLP, with no staleness marker, so a line replaced since would otherwise be read for five minutes more.
+- **`PhoneOff` mutes it,** as it mutes every alert with a level, and only while the admin service and the line both report the phone off ([alerts to the phone](#alerts-to-the-phone)). So a compromised admin service cannot quiet it alone: muting it takes both pods, or an `alerts.switched` in the store that switches the phone off, which pages Martin (`phone-off`) whatever the switch says.
+- **Proved** by `apps/factory/test/line/admin-actions.test.ts`, against a store and a fake Kubernetes, and by `promtool` in `apps/factory/test/factory-alerts.test.ts`.
 
 ## Holds
 
@@ -142,3 +190,52 @@ The node's container logs may hold a visitor's report, and they go only with the
 - **It is sent every four hours** while it fires, as every notification is, until a new pod replaces the old one.
 - **It takes the oldest start of any series** for a pod, so another series by that name can only tell Martin sooner, never later.
 - **It says nothing while kube-state-metrics is down,** as nothing else watches it.
+
+## The factory's health
+
+Martin is paged when the factory is unhealthy or its spend runs out, and notified when a release goes wrong or Argo CD cannot deploy, by one group of rules (`factoryRules` in `apps/factory/src/alerts/rules.ts`):
+
+| Alert | Level | Fires when | Read from |
+|---|---|---|---|
+| `ConsoleDown` | Page | an address of the console has answered none of the probes' checks for two minutes, and failed some, for a minute more | [the probes' checks](PROBES-AND-CRAWLER.md#who-answers), `probes_checks_total` |
+| `AppDown` | Page | the same, of an address of the app | the same |
+| `ProbesDown` | Page | the probes have counted no check for five minutes, or sent nothing for as long as Prometheus looks back (five minutes), for two minutes more: neither alert above could fire | the same |
+| `LineStuck` | Page | a work item the line is carrying has stood at a stage past its limit in force | `line_taken_oldest_seconds` against `line_taken_limit_seconds` ([the line's metrics](TELEMETRY.md#the-lines-metrics)) |
+| `LeaseOverrun` | Page | a work item's lease has run out more than five minutes ago and nobody has let it go or taken it back | `line_lease_overrun_seconds` |
+| `StoreDown` | Page | Postgres has not answered its exporter for a minute | `pg_up`, from the [Postgres exporter](TELEMETRY.md#the-clusters-state-and-postgres) |
+| `StoreUnwatched` | Page | the exporter has said nothing for five minutes, so the store going down would not be told: a name of its own, as the store may be up, and `StoreDown` mutes what follows from it | the same |
+| `WorkerCrashLooping` | Page | a pod in `factory` has restarted three times in five minutes: a crash loop is told within two or three minutes of its first crash, as Kubernetes backs off 10, 20 and 40 seconds | `kube_pod_container_status_restarts_total`, from kube-state-metrics, its highest less its lowest over the five minutes; a pod a ReplicaSet owns (`kube_pod_owner`) is named by its Deployment as `worker` |
+| `SpendCapReached` | Page | the day's or the month's spend has reached its cap, and the gateway refuses every model call | `gateway_cap_spent_usd` against `gateway_cap_limit_usd` ([the gateway's metrics](TELEMETRY.md#the-gateways-metrics)), which the gateway counts again after each paid call and once a minute |
+| `ReleaseRolledBack` | Notify | a release ended rolled back, or aborted (each in words of its own) | `line_releases_total` |
+| `ReleaseErrored` | Notify | a release ended in error: the canary's analysis could not judge it | the same |
+| `ArgoCDDegraded` | Notify | an Argo CD application has been Degraded for half an hour | `argocd_app_info` |
+| `ArgoCDOutOfSync` | Notify | an Argo CD application has been OutOfSync for half an hour | the same |
+
+- **"Stuck" is the line not moving a work item it should be moving.** The line says what it is carrying: only the work items it has taken, none while it is stopped, none but the one under Just one, and none at Plan, Build or Review, where only a step moves a work item on, while the day's or month's cap is reached or agents take no new work; gates, Release and Verify go on under a cap and are still watched. The time the line was told to stand does not count: a work item's time runs from the line's last start, and at a step's stage from the last cap cleared or change of Martin's controls, so a line started again does not page for the hours it stood. Its limits are `policy/stuck.ts`'s ([the stuck limits](TELEMETRY.md#the-lines-stuck-limits)), four times longer at a stage whose agents run on the local model (`LOCAL_MODEL_PACE`), as `ALL_LOCAL` sends every agent. So a line told to stop, a cap, a night on Qwen or a ticket the line has not taken never pages. The line works this out, not the rule, which would otherwise repeat the line's own logic. A provider's own cap (credit spent, the local model not running) does page, after the limit: it needs Martin.
+- **A cause that comes and goes pages once.** Every health alert, and Argo CD's, goes on firing for ten minutes after its cause has gone (`keep_firing_for`), so a flapping console or a worker that restarts and crashes again is one message, not one each time it returns. Not the security events, each one event, nor the spend cap, nor a release's end, each one occasion.
+- **Crash loops are counted by restarts,** not by the waiting reason: `CrashLoopBackOff` clears each time the container starts again, so a rule that waited on it would start its wait again at every restart, and fire only once the back-off had grown longer than the wait, minutes later. One restart, or a rollout's new pod, is no loop.
+- **A cap reached and lifted within a minute may page no one.** The gateway's figures are what it last counted (`gateway/spend.ts`), after each paid call and once a minute, and Prometheus evaluates once a minute: a cap raised again at once, or a window that ends just after it is reached, can come and go between. The line's `spend.capped` and `spend.cleared` record it all the same, and the gateway's refusals are counted (`gateway_cap_refusals_total`).
+- **Half an hour for Argo CD,** on every profile: a sync, a rollout or a `try-the-line` run that pauses `root` passes through Degraded or OutOfSync for minutes, and only one that stays needs Martin.
+- **A dry run's release is not counted:** it never shipped. Only a real release that ends badly notifies.
+- **Each reads only its sender's own series,** the line's, the probes' and the gateway's, by what the collector stamps on them ([telemetry](TELEMETRY.md#which-series-are-the-lines)), so no other worker can page Martin through them, or answer for a console that is down. What Prometheus scrapes from an exporter is taken so that another series by its name could only page him more, never less: the lowest `pg_up`, the highest of the rest. And the collector drops any metric sent over OTLP in those exporters' families (`pg`, `kube`, `argocd`), since `StoreDown` and `WorkerCrashLooping` mute other pages while they fire: a worker that sent a `pg_up` at 0, or restarts of a pod it named, would otherwise page once, and keep the real pages quiet behind it, a silence on the decoy included.
+- **The addresses are the profile's** (HEALTH_CHECKS on the probes' Deployment): each Service, from inside the cluster, on every profile; a public profile adds its public addresses (milestone 10), each checked and alerted on by itself, by its origin and path.
+- **Proved by Prometheus's own rule tester:** `apps/factory/test/factory-alerts.test.ts`, as for the flags' alerts, for each alert's when and when not, and another worker's series never firing one.
+
+## One cause, one page
+
+Alertmanager mutes what follows from a cause while the cause fires (`inhibit_rules` in Prometheus's values), so Martin is paged once, for the cause. Prometheus still has every alert, and the [Alerts dashboard](#seeing-them) shows them all.
+
+| While this fires | These are muted | Because |
+|---|---|---|
+| `StoreDown` | `LineStuck`, `LeaseOverrun`, `WorkerCrashLooping`, `SecurityEventsUncounted`, `AdminActionUncounted` | Without the store the line can neither move work nor let go of a lease, a worker that needs it crash-loops, and the line can neither count the security events nor compare the admin service's changes with theirs. A change no event records is still there once the store answers, and pages then |
+| `StoreDown` | `ArgoCDDegraded` of `root` | `root` holds the store and the workers |
+| `SpendCapReached` | `LineStuck` | The line starts no step until the cap clears; it already reports nothing while it does |
+| `WorkerCrashLooping` | whatever is said of that worker, by its `worker` label: `LineStuck`, `LeaseOverrun`, `SecurityEventsUncounted` and `AdminActionUncounted` for not comparing, of the line, `ConsoleDown` of the console, `ProbesDown` of the probes, `FlagsUnchecked` of the admin service | The crash loop is the cause, and its page names the pod |
+| `WorkerCrashLooping` | `ArgoCDDegraded` of `root` | A crash-looping pod makes `root` Degraded |
+| `PhoneOff` | every alert with a level, but the security events of switching the phone (`phone-off`, `phone-on`) | Martin switched alerts to his phone off, or the profile has them off ([alerts to the phone](#alerts-to-the-phone)) |
+
+- **`ProbesDown` mutes nothing:** `ConsoleDown` and `AppDown` cannot fire without the probes' checks, so there is nothing to mute.
+- **No cause mutes a security event,** a silence, a hold or the shop's pod: each is its own occasion. Nor a change no event records, but while the store is down, when the line cannot tell; the line's crash loop mutes only its not comparing. Only `PhoneOff`, which is no cause but Martin's choice, mutes them, as it mutes everything with a level. A crash loop never mutes another.
+- **Martin's own causes are not inhibitions:** the line told to stop, a cap or the local model's pace are left out where the line reports what it carries, so nothing fires.
+- **Held to it by a test** (`apps/factory/test/alertmanager.test.ts`), which mutes as Alertmanager does, from the values as written, and checks every alert a rule names is one the rules raise.
+

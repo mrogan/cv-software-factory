@@ -28,6 +28,7 @@ import {
   FRESH_MINUTES,
   GUARDRAIL_HOLDS,
   IMPROVEMENT_STEP_UP,
+  PHONE_STEP_UP,
   SETTINGS_STEP_UP,
   STEP_UP,
 } from '../access.ts';
@@ -284,6 +285,8 @@ function askedForPasskey(
     case 'flag.staged': {
       return FLAG_STEP_UP[event.payload.action];
     }
+    case 'alerts.switched':
+      return PHONE_STEP_UP[event.payload.phone ? 'phone.on' : 'phone.off'];
     case 'improvement.requested':
       return IMPROVEMENT_STEP_UP['improvement.request'];
     case 'hold.answered': {

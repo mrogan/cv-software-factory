@@ -28,5 +28,5 @@ Then update the table below.
 | 7 | [Admin and guardrails](M07-ADMIN-AND-GUARDRAILS.md) | Admin mode signed in with a passkey, every control visible read-only to visitors, alerts to Martin; improvements requested with the "+" and shipped behind feature flags; every guardrail proved from one command, the red-team harness, and Guarded autonomy by deterministic risk tags; everything scanned every day with a deadline for each finding, the app patched down the line | In progress |
 | 8 | Visitor features | Visitor access keys and their usage view; inject a defect from a menu within the 20-minute target; the red-team menu over the harness; the report widget through triage; visitor limits and budget | |
 | 9 | Replay site | First public deliverable: curated recordings on GitHub Pages, README with GIF, `make demo` running on cassettes | |
-| 10 | Live on DigitalOcean | Terraform, Cloudflare Tunnel, running Guarded, an outside uptime check and a dead man's switch, reset to baseline | |
+| 10 | Live on DigitalOcean | Terraform, Cloudflare Tunnel, running Guarded, an outside uptime check and a dead man's switch, with `cloudflared`'s tunnel metrics alerted on by a rule and the public URLs added to the probes' addresses, reset to baseline | |
 | 11 | Interview on AWS | Terraform for EKS, Bedrock adapter, weekly apply, smoke-test and destroy job; recorded walkthrough | |

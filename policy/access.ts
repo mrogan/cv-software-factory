@@ -203,6 +203,17 @@ export const ACCESS = {
     routes: ['POST /admin/line/controls'],
   },
 
+  // Alerts to Martin's phone (`phone.ts`): every alert at its level, or none. Off loosens what reaches him, as nothing
+  // would; on tightens. A switch is one route, and is the one of the two it does, by its yes or no: the admin service
+  // asks for the passkey again to switch them off.
+  'phone.on': admin('Send every alert to your phone, at its level'),
+  'phone.off': admin("Send no alert to your phone: Grafana's Alerts dashboard still shows them all", true),
+  'phone.switch': {
+    ...admin('Switch alerts to your phone: as `phone.on`, or as `phone.off`, with the passkey again'),
+    server: 'admin',
+    routes: ['POST /admin/alerts/phone'],
+  },
+
   // A release in flight: the admin service changes the app's Rollout, the one service of ours that may.
   'release.promote': {
     ...admin("Promote a canary, to the next step's weight or fully", true),
