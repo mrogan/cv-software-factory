@@ -1,7 +1,8 @@
 /**
  * Prometheus's rules, generated from the policy: the alerting rules from the app's objectives
- * (policy/objectives.ts), the alerts to Martin (`martinRules`), and the recording rules the dashboards draw: each route
- * against the objectives, the objectives' error budget, and the line's stuck limits (policy/stuck.ts).
+ * (policy/objectives.ts), the alerts to Martin (`martinRules`, `flagRules`, and the factory's health, releases and
+ * spend in `factoryRules`), and the recording rules the dashboards draw: each route against the objectives, the
+ * objectives' error budget, and the line's stuck limits (policy/stuck.ts).
  *
  *     node apps/factory/src/alerts/rules.ts            # write the rules
  *     node apps/factory/src/alerts/rules.ts --check    # fail if they are out of date (make check, CI)
@@ -18,9 +19,15 @@ import { type Objectives, objectives } from '../../../../policy/objectives.ts';
 import { STUCK, type StuckStage } from '../../../../policy/stuck.ts';
 import { REPORT_TEXT } from '../../../../policy/triage.ts';
 import { DRY_RUN_NUMBERS_FROM } from '../github/actions.ts';
-import { NUMBER_PATTERN } from '../line/metrics.ts';
+import { NUMBER_PATTERN, RELEASE_ENDINGS } from '../line/metrics.ts';
 import { SECURITY_KINDS, type SecurityKind } from '../line/security.ts';
-import { METRICS_FROM_THE_ADMIN_SERVICE, METRICS_FROM_THE_LINE } from '../provenance.ts';
+import { TARGETS, type Target } from '../probes/health.ts';
+import {
+  METRICS_FROM_THE_ADMIN_SERVICE,
+  METRICS_FROM_THE_GATEWAY,
+  METRICS_FROM_THE_LINE,
+  METRICS_FROM_THE_PROBES,
+} from '../provenance.ts';
 import * as query from './queries.ts';
 
 export const RULES_FILE = join(import.meta.dirname, '../../../../deploy/base/telemetry/values/prometheus-rules.yaml');
@@ -32,6 +39,8 @@ interface Rule {
   alert: string;
   expr: string;
   for: string;
+  /** How long it goes on firing once its expression no longer holds, so a cause that comes and goes pages once. */
+  keepFiringFor?: string;
   labels: Record<string, string>;
   annotations: Record<string, string>;
 }
@@ -397,7 +406,7 @@ export function flagRules(): Rule[] {
       alert: 'FlagsUnchecked',
       expr: `max(${FLAGS_DIFFERING}) > ${differ} and on () max(max_over_time(${FLAGS_CHECKED}[${FLAGS_DIFFER_MINUTES}m])) == 0`,
       for: '0s',
-      labels: { level: LEVELS.notify },
+      labels: { level: LEVELS.notify, worker: WORKERS.admin },
       annotations: unchecked,
     },
     {
@@ -406,7 +415,7 @@ export function flagRules(): Rule[] {
       // that `flags` held a flag set. One that never held any, or an admin service never given `flags`, is not missed.
       expr: `max(last_over_time(${FLAGS_SET}[6h])) == 1 unless on () count(${FLAGS_SET})`,
       for: '0s',
-      labels: { level: LEVELS.notify },
+      labels: { level: LEVELS.notify, worker: WORKERS.admin },
       annotations: unchecked,
     },
   ];
@@ -450,7 +459,7 @@ export function martinRules(): Rule[] {
       alert: 'SecurityEventsUncounted',
       expr: `(count(last_over_time(${SECURITY_EVENTS}[6h])) unless count(${SECURITY_EVENTS})) or max(${COUNTING}) == 0`,
       for: '5m',
-      labels: { level: LEVELS.page },
+      labels: { level: LEVELS.page, worker: WORKERS.line },
       annotations: {
         summary: 'Security events are not being counted',
         description:
@@ -491,6 +500,251 @@ export function martinRules(): Rule[] {
         description: `Its container logs on the node may hold a visitor's report, and they go only with the pod. Release the shop (merge a pending update, or its deploy pull request), so a new pod replaces it before a report in its logs is ${REPORT_TEXT.promisedDays} days old. With none pending, restart its Rollout: with one replica, the shop is down until the new pod is ready.`,
       },
     },
+  ];
+}
+
+/**
+ * The factory's workers an alert may be about, as their pods' `app.kubernetes.io/name` and Deployments name them: an
+ * alert about one carries it as `worker`, so Alertmanager mutes it while that worker crash-loops, which is the cause
+ * (deploy/base/telemetry/values/prometheus.yaml, `inhibit_rules`).
+ */
+export const WORKERS = { line: 'line', probes: 'probes', console: 'console', admin: 'admin' } as const;
+
+/** The health alerts go on firing this long after their cause has gone, so one that comes and goes pages once. */
+export const KEEP_FIRING = '10m';
+
+/** How long an Argo CD application stays Degraded or OutOfSync before Martin is notified: long, on every profile. */
+export const ARGO_CD_MINUTES = 30;
+
+/** A pod in `factory` crash-loops when its containers restart this often within this window. */
+export const CRASH_RESTARTS = 3;
+export const CRASH_WINDOW = '5m';
+const RESTARTS = 'kube_pod_container_status_restarts_total{namespace="factory"}';
+
+/** How far back the probes' checks are read: eight checks of each address, at one every fifteen seconds. */
+const CHECKS_WINDOW = '2m';
+
+/** One of the probes', the gateway's or the line's series, as only its own pods send it. */
+const fromTheProbes = (name: string, matcher?: string) =>
+  `${name}{${matcher ? `${matcher}, ` : ''}${METRICS_FROM_THE_PROBES}}`;
+const fromTheGateway = (name: string, matcher: string) => `${name}{${matcher}, ${METRICS_FROM_THE_GATEWAY}}`;
+
+/** The probes' count of their checks (`probes/health.ts`). */
+export const CHECKS = 'probes_checks_total';
+
+/** What an alert that a target stops answering says, and which worker it is about, if one of the factory's. */
+const DOWN: Record<Target, { alert: string; worker?: string; summary: string; description: string }> = {
+  console: {
+    alert: 'ConsoleDown',
+    worker: WORKERS.console,
+    summary: 'The console is not answering',
+    description: `For two minutes the probes have had no answer from the console at {{ $labels.address }}: you cannot see or steer the factory there.`,
+  },
+  app: {
+    alert: 'AppDown',
+    summary: 'The app is not answering',
+    description: `For two minutes the probes have had no answer from the app at {{ $labels.address }}: visitors see nothing.`,
+  },
+};
+
+/**
+ * Each address of a target that has answered none of the probes' checks over `CHECKS_WINDOW`, and failed at least one,
+ * while the probes still check it: one series an address, by what only the probes' pod sends.
+ */
+function notAnswering(target: Target): string {
+  const outcome = (o: string) =>
+    `max by (address) (increase(${fromTheProbes(CHECKS, `target="${target}", outcome="${o}"`)}[${CHECKS_WINDOW}]))`;
+  // And the probes still checking it, with a sample in the last minute: a probes pod that has fallen silent pages as
+  // ProbesDown, never as the console or the app down from the failures it counted last.
+  const fresh = `max by (address) (count_over_time(${fromTheProbes(CHECKS, `target="${target}"`)}[1m])) > 0`;
+  return `${outcome('answered')} == 0 and on (address) ${outcome('failed')} > 0 and on (address) ${fresh}`;
+}
+
+/** The pods in `factory` a ReplicaSet owns, a Deployment's: one series a pod. */
+const REPLICA_SET_PODS = 'group by (namespace, pod) (kube_pod_owner{namespace="factory", owner_kind="ReplicaSet"})';
+
+/**
+ * Each series of a pod in `factory`, a Deployment's by its worker's name: `line-7d9f8b6c4-x2b7q` is the line's. Only a
+ * pod a ReplicaSet owns is named so, as a CronJob's (`line-29361234-abcde`) would read the same; a pod of a
+ * StatefulSet or a Job keeps no `worker` label, and is told by its pod's name alone.
+ */
+const byWorker = (selector: string) =>
+  `label_replace((${selector}) and on (namespace, pod) ${REPLICA_SET_PODS}, "worker", "$1", "pod", "(.+)-[a-z0-9]{5,10}-[a-z0-9]{5}") or ((${selector}) unless on (namespace, pod) ${REPLICA_SET_PODS})`;
+
+/**
+ * The alerts on the factory's health, its releases and its spend (docs/COMPONENTS/ALERTING.md):
+ *
+ * - **pages** when the console or the app stops answering the probes, or the probes say nothing, so neither could be
+ *   told; when the line is stuck, carrying a work item past its stage's limit in force, or a lease is held five minutes
+ *   past its expiry; when the store stops answering, or nothing can say whether it does; when a pod in `factory`
+ *   crash-loops; and when the day's or the month's spend cap is reached;
+ * - **notifies** when a release ends rolled back or aborted, or in error, and when an Argo CD application stays
+ *   Degraded or OutOfSync for half an hour. A dry run's releases, which never shipped, are not counted.
+ *
+ * The health alerts keep firing ten minutes after their cause has gone (`KEEP_FIRING`), so one that comes and goes
+ * pages once. Each reads only its sender's own series (the line's, the probes', the gateway's), by what the collector
+ * stamps on them, or, for an exporter Prometheus scrapes, takes the figure so that another series by its name can only
+ * page Martin more, never less: the lowest `pg_up`, the highest of the rest.
+ */
+export function factoryRules(): Rule[] {
+  const health = { for: '0s', keepFiringFor: KEEP_FIRING };
+  const down = TARGETS.map((target): Rule => {
+    const { alert, worker, summary, description } = DOWN[target];
+    return {
+      alert,
+      expr: notAnswering(target),
+      for: '1m',
+      keepFiringFor: KEEP_FIRING,
+      labels: { level: LEVELS.page, ...(worker ? { worker } : {}) },
+      annotations: { summary, description },
+    };
+  });
+  const checks = fromTheProbes(CHECKS);
+  const releases = (outcomes: string[]) =>
+    `max by (outcome) (increase(${fromTheLine('line_releases_total', `outcome=~"${outcomes.join('|')}", dry_run="false"`)}[${RECENT}])) > 0`;
+  const argo = (alert: string, label: string, status: string, summary: string, description: string): Rule => ({
+    alert,
+    expr: `max by (name) (argocd_app_info{${label}="${status}"}) == 1`,
+    for: `${ARGO_CD_MINUTES}m`,
+    keepFiringFor: KEEP_FIRING,
+    labels: { level: LEVELS.notify },
+    annotations: { summary, description },
+  });
+  return [
+    ...down,
+    {
+      alert: 'ProbesDown',
+      // Gone for as long as Prometheus looks back for a sample (five minutes), or there and counting nothing.
+      expr: `sum(increase(${checks}[5m])) == 0 or absent(${checks})`,
+      for: '2m',
+      keepFiringFor: KEEP_FIRING,
+      labels: { level: LEVELS.page, worker: WORKERS.probes },
+      annotations: {
+        summary: 'The probes have stopped checking',
+        description:
+          'The probes have said nothing for some minutes of whether the console and the app answer, so neither going down would reach you.',
+      },
+    },
+    {
+      alert: 'LineStuck',
+      expr: `max by (stage) (${fromTheLine('line_taken_oldest_seconds')}) > on (stage) max by (stage) (${fromTheLine('line_taken_limit_seconds')})`,
+      ...health,
+      labels: { level: LEVELS.page, worker: WORKERS.line },
+      annotations: {
+        summary: 'The line is stuck at {{ $labels.stage }}',
+        description:
+          "A work item the line is carrying has stood at {{ $labels.stage }} longer than its limit: a step, a release or a look that should have ended has not. The line's dashboard shows which.",
+      },
+    },
+    {
+      alert: 'LeaseOverrun',
+      expr: `max(${fromTheLine('line_lease_overrun_seconds')}) > 300`,
+      ...health,
+      labels: { level: LEVELS.page, worker: WORKERS.line },
+      annotations: {
+        summary: 'A lease on the line has run out unreleased',
+        description:
+          'A work item has been held for more than five minutes past its lease: the worker that took it neither finished nor let it go, and no line has taken it back.',
+      },
+    },
+    {
+      alert: 'StoreDown',
+      expr: 'min(pg_up) == 0',
+      for: '1m',
+      keepFiringFor: KEEP_FIRING,
+      labels: { level: LEVELS.page },
+      annotations: {
+        summary: 'The store is not answering',
+        description:
+          'Postgres has not answered its exporter for a minute: the line, triage and the console cannot read or record anything.',
+      },
+    },
+    {
+      // A name of its own: the store may be up, and StoreDown mutes what follows from the store being down.
+      alert: 'StoreUnwatched',
+      expr: 'absent(pg_up)',
+      for: '5m',
+      keepFiringFor: KEEP_FIRING,
+      labels: { level: LEVELS.page },
+      annotations: {
+        summary: 'Nothing says whether the store answers',
+        description:
+          "Postgres's exporter has reported nothing for some minutes, so the store going down would not be told.",
+      },
+    },
+    {
+      alert: 'WorkerCrashLooping',
+      // Restarts counted, not the waiting reason: CrashLoopBackOff clears at each restart, so a `for` on it starts again
+      // each time, and holds only once the back-off outgrows it. Highest less lowest, as `increase` would extrapolate.
+      expr: `max by (pod, worker) (${byWorker(`max_over_time(${RESTARTS}[${CRASH_WINDOW}]) - min_over_time(${RESTARTS}[${CRASH_WINDOW}])`)}) >= ${CRASH_RESTARTS}`,
+      for: '0s',
+      keepFiringFor: KEEP_FIRING,
+      labels: { level: LEVELS.page },
+      annotations: {
+        summary: 'A worker is crash-looping',
+        description:
+          '{{ $labels.pod }} in factory has restarted three times in five minutes, and Kubernetes waits longer each time to start it again.',
+      },
+    },
+    {
+      alert: 'SpendCapReached',
+      // By profile too, so two profiles' figures, as a gateway restarted under another would leave for a while, never mix.
+      expr: `max by (cap, profile) (${fromTheGateway('gateway_cap_spent_usd', 'cap=~"day|month"')}) >= on (cap, profile) (min by (cap, profile) (${fromTheGateway('gateway_cap_limit_usd', 'cap=~"day|month"')}) >= 0)`,
+      for: '0s',
+      labels: { level: LEVELS.page },
+      annotations: {
+        summary: "The {{ $labels.cap }}'s spend cap is reached",
+        description:
+          'The gateway refuses every model call until the cap clears, when its window ends or you raise it in the console, and the line starts no step meanwhile.',
+      },
+    },
+    {
+      alert: 'ReleaseRolledBack',
+      expr: releases([RELEASE_ENDINGS['release.rolled-back']]),
+      for: '0s',
+      labels: { level: LEVELS.notify },
+      annotations: {
+        summary: 'A release rolled back',
+        description:
+          "The canary's analysis failed it, and the stable version serves every visitor again. Its work items wait for the next deploy.",
+      },
+    },
+    {
+      alert: 'ReleaseRolledBack',
+      expr: releases([RELEASE_ENDINGS['release.aborted']]),
+      for: '0s',
+      labels: { level: LEVELS.notify },
+      annotations: {
+        summary: 'A release was aborted',
+        description:
+          'Its canary was stopped, by Stop the line or by hand, and the stable version serves every visitor again. Its work items wait for your retry.',
+      },
+    },
+    {
+      alert: 'ReleaseErrored',
+      expr: releases([RELEASE_ENDINGS['release.errored']]),
+      for: '0s',
+      labels: { level: LEVELS.notify },
+      annotations: {
+        summary: 'A release ended in error',
+        description:
+          "The canary's analysis could not judge it, so it was stopped: the stable version still serves every visitor, and its work items wait for your retry.",
+      },
+    },
+    argo(
+      'ArgoCDDegraded',
+      'health_status',
+      'Degraded',
+      'Argo CD: {{ $labels.name }} is degraded',
+      `It has been Degraded for ${ARGO_CD_MINUTES} minutes: something it deploys is not healthy.`,
+    ),
+    argo(
+      'ArgoCDOutOfSync',
+      'sync_status',
+      'OutOfSync',
+      'Argo CD: {{ $labels.name }} is out of sync',
+      `For ${ARGO_CD_MINUTES} minutes what runs has not been what main says.`,
+    ),
   ];
 }
 
@@ -655,7 +909,7 @@ export function render(o: Objectives, stuck = STUCK): string {
       .map(
         (rule) => `          - alert: ${rule.alert}
             expr: ${JSON.stringify(rule.expr)}
-            for: ${rule.for}
+            for: ${rule.for}${rule.keepFiringFor ? `\n            keep_firing_for: ${rule.keepFiringFor}` : ''}
             labels:
 ${map(rule.labels, '              ')}
             annotations:
@@ -684,6 +938,9 @@ ${alerts(martinRules())}
       - name: flags
         rules:
 ${alerts(flagRules())}
+      - name: factory
+        rules:
+${alerts(factoryRules())}
   recording_rules.yml:
     groups:
       - name: routes

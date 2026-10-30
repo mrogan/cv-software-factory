@@ -513,6 +513,9 @@ expect "Traefik passes a visitor to the app" egress-traffic http://traefik.kube-
 expect "the probes reach the app" factory:egress-probes http://website.website/health "reached, HTTP 200"
 expect "the probes reach the canary, for its pictures" factory:egress-probes http://website-canary.website/health "reached, HTTP 200"
 expect "the crawler reaches the app" factory:egress-crawler http://website.website/health "reached, HTTP 200"
+expect "the probes reach the console, to ask whether it answers" factory:egress-probes http://console.factory/health \
+  "reached, HTTP 200"
+expect "the crawler cannot reach the console" factory:egress-crawler http://console.factory/health blocked
 # A pod beside the app that neither the app's policy nor the journeys' selects, as one the app's repository relabelled
 # would be: `website`'s default deny leaves it nothing, not even DNS.
 expect "a pod beside the app cannot look up a name" website:egress-stranger http://otel-collector.telemetry:4318 "no name"

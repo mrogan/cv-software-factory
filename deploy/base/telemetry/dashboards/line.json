@@ -355,7 +355,9 @@
           "noValue": "No work item left a stage in this range",
           "custom": { "align": "auto" }
         },
-        "overrides": []
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*" }, "properties": [{ "id": "noValue", "value": "—" }] }
+        ]
       }
     },
     {
@@ -899,7 +901,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max by (cap) (gateway_cap_spent_usd) / on (cap) max by (cap) (gateway_cap_limit_usd)",
+          "expr": "max by (cap) (gateway_cap_spent_usd) / on (cap) (max by (cap) (gateway_cap_limit_usd) >= 0)",
           "instant": true,
           "range": false,
           "legendFormat": "{{cap}}"
@@ -1183,6 +1185,7 @@
           "custom": { "align": "auto" }
         },
         "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*" }, "properties": [{ "id": "noValue", "value": "—" }] },
           {
             "matcher": { "id": "byRegexp", "options": "p95|Tokens in|Tokens out|Cache hits|Spend" },
             "properties": [{ "id": "noValue", "value": "—" }]
@@ -1449,7 +1452,12 @@
         }
       ],
       "options": { "showHeader": true, "cellHeight": "sm" },
-      "fieldConfig": { "defaults": { "noValue": "No steps in the last 24 hours" }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": { "noValue": "No steps in the last 24 hours" },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*" }, "properties": [{ "id": "noValue", "value": "—" }] }
+        ]
+      }
     },
     {
       "id": 29,

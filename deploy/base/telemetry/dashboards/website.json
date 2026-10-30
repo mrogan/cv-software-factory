@@ -527,6 +527,7 @@
       "fieldConfig": {
         "defaults": { "unit": "none", "noValue": "No requests in 15 minutes", "custom": { "align": "auto" } },
         "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*" }, "properties": [{ "id": "noValue", "value": "—" }] },
           {
             "matcher": { "id": "byName", "options": "Route" },
             "properties": [
@@ -1249,7 +1250,9 @@
       "options": { "showHeader": true, "cellHeight": "sm" },
       "fieldConfig": {
         "defaults": { "noValue": "No requests in the last hour", "custom": { "align": "auto" } },
-        "overrides": []
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*" }, "properties": [{ "id": "noValue", "value": "—" }] }
+        ]
       }
     }
   ]

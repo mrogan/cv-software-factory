@@ -2,8 +2,8 @@
 
 The app's objectives, and what Martin must hear about, watched by the standard tools. Part of the [runtime plane](README.md#runtime-plane).
 
-- **v1:** Prometheus's alerting rules, generated from policy, and Alertmanager, which sends the objectives' alerts to the intake and pages, notifies or informs Martin through Pushover.
-- **Later:** alerts on the factory's own health (a worker crash-looping, a lease stuck, the store down, Argo CD degraded), its releases and its spend (milestone 7, Part C), and its images' vulnerabilities (Part D); a dead man's switch and a check from outside, since alerts from inside a cluster stop with it (milestone 10).
+- **v1:** Prometheus's alerting rules, generated from policy, and Alertmanager, which sends the objectives' alerts to the intake and pages, notifies or informs Martin through Pushover, of his security events, the holds that wait for him, and the factory's health, releases and spend; and Grafana's Alerts dashboard, which shows every alert, whatever its level.
+- **Later:** alerts on the factory's images' vulnerabilities (milestone 7, Part D); a dead man's switch and a check from outside, since alerts from inside a cluster stop with it (milestone 10).
 
 ```mermaid
 flowchart LR
@@ -13,6 +13,7 @@ flowchart LR
   alertmanager -- "objective alerts: POST /v1/alerts" --> intake[Intake]
   intake -- metrics signal --> inbox[(Inbox)]
   alertmanager -- "level: page, notify or inform" --> pushover((Pushover)) --> phone[Martin's phone]
+  prometheus -- every alert, firing or pending --> grafana[Grafana's Alerts dashboard]
 ```
 
 ## The objectives
@@ -24,7 +25,7 @@ flowchart LR
 
 ## The rules
 
-`apps/factory/src/alerts/rules.ts` generates Prometheus's alerting rules from it, and the alerts to Martin ([security events](#security-events), [holds](#holds), [the flags the app holds](#the-flags-the-app-holds) and [the shop's pod](#the-shops-pod)), into `deploy/base/telemetry/values/prometheus-rules.yaml`, labelled with the route and the symptom class (`server-error`, `slow-response`). Each rule compares every route's error ratio or p95 over the window, once it has had enough requests, with the objective, by the same expression Prometheus records for dashboards ([recording rules](TELEMETRY.md#each-route-against-the-objectives)), and reads only the app's own series. `make check` fails when the file is out of date.
+`apps/factory/src/alerts/rules.ts` generates Prometheus's alerting rules from it, and the alerts to Martin ([security events](#security-events), [holds](#holds), [the flags the app holds](#the-flags-the-app-holds), [the shop's pod](#the-shops-pod), and [the factory's health, releases and spend](#the-factorys-health)), into `deploy/base/telemetry/values/prometheus-rules.yaml`, labelled with the route and the symptom class (`server-error`, `slow-response`). Each rule compares every route's error ratio or p95 over the window, once it has had enough requests, with the objective, by the same expression Prometheus records for dashboards ([recording rules](TELEMETRY.md#each-route-against-the-objectives)), and reads only the app's own series. `make check` fails when the file is out of date.
 
 ## Levels and routes
 
@@ -32,10 +33,10 @@ Each rule says how loudly it is told by a `level` label, and Alertmanager routes
 
 | Level | Label | Sent to | For |
 |---|---|---|---|
-| Page | `level: page` | Pushover, at high priority, which sounds through Martin's quiet hours | the security events that loosen a guardrail or change who can sign in, the security events' count missing or stale, a silence in place, a narrowing or Off of a flag the app has not taken within a minute |
-| Notify | `level: notify` | Pushover, at normal priority | each hold that waits for Martin, the shop's pod 25 days old, the security events that widen what the line does (an improvement asked for or its spec approved among them) or a feature flag, act on a release, change a setting or tighten autonomy, the app holding other flags than those set, or not checked, for more than five minutes |
+| Page | `level: page` | Pushover, at high priority, which sounds through Martin's quiet hours | the console or the app down, the probes silent, the line stuck, a lease run out unreleased, the store down, a worker crash-looping, a spend cap reached; the security events that loosen a guardrail or change who can sign in, the security events' count missing or stale, a silence in place, a narrowing or Off of a flag the app has not taken within a minute |
+| Notify | `level: notify` | Pushover, at normal priority | a release rolled back, aborted or in error, an Argo CD application Degraded or OutOfSync for half an hour, each hold that waits for Martin, the shop's pod 25 days old, the security events that widen what the line does (an improvement asked for or its spec approved among them) or a feature flag, act on a release, change a setting or tighten autonomy, the app holding other flags than those set, or not checked, for more than five minutes |
 | Inform | `level: inform` | Pushover, at low priority, with no sound or vibration | the security events that tighten, but for autonomy, or only record Martin's own use |
-| Dashboard only | none | no one: a receiver that sends nothing | everything else |
+| Dashboard only | none | no one: a receiver that sends nothing; [Grafana's Alerts dashboard](#seeing-them) shows it | everything else |
 
 - **The app's objective alerts carry no level,** and go to the intake, matched by their `objective` label: they are the senses' signals, not alerts to Martin. An alert with a level never reaches the intake, which would make a signal of it.
 - **Each message to Martin is one of its own,** never folded into another's, sent once when it fires and again every four hours while it still does, and not when it resolves.
@@ -46,7 +47,19 @@ Each rule says how loudly it is told by a `level` label, and Alertmanager routes
 
 ## Who reaches Alertmanager
 
+Prometheus names it by its Service (`server.alertmanagers` in its values), and sends it no service account's token: the chart's default would find any pod in `telemetry` labelled as Alertmanager through the Kubernetes API, and send each the token.
+
 Anything that reached it could make a silence, and a silence keeps a page from Martin's phone. So its [fence](NETWORK-POLICIES.md#telemetry) lets in only Prometheus's server, which sends it alerts and scrapes its metrics, and Grafana. It reaches only DNS, the intake and the internet on 443, for Pushover. With one replica it has no peers, and listens on no gossip port.
+
+## Seeing them
+
+Grafana's Alerts dashboard ([`dashboards/alerts.json`](../../deploy/base/telemetry/dashboards/alerts.json)), linked from every dashboard's Dashboards row, shows every alert Prometheus has, firing or pending, whatever its level, from Prometheus's own `ALERTS` series:
+
+- **Now:** how many fire at each level (Page, Notify, Inform, Dashboard only), and how many are pending;
+- **Every alert now:** its name, state and level, then its labels, the app's objective alerts among them;
+- **Over the range:** when each was pending and when it fired.
+
+An alert Alertmanager [mutes](#one-cause-one-page) is still there: the dashboard shows what fired, and Alertmanager decides what reaches the phone.
 
 ## The intake
 
@@ -142,3 +155,51 @@ The node's container logs may hold a visitor's report, and they go only with the
 - **It is sent every four hours** while it fires, as every notification is, until a new pod replaces the old one.
 - **It takes the oldest start of any series** for a pod, so another series by that name can only tell Martin sooner, never later.
 - **It says nothing while kube-state-metrics is down,** as nothing else watches it.
+
+## The factory's health
+
+Martin is paged when the factory is unhealthy or its spend runs out, and notified when a release goes wrong or Argo CD cannot deploy, by one group of rules (`factoryRules` in `apps/factory/src/alerts/rules.ts`):
+
+| Alert | Level | Fires when | Read from |
+|---|---|---|---|
+| `ConsoleDown` | Page | an address of the console has answered none of the probes' checks for two minutes, and failed some, for a minute more | [the probes' checks](PROBES-AND-CRAWLER.md#who-answers), `probes_checks_total` |
+| `AppDown` | Page | the same, of an address of the app | the same |
+| `ProbesDown` | Page | the probes have counted no check for five minutes, or sent nothing for as long as Prometheus looks back (five minutes), for two minutes more: neither alert above could fire | the same |
+| `LineStuck` | Page | a work item the line is carrying has stood at a stage past its limit in force | `line_taken_oldest_seconds` against `line_taken_limit_seconds` ([the line's metrics](TELEMETRY.md#the-lines-metrics)) |
+| `LeaseOverrun` | Page | a work item's lease has run out more than five minutes ago and nobody has let it go or taken it back | `line_lease_overrun_seconds` |
+| `StoreDown` | Page | Postgres has not answered its exporter for a minute | `pg_up`, from the [Postgres exporter](TELEMETRY.md#the-clusters-state-and-postgres) |
+| `StoreUnwatched` | Page | the exporter has said nothing for five minutes, so the store going down would not be told: a name of its own, as the store may be up, and `StoreDown` mutes what follows from it | the same |
+| `WorkerCrashLooping` | Page | a pod in `factory` has restarted three times in five minutes: a crash loop is told within two or three minutes of its first crash, as Kubernetes backs off 10, 20 and 40 seconds | `kube_pod_container_status_restarts_total`, from kube-state-metrics, its highest less its lowest over the five minutes; a pod a ReplicaSet owns (`kube_pod_owner`) is named by its Deployment as `worker` |
+| `SpendCapReached` | Page | the day's or the month's spend has reached its cap, and the gateway refuses every model call | `gateway_cap_spent_usd` against `gateway_cap_limit_usd` ([the gateway's metrics](TELEMETRY.md#the-gateways-metrics)), which the gateway counts again after each paid call and once a minute |
+| `ReleaseRolledBack` | Notify | a release ended rolled back, or aborted (each in words of its own) | `line_releases_total` |
+| `ReleaseErrored` | Notify | a release ended in error: the canary's analysis could not judge it | the same |
+| `ArgoCDDegraded` | Notify | an Argo CD application has been Degraded for half an hour | `argocd_app_info` |
+| `ArgoCDOutOfSync` | Notify | an Argo CD application has been OutOfSync for half an hour | the same |
+
+- **"Stuck" is the line not moving a work item it should be moving.** The line says what it is carrying: only the work items it has taken, none while it is stopped, none but the one under Just one, and none at Plan, Build or Review, where only a step moves a work item on, while the day's or month's cap is reached or agents take no new work; gates, Release and Verify go on under a cap and are still watched. The time the line was told to stand does not count: a work item's time runs from the line's last start, and at a step's stage from the last cap cleared or change of Martin's controls, so a line started again does not page for the hours it stood. Its limits are `policy/stuck.ts`'s ([the stuck limits](TELEMETRY.md#the-lines-stuck-limits)), four times longer at a stage whose agents run on the local model (`LOCAL_MODEL_PACE`), as `ALL_LOCAL` sends every agent. So a line told to stop, a cap, a night on Qwen or a ticket the line has not taken never pages. The line works this out, not the rule, which would otherwise repeat the line's own logic. A provider's own cap (credit spent, the local model not running) does page, after the limit: it needs Martin.
+- **A cause that comes and goes pages once.** Every health alert, and Argo CD's, goes on firing for ten minutes after its cause has gone (`keep_firing_for`), so a flapping console or a worker that restarts and crashes again is one message, not one each time it returns. Not the security events, each one event, nor the spend cap, nor a release's end, each one occasion.
+- **Crash loops are counted by restarts,** not by the waiting reason: `CrashLoopBackOff` clears each time the container starts again, so a rule that waited on it would start its wait again at every restart, and fire only once the back-off had grown longer than the wait, minutes later. One restart, or a rollout's new pod, is no loop.
+- **A cap reached and lifted within a minute may page no one.** The gateway's figures are what it last counted (`gateway/spend.ts`), after each paid call and once a minute, and Prometheus evaluates once a minute: a cap raised again at once, or a window that ends just after it is reached, can come and go between. The line's `spend.capped` and `spend.cleared` record it all the same, and the gateway's refusals are counted (`gateway_cap_refusals_total`).
+- **Half an hour for Argo CD,** on every profile: a sync, a rollout or a `try-the-line` run that pauses `root` passes through Degraded or OutOfSync for minutes, and only one that stays needs Martin.
+- **A dry run's release is not counted:** it never shipped. Only a real release that ends badly notifies.
+- **Each reads only its sender's own series,** the line's, the probes' and the gateway's, by what the collector stamps on them ([telemetry](TELEMETRY.md#which-series-are-the-lines)), so no other worker can page Martin through them, or answer for a console that is down. What Prometheus scrapes from an exporter is taken so that another series by its name could only page him more, never less: the lowest `pg_up`, the highest of the rest. And the collector drops any metric sent over OTLP in those exporters' families (`pg`, `kube`, `argocd`), since `StoreDown` and `WorkerCrashLooping` mute other pages while they fire: a worker that sent a `pg_up` at 0, or restarts of a pod it named, would otherwise page once, and keep the real pages quiet behind it, a silence on the decoy included.
+- **The addresses are the profile's** (HEALTH_CHECKS on the probes' Deployment): each Service, from inside the cluster, on every profile; a public profile adds its public addresses (milestone 10), each checked and alerted on by itself, by its origin and path.
+- **Proved by Prometheus's own rule tester:** `apps/factory/test/factory-alerts.test.ts`, as for the flags' alerts, for each alert's when and when not, and another worker's series never firing one.
+
+## One cause, one page
+
+Alertmanager mutes what follows from a cause while the cause fires (`inhibit_rules` in Prometheus's values), so Martin is paged once, for the cause. Prometheus still has every alert, and the [Alerts dashboard](#seeing-them) shows them all.
+
+| While this fires | These are muted | Because |
+|---|---|---|
+| `StoreDown` | `LineStuck`, `LeaseOverrun`, `WorkerCrashLooping`, `SecurityEventsUncounted` | Without the store the line can neither move work nor let go of a lease, a worker that needs it crash-loops, and the line cannot count the security events |
+| `StoreDown` | `ArgoCDDegraded` of `root` | `root` holds the store and the workers |
+| `SpendCapReached` | `LineStuck` | The line starts no step until the cap clears; it already reports nothing while it does |
+| `WorkerCrashLooping` | whatever is said of that worker, by its `worker` label: `LineStuck`, `LeaseOverrun` and `SecurityEventsUncounted` of the line, `ConsoleDown` of the console, `ProbesDown` of the probes, `FlagsUnchecked` of the admin service | The crash loop is the cause, and its page names the pod |
+| `WorkerCrashLooping` | `ArgoCDDegraded` of `root` | A crash-looping pod makes `root` Degraded |
+
+- **`ProbesDown` mutes nothing:** `ConsoleDown` and `AppDown` cannot fire without the probes' checks, so there is nothing to mute.
+- **Nothing mutes a security event,** a silence, a hold or the shop's pod: each is its own occasion. A crash loop never mutes another.
+- **Martin's own causes are not inhibitions:** the line told to stop, a cap or the local model's pace are left out where the line reports what it carries, so nothing fires.
+- **Held to it by a test** (`apps/factory/test/alertmanager.test.ts`), which mutes as Alertmanager does, from the values as written, and checks every alert a rule names is one the rules raise.
+

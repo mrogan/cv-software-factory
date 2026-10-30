@@ -224,6 +224,7 @@ serverFiles:
             for: 5m
             labels:
               level: "page"
+              worker: "line"
             annotations:
               summary: "Security events are not being counted"
               description: "The line has not counted sign-ins and the rest for some minutes, so none of them would reach you."
@@ -426,6 +427,7 @@ serverFiles:
             for: 0s
             labels:
               level: "notify"
+              worker: "admin"
             annotations:
               summary: "The flags the app holds are not being checked"
               description: "For more than 5 minutes the admin service has not been able to ask every pod of the app which flags it holds, so a change of a flag that did not reach the app would not be told."
@@ -434,9 +436,138 @@ serverFiles:
             for: 0s
             labels:
               level: "notify"
+              worker: "admin"
             annotations:
               summary: "The flags the app holds are not being checked"
               description: "For more than 5 minutes the admin service has not been able to ask every pod of the app which flags it holds, so a change of a flag that did not reach the app would not be told."
+      - name: factory
+        rules:
+          - alert: ConsoleDown
+            expr: "max by (address) (increase(probes_checks_total{target=\"console\", outcome=\"answered\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"probes\"}[2m])) == 0 and on (address) max by (address) (increase(probes_checks_total{target=\"console\", outcome=\"failed\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"probes\"}[2m])) > 0 and on (address) max by (address) (count_over_time(probes_checks_total{target=\"console\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"probes\"}[1m])) > 0"
+            for: 1m
+            keep_firing_for: 10m
+            labels:
+              level: "page"
+              worker: "console"
+            annotations:
+              summary: "The console is not answering"
+              description: "For two minutes the probes have had no answer from the console at {{ $labels.address }}: you cannot see or steer the factory there."
+          - alert: AppDown
+            expr: "max by (address) (increase(probes_checks_total{target=\"app\", outcome=\"answered\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"probes\"}[2m])) == 0 and on (address) max by (address) (increase(probes_checks_total{target=\"app\", outcome=\"failed\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"probes\"}[2m])) > 0 and on (address) max by (address) (count_over_time(probes_checks_total{target=\"app\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"probes\"}[1m])) > 0"
+            for: 1m
+            keep_firing_for: 10m
+            labels:
+              level: "page"
+            annotations:
+              summary: "The app is not answering"
+              description: "For two minutes the probes have had no answer from the app at {{ $labels.address }}: visitors see nothing."
+          - alert: ProbesDown
+            expr: "sum(increase(probes_checks_total{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"probes\"}[5m])) == 0 or absent(probes_checks_total{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"probes\"})"
+            for: 2m
+            keep_firing_for: 10m
+            labels:
+              level: "page"
+              worker: "probes"
+            annotations:
+              summary: "The probes have stopped checking"
+              description: "The probes have said nothing for some minutes of whether the console and the app answer, so neither going down would reach you."
+          - alert: LineStuck
+            expr: "max by (stage) (line_taken_oldest_seconds{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}) > on (stage) max by (stage) (line_taken_limit_seconds{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"})"
+            for: 0s
+            keep_firing_for: 10m
+            labels:
+              level: "page"
+              worker: "line"
+            annotations:
+              summary: "The line is stuck at {{ $labels.stage }}"
+              description: "A work item the line is carrying has stood at {{ $labels.stage }} longer than its limit: a step, a release or a look that should have ended has not. The line's dashboard shows which."
+          - alert: LeaseOverrun
+            expr: "max(line_lease_overrun_seconds{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}) > 300"
+            for: 0s
+            keep_firing_for: 10m
+            labels:
+              level: "page"
+              worker: "line"
+            annotations:
+              summary: "A lease on the line has run out unreleased"
+              description: "A work item has been held for more than five minutes past its lease: the worker that took it neither finished nor let it go, and no line has taken it back."
+          - alert: StoreDown
+            expr: "min(pg_up) == 0"
+            for: 1m
+            keep_firing_for: 10m
+            labels:
+              level: "page"
+            annotations:
+              summary: "The store is not answering"
+              description: "Postgres has not answered its exporter for a minute: the line, triage and the console cannot read or record anything."
+          - alert: StoreUnwatched
+            expr: "absent(pg_up)"
+            for: 5m
+            keep_firing_for: 10m
+            labels:
+              level: "page"
+            annotations:
+              summary: "Nothing says whether the store answers"
+              description: "Postgres's exporter has reported nothing for some minutes, so the store going down would not be told."
+          - alert: WorkerCrashLooping
+            expr: "max by (pod, worker) (label_replace((max_over_time(kube_pod_container_status_restarts_total{namespace=\"factory\"}[5m]) - min_over_time(kube_pod_container_status_restarts_total{namespace=\"factory\"}[5m])) and on (namespace, pod) group by (namespace, pod) (kube_pod_owner{namespace=\"factory\", owner_kind=\"ReplicaSet\"}), \"worker\", \"$1\", \"pod\", \"(.+)-[a-z0-9]{5,10}-[a-z0-9]{5}\") or ((max_over_time(kube_pod_container_status_restarts_total{namespace=\"factory\"}[5m]) - min_over_time(kube_pod_container_status_restarts_total{namespace=\"factory\"}[5m])) unless on (namespace, pod) group by (namespace, pod) (kube_pod_owner{namespace=\"factory\", owner_kind=\"ReplicaSet\"}))) >= 3"
+            for: 0s
+            keep_firing_for: 10m
+            labels:
+              level: "page"
+            annotations:
+              summary: "A worker is crash-looping"
+              description: "{{ $labels.pod }} in factory has restarted three times in five minutes, and Kubernetes waits longer each time to start it again."
+          - alert: SpendCapReached
+            expr: "max by (cap, profile) (gateway_cap_spent_usd{cap=~\"day|month\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"gateway\"}) >= on (cap, profile) (min by (cap, profile) (gateway_cap_limit_usd{cap=~\"day|month\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"gateway\"}) >= 0)"
+            for: 0s
+            labels:
+              level: "page"
+            annotations:
+              summary: "The {{ $labels.cap }}'s spend cap is reached"
+              description: "The gateway refuses every model call until the cap clears, when its window ends or you raise it in the console, and the line starts no step meanwhile."
+          - alert: ReleaseRolledBack
+            expr: "max by (outcome) (increase(line_releases_total{outcome=~\"rolled-back\", dry_run=\"false\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "notify"
+            annotations:
+              summary: "A release rolled back"
+              description: "The canary's analysis failed it, and the stable version serves every visitor again. Its work items wait for the next deploy."
+          - alert: ReleaseRolledBack
+            expr: "max by (outcome) (increase(line_releases_total{outcome=~\"aborted\", dry_run=\"false\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "notify"
+            annotations:
+              summary: "A release was aborted"
+              description: "Its canary was stopped, by Stop the line or by hand, and the stable version serves every visitor again. Its work items wait for your retry."
+          - alert: ReleaseErrored
+            expr: "max by (outcome) (increase(line_releases_total{outcome=~\"errored\", dry_run=\"false\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "notify"
+            annotations:
+              summary: "A release ended in error"
+              description: "The canary's analysis could not judge it, so it was stopped: the stable version still serves every visitor, and its work items wait for your retry."
+          - alert: ArgoCDDegraded
+            expr: "max by (name) (argocd_app_info{health_status=\"Degraded\"}) == 1"
+            for: 30m
+            keep_firing_for: 10m
+            labels:
+              level: "notify"
+            annotations:
+              summary: "Argo CD: {{ $labels.name }} is degraded"
+              description: "It has been Degraded for 30 minutes: something it deploys is not healthy."
+          - alert: ArgoCDOutOfSync
+            expr: "max by (name) (argocd_app_info{sync_status=\"OutOfSync\"}) == 1"
+            for: 30m
+            keep_firing_for: 10m
+            labels:
+              level: "notify"
+            annotations:
+              summary: "Argo CD: {{ $labels.name }} is out of sync"
+              description: "For 30 minutes what runs has not been what main says."
   recording_rules.yml:
     groups:
       - name: routes

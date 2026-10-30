@@ -157,7 +157,8 @@ spec:
       ports:
         - { protocol: TCP, port: 5432 }
 ---
-# The console reads the store and sends telemetry, and is reached through the ingress controller.
+# The console reads the store and sends telemetry, and is reached through the ingress controller, and by the probes,
+# which ask whether it answers.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -177,6 +178,9 @@ spec:
           podSelector:
             matchLabels:
               app.kubernetes.io/name: traefik
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: probes
       ports:
         - { protocol: TCP, port: 8080 }
   egress:
@@ -424,9 +428,9 @@ spec:
         - { protocol: TCP, port: 3100 }
         - { protocol: TCP, port: 3200 }
 ---
-# The probes look at the app; triage may call their page reader, and the line their verification, which runs a ticket's
-# check again after a release, on a port of its own: the line may not have the reader show it the app's pages. The
-# crawler looks at the app.
+# The probes look at the app, and ask the console whether it answers; triage may call their page reader, and the line
+# their verification, which runs a ticket's check again after a release, on a port of its own: the line may not have the
+# reader show it the app's pages. The crawler looks at the app.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -456,6 +460,12 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: website
+      ports:
+        - { protocol: TCP, port: 8080 }
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: console
       ports:
         - { protocol: TCP, port: 8080 }
 ---

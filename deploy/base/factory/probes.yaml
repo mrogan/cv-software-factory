@@ -75,6 +75,11 @@ spec:
               value: http://website-canary.website
             - name: ARTIFACTS_DIR
               value: /var/lib/factory/artifacts
+            # Whose answers it counts every fifteen seconds, for the alerts that the console or the app is down
+            # (docs/COMPONENTS/ALERTING.md): each Service, from inside the cluster, which every profile has. A public
+            # profile adds its public addresses beside them in its overlay (milestone 10), each checked on its own.
+            - name: HEALTH_CHECKS
+              value: console=http://console/health app=http://website.website/health
           readinessProbe:
             httpGet:
               path: /health
