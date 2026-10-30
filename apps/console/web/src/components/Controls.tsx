@@ -159,7 +159,7 @@ function useChange(admin: Admin) {
       cancelled = !(await stepUp.ask(asked));
       return !cancelled;
     };
-    const path = 'phone' in body ? '/admin/alerts/phone' : '/admin/line/controls';
+    const path = where === 'alerts' ? '/admin/alerts/phone' : '/admin/line/controls';
     const got = await write(path, body, admin.session.token, ask);
     setBusy(false);
     // Cancelled at the passkey: nothing changed, and nothing to say.

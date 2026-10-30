@@ -592,6 +592,10 @@ describe('the alert that alerts do not reach the phone', () => {
         never([adminSays(each(0, 0))]),
         never([lineSays(each(0, 0))]),
         never([adminSays(each(0, '_', '_', '_', '_', '_', '_')), lineSays(each(0, 0, 0, 0, 0, 0, 0))], '6m'),
+        // A worker gone stops counting within the minute, not the five Prometheus looks back: its pushes leave no
+        // stale marker.
+        never([adminSays(each(0, '_', '_', '_')), lineSays(each(0, 0, 0, 0))], '2m'),
+        never([adminSays(each(0, 0, 0, 0)), lineSays(each(0, '_', '_', '_'))], '2m'),
         never([]),
         // Any replica that says on is enough.
         never([adminSays(each(0, 0)), adminSays(each(1, 1), 'admin-2'), lineSays(each(0, 0))]),

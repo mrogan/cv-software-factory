@@ -446,6 +446,9 @@ export function flagRules(): Rule[] {
 export const PHONE = fromTheAdminService('admin_alerts_phone');
 export const LINE_PHONE = fromTheLine('line_alerts_phone');
 
+/** How recent a worker's word that alerts are off must be for `PhoneOff` to take it. */
+const PHONE_FRESH = '1m';
+
 /** The alert that mutes every alert with a level in Alertmanager while it fires. */
 export const PHONE_OFF = 'PhoneOff';
 
@@ -514,7 +517,9 @@ export function martinRules(): Rule[] {
       // admin service and the line say off: neither alone can keep alerts from Martin, and with either's series
       // missing (down, or not yet scraped) it cannot fire, and every alert reaches the phone.
       alert: PHONE_OFF,
-      expr: `max(${PHONE}) == 0 and on () max(${LINE_PHONE}) == 0`,
+      // Each from a sample in the last minute (four of the workers' exports): pushed metrics leave no stale marker, so a
+      // worker gone would otherwise go on saying off for the five minutes Prometheus looks back.
+      expr: `max(last_over_time(${PHONE}[${PHONE_FRESH}])) == 0 and on () max(last_over_time(${LINE_PHONE}[${PHONE_FRESH}])) == 0`,
       for: '0s',
       labels: {},
       annotations: {
