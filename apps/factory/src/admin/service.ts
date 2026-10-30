@@ -10,6 +10,7 @@ import { createAdminApp } from './app.ts';
 import type { AdminConfig } from './config.ts';
 import { FlagStages } from './flags.ts';
 import { FlagsHeld, observeHeld } from './flags-held.ts';
+import { observePhone } from './phone.ts';
 import { ReleaseControls } from './rollout.ts';
 import { AdminStore } from './store.ts';
 import { FullEvents, RECHECK_MS } from './stream.ts';
@@ -92,6 +93,7 @@ export async function startAdmin(
   if (held && given === undefined) await narrowedBefore(sql, held);
   held?.start();
   const unobserve = held && observeHeld(held);
+  const unobservePhone = observePhone(sql, config.profile, log);
   const bound = (server.address() as AddressInfo).port;
   log.info(
     {
@@ -108,6 +110,7 @@ export async function startAdmin(
 
   const stop = async () => {
     unobserve?.();
+    unobservePhone();
     await held?.stop();
     await events.stop();
     await new Promise<void>((resolve) => {

@@ -22,6 +22,7 @@ import {
   FLAG_STEP_UP,
   IMPROVEMENT_STEP_UP,
   LINE_STEP_UP,
+  PHONE_STEP_UP,
   SESSION_MINUTES,
 } from '../web/src/access.ts';
 
@@ -37,6 +38,7 @@ const SPEC_STEP_UP: Record<string, Name[]> = {
   'raising a cap or a setting that raises spend': ['caps.raise', 'agent.raise', 'take.widen'],
   'loosening autonomy': ['autonomy.loosen'],
   'turning auto-merge on or auto-rollback off': ['auto-merge.on', 'auto-rollback.off'],
+  'switching alerts to his phone off': ['phone.off'],
   'starting the line': ['line.start'],
   'promoting a canary or retrying a stopped release': ['release.promote', 'release.retry'],
   "widening a flag's stage": ['flag.widen', 'flag.back-on'],
@@ -72,7 +74,7 @@ describe('the access table', () => {
   });
 
   it('is copied into the console where it marks the line’s controls with the key', () => {
-    const copies = { ...LINE_STEP_UP, ...CONTROL_STEP_UP, ...FLAG_STEP_UP, ...IMPROVEMENT_STEP_UP };
+    const copies = { ...LINE_STEP_UP, ...CONTROL_STEP_UP, ...PHONE_STEP_UP, ...FLAG_STEP_UP, ...IMPROVEMENT_STEP_UP };
     for (const [name, asks] of Object.entries(copies)) {
       expect(ACCESS[name as Name]?.stepUp, name).toBe(asks);
     }
@@ -82,6 +84,9 @@ describe('the access table', () => {
     // Every move of a flag's stage the table names, but the one route that is each of them.
     const moves = Object.keys(ACCESS).filter((name) => name.startsWith('flag.') && name !== 'flag.stage');
     expect(Object.keys(FLAG_STEP_UP).sort()).toEqual(moves.sort());
+    // Both ways of the switch of alerts to the phone, but the one route that is each of them.
+    const switches = Object.keys(ACCESS).filter((name) => name.startsWith('phone.') && name !== 'phone.switch');
+    expect(Object.keys(PHONE_STEP_UP).sort()).toEqual(switches.sort());
   });
 
   it('holds the plan’s figures: 30 minutes a session with no idle timeout, five minutes a passkey given again', () => {

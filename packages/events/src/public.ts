@@ -137,6 +137,8 @@ export const PUBLIC_VIEWS = {
   'settings.changed': redacted,
   // His controls of the line are everyone's to see too, as Controls shows them to visitors.
   'controls.changed': redacted,
+  // So is whether alerts reach his phone, as Controls shows it to visitors.
+  'alerts.switched': redacted,
   // His stages of the flags are everyone's to see, as Controls shows them to visitors, with his reason through the
   // redactor; Verify's comparisons are figures alone, and its checks the probes' own words about the app's pages.
   'flag.staged': redacted,

@@ -23,7 +23,8 @@
  *   `new-work-on` and `new-work-off`, `auto-merge-on` and `auto-merge-off`, `take-widened` and `take-narrowed`;
  * - every move of a feature flag's stage (`flag.staged`), as the access table's action it is, told from the stored
  *   stages before and after alone (`policy/flag-moves.ts`): `flag-widened` for every widening (Off to Checks, past it,
- *   a larger share, and turning a flag back on for everyone), `flag-narrowed`, and `flag-off`.
+ *   a larger share, and turning a flag back on for everyone), `flag-narrowed`, and `flag-off`;
+ * - every switch of alerts to the phone (`alerts.switched`), by whether they reach it now: `phone-on` and `phone-off`.
  *
  * And every hold started, by its cause, whoever started it.
  *
@@ -71,6 +72,8 @@ export const SECURITY_KINDS = [
   'flag-off',
   'improvement-requested',
   'improvement-approved',
+  'phone-on',
+  'phone-off',
 ] as const;
 export type SecurityKind = (typeof SECURITY_KINDS)[number];
 
@@ -93,6 +96,7 @@ const TYPES = [
   'controls.changed',
   'flag.staged',
   'improvement.requested',
+  'alerts.switched',
   'hold.started',
 ] as const;
 
@@ -111,6 +115,8 @@ export interface Stored {
   staged?: unknown;
   /** For an answer, whether its work item was opened as an improvement. */
   improvement?: boolean | null;
+  /** A switch of alerts to the phone: whether they reach it now. */
+  phone?: unknown;
 }
 
 /** The kind each move of a flag's stage counts as, by the access table's action it is. */
@@ -187,6 +193,8 @@ export function countAs(event: Stored): { kind: SecurityKind } | { hold: HoldCau
       return STEPPED_UP_CONTROLS.includes(event.action as ReleaseControl) ? { kind: 'release-control' } : null;
     case 'improvement.requested':
       return { kind: 'improvement-requested' };
+    case 'alerts.switched':
+      return typeof event.phone === 'boolean' ? { kind: event.phone ? 'phone-on' : 'phone-off' } : null;
     case 'hold.answered':
       if (event.decision !== 'approved') return null;
       if ((GUARDRAIL_HOLDS as readonly string[]).includes(event.cause ?? '')) return { kind: 'guardrail-approved' };
@@ -227,13 +235,14 @@ export async function readOn(sql: Sql, tally: Tally): Promise<Tally> {
       change: unknown;
       staged: unknown;
       improvement: boolean | null;
+      phone: unknown;
       hold_version: number | null;
       hold_payload: Record<string, unknown> | null;
     }[]
   >`
     with upto as (select max(seq) as last from events)
     select upto.last::text as last, e.type, e.payload->>'action' as action, e.payload->>'decision' as decision,
-           e.payload->'change' as change,
+           e.payload->'change' as change, e.payload->'phone' as phone,
            case when e.type = 'flag.staged' then jsonb_build_object('from', e.payload->'from', 'to', e.payload->'to')
            end as staged,
            case when e.type = 'hold.answered' then ${openedAsImprovement(sql, 'e.work_item')} end as improvement,
@@ -258,6 +267,7 @@ export async function readOn(sql: Sql, tally: Tally): Promise<Tally> {
       change: row.change,
       staged: row.staged,
       improvement: row.improvement,
+      phone: row.phone,
       cause: causeOf(row),
     });
     if (counted && 'kind' in counted) next.kinds[counted.kind] += 1;

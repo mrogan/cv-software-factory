@@ -106,6 +106,9 @@ describe('the count of Martin’s security events', () => {
     await append(admin, 'flag.staged', { from: { stage: 'preview' }, to: { stage: 'off' } });
     await append(admin, 'flag.staged', { from: { stage: 'everyone' }, to: { stage: 'everyone' } });
     await append(admin, 'improvement.requested', { words: 'Delivery dates.', steppedUp: true }, 'WI-10');
+    await append(admin, 'alerts.switched', { phone: true });
+    await append(admin, 'alerts.switched', { phone: false });
+    await append(admin, 'alerts.switched', { phone: true });
     await append(database.as.line, 'model.called', {});
 
     const tally = await readOn(database.as.line, emptyTally());
@@ -131,6 +134,8 @@ describe('the count of Martin’s security events', () => {
       'flag-off': 1,
       'improvement-requested': 1,
       'improvement-approved': 0,
+      'phone-on': 2,
+      'phone-off': 1,
     });
   });
 
@@ -279,6 +284,7 @@ describe('what counts as a security event', () => {
       'flag.back-on': 'flag-widened',
       'improvement.request': 'improvement-requested',
       'hold.approve-improvement-spec': 'improvement-approved',
+      'phone.off': 'phone-off',
     };
     const marked = Object.entries(ACCESS as Record<string, { stepUp: boolean }>)
       .filter(([, access]) => access.stepUp)
@@ -289,6 +295,13 @@ describe('what counts as a security event', () => {
     for (const kind of Object.values(counted).filter((kind) => kind !== 'no event yet')) {
       expect(SECURITY_KINDS).toContain(kind);
     }
+  });
+
+  it('counts every switch of alerts to the phone by whether they reach it now, and nothing it cannot read', () => {
+    expect(countAs({ type: 'alerts.switched', phone: true })).toEqual({ kind: 'phone-on' });
+    expect(countAs({ type: 'alerts.switched', phone: false })).toEqual({ kind: 'phone-off' });
+    expect(countAs({ type: 'alerts.switched', phone: 'off' })).toBeNull();
+    expect(countAs({ type: 'alerts.switched' })).toBeNull();
   });
 
   it('counts every move of a flag’s stage, as the action it is, from its stages alone', () => {

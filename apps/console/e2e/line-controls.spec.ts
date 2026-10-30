@@ -9,7 +9,7 @@
  * tightens autonomy at once, loosens it with the passkey again, turns agents' new work off and on, widens and narrows
  * what the line takes, and a take the service refuses says why under it. Nothing under Autonomy moves as the level
  * changes, on a phone or a desktop, in Controls or in the settings, which draw the same controls: a change made in
- * one shows in the other. Snapshots are `visual.spec.ts`'s, and axe's look is `quality.spec.ts`'s. Needs Postgres:
+ * one shows in the other. He sends alerts to his phone, and stops them with his passkey again. Snapshots are `visual.spec.ts`'s, and axe's look is `quality.spec.ts`'s. Needs Postgres:
  * TEST_DATABASE_URL, or Docker.
  */
 import { randomUUID } from 'node:crypto';
@@ -109,6 +109,8 @@ test('a visitor sees every control read-only, and no Stop or Start', async ({ pa
   await expect(panel.getByRole('switch', { name: /Agents take new work/ })).toBeChecked();
   await expect(panel.getByRole('switch', { name: /Auto-merge/ })).not.toBeChecked();
   await expect(panel.getByRole('switch', { name: /Auto-rollback/ })).toBeChecked();
+  // Off by default on the laptop's profile, the harness's.
+  await expect(panel.getByRole('switch', { name: /Alerts to Martin’s phone/ })).not.toBeChecked();
   const take = panel.getByRole('group', { name: 'What the line takes' });
   await expect(take.getByRole('button', { name: 'The next few' })).toHaveAttribute('aria-pressed', 'true');
   await expect(panel).toContainText('The next 5 work items from');
@@ -310,5 +312,39 @@ test('Martin tightens and loosens autonomy, turns a switch, and widens and narro
       { control: 'new-work', before: true, after: false },
       { control: 'new-work', before: false, after: true },
     ]);
+  });
+});
+
+test('Martin sends alerts to his phone, and stops them with his passkey again', async ({ page }) => {
+  // Two passkeys at most: the tests before enrolled theirs.
+  await harness.database.owner`update passkeys set revoked_at = now() where revoked_at is null`;
+  await virtualPasskey(page);
+  await enrolThroughTheDoor(page, await harness.code());
+  // The enrolment page stays where it is once the passkey is made: Controls is on the console's.
+  await page.goto('/?motion=off');
+  const phone = controls(page).getByRole('switch', { name: /Alerts to my phone/ });
+  await expect(phone).not.toBeChecked();
+  const switched = async () => (await stored<{ phone: boolean }>('alerts.switched')).map((e) => e.payload.phone);
+
+  await test.step('on asks for nothing', async () => {
+    await phone.click();
+    await expect(phone).toBeChecked();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    expect(await switched()).toEqual([true]);
+  });
+
+  await test.step('off asks for the passkey again, and says the dashboard still shows them', async () => {
+    await expect(
+      controls(page).getByRole('switch', { name: /Alerts to my phone \(asks for your passkey\)/ }),
+    ).toBeVisible();
+    await phone.click();
+    const dialog = page.getByRole('dialog', { name: 'Stop alerts to your phone' });
+    await expect(dialog).toContainText(
+      'Off: none reaches the phone. Grafana’s Alerts dashboard still shows every one.',
+    );
+    await dialog.getByRole('button', { name: 'Use your passkey' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(phone).not.toBeChecked();
+    expect(await switched()).toEqual([true, false]);
   });
 });

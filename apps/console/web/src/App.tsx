@@ -295,6 +295,7 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
                 onMoved={held.refresh}
               />
               <Controls
+                profile={factory.profile}
                 spend={settings.spend}
                 controls={view.controls}
                 flags={view.flags}

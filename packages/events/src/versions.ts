@@ -64,6 +64,8 @@ export const VERSIONS = {
   'settings.changed': 1,
   // Martin's controls of the line: the autonomy level, the switches, and what the line takes (the admin service)
   'controls.changed': 1,
+  // Whether alerts reach Martin's phone (the admin service)
+  'alerts.switched': 1,
   // Martin's stage of a feature flag (the admin service), Verify's comparison of its two sides at the share stage, and
   // its checks with the probes at Off, Checks and Preview
   'flag.staged': 1,
@@ -92,6 +94,7 @@ export const LINE_TYPES: readonly EventType[] = [
   'release.controlled',
   'settings.changed',
   'controls.changed',
+  'alerts.switched',
 ];
 
 /**
@@ -114,7 +117,8 @@ export const RELEASE_TYPES: readonly EventType[] = [
  * passkey again, and his passkeys are among them, so no worker can forge one (`0025_admin-service.sql`,
  * `0026_admin-stepped-up.sql`), and so are his controls of a release (`release.controlled`,
  * `0027_release-controls.sql`), his settings (`settings.changed`, `0028_settings.sql`), and his controls of the line
- * (`controls.changed`, `0030_line-controls.sql`), his stages of a feature flag (`flag.staged`,
+ * (`controls.changed`, `0030_line-controls.sql`), his switch of alerts to his phone (`alerts.switched`,
+ * `0037_alerts-switched.sql`), his stages of a feature flag (`flag.staged`,
  * `0033_flag-stages.sql`), and his requests for an improvement (`improvement.requested`, `0035_improvement-requests.sql`,
  * which also lets only his roles open a work item of kind `improvement`, though `work-item.opened` is no command of his
  * alone). Each command the admin service adds joins this list when its type
@@ -134,6 +138,7 @@ export const ADMIN_TYPES: readonly EventType[] = [
   'release.controlled',
   'settings.changed',
   'controls.changed',
+  'alerts.switched',
   'flag.staged',
   'improvement.requested',
 ];

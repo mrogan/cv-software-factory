@@ -70,6 +70,18 @@ export async function latestControls(sql: Sql | TransactionSql): Promise<unknown
 }
 
 /**
+ * The payload of the latest `alerts.switched` one of Martin's roles appended, that this code can read, or undefined:
+ * whether alerts reach his phone as he chose it, unchecked. `policy/phone.ts`'s `phoneInForce` says what is in force.
+ */
+export async function latestPhone(sql: Sql | TransactionSql): Promise<unknown> {
+  const [row] = await sql<{ payload: unknown }[]>`
+    select e.payload from events e
+    where e.type = 'alerts.switched' and e.version <= ${VERSIONS['alerts.switched']} and ${fromMartin(sql, 'e')}
+    order by e.seq desc limit 1`;
+  return row?.payload;
+}
+
+/**
  * The store's clock now, to the microsecond, as an ISO timestamp: the moment the next few are counted from, by the
  * clock and to the precision the line stamps each work item it takes with (`line.taken_at`). A `Date` keeps only
  * milliseconds, which would put the moment up to one earlier, and count a work item taken just before it as one of them.

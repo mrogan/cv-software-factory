@@ -53,7 +53,9 @@
  * RELEASE_ROLLOUT, PROMETHEUS_URL and LINE_DRY_RUN_RELEASE_SECONDS; PROBES_URL, LOKI_URL and TEMPO_URL;
  * FACTORY_PROFILE (default local) and ALL_LOCAL, as the gateway's, with Martin's settings within the profile's policy,
  * read at each pass (`settings.ts`): the cap on a work item's spend, which the line holds at, and where each agent's
- * calls go, so a step on a local model is given longer to finish. A step records the effort the gateway sent.
+ * calls go, so a step on a local model is given longer to finish. A step records the effort the gateway sent. The
+ * profile also gives whether alerts reach Martin's phone before he switches them, which the line reports
+ * (`line/phone.ts`).
  *
  * `bench` runs one agent's step on this machine, on a fixture's invented work (`line/bench/`), against the gateway at
  * GATEWAY_URL (default http://localhost:8180), and prints what the agent handed back, whether its result fits the
@@ -285,6 +287,10 @@ async function serve(): Promise<number> {
   // Any lease held past its expiry, whatever LINE_MODE is: a lease a dead pod left is paged on a line that is off too.
   const { observeLeases } = await import('../line/metrics.ts');
   const unobserveLeases = observeLeases(sql);
+  // Whether alerts reach his phone, as the line reads it: `PhoneOff` mutes them only while this and the admin
+  // service's both say off (line/phone.ts).
+  const { observePhone } = await import('../line/phone.ts');
+  const unobservePhone = observePhone(sql, profile, log);
   const abort = new AbortController();
   const working = line.run(abort.signal);
   await new Promise<void>((resolve) => {
@@ -294,6 +300,7 @@ async function serve(): Promise<number> {
   await working;
   unobserveSecurity();
   unobserveLeases();
+  unobservePhone();
   await Promise.all([new Promise((r) => api.close(r)), new Promise((r) => handback.close(r))]);
   await Promise.all([sql.end(), shutdownTelemetry()]);
   return 0;

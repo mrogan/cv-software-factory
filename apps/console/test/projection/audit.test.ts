@@ -369,6 +369,7 @@ describe('the detail under a row', () => {
         event(2, 'improvement.requested', 'martin', { words: 'Dates.', steppedUp: true }, 'Asked', '1400'),
       ],
       'hold.approve-improvement-spec': [opened('improvement'), specHeld, approvedSpec],
+      'phone.off': [event(2, 'alerts.switched', 'martin', { phone: false })],
     };
     const marked = Object.entries(ACCESS as Record<string, { stepUp: boolean }>)
       .filter(([name, access]) => access.stepUp && name !== 'step-up')

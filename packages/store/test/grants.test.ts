@@ -383,6 +383,7 @@ const PAYLOADS: Partial<Record<EventType, object>> = {
     take: null,
     change: { control: 'autonomy', before: 'supervised', after: 'guarded' },
   },
+  'alerts.switched': { phone: false },
   'flag.staged': {
     flag: 'delivery-dates',
     from: { stage: 'checks' },

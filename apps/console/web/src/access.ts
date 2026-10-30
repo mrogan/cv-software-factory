@@ -71,6 +71,9 @@ export const CONTROL_STEP_UP: Record<ControlAction, boolean> = {
   'take.narrow': false,
 };
 
+/** Switching alerts to the phone off asks for the passkey again (`phone.off`); switching them on never does. */
+export const PHONE_STEP_UP = { 'phone.on': false, 'phone.off': true } as const;
+
 /**
  * Which moves of a feature flag's stage ask for the passkey again: every widening past Checks (`flag.widen`) and
  * turning a flag back on for everyone (`flag.back-on`); Off to Checks, narrowing and Off never do. Which action a move

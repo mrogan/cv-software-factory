@@ -114,6 +114,11 @@ alertmanager:
       - source_matchers: [alertname="WorkerCrashLooping"]
         target_matchers: [alertname="ArgoCDDegraded", name="root"]
       # The probes down mute nothing: the console's and the app's alerts cannot fire without them.
+      # Alerts to the phone switched off (`PhoneOff`, while the admin service and the line both say so): every alert
+      # with a level, but switching the phone itself, so the last message before quiet says so, and the first after it.
+      # The app's objective alerts carry no level, and still reach the intake.
+      - source_matchers: [alertname="PhoneOff"]
+        target_matchers: [level=~"page|notify|inform", kind!~"phone-off|phone-on"]
     receivers:
       - name: dashboard
       - name: intake
