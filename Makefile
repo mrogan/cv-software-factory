@@ -34,8 +34,14 @@ as-martin = $(call secret,factory,postgres-$(1),--from-literal=password="$$(open
 	PGUSER="$$role" PGPASSWORD="$$(secret $$from)" $(2); }
 as-operator = $(call as-martin,operator,$(1))
 
+# $(call namespace,name): create a namespace unless it exists, and never touch one that does. Argo CD makes each of ours
+# from deploy/base/namespaces.yaml, with its pod security label; applying a bare Namespace over one would take that
+# label, and Argo CD's tracking, away until Argo CD synced it again, and pods there would be admitted without the
+# restricted profile meanwhile. One made here gets them when Argo CD syncs it.
+namespace = { $(KUBECTL) get namespace $(1) >/dev/null 2>&1 || $(KUBECTL) create namespace $(1) >/dev/null; }
+
 # $(call secret,namespace,name,data): create a Secret unless it exists.
-secret = $(KUBECTL) create namespace $(1) --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null && \
+secret = $(call namespace,$(1)) && \
 	{ $(KUBECTL) -n $(1) get secret $(2) >/dev/null 2>&1 || $(KUBECTL) -n $(1) create secret generic $(2) $(3); }
 
 .DEFAULT_GOAL := help
@@ -91,7 +97,7 @@ down: ## Delete the local cluster, and everything in it
 local-tls: ## Make the console's certificate (and its local authority) if due, have the Mac trust it, and give it to Traefik
 	@node scripts/local-ca.ts issue
 	@node scripts/local-ca.ts trust
-	@$(KUBECTL) create namespace factory --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
+	@$(call namespace,factory)
 	@$(KUBECTL) -n factory create secret tls console-tls --cert="$(LOCAL_CA)/tls.crt" --key="$(LOCAL_CA)/tls.key" \
 		--dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
 
@@ -132,7 +138,7 @@ pushover-key: ## Give Alertmanager Pushover's keys from the Keychain (pushover-a
 	@token="$$(security find-generic-password -s pushover-app-token -w 2>/dev/null)"; \
 		user="$$(security find-generic-password -s pushover-user-key -w 2>/dev/null)"; \
 		if [ -n "$$token" ] && [ -n "$$user" ]; then \
-			$(KUBECTL) create namespace telemetry --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null && \
+			$(call namespace,telemetry) && \
 			printf 'app-token=%s\nuser-key=%s\n' "$$token" "$$user" | \
 				$(KUBECTL) -n telemetry create secret generic pushover --from-env-file=/dev/stdin --dry-run=client -o yaml | \
 				$(KUBECTL) apply -f - >/dev/null && echo "  Alertmanager has Pushover's keys, so pages and notifications reach Martin's phone."; \
@@ -147,7 +153,7 @@ pushover-key: ## Give Alertmanager Pushover's keys from the Keychain (pushover-a
 # It reads the key when it starts, so this restarts it. The migrations set the role's password from `factory`'s Secret
 # when Argo CD next syncs, so on a cluster made before the scoreboard, run this before the deploy that brings it.
 scoreboard-secrets: node_modules ## Give the scoreboard its password, and the answer key from the private checkout (PRIVATE_DIR)
-	@$(KUBECTL) create namespace scoreboard --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null
+	@$(call namespace,scoreboard)
 	@$(KUBECTL) -n factory get secret postgres-scoreboard >/dev/null 2>&1 || \
 		printf %s "$$(openssl rand -hex 24)" | \
 		$(KUBECTL) -n factory create secret generic postgres-scoreboard --from-file=password=/dev/stdin >/dev/null
@@ -170,8 +176,7 @@ scoreboard-secrets: node_modules ## Give the scoreboard its password, and the an
 # user, the local kubeconfig's, write share-key (deploy/base/admission/website/share-key.yaml). The generator reads its
 # key when it starts, so a new one restarts it; the app reads share-key as its own pull request says.
 share-key: ## Give the traffic generator its signing key, made once, and the app its public half (the ConfigMap share-key)
-	@for namespace in factory website; do \
-		$(KUBECTL) create namespace $$namespace --dry-run=client -o yaml | $(KUBECTL) apply -f - >/dev/null || exit 1; done
+	@for namespace in factory website; do $(call namespace,$$namespace) || exit 1; done
 	@# Made only when the cluster says there is none: any other failure to read it stops here, and keeps the key.
 	@made="$$($(KUBECTL) -n factory get secret share-signing-key -o name --ignore-not-found)" || exit 1; \
 	if [ -z "$$made" ]; then \
