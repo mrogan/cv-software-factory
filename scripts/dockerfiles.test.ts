@@ -195,6 +195,57 @@ describe('the Dockerfiles', () => {
   });
 });
 
+/**
+ * Whether a `.dockerignore` keeps a path in the build context, as Docker reads one: each line a pattern, `!` one that
+ * keeps, the last that matches the path or a folder above it deciding, and a path no line matches kept.
+ */
+function keeps(dockerignore: string, path: string): boolean {
+  const rules = dockerignore
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'))
+    .map((line) => ({
+      keep: line.startsWith('!'),
+      pattern: posix.normalize(line.replace(/^!/, '')).replace(/\/$/, ''),
+    }));
+  const parts = posix.normalize(path).replace(/\/$/, '').split('/');
+  const under = parts.map((_, i) => parts.slice(0, i + 1).join('/'));
+  let kept = true;
+  for (const { keep, pattern } of rules) {
+    if (under.some((prefix) => matchesGlob(prefix, pattern))) kept = keep;
+  }
+  return kept;
+}
+
+describe('the build contexts', () => {
+  const ignored = dockerfiles.filter((file) => {
+    try {
+      readFileSync(`${file}.dockerignore`);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  it.each(ignored)('%s takes only what its .dockerignore keeps in the context', (file) => {
+    const dockerignore = readFileSync(`${file}.dockerignore`, 'utf-8');
+    // A pattern or a variable is the Dockerfile's own to match: only named paths are held to it.
+    const named = contextSources(readFileSync(file, 'utf-8')).filter((source) => !/[*?[$]/.test(source));
+    expect(named.length).toBeGreaterThan(0);
+    expect(named.filter((source) => !keeps(dockerignore, source))).toEqual([]);
+  });
+
+  it('are read as Docker reads a .dockerignore', () => {
+    const dockerignore = ['# only what it needs', '*', '!apps/x/src', '!policy/a.ts', 'apps/x/src/secret'].join('\n');
+    expect(keeps(dockerignore, 'policy/a.ts')).toBe(true);
+    expect(keeps(dockerignore, 'apps/x/src')).toBe(true);
+    expect(keeps(dockerignore, 'apps/x/src/')).toBe(true);
+    expect(keeps(dockerignore, 'policy/b.ts')).toBe(false);
+    expect(keeps(dockerignore, 'apps/x/src/secret/key')).toBe(false);
+    expect(keeps('', 'anything')).toBe(true);
+  });
+});
+
 /** The Dockerfiles each workflow builds, by the `file:` its build steps name. */
 const built = (workflow: string) =>
   [...readFileSync(workflow, 'utf-8').matchAll(/^\s+file: (\S+)$/gm)].map(([, file = '']) => file);

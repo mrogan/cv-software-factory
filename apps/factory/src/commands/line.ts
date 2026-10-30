@@ -296,6 +296,9 @@ async function serve(): Promise<number> {
   // And whether every change the admin service makes is named by an event (line/admin-actions.ts).
   const { observeAdminActions } = await import('../line/admin-actions.ts');
   const unobserveAdminActions = observeAdminActions({ sql, kube, flags, rollout }, log);
+  // Any lease held past its expiry, whatever LINE_MODE is: a lease a dead pod left is paged on a line that is off too.
+  const { observeLeases } = await import('../line/metrics.ts');
+  const unobserveLeases = observeLeases(sql);
   // Whether alerts reach his phone, as the line reads it: `PhoneOff` mutes them only while this and the admin
   // service's both say off (line/phone.ts).
   const { observePhone } = await import('../line/phone.ts');
@@ -309,6 +312,7 @@ async function serve(): Promise<number> {
   await working;
   unobserveSecurity();
   unobserveAdminActions();
+  unobserveLeases();
   unobservePhone();
   await Promise.all([new Promise((r) => api.close(r)), new Promise((r) => handback.close(r))]);
   await Promise.all([sql.end(), shutdownTelemetry()]);

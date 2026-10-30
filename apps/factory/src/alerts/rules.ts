@@ -613,6 +613,11 @@ export const KEEP_FIRING = '10m';
 /** How long an Argo CD application stays Degraded or OutOfSync before Martin is notified: long, on every profile. */
 export const ARGO_CD_MINUTES = 30;
 
+/** A pod in `factory` crash-loops when its containers restart this often within this window. */
+export const CRASH_RESTARTS = 3;
+export const CRASH_WINDOW = '5m';
+const RESTARTS = 'kube_pod_container_status_restarts_total{namespace="factory"}';
+
 /** How far back the probes' checks are read: eight checks of each address, at one every fifteen seconds. */
 const CHECKS_WINDOW = '2m';
 
@@ -758,14 +763,16 @@ export function factoryRules(): Rule[] {
     },
     {
       alert: 'WorkerCrashLooping',
-      expr: `max by (pod, worker) (${byWorker('kube_pod_container_status_waiting_reason{namespace="factory", reason="CrashLoopBackOff"}')}) == 1`,
-      for: '2m',
+      // Restarts counted, not the waiting reason: CrashLoopBackOff clears at each restart, so a `for` on it starts again
+      // each time, and holds only once the back-off outgrows it. Highest less lowest, as `increase` would extrapolate.
+      expr: `max by (pod, worker) (${byWorker(`max_over_time(${RESTARTS}[${CRASH_WINDOW}]) - min_over_time(${RESTARTS}[${CRASH_WINDOW}])`)}) >= ${CRASH_RESTARTS}`,
+      for: '0s',
       keepFiringFor: KEEP_FIRING,
       labels: { level: LEVELS.page },
       annotations: {
         summary: 'A worker is crash-looping',
         description:
-          '{{ $labels.pod }} in factory keeps crashing, and Kubernetes waits longer each time to start it again.',
+          '{{ $labels.pod }} in factory has restarted three times in five minutes, and Kubernetes waits longer each time to start it again.',
       },
     },
     {

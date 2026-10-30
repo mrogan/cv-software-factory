@@ -22,5 +22,6 @@
 !policy/spend.ts
 !policy/settings.ts
 !policy/line.ts
+!policy/phone.ts
 !policy/flags.ts
 !policy/flag-moves.ts

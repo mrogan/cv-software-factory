@@ -410,8 +410,9 @@ export function observeTaken(sql: Sql, carrying: () => Carrying): () => void {
 /**
  * Reports, each time the SDK collects, how long the lease held longest past its expiry has been so, or 0 with none:
  * a worker that took a work item and neither let go of it nor renewed its lease, as one that died mid-step leaves it
- * until a line takes the work item again. Every lease on the line, whatever it carries, stopped or not. A read that
- * fails reports nothing that time.
+ * until a line takes the work item again. Every lease on the line, whatever it carries, stopped or not, and whatever
+ * LINE_MODE is: `factory line serve` starts it beside the security events, not the line's loop. A read that fails
+ * reports nothing that time.
  */
 export function observeLeases(sql: Sql): () => void {
   const callback = async (result: BatchObservableResult) => {
