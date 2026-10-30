@@ -206,7 +206,7 @@ function keeps(dockerignore: string, path: string): boolean {
     .filter((line) => line && !line.startsWith('#'))
     .map((line) => ({
       keep: line.startsWith('!'),
-      pattern: posix.normalize(line.replace(/^!/, '')).replace(/\/$/, ''),
+      pattern: posix.normalize(line.replace(/^!/, '')).replace(/^\/+|\/$/g, ''),
     }));
   const parts = posix.normalize(path).replace(/\/$/, '').split('/');
   const under = parts.map((_, i) => parts.slice(0, i + 1).join('/'));
@@ -243,6 +243,9 @@ describe('the build contexts', () => {
     expect(keeps(dockerignore, 'policy/b.ts')).toBe(false);
     expect(keeps(dockerignore, 'apps/x/src/secret/key')).toBe(false);
     expect(keeps('', 'anything')).toBe(true);
+    // A leading slash is the context's root, as Docker reads it.
+    expect(keeps(['*', '!/policy/a.ts', '!/apps/x/'].join('\n'), 'policy/a.ts')).toBe(true);
+    expect(keeps(['*', '!/apps/x/'].join('\n'), 'apps/x/src')).toBe(true);
   });
 });
 
