@@ -93,7 +93,8 @@ export function flagsNamed(held: HeldFlags | undefined, moves: readonly Move[]):
   for (const name of new Set([...expected.keys(), ...Object.keys(held.stages)])) {
     if (!sameStage(held.stages[name] ?? OFF, expected.get(name) ?? OFF)) return false;
   }
-  if (held.revision === undefined) return Object.keys(held.stages).length === 0;
+  // No revision: as Argo CD makes it, before his first move; after one, every write of his names a revision.
+  if (held.revision === undefined) return moves.length === 0 && Object.keys(held.stages).length === 0;
   return moves.some((move) => move.revision === held.revision);
 }
 
@@ -211,13 +212,23 @@ export async function compareRollout({ sql, kube, rollout }: Compared & { rollou
       `/rollouts/${encodeURIComponent(rollout.name)}`,
     rolloutControls,
   );
-  const events = await sql<ControlEvent[]>`
-    select e.type, e.payload->>'action' as action, e.payload->>'release' as release from events e
+  const rows = await sql<{ type: ControlEvent['type']; version: number; payload: Record<string, unknown> }[]>`
+    select e.type, e.version, e.payload from events e
     where not e.sample
       and ((e.type in ('release.controlled', 'line.stopped') and ${byMartin(sql, 'e')})
-        or (e.type = 'release.started' and e.appended_by = ${LINE_ROLE}
-            and coalesce(e.payload->>'dryRun', 'false') = 'false'))
+        or (e.type = 'release.started' and e.appended_by = ${LINE_ROLE}))
     order by e.seq`;
+  // Each read as the current version, as the line reads its releases (`release/recorded.ts`): an older one's payload
+  // may not say what a newer one's does. One this code cannot read names nothing.
+  const events = rows.flatMap((row): ControlEvent[] => {
+    const read = upcast({ type: row.type, version: row.version, payload: row.payload });
+    if (!read.ok) return [];
+    const payload = read.event.payload as { action?: string; release?: string; dryRun?: boolean };
+    if (row.type === 'line.stopped') return [{ type: row.type }];
+    if (row.type === 'release.started')
+      return payload.dryRun ? [] : [{ type: row.type, release: payload.release ?? null }];
+    return [{ type: row.type, action: payload.action ?? '', release: payload.release ?? null }];
+  });
   const controls = read && { paused: read.spec.paused === true, promoteFull: read.status?.promoteFull === true };
   return rolloutNamed(controls, events);
 }
@@ -248,9 +259,13 @@ const compared = meter.createObservableGauge('line.admin_actions.compared', {
 /**
  * Compares each time the SDK collects, until the function it gives back is called: the flags and the Rollout only when
  * the line is given them, the sessions always. A comparison that fails, or takes longer than `timeoutMs`, reports 0 for
- * `compared`, and nothing new for `uncounted`, and is logged once until it is made again.
+ * `compared`, and nothing new for `uncounted`, and is logged once until it is made again. One still running when the
+ * next collection comes is waited on again, never started twice, and its answer is that collection's if it comes in time.
  */
 export function observeAdminActions(where: Compared, log: Logger, timeoutMs = COMPARE_TIMEOUT_MS): () => void {
+  // One comparison of each at a time: one that has not answered is not started again, so a hung read cannot take
+  // another connection every collection.
+  const pending = new Map<AdminAction, Promise<boolean>>();
   const failing = new Set<AdminAction>();
   const unnamed = new Set<AdminAction>();
   const { flags, rollout } = where;
@@ -267,7 +282,14 @@ export function observeAdminActions(where: Compared, log: Logger, timeoutMs = CO
           const late = new Promise<never>((_, reject) => {
             timer = setTimeout(() => reject(new Error(`no answer within ${timeoutMs} ms`)), timeoutMs);
           });
-          named = await Promise.race([compare(), late]).finally(() => clearTimeout(timer));
+          let running = pending.get(action);
+          if (!running) {
+            running = compare().finally(() => pending.delete(action));
+            // Its answer, or its failure, once it comes, is the next collection's: this one has moved on.
+            running.catch(() => {});
+            pending.set(action, running);
+          }
+          named = await Promise.race([running, late]).finally(() => clearTimeout(timer));
         } catch (error) {
           if (!failing.has(action))
             log.warn({ err: error, action }, 'could not compare what the admin service changed');

@@ -58,8 +58,12 @@ describe('the flags, named by Martin’s moves', () => {
     expect(flagsNamed(undefined, [])).toBe(true);
   });
 
-  it('are not named gone, once a move of his set a flag there', () => {
+  it('are not named gone, or set back to no flag and no revision, once a move of his set a flag there', () => {
     expect(flagsNamed(undefined, moves)).toBe(false);
+    expect(flagsNamed(readFlags({ flagSpec: { flags: {} } }), moves)).toBe(false);
+    // Every flag he moved turned off, with no revision: still no write of his.
+    const offs = [{ flag: 'delivery-dates', to: { stage: 'off' } as Stage, revision: 'r1' }];
+    expect(flagsNamed(readFlags({ flagSpec: { flags: {} } }), offs)).toBe(false);
   });
 
   it('are not named with a revision no move wrote, as one bumped by hand', () => {
@@ -304,6 +308,59 @@ describe('the comparison, as the SDK collects it', () => {
       });
     } finally {
       none();
+    }
+  });
+
+  it('starts no second comparison of one still running, and takes its answer when it comes', async () => {
+    let reads = 0;
+    let answer: (() => void) | undefined;
+    const slow: Kube = {
+      ...kubeOf({}),
+      get: () => {
+        reads++;
+        return new Promise((resolve) => {
+          answer = () => resolve(undefined);
+        });
+      },
+    };
+    const stop = observeAdminActions(
+      { sql: database.as.line, kube: slow, flags: FLAGS, rollout: null },
+      pino({ level: 'silent' }),
+      50,
+    );
+    try {
+      expect((await collected()).flags).toEqual({ compared: 0 });
+      expect((await collected()).flags).toEqual({ compared: 0 });
+      expect(reads).toBe(1);
+      answer?.();
+      expect((await collected()).flags).toEqual({ uncounted: 0, compared: 1 });
+      expect(reads).toBe(1);
+    } finally {
+      stop();
+    }
+  });
+
+  it('reads a release started before releases were named as the line does, upcast', async () => {
+    const { admin, as } = database;
+    // Version 1 named no release: the line reads its version as its name.
+    await as.line`
+      insert into events (id, ts, work_item, type, version, actor, summary, payload, artifacts, public, sample)
+      values (${crypto.randomUUID()}, now(), '1', 'release.started', 1, 'factory', 'release.started',
+              ${as.line.json({ version: '1.2.3', previous: '1.2.2', digest: `sha256:${'a'.repeat(64)}`, signed: true, admitted: true } as never)},
+              '[]', '{}', false)`;
+    await append(admin, 'release.controlled', {
+      action: 'promote-fully',
+      release: '1.2.3',
+      version: '1.2.3',
+      weight: 10,
+      to: 100,
+    });
+    const kube = kubeOf({ rollout: { spec: {}, status: { promoteFull: true } } });
+    const stop = observeAdminActions({ sql: as.line, kube, flags: null, rollout: ROLLOUT }, pino({ level: 'silent' }));
+    try {
+      expect((await collected()).rollout).toEqual({ uncounted: 0, compared: 1 });
+    } finally {
+      stop();
     }
   });
 
