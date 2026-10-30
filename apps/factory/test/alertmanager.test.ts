@@ -457,7 +457,7 @@ describe('Alertmanager’s inhibitions: a cause pages, and what follows from it 
   });
 
   it('mute the line stuck while a spend cap is reached, and nothing else', async () => {
-    const cap = alert('SpendCapReached', { cap: 'day' });
+    const cap = alert('SpendCapReached', { cap: 'day', profile: 'local' });
     expect(muted(await rules(), alert('LineStuck', { stage: 'build' }), [cap])).toBe(true);
     for (const name of ['LeaseOverrun', 'StoreDown', 'ConsoleDown']) {
       expect(muted(await rules(), alert(name), [cap]), name).toBe(false);

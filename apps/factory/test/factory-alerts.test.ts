@@ -219,6 +219,19 @@ describe('the alerts on the factory’s health, releases and spend', () => {
           ],
         },
         {
+          interval: '30s',
+          // Failing as the probes fall silent at 3m: what they counted last never pages as the console down, the
+          // probes' silence does (ProbesDown, below).
+          input_series: [
+            { series: probes('probes_checks_total', checks(CONSOLE, 'answered')), values: each(0, 0, 0, 0, 0, 0, 0) },
+            { series: probes('probes_checks_total', checks(CONSOLE, 'failed')), values: each(0, 0, 0, 0, 0, 1, 2) },
+          ],
+          alert_rule_test: [
+            { eval_time: '4m', alertname: 'ConsoleDown', exp_alerts: [] },
+            { eval_time: '5m', alertname: 'ConsoleDown', exp_alerts: [] },
+          ],
+        },
+        {
           interval: '1m',
           // Another worker's series saying the console fails, beside the probes' saying it answers: nothing.
           input_series: [
@@ -450,7 +463,11 @@ describe('the alerts on the factory’s health, releases and spend', () => {
           ],
           alert_rule_test: [
             { eval_time: '0m', alertname: 'SpendCapReached', exp_alerts: [] },
-            { eval_time: '1m', alertname: 'SpendCapReached', exp_alerts: [firing('SpendCapReached', { cap: 'day' })] },
+            {
+              eval_time: '1m',
+              alertname: 'SpendCapReached',
+              exp_alerts: [firing('SpendCapReached', { cap: 'day', profile: 'local' })],
+            },
           ],
         },
         {
@@ -472,7 +489,7 @@ describe('the alerts on the factory’s health, releases and spend', () => {
             {
               eval_time: '1m',
               alertname: 'SpendCapReached',
-              exp_alerts: [firing('SpendCapReached', { cap: 'month' })],
+              exp_alerts: [firing('SpendCapReached', { cap: 'month', profile: 'local' })],
             },
             { eval_time: '2m', alertname: 'SpendCapReached', exp_alerts: [] },
           ],

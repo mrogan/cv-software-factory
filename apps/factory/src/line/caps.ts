@@ -22,31 +22,34 @@ export interface Cap {
 const keyOf = (payload: PayloadOf<'spend.capped'> | PayloadOf<'spend.cleared'>) =>
   payload.cap === 'provider' ? payload.provider : payload.cap;
 
+/** The key a cap's events are set and cleared under, in SQL, as `keyOf` reads it. */
+const KEY = "case when payload->>'cap' = 'provider' then payload->>'provider' else payload->>'cap' end";
+
 /**
  * The caps in force, each as the last `spend.capped` that set it with no `spend.cleared` since; and, given `since`,
- * every cap set after it as well, cleared or not.
+ * every cap set after it as well, cleared or not. The store gives back only the latest event under each key, and the
+ * caps set after `since`, never the whole history: the line reads this before every step and every collection.
  */
 export async function capsInForce(sql: Sql, since?: number): Promise<Cap[]> {
-  const rows = await sql<{ seq: string; type: 'spend.capped' | 'spend.cleared'; payload: PayloadOf<'spend.capped'> }[]>`
-    select seq, type, payload from events where type in ('spend.capped', 'spend.cleared') order by seq`;
-  const held = new Map<Cap['cap'], Cap>();
-  const set: Cap[] = [];
-  for (const { seq, type, payload } of rows) {
-    const key = keyOf(payload);
-    if (type === 'spend.cleared') {
-      held.delete(key);
-      continue;
-    }
-    const cap: Cap = {
-      seq: Number(seq),
-      cap: key,
-      reason:
-        payload.cap === 'provider' ? `${payload.provider} refuses (${payload.reason})` : `the ${payload.cap}’s cap`,
-    };
-    held.set(key, cap);
-    if (since !== undefined && cap.seq > since) set.push(cap);
-  }
-  return [...held.values(), ...set.filter((cap) => held.get(cap.cap) !== cap)];
+  type Row = { seq: string; type: 'spend.capped' | 'spend.cleared'; payload: PayloadOf<'spend.capped'> };
+  const latest = await sql<Row[]>`
+    select distinct on (${sql.unsafe(KEY)}) seq, type, payload from events
+    where type in ('spend.capped', 'spend.cleared')
+    order by ${sql.unsafe(KEY)}, seq desc`;
+  const capOf = ({ seq, payload }: Row): Cap => ({
+    seq: Number(seq),
+    cap: keyOf(payload),
+    reason: payload.cap === 'provider' ? `${payload.provider} refuses (${payload.reason})` : `the ${payload.cap}’s cap`,
+  });
+  const held = latest
+    .filter((row) => row.type === 'spend.capped')
+    .map(capOf)
+    .sort((a, b) => a.seq - b.seq);
+  if (since === undefined) return held;
+  const set = await sql<Row[]>`
+    select seq, type, payload from events where type = 'spend.capped' and seq > ${since} order by seq`;
+  const heldSeqs = new Set(held.map((cap) => cap.seq));
+  return [...held, ...set.map(capOf).filter((cap) => !heldSeqs.has(cap.seq))];
 }
 
 /** The cap, if any, that refuses calls to `provider`: the factory's own refuse every call. */

@@ -600,13 +600,16 @@ const DOWN: Record<Target, { alert: string; worker?: string; summary: string; de
 };
 
 /**
- * Each address of a target that has answered none of the probes' checks over `CHECKS_WINDOW`, and failed at least one:
- * one series an address, by what only the probes' pod sends.
+ * Each address of a target that has answered none of the probes' checks over `CHECKS_WINDOW`, and failed at least one,
+ * while the probes still check it: one series an address, by what only the probes' pod sends.
  */
 function notAnswering(target: Target): string {
   const outcome = (o: string) =>
     `max by (address) (increase(${fromTheProbes(CHECKS, `target="${target}", outcome="${o}"`)}[${CHECKS_WINDOW}]))`;
-  return `${outcome('answered')} == 0 and on (address) ${outcome('failed')} > 0`;
+  // And the probes still checking it, with a sample in the last minute: a probes pod that has fallen silent pages as
+  // ProbesDown, never as the console or the app down from the failures it counted last.
+  const fresh = `max by (address) (count_over_time(${fromTheProbes(CHECKS, `target="${target}"`)}[1m])) > 0`;
+  return `${outcome('answered')} == 0 and on (address) ${outcome('failed')} > 0 and on (address) ${fresh}`;
 }
 
 /** The pods in `factory` a ReplicaSet owns, a Deployment's: one series a pod. */
@@ -737,7 +740,8 @@ export function factoryRules(): Rule[] {
     },
     {
       alert: 'SpendCapReached',
-      expr: `max by (cap) (${fromTheGateway('gateway_cap_spent_usd', 'cap=~"day|month"')}) >= on (cap) (min by (cap) (${fromTheGateway('gateway_cap_limit_usd', 'cap=~"day|month"')}) >= 0)`,
+      // By profile too, so two profiles' figures, as a gateway restarted under another would leave for a while, never mix.
+      expr: `max by (cap, profile) (${fromTheGateway('gateway_cap_spent_usd', 'cap=~"day|month"')}) >= on (cap, profile) (min by (cap, profile) (${fromTheGateway('gateway_cap_limit_usd', 'cap=~"day|month"')}) >= 0)`,
       for: '0s',
       labels: { level: LEVELS.page },
       annotations: {
