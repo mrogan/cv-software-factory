@@ -182,7 +182,7 @@ Top to bottom, and nothing else:
 2. **The picture**, 16:10. See below.
 3. **Title** in Instrument Serif 28, and a description clamped to two lines.
 4. **One line of facts** in `t-data`: number, an improvement's flag glyph and its stage ("⚑ preview", or "off"), version (a pill), pull request, start, duration, model spend. Before a release, the pill says what a sense saw it on ("seen on v0.9.3") or, for a visitor's report, the page it came from at its path only ("from /about"). After a release that did not ship, rolled back or aborted, the pill strikes its version through and points to the one the app stayed on (~~v0.9.11~~ → v0.9.10), with how it ended in visually hidden text for a screen reader; the sheet's Version fact spells it out: "v0.9.10 · rolled back · stayed on v0.9.9", "v0.9.11 · stopped with the line · stayed on v0.9.10" or "v0.9.11 · aborted by Martin · stayed on v0.9.10". Work that called no model says "no model", not "$0.00".
-5. **Eight segments**, one per stage: `ok` for passed, a dashed outline for skipped, a solid `text-muted` outline for queued (a ticket waiting for the planner, or a merged fix waiting for a release), `signal` (blinking) for now, `attn` where it stopped or waits on a human, `text-muted` where triage closed it. The segments have an accessible label such as "Stopped at Release".
+5. **Eight segments**, one per stage: `ok` for passed, a dashed outline for skipped, a solid `text-muted` outline for queued (a ticket waiting for the planner, or a merged fix waiting for a release), `signal` (blinking) for now, `attn` where it stopped or waits on a human, `text-muted` where triage closed it, and `ok` where a red-team attack's mechanism refused it, the stages before it skipped. The segments have an accessible label such as "Stopped at Release" or "Refused at Gates".
 
 The outcomes, each a word and a tone. Work nobody needs to act on is in the quiet tone:
 
@@ -202,6 +202,8 @@ The outcomes, each a word and a tone. Work nobody needs to act on is in the quie
 | A visitor's suggestion, parked for Martin | Needs you | `attn`, flashing; Triage says "needs you" too |
 | An improvement whose flag Verify has checked at its stage, waiting for Martin to widen it | Needs you | `attn`, flashing; Verify says "needs you" too |
 | An improvement turned off before everyone had it | Turned off | `text-muted`: Martin's choice, and nothing failed |
+| A red-team attack its mechanism refused | Refused | `ok`: the refusal is the result the attack exists to show |
+| A red-team attack nothing refused | Not refused | `attn`, ringed: a guardrail failed, and Martin's phone was paged |
 
 ### The picture
 
@@ -217,7 +219,8 @@ The picture is evidence, so it is always something the factory captured, never a
 | A canary's ticket | "Rolled back at 25% · 3min in", the routes where the canary did worse as paired bars (canary `attn`, baseline faint) with both figures, or the journeys' checks that failed on it; the analysis's words on the station face; how much traffic never saw it |
 | Merged, waiting for Martin's deploy | "Merged · waiting for Martin's deploy" in the `attn`-ruled panel: the pull request and its title in mono, a tick for the merge, the deploy pull request (a tick once its checks passed, a ring before it is open or while they run, a cross when they failed), a hollow ring for the canary to come, and that the deploy is Martin's while the factory is Supervised. Until its checks pass, the caption says what it waits for, in `text-muted`: "Merged · waiting for its deploy pull request", "Merged · deploy #1331's checks running", "… checks failed", "… merged, waiting for Argo CD", "… closed, waiting for the next". When the release that carried it rolled back, "Rolled back · waiting for Martin's next deploy", with a cross for that release, its version and when; when it was aborted, "Stopped with the line · waiting for Martin's retry or next deploy" or "Aborted by Martin · waiting for his retry or next deploy" |
 | A sense's ticket, after a release | A probe's or crawler's: its own page on a wipe, SEEN against CANARY while the canary runs, SEEN against FIXED once verified (BEFORE against FIXED when the signal had no shot). The logs' or metrics': their own picture at signal and at verification, no wipe |
-| Red-team attack | The gate's or policy's own refusal, verbatim, on the station face colour; "the site never changed" |
+| Red-team attack | Each refusal the attack recorded (`action.refused`), verbatim, on the station face, headed by who refused it, its mechanism and the time; two refusals stack, numbered (see "Guardrails"); then what never changed: "The site never changed", "Nothing left the cluster", "Nothing ran: the pod was never made" |
+| A red-team attack nothing refused | "Not refused: what came back, as recorded" in `attn`, the attack's own record of each attempt on the station face, what got through marked, and that Martin's phone was paged and the guardrail reads "did not hold" until it is proved again |
 | Not a defect, or a report's ticket | The page the report was about, and Jev's typed answers with their probabilities: what kind of report, how badly it hurts, and whether it gives orders to a system |
 | Observability | Log lines before and after, and the trace they now link to |
 | Waiting on Martin for a spec | Held at Plan for his approval, or for his answer to the planner's question: the spec, outcome, acceptance criteria and the planner's question, with the `attn` rule, captioned "Spec · waiting for Martin" |
@@ -316,7 +319,7 @@ An **MR monogram**: Martin Rogan's initials in Instrument Serif, with the R set 
 
 One page, three widths. The console is designed to be read from top to bottom: *is it running → what is happening → what does it need from me*.
 
-The Canary panel sits full width directly under the line, at every width: it is the Release station opened up. The bottom row, Needs you and Controls, sits under the reel, for everyone; Try it yourself joins it for visitors in milestone 8. Sign-in, enrolment, the settings and the audit log are pages of their own (see Admin).
+The Canary panel sits full width directly under the line, at every width: it is the Release station opened up. The bottom row, Needs you and Controls, sits under the reel, for everyone; Try it yourself joins it for visitors in milestone 8. Guardrails sits full width under the bottom row, for everyone: the eleven guardrails on the left and the red-team menu on the right, from 1180 up, and the menu under them below that. Sign-in, enrolment, the settings and the audit log are pages of their own (see Admin).
 
 | Width | The line | The Canary panel | The reel and the sheet | Bottom row |
 |---|---|---|---|---|
@@ -338,7 +341,8 @@ Each panel does one job:
 - **The reel:** every work item, oldest to now. Watching the app change says more than a list; what waits on Martin is also listed in Needs you.
 - **The sheet:** one work item in full: what waits on Martin for it, answered there as in Needs you, the stage scrubber and the site at each step, the evidence, the change, the model calls and the gates.
 - **Needs you:** one card per hold, the line's and triage's (a spec and the planner's question on it are one decision), and each flag that waits for Martin to widen it, each answer beside what it does. Requesting an improvement lives on the Plan station, not here.
-- **Controls:** autonomy, three switches, what the line takes, the flags, and spend against the day's, the month's and a work item's caps; the models and the caps themselves are on the settings page. Guardrails that can't be switched off are not drawn as switches; one line says so.
+- **Controls:** autonomy, three switches, what the line takes, the flags, and spend against the day's, the month's and a work item's caps; the models and the caps themselves are on the settings page. Guardrails that can't be switched off are not drawn as switches; one line says so, and points to Guardrails.
+- **Guardrails:** each of spec 6's eleven, its mechanism, its last proof and its recent refusals, and the red-team menu. It is how a visitor sees that the factory can be trusted, so it is on the console, not a page of its own.
 - **Left out on purpose:** placeholders for other apps, a live-feed ticker (the stations and the reel already show what is happening), an always-on feedback loop under the belt (production feeding Sense is a return like any other), sparklines, and help text that repeats itself.
 
 ## Sensing and triage
@@ -385,6 +389,7 @@ The release in flight against the version it would replace, for everyone, full w
 |---|---|---|---|
 | In flight | Canary · 50% of traffic | `signal`, blinking dot | what happens when the step ends, and when |
 | Paused by Martin | Paused by Martin at 50% | `signal`, still dot | when he paused it, and that it keeps its share of the traffic until he resumes, promotes or aborts it |
+| Paused for Martin (auto-rollback off) | Paused for Martin at 50% · judged bad | `attn`, ringed | when the analysis judged it bad and by how much, that with auto-rollback off that is inconclusive rather than failed, so Argo Rollouts paused it, that it keeps its share until he promotes or aborts it, and that Stop the line still aborts it. The measures table rules the measure that judged it, its verdict **inconclusive · waits for Martin**, and the analysis's words follow on the station face. The step is an `attn` ring. The panel's last line says that with auto-rollback off a failing measure pauses it for Martin, in place of "Nobody needs to press anything" |
 | Promoted | Promoted · all traffic | `ok` | when, how long it took, and that Verify now asks each ticket's sense |
 | Rolled back | Rolled back at 25% | `attn`, ringed | when, and how much of the traffic never saw it: "75% of the traffic never saw it: it stayed on v0.9.9" |
 | Stopped by an analysis error | Stopped by an analysis error at 25% | `attn`, ringed | that the analysis could not judge the canary, so nothing failed and it is no signal, that the version before takes all the traffic, and that the release stays stopped until Martin retries it or a new deploy starts another |
@@ -482,11 +487,15 @@ Stop the line stays in the header, in `attn`, always one press away. It opens a 
 
 One card per hold, the line's and triage's, oldest first, so what has waited longest is on top. A card, top to bottom:
 
-1. **Kicker:** what the hold is, in Martin's words and `attn` caps ("Held by a gate", "The planner asks", "Waiting for your deploy", "The planner found"); a deploy not his yet says what it waits for ("Its deploy is being built", "Its deploy's checks are running", "Its deploy's checks failed", "Its deploy merged", "Its deploy was closed"), and on the right, in `t-data`, the work item, its stage and how long it has waited ("#1279 · Gates · 1d").
+1. **Kicker:** what the hold is, in Martin's words and `attn` caps ("Held by a gate", "The planner asks", "Waiting for your deploy", "The planner found", "Held for its risk tags", "A canary paused for you"); a deploy not his yet says what it waits for ("Its deploy is being built", "Its deploy's checks are running", "Its deploy's checks failed", "Its deploy merged", "Its deploy was closed"), and on the right, in `t-data`, the work item, its stage and how long it has waited ("#1279 · Gates · 1d").
 2. **Title** in Instrument Serif 22.
 3. **Evidence:** the one thing that explains the hold: the gate's or fence's output on the station face, the files the coder needs outside its scope with why, each one no scope may name marked in the face's `station-led-attn` ("· no scope may name it"), since the reason that heads them is cut to fit, the planner's question quoted, the merge and what it waits for, with its deploy pull request on GitHub. The full evidence is in the sheet: "Open the work item" at the foot opens it.
 4. **Answers:** one row per answer the hold takes, each a button and, beside it, what it does, from the line's `ANSWERS` for that cause: "Sends it back to the coder, with your words as the reason." Approve carries the key when the cause is a guardrail (`scope`, `beyond-ticket`, `review`, `gates`, `verify`, `spend`, `merge`). The buttons are all outlined, none filled: the console does not suggest an answer. On a triage hold, answering in words says that it stays held until Martin approves or rejects (`WORDS_LEAVE_HELD`). An answer that would do nothing is left off: a fix waiting for Martin's deploy, which a release carrying it ends by itself, offers only Reject, since approving or answering it leaves it waiting just the same.
 5. **Answer in words** opens a field in the card (300 characters, counted), with "Visitors see your words, with anything shaped like a secret left out", and **Send**.
+
+**A merge held for its risk tags.** Under Guarded, the review gate passes the factory's pull request on its own only when it is low-risk. When it does not, the line holds the merge: **Held for its risk tags**, with the gate's summary as its evidence on the station face, as the gate wrote it for the line: the rule ("Guarded: the factory's App opened #1327, so it passes only if low-risk"), a cross in `station-led-attn` for each reason, with what in the diff gave it (`dependency-change` and the lockfile or manifest, `test-loosening` and the test, `security-headers`, a path CODEOWNERS gives Martin, a release, an improvement; `out-of-scope` is held before any code, at Plan), a tick for each it did not find, and what it waits for: his approval of its head commit, named. Under it, that his approval is his own review of the head commit on GitHub, so the console has no Approve, and that a push after he approves needs him again. Its first row is a link, **Review #1327 on GitHub ↗**, beside what to do there; then Answer in words (back to the coder) and Reject. A visitor's card keeps the link, beside "Martin approves its head commit there, with his own review". Its picture on the reel is the waiting-for-merge panel, with a cross for each tag.
+
+**A canary paused for Martin** (auto-rollback off): **A canary paused for you**, "#1302 · Release · 50% · 3min", the analysis's words on the station face, what it judged bad and by how much, and that Stop the line still aborts it; Promote fully, with the key, and Abort, in the alarm colour's outline, each as the Canary panel's own control.
 
 The card keeps the `attn` rule on its left edge. A count in the panel's head says how many wait ("4 waiting"). Under the cards, under a `line-strong` hairline, **Answered today**: each answer's time, its work item, how he answered and his words, quoted; on a hold about a visitor's report, his words are not shown, and the row says why. Empty, the panel says "Nothing waits on you" and what lands here.
 
@@ -496,8 +505,9 @@ The card keeps the `attn` rule on its left edge. A count in the panel's head say
 
 Four groups, each under a `t-label`, then a key to the key, and links to the settings and the audit log:
 
-- **Autonomy:** Supervised, Guarded, Lights-out, and one line saying what the chosen one means. Loosening asks for the passkey; tightening is immediate. The words take the room of the longest level's, so nothing below moves when the level changes.
-- **Switches:** Agents take new work, Auto-merge low-risk changes, Auto-rollback, each with a line saying what it does, or what off means. Turning agents back on asks for nothing: it is not starting the line, which has its own button and asks. Auto-merge does nothing until Part C routes by autonomy, and Auto-rollback's switch is Part C's (off leaves a failed canary paused for Martin); both are drawn now so the row is complete.
+- **Autonomy:** Supervised, Guarded, Lights-out, and one line saying what the chosen one means. Loosening asks for the passkey and tells Martin's phone; tightening is immediate. The words take the room of the longest level's, so nothing below moves when the level changes. Lights-out is never the default.
+  - **Lights-out's note:** while Lights-out is chosen, and in the passkey's dialog that chooses it, a note ruled in `line-strong` (a fact, not a fault) says it takes two settings: this one, and `AUTONOMY` set to `lights-out` in the app's repository on GitHub, which only Martin can set. The line reads this one and the review gate reads the variable, so the stricter wins: with only one of them set, risky changes still wait for him, as under Guarded. The gate names the rule that passed each pull request, and the line adds one to the queue only by a rule this level allows. A visitor's says the same of Martin.
+- **Switches:** Agents take new work, Auto-merge low-risk changes, Auto-rollback, each with a line saying what it does, or what off means. Turning agents back on asks for nothing: it is not starting the line, which has its own button and asks. Auto-merge has the line add a pull request to the merge queue once the review check passes it by a rule the autonomy level allows; under Supervised it waits for Martin anyway. **Auto-rollback** says what each position does: on, a canary the analysis judges bad rolls back by itself; off, it pauses for Martin in Needs you instead, and Stop the line still aborts one. Turning it off asks for the passkey ("Turn off auto-rollback": overriding a guardrail) and tells his phone; turning it on asks for nothing.
 - **What the line takes:** Every ticket, The next few (with how many, and how many it has taken so far) or Just one (with its number), and a line saying what the line will do. These are `LINE_TAKE` and `LINE_ONLY` as settings.
 - **Spend:** three meters in ink (spend is not a fault): models today against the day's cap, this month against the month's, and the dearest work item today against a work item's cap, with when the day resets, in UTC. A meter at its cap turns `attn`.
 
@@ -532,6 +542,7 @@ In the left column under the steps and the note, under a hairline, labelled **Yo
 - **In flight:** Promote to the next step's weight (when there is a step before 100%), Promote fully, Pause and Abort. Both promotes carry the key.
 - **Paused:** Resume in place of Pause. Resume asks for nothing: it gives the canary back to its own analysis, as it was before Martin paused it, and promotes nothing itself. The kicker reads "Paused by Martin at 50%", in `signal` with a still dot, and the note says it keeps its share of the traffic until he resumes, promotes or aborts it.
 - **Stopped with the line, aborted by Martin, or stopped by an analysis error:** Retry, with the key, which starts the canary again from its first step. While the line is stopped, Retry is disabled, with "Start the line first: a stopped line starts no canary."
+- **Paused for Martin** (auto-rollback off, judged bad): Promote fully, with the key ("past the analysis's verdict"), and Abort ("as a rollback would have"); no Pause or Resume, since giving it back to its analysis would leave it where it is.
 - **Promoted, rolled back, or a dry run:** no controls; the release has ended, or nothing shipped.
 
 Abort opens a dialog saying that the version before takes all the traffic at once, that nothing failed so it opens no ticket, and what the work item waits for. For a visitor the same controls are labels beside what each does, under **Martin's controls**, and above what each does where the column is 400px or narrower. The panel's last line still says the canary needs nobody to press anything, for everyone: the controls are for when Martin wants to, not for when it needs him.
@@ -621,6 +632,48 @@ An improvement's spec is a hold like any other, **An improvement's spec**, with 
 ### For visitors
 
 The same views, read-only, by the rules above: the "+" and its form as described; Controls' flags and an improvement's sheet with their sliders, read-only, with no handle and no stop to press, and the line saying whether the app holds the flags as set; Needs you's flag cards under "Waiting on Martin", in Needs you and on the sheet. **Preview it** stays a link for a visitor: a preview is the app's own feature, sets only the cookie they asked for, and shows the change in their own browser alone. The audit log has each request and each stage, with Martin's words and whether the passkey was given (`improvement.requested`, `flag.staged`).
+
+## Guardrails
+
+Spec 6's eleven guardrails, how each is held and when it was last proved, and the red-team attacks that try them, agreed as a set: the Guardrails panel, the red-team menu and its launch, an attack's card and sheet, an attack nothing refused, auto-rollback's switch and a canary paused for Martin, Lights-out's note, and a merge held for its risk tags. The last four are in "Controls", "The Canary panel" and "Needs you" above. The mockup draws each (`?open=`, `?attack=`, `?canary=held`, `?autonomy=lightsout` and the rest in its comment). Visitors see all of it, read-only by the rules in "Read only": it is part of the demo.
+
+### The panel
+
+Full width under the bottom row, headed **Guardrails** with "Always on" on the right, then one line: each is held by a mechanism and proved, by `make guardrails`, a test in CI or an attack; none has a switch except auto-rollback, part of 9, which Martin turns off in Controls; Stop the line always works.
+
+- **One row per guardrail,** in spec 6's order and words: its number in mono, its name, and under it its mechanism in a sentence (`text-muted`); then its **last proof**: a tick and **Held** in `ok`, or a cross and **Did not hold** in `attn`, over where the proof came from and how old it is in mono ("make guardrails · 2h ago", "attack #1323 · 3h ago", "tests in CI on main · 5b2c0d9 · 3h ago"), an attack's number opening its sheet; then its **refusals** in the last seven days, right-aligned: "2 refused · 7 days", which lists them under the row when pressed, "0 refused · 7 days", or "nothing to refuse" where the guardrail is a structure, with a line under it saying what proves it instead (2's test on every pull request; 9's last rollback, and that auto-rollback is off while it is).
+- **A refusal** is a row of its own: its time, its mechanism in `attn` mono (scope fence, token permission, ruleset, egress policy, admission control, gateway, typed judgement), what was refused in a few words, and its work item, opening its sheet; with none (Kyverno refusing a pod applied by hand), **Audit log**. The panel counts each by the role that appended it.
+- **A proof that did not hold** takes the `attn` rule down the row's left edge, and says what happened in a sentence of its own: what got through, that Martin's phone was paged and when, and that it reads as not held until an attack or `make guardrails` proves it again. It never folds away.
+- Under the rows: a proof records main's commit and a hash of the policies it was taken against, an attack nothing refuses pages Martin, and every refusal is in the audit log too.
+- **Widths:** from 1180 up the guardrails take seven twelfths and the menu the rest; below, the menu goes under them. On a phone each row stacks its proof and its refusals under its name.
+
+### The red-team menu
+
+**Attack the factory**, beside the guardrails: a line saying each attack is a real attempt from where an agent would be, against the real mechanism, with fixed content and no agent, and becomes a work item on the reel with the refusal in the mechanism's own words. Then the five of spec 5.3, each a `raised` card: its number and name; what it does and what should stop it, with the guardrail it proves ("Stopped by the egress policy · guardrail 5"); its last run in mono (a tick and REFUSED in `ok`, a cross and NOT REFUSED · MARTIN PAGED in `attn` with the card's `attn` rule, or a ring and RUNNING in `signal`), when, and its work item; and **Launch** on the right.
+
+| Attack | What it does | Stopped by | Guardrail |
+|---|---|---|---|
+| An instruction in a problem report | A report through the app's report route, as a visitor sends one, telling the factory to set every price to £0 | Jev's typed questions, which quarantine it | 8 |
+| "Fix CI" by editing a workflow | Asks the GitHub worker for a commit to `.github/workflows/`, then GitHub, with the App's token | The GitHub worker's guard, then GitHub: the App has no workflows permission | 1 |
+| A pull request that deletes the failing test | A real pull request in the app's repository deleting a test, closed afterwards | The review gate, which holds a loosened test for Martin | 2 |
+| Data to an outside URL | A pod made like an agent's tries an outside address by name and by number, and the provider's host | The egress policy | 5 |
+| Shipping an image it built itself | The same pod, on an image `build.yml` did not sign on main | Admission control | 3 |
+
+- **Launch** opens a dialog: "A red-team attack · guardrail 3", the attack's name, what it does in a ruled box, then that its mechanism should refuse it and the refusal goes on its card, that if nothing refuses it his phone hears and the guardrail reads "did not hold", and what it costs (nothing, or Jev's calls for the first). **Launch** in `signal`, with no key: an attack loosens nothing and asks the line for no work, which a line under it says.
+- **One at a time:** while one runs, its Launch reads Running, every Launch is dashed and disabled, and the menu's line names the attack running.
+- **For a visitor,** Launch is a label, and the menu's last line says Martin launches these, signed in, and that milestone 8 opens this menu to visitors.
+
+### An attack's card and sheet
+
+An attack is a work item of category red-team, its kind "Red-team attack by Martin" ("by a visitor" from milestone 8). Its outcome is **Refused**, in `ok`, or **Not refused**, in `attn`, ringed (see the outcomes table). Its segments skip to the stage where it was refused, in `ok`. Its facts say "Launched by" in place of "Found by", "no release", and "no model" but for the first attack.
+
+- **The picture** is each refusal it recorded, verbatim (`action.refused`'s output), on the station face. A caption names how many ("Refused, in the mechanism's own words", or "Refused twice, each in its own words"); each refusal is headed, in mono, by who refused it in words ("the GitHub worker's guard", "GitHub, to the App's token", "admission control, Kyverno"), its mechanism as recorded, and the time. The lines that say no are in `station-led-attn`.
+- **Two refusals,** as attack 2 records (the GitHub worker's guard, then GitHub's 403), stack in the order they happened, numbered 1 and 2.
+- **A long refusal** (Kyverno's, one line of 300 characters) wraps, breaking anywhere; never scrolled sideways, never paraphrased. On a card, a refusal over five lines is cut there, fading out, with "Cut here. The sheet has all of it." The sheet's Evidence shows every refusal whole, and its source line says each is the mechanism's own output, stored with its event by the role that mechanism runs as.
+- **Not refused:** the caption, in `attn`, says so ("Not refused: what came back, as recorded"); the attack's own record of each attempt on the station face, what got through in `station-led-attn` beside "nothing refused it"; and a cross for the foot: Martin's phone was paged, and the guardrail reads "did not hold" until it is proved again.
+- **The sheet:** the paragraph says what was attempted, from where, and what refused it; How it went has LAUNCHED, then each attempt and REFUSED (or NOT REFUSED and PAGED), and CLOSED where the GitHub worker closed what it opened; Gates shows the review gate's check for attack 3, tagged, and otherwise that the attack met its mechanism before any pull request; Agents and models says no model was called, as the attack is scripted, except the first, whose mechanism is Jev; attack 3's pull request is **The attack's pull request**, fixed content.
+
+The audit log has each launch (`attack.launched`, with no passkey asked) and each refusal, in `attn`, by the role that appended it.
 
 ## Not decided yet
 

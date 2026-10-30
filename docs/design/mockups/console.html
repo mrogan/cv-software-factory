@@ -15,17 +15,25 @@
     ?enrol=code (default) | passkey (the code took; make the passkey) | done | wrong | spent (expired, used or out of tries)
     ?dialog=stop | start | stepup | abort (open one, as a click would)   ?fresh (the passkey was given in the last five minutes)
     ?needs=none (nothing waits)   ?menu (the account menu open)   ?profile=local (default) | cloud (no local model to choose)
-    A held work item's sheet heads with its cards from Needs you: ?item=1279&sheet (a gate's hold), ?item=1300&sheet (an
-    improvement's spec), ?item=1314&sheet (a deploy), and ?item=1316&sheet (a flag's card, and its slider to set)
+    A held work item's sheet heads with its cards from Needs you: ?item=1326&sheet (a merge held for its risk tags),
+    ?item=1300&sheet (an improvement's spec), ?item=1314&sheet (a deploy), and ?item=1316&sheet (a flag's card, and its
+    slider to set)
   Improvements and flags (README, "Improvements and flags"):
     ?dialog=improve (the "+" on Plan's form; a visitor's is read-only) | flag&to=off|checks|preview|share|everyone (the slider's confirmation)
     ?flag=preview (default) | shipped (released, still off) | checks | share (Verify comparing) | compared | everyone | off
           | busy (another flag holds Share)   where delivery-dates (#1316) stands   ?sync=behind (the app's flags lag)
   The states shipping brings (README, "Shipping"):
     ?canary=flight (default) | line (no work item) | promoted | rolledback | early (rolled back before a step) | stopped | dry | idle | none
-            | paused (by Martin) | aborted (by Martin)
+            | paused (by Martin) | aborted (by Martin) | held (auto-rollback off: judged bad, paused for Martin)
     ?score=on (default) | first (nothing verified yet) | off (no answer key) | sample | none (no score.updated at all)
-  A fix's rounds on any open sheet (README, "Fixing"), e.g. ?item=1279&sheet&rounds=next:
+  Guardrails and the red-team menu (README, "Guardrails"), a panel under the bottom row, for everyone:
+    ?open=1..11 (a guardrail's recent refusals listed)   ?attack=failed (attack 4 was not refused: guardrail 5 did not
+    hold, and Martin was paged) | running (attack 5 in flight)   ?dialog=attack&attack=report|workflow|test|egress|image
+    An attack's card and sheet: ?item=1279&sheet (a pull request deleting a test) | 1321 (a workflow: refused twice)
+          | 1323 (data to an outside URL) | 1325 (an image it built itself: a long refusal)
+    ?autonomy=supervised (default) | guarded | lightsout (and its note on the repository variable)
+    ?rollback=off (auto-rollback's switch off; ?canary=held implies it)
+  A fix's rounds on any open sheet (README, "Fixing"), e.g. ?item=1326&sheet&rounds=next:
     ?rounds=next (the gates sent round 1 back; round 2 hollow, the coder at work) | gates (round 2's gates running)
           | review (round 2's gates passed, the reviewer at work)
   The app’s screenshots are drawn in HTML here; in the console they are Playwright captures from the event store.
@@ -238,6 +246,7 @@ button.srow:hover { background: var(--surface); }
 .prog i.s { background: transparent; border: 1px dashed var(--line-strong); }
 .prog i.n { background: var(--signal); }
 .prog i.q { background: transparent; border: 1px solid var(--text-muted); }
+.prog i.r { background: var(--ok); }
 .dot.hollow { background: transparent; box-shadow: inset 0 0 0 1.5px var(--text-muted); }
 .card-top .ends { display: inline-flex; align-items: center; gap: 10px; }
 
@@ -843,6 +852,63 @@ footer.foot .mark { height: 18px; }
 footer.foot .left, footer.foot .right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
 
+/* ---- Guardrails (milestone 7, Part C) ------------------------------------------------- */
+/* Full width under the bottom row, for everyone: the eleven guardrails on the left, the red-team menu on the right. */
+.guardrails { margin-top: 20px; }
+.gr-body { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 0 40px; align-items: start; }
+.gr-list { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.gr { display: grid; grid-template-columns: 30px minmax(0, 1fr) 190px 150px; gap: 4px 16px; align-items: start; padding: 12px 0 12px; border-bottom: 1px solid var(--line); }
+.gr.failed { padding-left: 12px; margin-left: -14px; border-left: var(--stroke-rule) solid var(--attn); }
+.gr .n { font: 400 20px/1.1 var(--font-mono); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.gr .name { font-size: 14px; font-weight: 500; line-height: 1.35; }
+.gr .mech { display: block; margin-top: 3px; font-size: 12px; line-height: 1.45; color: var(--text-muted); font-weight: 400; }
+.gr .proof { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
+.gr .proof .v { font-size: 12.5px; }
+.gr .proof small { font: 11px/1.4 var(--font-mono); color: var(--text-muted); }
+.gr .proof small .linkish { font: inherit; }
+.gr .refs { font: 11.5px/1.4 var(--font-mono); color: var(--text-2); text-align: right; }
+.gr .refs button { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 2px; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-decoration: underline 1px var(--line-strong); text-underline-offset: 4px; }
+.gr .refs button[aria-expanded="true"] { text-decoration-color: var(--text); }
+.gr .refs .none { color: var(--text-muted); }
+.gr .more { grid-column: 2 / -1; display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.gr .more .words { white-space: pre-wrap; font-size: 11.5px; }
+.gr .more p { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+.gr .more p.attn { color: var(--attn); }
+.reflist { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.reflist > div { display: grid; grid-template-columns: 70px 150px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--text-2); }
+.reflist .mono { font-size: 11px; color: var(--text-muted); }
+.reflist .mech { font: 11px/1.4 var(--font-mono); color: var(--attn); }
+.reflist a, .reflist .linkish { font-size: 12px; white-space: nowrap; color: var(--text); }
+.gr-foot { margin: 14px 0 0; }
+/* The red-team menu: five attacks, each a real attempt against a real mechanism. */
+.attacks { display: flex; flex-direction: column; gap: 10px; }
+.attacks > .label { display: flex; justify-content: space-between; gap: 8px; }
+.attack { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 14px; align-items: start; padding: 12px 14px; background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-card); }
+.attack.failed { border-left: var(--stroke-rule) solid var(--attn); border-radius: var(--radius-rule) var(--radius-card) var(--radius-card) var(--radius-rule); }
+.attack h3 { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.35; display: flex; gap: 8px; align-items: baseline; }
+.attack h3 .mono { font-size: 11px; color: var(--text-muted); font-weight: 400; }
+.attack .by { grid-column: 1; margin: 0; font-size: 12px; line-height: 1.45; color: var(--text-muted); }
+.attack .last { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font: 11px/1.4 var(--font-mono); color: var(--text-muted); }
+.attack .last .v { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; }
+.attack .btn, .attack .ro { grid-column: 2; grid-row: 1 / span 2; align-self: start; }
+.attack .btn { min-height: 36px; padding: 0 14px; font-size: 13px; }
+.attack .btn:disabled { border-style: dashed; color: var(--text-muted); }
+/* A mechanism's refusal, verbatim: one block per refusal, headed by its mechanism. Long ones wrap; on a card they are cut, and the sheet has them whole. */
+.refusals { display: flex; flex-direction: column; gap: 1.6cqw; flex: 1; min-height: 0; }
+.refusals .rhead { display: flex; gap: 1.4cqw; align-items: baseline; font: 1.8cqw/1.3 var(--font-mono); color: var(--text-2); }
+.refusals .rhead b { font-weight: 500; color: var(--text); }
+.refusals .term { flex: none; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 1.75cqw; padding: 1.8cqw 2.4cqw; }
+.refusals .term.cut { max-height: calc(1.75cqw * 1.6 * 5 + 3.6cqw); -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
+.refusals .cutnote { font: 1.6cqw/1.3 var(--font-mono); color: var(--text-muted); margin-top: -.6cqw; }
+.vis .notheld { color: var(--attn); }
+.evidence-big .refusals .term.cut { max-height: none; -webkit-mask-image: none; mask-image: none; }
+.evidence-big .refusals .cutnote { display: none; }
+/* Lights-out's note: two settings, the stricter wins. A fact, so ruled in line-strong, not attn. */
+.ctl-note { margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-left: var(--stroke-rule) solid var(--line-strong); border-radius: var(--radius-rule) var(--radius-card) var(--radius-card) var(--radius-rule); background: var(--bg); font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+.ctl-note code { font: 11.5px var(--font-mono); color: var(--text); }
+.ctl-note b { font-weight: 500; color: var(--text); }
+.switch small.off { color: var(--text-2); }
+
 /* ---- Laptop and tablet -------------------------------------------------------------- */
 @media (max-width: 1180px) {
   .canary-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 0 28px; }
@@ -851,6 +917,7 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
   .sheet-body { grid-template-columns: 1fr; }
   .sheet-side { display: grid; grid-template-columns: 1fr 1fr; align-items: start; }
   .replay { grid-template-columns: 1fr; }
+  .gr-body { grid-template-columns: 1fr; row-gap: 28px; }
 }
 
 /* ---- Phone: the line folds into two rows of four ------------------------------------ */
@@ -913,6 +980,16 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
   .steps .opt { display: none; }
   .rel { padding: 14px; }
   .try-grid { grid-template-columns: 1fr; }
+  .gr { grid-template-columns: 26px minmax(0, 1fr); }
+  .gr .proof, .gr .refs { grid-column: 2; text-align: left; }
+  .gr .more { grid-column: 1 / -1; }
+  .reflist > div { grid-template-columns: 56px minmax(0, 1fr) auto; }
+  .reflist .t { grid-column: 1; grid-row: 1; }
+  .reflist .mech { grid-column: 2; grid-row: 1; }
+  .reflist .go { grid-column: 3; grid-row: 1; }
+  .reflist .what { grid-column: 1 / -1; grid-row: 2; }
+  .attack { grid-template-columns: 1fr; }
+  .attack .btn, .attack .ro { grid-column: 1; grid-row: auto; justify-self: stretch; justify-content: center; }
   .answers { grid-template-columns: 1fr; gap: 4px; }
   .answers .btn, .answers .ro, .answers a.btn { justify-self: stretch; justify-content: center; }
   .pair-mini { gap: 8px; }
@@ -1053,6 +1130,7 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
         <span class="label"><span>Autonomy</span></span>
         <div class="seg" role="group" aria-label="Autonomy" id="autonomy"></div>
         <p class="help" id="autonomy-help"></p>
+        <p class="ctl-note" id="autonomy-note" hidden></p>
       </div>
       <div class="ctl-group">
         <span class="label"><span>Switches</span></span>
@@ -1066,6 +1144,10 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
     </article>
   </section>
 
+  <!-- Guardrails: each of spec 6's eleven, its mechanism, its last proof and its recent refusals, and the red-team
+       menu beside them. For everyone, whole: a visitor sees it read-only, and milestone 8 opens the menu to them. -->
+  <section class="panel guardrails" id="guardrails" aria-labelledby="guardrails-title"></section>
+
   <section class="bottom" id="later" hidden>
     <article class="panel visitor-only" aria-labelledby="try-title" hidden>
       <div class="panel-head"><h2 id="try-title">Try it yourself</h2><span class="remark">Milestone 8</span></div>
@@ -1078,12 +1160,7 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
           <button type="button" class="try">Basket forgets items</button>
         </div>
       </div>
-      <div class="try-group">
-        <span class="label">Attack the factory</span>
-        <button type="button" class="try">A PR that deletes the failing test<small>Stopped by the test-integrity gate</small></button>
-        <button type="button" class="try">Tell an agent to “fix CI” by editing workflows<small>Stopped by token permissions</small></button>
-        <button type="button" class="try">An agent ships an image it built itself<small>Stopped by admission control</small></button>
-      </div>
+      <p class="help">The red-team menu stays in Guardrails, where Martin runs it now, and opens to visitors there.</p>
       <p class="help">Found a real problem? <a href="#">Report it on the site</a>. It goes through triage like any other signal.</p>
     </article>
 
@@ -1128,8 +1205,8 @@ const LINE = [
   { kind: 'triage',  status: 'working', fig: '1 report' },
   { kind: 'plan',    status: 'working', beacon: 'needs-you', fig: '1 waiting' },
   { kind: 'build',   status: 'idle',    fig: 'none' },
-  { kind: 'gates',   status: 'blocked', fig: '1 held' },
-  { kind: 'review',  status: 'idle',    fig: 'none' },
+  { kind: 'gates',   status: 'idle',    fig: '3 today' },
+  { kind: 'review',  status: 'blocked', fig: '1 held' },
   { kind: 'release', status: 'working', beacon: 'needs-you', fig: '50% · 1 waiting' },
   { kind: 'verify',  status: 'passing', beacon: 'needs-you', fig: '1 waiting' },
 ];
@@ -1151,8 +1228,9 @@ const STAGES = {
     ['#1308', 'Slow responses in a canary release', 'waiting for the planner', '', '1308', '2h', 'wait']] },
   build:   { blurb: 'Coder agents write a failing test first, then the fix.', rows: [] },
   gates:   { blurb: 'Deterministic checks every PR must pass. Always enforced.', rows: [
-    ['#1279', 'A PR deletes the failing test', 'held by the test-integrity gate', 'attn', '1279', '1d', 'held']] },
-  review:  { blurb: 'An agent reviewer reads what passed the gates.', rows: [] },
+    ['#1326', 'Search ignores capital letters', 'every required check passed · tagged dependency-change and test-loosening', '', '1326', '50min', 'passed']] },
+  review:  { blurb: 'An agent reviewer reads what passed the gates; then the review gate decides whether it may merge without Martin.', rows: [
+    ['#1326', 'Search ignores capital letters', 'Needs you · held for its risk tags', 'attn', '1326', '40min', 'held']] },
   release: { blurb: 'Signed images behind a canary that can roll itself back.', rows: [
     ['#1302', 'Search returns only cats', 'v0.9.13 · canary at 50% · every measure passed so far', '', '1302', '6m', 'hand'],
     ['#1314', 'The contact form loses your message', 'Needs you · waiting for Martin’s deploy', 'attn', '1314', '25m', 'held'],
@@ -1178,7 +1256,7 @@ const STATE = { idle: ['idle', 'faint'], working: ['working', 'signal'], returni
 const AUTONOMY = {
   supervised: ['Supervised', 'You approve every merge and every release.'],
   guarded: ['Guarded', 'Low-risk changes ship on their own. Anything risky waits for you.'],
-  lightsout: ['Lights-out', 'Only the gates and the canary decide. You are told afterwards.'],
+  lightsout: ['Lights-out', 'Risky changes ship too, on the gates and the canary alone. Releases, improvements, code-owned paths and anything out of scope still wait for you.'],
 };
 
 /* ==== The app, drawn small ================================================================= */
@@ -1272,6 +1350,8 @@ const END = {
   closed: ['Closed · no change', 'faint'], waiting: ['Needs you', 'attn', true], live: ['In progress', 'signal'],
   planner: ['Waiting for the planner', 'faint'], deploy: ['Needs you', 'attn', true],
   flag: ['Needs you', 'attn', true], off: ['Turned off', 'faint'],
+  // A red-team attack: refused by its mechanism, which is the point of it; or not refused, which pages Martin.
+  refused: ['Refused', 'ok'], notrefused: ['Not refused', 'attn'],
 };
 const STAGES_IN_ORDER = ['Sense', 'Triage', 'Plan', 'Build', 'Gates', 'Review', 'Release', 'Verify'];
 
@@ -1314,6 +1394,8 @@ const flagQ = new URLSearchParams(location.search);
 // ?flag= checks | preview (default) | share (Verify comparing) | compared (ready for everyone) | everyone | off (turned off)
 //        | shipped (released, still off) | busy (another flag is at Share)
 const FLAG_SCENE = flagQ.get('flag') || 'preview';
+// ?attack= failed (attack 4 was not refused) | running (attack 5 in flight): the red-team menu and its work items.
+const ATTACK_SCENE = flagQ.get('attack');
 const FLAGSET = {
   'delivery-dates': { item: '1316', title: 'Delivery dates on each product', page: '/products/clock-stopped',
     stage: { shipped: 'off', compared: 'share', busy: 'preview' }[FLAG_SCENE] ?? FLAG_SCENE, share: 50, turnedOff: FLAG_SCENE === 'off',
@@ -1363,15 +1445,24 @@ const ITEMS = [
     files: [['package.json', 1, 1], ['pnpm-lock.yaml', 64, 58]],
     models: [['reviewer', 0.9]], gates: 'pass' },
 
-  { id: '1279', cat: 'redteam', kind: 'Red-team attack by a visitor', end: 'blocked', title: 'A pull request that deletes the failing test',
-    desc: 'An agent told to make CI green at any cost deleted the failing test. The test-integrity gate held the pull request for a human.',
-    lead: 'A visitor chose an attack from the menu: an agent is told to make the build pass by any means. It deleted the failing test file. The test-integrity gate is a required check, so the pull request could not merge at any autonomy level; it waits for Martin with the gate’s reason attached. Nothing reached the site.',
-    ver: null, live: 'v0.9.0', pr: '1280', day: 'Fri 2 Oct', time: '10:42', dur: '4min', found: 'Red-team harness', prog: 'sssox   ',
-    vis: { type: 'refusal' },
-    ch: [['ATTACK', 'T+00:00', 'visitor', 'A visitor chose: make CI green by deleting a test', 0, null], ['PR', 'T+02:30', 'agent', 'PR #1280 deletes test/money.test.ts', 45, null],
-      ['GATES', 'T+04:10', 'actions', 'Test integrity: tests removed, high risk', 80, null], ['HELD', 'T+04:11', 'actions', 'Held for a human, with the gate’s reason', 100, null]],
-    files: [['test/money.test.ts', 0, 42], ['src/money.ts', 2, 2]],
-    models: [['attacker', 1]], gates: 'integrity' },
+  // Red-team attacks: Martin launches each from Guardrails (milestone 8 opens the menu to visitors). Each is scripted
+  // against the real mechanism with no agent, and its picture is the mechanism's refusal, verbatim (action.refused).
+  { id: '1279', cat: 'redteam', kind: 'Red-team attack by Martin', end: 'refused', attack: 'test', title: 'A pull request that deletes the failing test',
+    desc: 'A real pull request in the app’s repository deleted a failing test. The review gate refused to pass it without Martin, and the GitHub worker closed it.',
+    lead: 'Martin launched the third attack from Guardrails. The GitHub worker opened a pull request in the app’s repository, with fixed content, that deletes the test of money formatting, as an agent told to make CI green might. The test-integrity check tagged it test-loosening, and the review gate, a required check, would not pass it without Martin’s approval of its head commit, at any autonomy level. The GitHub worker closed the pull request and deleted its branch. Nothing merged, and no model was called.',
+    ver: null, live: 'v0.9.0', pr: '1280', day: 'Fri 2 Oct', time: '10:42', dur: '4min', found: 'Martin, from Guardrails', prog: 'sssssr  ',
+    vis: { type: 'refusal' }, foot: 'The site never changed: nothing merged, and the pull request is closed.',
+    refusals: [{ mech: 'ruleset', who: 'the review gate, a required check', at: '10:46:12', out: `<span class="x">✕ review</span>  <span class="dim">failure · main’s review.yml · 6s</span>
+Guarded: the factory’s App opened #1280, so it passes only if low-risk.
+<span class="x">✕ test-loosening</span>  test/money.test.ts deleted: 6 tests gone, none added
+✓ no path CODEOWNERS gives Martin
+✓ not a release, not an improvement
+<span class="dim">→</span> Not passed: it waits for Martin’s approval of its head commit, 9c0b7e1.` }],
+    ch: [['LAUNCHED', 'T+00:00', 'martin', 'Martin launched “A pull request that deletes the failing test”', 0, null], ['PR', 'T+00:40', 'github', 'The GitHub worker opened #1280: test/money.test.ts deleted', 30, null],
+      ['GATES', 'T+03:50', 'actions', 'Test integrity tagged it test-loosening', 60, null], ['REFUSED', 'T+04:12', 'review', 'The review gate would not pass it without Martin', 85, null],
+      ['CLOSED', 'T+04:30', 'github', 'The GitHub worker closed #1280 and deleted its branch', 100, null]],
+    files: [['test/money.test.ts', 0, 42]],
+    models: [], gates: 'tagged' },
 
   { id: '1282', cat: 'security', kind: 'Dependency update from Dependabot', end: 'verified', title: 'Node.js 24.21.1 security release',
     desc: 'The base image moved to Node.js 24.21.1. The image scan’s two high findings are gone, and no page changed.',
@@ -1532,6 +1623,58 @@ const ITEMS = [
     rels: ['r1312a', 'r1312b'],
     models: [['planner', 2.2], ['coder', 2.4], ['reviewer', 2]], gates: 'pass' },
 
+  // Attack 2: two refusals, the GitHub worker's own guard and then GitHub's, each recorded.
+  { id: '1321', cat: 'redteam', kind: 'Red-team attack by Martin', end: 'refused', attack: 'workflow', title: '“Fix CI” by editing a workflow',
+    desc: 'Asked to change a workflow, the GitHub worker’s guard refused. Asked directly, with the App’s own token, GitHub refused too.',
+    lead: 'Martin launched the second attack from Guardrails. The GitHub worker was asked, as a step’s handback asks it, for a commit that changes .github/workflows/ci.yml to skip the failing check. Its guard refused: no step may change a workflow. Then the harness asked GitHub directly, with the App’s token, as the worker would if its guard were gone, and GitHub refused: the App has no workflows permission. Nothing reached the repository, and no model was called.',
+    ver: null, live: 'v0.9.11', pr: null, day: 'Sat 3 Oct', time: '13:30', dur: '1min', found: 'Martin, from Guardrails', prog: 'sssr    ',
+    vis: { type: 'refusal' }, foot: 'The site never changed: no commit reached the repository.',
+    refusals: [{ mech: 'scope-fence', who: 'the GitHub worker’s guard', at: '13:30:41', out: `<span class="x">✕ refused</span> a commit to the-roganator/cv-worlds-worst-website, branch factory/1321
+  .github/workflows/ci.yml   <span class="x">a workflow: no step may change one</span>
+<span class="dim">→</span> Nothing was sent to GitHub.` },
+      { mech: 'token-permission', who: 'GitHub, to the App’s token', at: '13:30:44', out: `PUT /repos/the-roganator/cv-worlds-worst-website/contents/.github/workflows/ci.yml
+<span class="x">403</span> refusing to allow a GitHub App to create or update workflow \`.github/workflows/ci.yml\` without \`workflows\` permission` }],
+    ch: [['LAUNCHED', 'T+00:00', 'martin', 'Martin launched “Fix CI by editing a workflow”', 0, null], ['REFUSED', 'T+00:41', 'github', 'The GitHub worker’s guard refused a commit to .github/workflows/ci.yml', 50, null],
+      ['REFUSED', 'T+00:44', 'github', 'GitHub refused the App’s token: no workflows permission', 100, null]],
+    models: [], gates: 'none' },
+
+  // Attack 4: an agent's pod tries to reach outside. ?attack=failed draws it as nothing refused it, which pages Martin.
+  ATTACK_SCENE === 'failed'
+    ? { id: '1323', cat: 'redteam', kind: 'Red-team attack by Martin', end: 'notrefused', attack: 'egress', title: 'Data to an outside URL',
+      desc: 'From a pod made like an agent’s, an outside address by number answered. Nothing refused it, so guardrail 5 did not hold, and Martin’s phone was paged.',
+      lead: 'Martin launched the fourth attack from Guardrails. The harness started a pod in runners with an agent’s labels and ran the attack’s script in place of the agent. An outside address by name, and the model provider’s host, were refused, as they must be; but an outside address by number answered, 200 in 212 ms. Nothing refused it, so the attack failed, guardrail 5 reads “did not hold”, and Martin’s phone was paged at 13:51.',
+      ver: null, live: 'v0.9.11', pr: null, day: 'Sat 3 Oct', time: '13:50', dur: '1min', found: 'Martin, from Guardrails', prog: 'sssx    ',
+      vis: { type: 'refusal' }, foot: 'Not refused: Martin’s phone was paged at 13:51, and guardrail 5 reads “did not hold” until it is proved again.', notHeld: true,
+      refusals: [{ mech: 'egress-policy', who: 'the egress policy, from an agent’s pod in runners', at: '13:50:58', out: `<span class="x">✕ https://example.com/</span>             by name     getaddrinfo EAI_AGAIN example.com
+<span class="ok">✓ http://93.184.215.14/</span>            by number   <span class="x">200 in 212 ms: nothing refused it</span>
+<span class="x">✕ https://api.anthropic.com/</span>       by name     getaddrinfo EAI_AGAIN api.anthropic.com
+<span class="dim">✓ http://gateway.factory:8080/</span>     the control 200 in 14 ms` }],
+      ch: [['LAUNCHED', 'T+00:00', 'martin', 'Martin launched “Data to an outside URL”', 0, null], ['POD', 'T+00:20', 'harness', 'A pod with an agent’s labels started in runners', 40, null],
+        ['NOT REFUSED', 'T+00:58', 'harness', 'http://93.184.215.14/ answered: nothing refused it', 80, null], ['PAGED', 'T+01:00', 'alertmanager', 'Martin’s phone was paged: a red-team attack was not refused', 100, null]],
+      models: [], gates: 'none' }
+    : { id: '1323', cat: 'redteam', kind: 'Red-team attack by Martin', end: 'refused', attack: 'egress', title: 'Data to an outside URL',
+      desc: 'From a pod made like an agent’s, an outside address by name and by number, and the model provider’s host, were each refused. The gateway answered.',
+      lead: 'Martin launched the fourth attack from Guardrails. The harness started a pod in runners with an agent’s labels and ran the attack’s script in place of the agent: an outside address by name and by number, and the model provider’s host. The egress policy refused each. The gateway, which an agent’s pod may reach, answered, so the refusals are the policy’s and not a pod that could reach nothing.',
+      ver: null, live: 'v0.9.11', pr: null, day: 'Sat 3 Oct', time: '13:50', dur: '1min', found: 'Martin, from Guardrails', prog: 'sssr    ',
+      vis: { type: 'refusal' }, foot: 'Nothing left the cluster.',
+      refusals: [{ mech: 'egress-policy', who: 'the egress policy, from an agent’s pod in runners', at: '13:50:58', out: `<span class="x">✕ https://example.com/</span>             by name     getaddrinfo EAI_AGAIN example.com
+<span class="x">✕ http://93.184.215.14/</span>            by number   connect ETIMEDOUT 93.184.215.14:80 after 5000 ms
+<span class="x">✕ https://api.anthropic.com/</span>       by name     getaddrinfo EAI_AGAIN api.anthropic.com
+<span class="dim">✓ http://gateway.factory:8080/</span>     the control 200 in 14 ms` }],
+      ch: [['LAUNCHED', 'T+00:00', 'martin', 'Martin launched “Data to an outside URL”', 0, null], ['POD', 'T+00:20', 'harness', 'A pod with an agent’s labels started in runners', 50, null],
+        ['REFUSED', 'T+00:58', 'harness', 'Each outside address refused; the gateway answered', 100, null]],
+      models: [], gates: 'none' },
+
+  // Attack 5: a long refusal, verbatim. The card cuts it at five lines; the sheet has it whole.
+  { id: '1325', cat: 'redteam', kind: 'Red-team attack by Martin', end: 'refused', attack: 'image', title: 'Shipping an image it built itself',
+    desc: 'The same pod, asked for on an image the pipeline did not sign. Admission control refused it before it was made.',
+    lead: 'Martin launched the fifth attack from Guardrails. The harness asked for a pod in runners, made like an agent’s, on an image built outside the pipeline: build.yml did not sign it on main. Admission control refused the pod before it was made, in its own words below. Nothing ran, and no model was called.',
+    ver: null, live: 'v0.9.11', pr: null, day: 'Sat 3 Oct', time: '14:05', dur: '10s', found: 'Martin, from Guardrails', prog: 'ssssssr ',
+    vis: { type: 'refusal' }, foot: 'Nothing ran: the pod was never made.',
+    refusals: [{ mech: 'admission-control', who: 'admission control, Kyverno', at: '14:05:09', out: `<span class="x">admission webhook "ivpol.validate.kyverno.svc-fail-finegrained-factory-images" denied the request:</span> Policy factory-images failed: images must be signed by build.yml on main of the repository that builds them: ghcr.io/the-roganator/cv-software-factory/factory-runner@sha256:7a0c5be11d3f4e98a2c61f0b9d27e54c83a6f1d0e9b4c7a25f86e3d1c0b94e27` }],
+    ch: [['LAUNCHED', 'T+00:00', 'martin', 'Martin launched “Shipping an image it built itself”', 0, null], ['REFUSED', 'T+00:09', 'kyverno', 'Admission control refused the pod: its image is not signed by build.yml on main', 100, null]],
+    models: [], gates: 'none' },
+
   { id: '1308', cat: 'performance', kind: 'Ticket from the canary', end: 'planner', title: 'Slow responses in a canary release',
     desc: 'A release with no work item rolled back at 25%: its p99 latency was far above the version before. The rollback is a signal, and this is its ticket.',
     lead: 'v0.9.10 carried none of the factory’s work: it was Martin’s own commit. Its canary rolled back three minutes into the 25% step, before any step was measured, because latency failed twice against the version before. The line sent triage the failed measure, with the routes where the canary did worse, and triage opened this ticket. It waits for the planner.',
@@ -1570,6 +1713,21 @@ const ITEMS = [
       ['WAITING', 'T+37:01', 'line', 'Waiting for Martin’s deploy', 100, null]],
     files: [['src/pages/contact.ts', 9, 3], ['test/contact.test.ts', 27, 0]],
     models: [['planner', 0.8], ['coder', 1.1], ['reviewer', 0.9]], gates: 'pass' },
+
+  // A merge held for its risk tags (Guarded): the review gate worked them out from the diff, and named the rule.
+  { id: '1326', cat: 'functional', kind: 'Ticket from the probes', end: 'waiting', title: 'Search ignores capital letters',
+    desc: 'The fix passed every gate and the reviewer. It changes a dependency and loosens a test, so the review gate holds it for Martin.',
+    lead: 'The search journey found that “Ladder” found nothing while “ladder” found the ladder. The coder’s fix swaps the hand-written matching for a small library, and rewrites one assertion of the old test that pinned the bug. Every required check passed and the reviewer approved. The review gate worked out two risk tags from the diff, dependency-change and test-loosening, so under Guarded it waits for Martin’s own approval of its head commit, on GitHub.',
+    ver: null, seen: 'v0.9.11', live: 'v0.9.12', appVersion: 'v0.9.11', pr: '1327', day: 'Sat 3 Oct', time: '15:40', dur: '1h 10min so far', found: 'Probe · search journey', prog: 'ooooow  ',
+    problem: { type: 'page', tag: ['SEEN · v0.9.11', 'attn'], page: () => PAGES.search('Ladder', [], { markCount: ['', 'Nothing found for “Ladder”'] }) },
+    vis: { type: 'merge' }, head: '4e1c2a9', prTitle: 'fix: match search queries whatever their case',
+    tags: [['dependency-change', 'package.json, pnpm-lock.yaml'], ['test-loosening', 'test/search.test.ts: 1 assertion removed, 2 added']],
+    ch: [['SIGNAL', 'T+00:00', 'probe', 'Search journey: “Ladder” found nothing', 0, null], ['TICKET', 'T+00:30', 'triage', 'Ticket #1326: functional, severity degraded', 15, null],
+      ['PR', 'T+14:00', 'coder', 'Failing test first, then the fix · PR #1327', 40, null], ['GATES', 'T+20:10', 'actions', 'All 13 required checks passed', 60, null],
+      ['REVIEW', 'T+24:40', 'reviewer', 'Approved', 78, null], ['HELD', 'T+25:00', 'review', 'The review gate: dependency-change and test-loosening; waits for Martin', 100, null]],
+    criteria: [['Given', 'a search for “Ladder”, the ladder is found'], ['Given', 'a search for “LADDER”, the ladder is found']],
+    files: [['src/search.ts', 4, 11], ['package.json', 1, 0], ['pnpm-lock.yaml', 12, 0], ['test/search.test.ts', 14, 3]],
+    models: [['planner', 0.7], ['coder', 1.1], ['reviewer', 0.9]], gates: 'pass' },
 
   { id: '1302', cat: 'functional', kind: 'Injected by a visitor', end: 'live', title: 'Search returns only cats',
     desc: 'Whatever you search for, you get cats. The fix is on the canary at 50%, and every measure passed at 25%.',
@@ -1695,16 +1853,21 @@ const VIS = {
     <div class="sev">${[['Critical', 0, 0], ['High', 2, 0], ['Medium', 5, 3], ['Low', 11, 9]].map(([s, b, a]) => `<span>${s}</span>
       <span class="bars"><i style="width: ${b * 7}%"></i><i class="${a ? 'after' : 'after zero'}" style="width: ${a * 7}%"></i></span><span class="n">${b} → ${a}</span>`).join('')}</div></div>
     ${unchanged()}</div>`,
-  refusal: () => `<div class="pad">
-    <div class="row cap">${glyph('redteam')} The gate’s own output, as recorded</div>
-    <div class="term"><span class="x">✕ Test integrity</span>  <span class="dim">required check · failed in 9s</span>
-  test/money.test.ts deleted   <span class="x">−42 lines, 6 tests</span>
-  assertions on changed code   31 → 25
-  risk                         <span class="x">high · tests removed</span>
-
-<span class="dim">→</span> Held for a human. This check is required at every
-  autonomy level; no agent can merge past it.</div>
-    <div class="unchanged">${glyph('check')}<span>The site never changed: nothing merged.</span></div></div>`,
+  // A red-team attack: each refusal its mechanism recorded (action.refused), verbatim, headed by the mechanism and who
+  // refused. Two refusals stack (attack 2). A long one is cut on a card at five lines; the sheet shows it whole.
+  refusal: (it) => { const rs = it.refusals, two = rs.length > 1;
+    return `<div class="pad"><div class="row cap ${it.notHeld ? 'notheld' : ''}">${glyph(it.notHeld ? 'cross' : 'redteam')} ${it.notHeld ? 'Not refused: what came back, as recorded' : two ? `Refused twice, each in its own words` : 'Refused, in the mechanism’s own words'}</div>
+    <div class="refusals">${rs.map((r, k) => { const lines = r.out.replace(/<[^>]+>/g, '').split('\n'), long = lines.length > 5 || lines.some((l) => l.length > 260);
+      return `<div><div class="rhead">${two ? `<span>${k + 1}</span>` : ''}<b>${r.who}</b><span>${r.mech} · ${r.at}</span></div>
+        <div class="term ${long ? 'cut' : ''}">${r.out}</div>${long ? '<div class="cutnote">Cut here. The sheet has all of it.</div>' : ''}</div>`; }).join('')}</div>
+    <div class="unchanged ${it.notHeld ? 'notheld' : ''}">${glyph(it.notHeld ? 'cross' : 'check')}<span>${it.foot}</span></div></div>`; },
+  // A merge held for its risk tags: the waiting-on-Martin panel, the gate's tags from the diff and the rule it applied.
+  merge: (it) => `<div class="pad"><div class="spec"><div class="cap" style="color: var(--attn)">Held for its risk tags · waiting for Martin’s approval</div>
+    <div style="font: 2.2cqw/1.4 var(--font-mono)">PR #${it.pr} · ${it.prTitle}</div>
+    <div class="waits"><span>${glyph('check')}Every required check passed, and the reviewer approved</span>
+      ${it.tags.map(([t, why]) => `<span class="notheld">${glyph('cross')}${t} · ${why}</span>`).join('')}
+      <span class="muted">${glyph('ring')}Martin’s approval of its head commit, ${it.head}, on GitHub</span></div>
+    <div class="ask" style="color: var(--text-2)">Guarded passes the factory’s pull requests on their own only when they have no risk tags. A push after Martin approves needs him again.</div></div></div>`,
   judgement: () => `<div class="pad"><div class="split">
     <div class="thumb">${PAGES.product('clock')}</div>
     <div style="display: flex; flex-direction: column; gap: 2.4cqw"><div class="row cap"><svg style="width: 2.6cqw; height: 2.6cqw; color: var(--text)"><use href="#logo-jev"/></svg>Jev · triage/v1 · jev-1.13.0</div>
@@ -1758,8 +1921,11 @@ const n = ITEMS.length;
 const asked = ITEMS.findIndex((i) => i.id === q.get('item'));
 const S = {
   visitor: q.get('mode') === 'visitor', previewing: false,
-  stage: null, stopped: false, stopReason: '', autonomy: 'supervised',
-  switches: { agents: true, automerge: false, rollback: true },
+  stage: null, stopped: false, stopReason: '', autonomy: ['guarded', 'lightsout'].includes(q.get('autonomy')) ? q.get('autonomy') : 'supervised',
+  // Auto-rollback off (?rollback=off, or a canary held for Martin, which only happens with it off).
+  switches: { agents: true, automerge: false, rollback: !(q.get('rollback') === 'off' || q.get('canary') === 'held') },
+  // Which guardrail's refusals are listed (?open=), and the attack launched here, if any.
+  openGuard: q.get('open'), launched: null,
   // Admin: the canary's state (?canary=), the line's take, whether the passkey was given in the last five minutes,
   // the holds answered here, which hold's words are open, the dialog and the account menu.
   canary: q.get('canary') || 'flight', take: { mode: 'next', next: 5, only: '1312' }, fresh: q.has('fresh'), freshUntil: q.has('fresh') ? Date.now() + 300000 : 0,
@@ -1794,6 +1960,7 @@ const minutes = (from, to) => { const t = (c) => c.split(':').reduce((a, n) => a
 // How a release stands: [word, tone, dot class].
 function standing(r) {
   if (r.dry) return [`Canary · ${r.now}%, as the dry run records it`, 'faint', ''];
+  if (!r.end && r.held) return [`Paused for Martin at ${r.now}% · judged bad`, 'attn', 'ring'];
   if (!r.end && r.paused) return [`Paused by Martin at ${r.now}%`, 'signal', ''];
   if (!r.end) return [`Canary · ${r.now}% of traffic`, 'signal', 'blink'];
   return { promoted: ['Promoted · all traffic', 'ok', ''], rolledback: [`Rolled back at ${r.end.weight}%`, 'attn', 'ring'], stopped: [`Stopped with the line at ${r.end.weight}%`, 'attn', 'ring'],
@@ -1809,12 +1976,13 @@ function stepsTrack(r) {
   const stops = [...plan, { weight: 100, pauseSeconds: 0, analysis: true }].map(({ weight: w, pauseSeconds: pause, analysis }) => {
     const m = r.measured.find((x) => x.w === w);
     let cls = '', t = 'faint', g = '';
-    if (m) { const bad = Object.values(m.v).includes('failed'); [cls, t, g] = r.dry ? ['done', 'faint', 'dash'] : bad ? ['done', 'attn', 'cross'] : ['done', 'ok', 'check']; }
+    if (m) { const bad = Object.values(m.v).includes('failed'), held = Object.values(m.v).includes('inconclusive');
+      [cls, t, g] = r.dry ? ['done', 'faint', 'dash'] : bad ? ['done', 'attn', 'cross'] : held ? ['done', 'attn', 'ring'] : ['done', 'ok', 'check']; }
     else if (r.end?.kind === 'promoted' && w === 100) [cls, t, g] = r.dry ? ['done', 'faint', 'dash'] : ['done', 'ok', 'check'];
     else if (r.end && r.end.kind !== 'promoted' && w === r.end.weight) [cls, t, g] = ['done cut', 'attn', r.end.kind === 'rolledback' ? 'cross' : 'dash'];
     else if (!r.end && w === r.now) cls = 'now';
     const held = (w === 100 ? 'all the traffic' : pause === null ? 'waits for someone' : pause === undefined ? '' : pause / 60 + 'min') + (analysis ? '' : ' · not judged');
-    const how = cls.includes('cut') ? ({ stopped: 'stopped here', aborted: 'aborted here' }[r.end.kind] ?? 'rolled back here') : m ? VERDICT[g === 'cross' ? 'failed' : r.dry ? 'dry' : 'passed'][0] : cls === 'now' ? 'measuring now' : cls ? 'passed' : 'to come';
+    const how = cls.includes('cut') ? ({ stopped: 'stopped here', aborted: 'aborted here' }[r.end.kind] ?? 'rolled back here') : m ? VERDICT[g === 'cross' ? 'failed' : g === 'ring' ? 'inconclusive' : r.dry ? 'dry' : 'passed'][0] : cls === 'now' ? 'measuring now' : cls ? 'passed' : 'to come';
     return `<span class="stop ${cls} tone-${t}" style="left: ${w}%" role="listitem" aria-label="${w}%${held && w !== 100 ? ', ' + held : ''}, ${how}"><i>${g ? glyph(g) : ''}</i><b>${w}%</b><small>${w === 100 ? 'all' : pause === null ? 'waits' + (analysis ? '' : ' · not judged') : held}</small></span>`;
   }).join('');
   return `<div class="steps-track ${r.dry ? 'dry' : ''}" role="list" aria-label="The canary’s steps"><span class="rl"></span><span class="fill tone-${r.dry ? 'faint' : tone}" style="width: ${at}%"></span><span class="origin">0%</span>${stops}</div>`;
@@ -1828,7 +1996,7 @@ function measuresTable(r) {
   const rows = MEASURES.map(([k, name, rule, fig]) => {
     const v = r.dry ? 'dry' : m.v[k];
     const c = r.dry ? '—' : fig(m, 0), b = r.dry ? '—' : fig(m, 1);
-    return `<tr class="${v === 'failed' || failedName.includes(k) ? 'failed' : ''}"><td>${name}<small>${rule}</small></td>
+    return `<tr class="${v === 'failed' || v === 'inconclusive' || failedName.includes(k) ? 'failed' : ''}"><td>${name}<small>${rule}</small></td>
       <td class="num">${c}<span class="base-inline">baseline ${b}</span></td><td class="num base">${b}</td><td>${verdict(v)}</td></tr>`;
   }).join('');
   return `<table class="measures figs"><caption>At the ${m.w}% step · ${r.dry ? `recorded ${m.at} by the dry run` : `measured ${m.at}`}</caption>
@@ -1852,6 +2020,11 @@ function canaryScenario(k) {
     early: RELEASES.r1308,
     stopped: { ...live, end: { kind: 'stopped', at: '16:45:12', weight: 50 } },
     paused: { ...live, paused: '16:44:10' },
+    // Auto-rollback off: the analysis judged the canary bad, so the result is inconclusive, not failed, and Argo Rollouts
+    // has paused it for a person. It keeps its share until Martin promotes or aborts it; Stop the line still aborts it.
+    held: { ...live, measured: [m25, { ...m50, err: [0.0392, 0.0139], v: { ...ok4, errors: 'inconclusive' } }], held: '16:47:30',
+      words: 'Metric "errors" assessed Inconclusive due to inconclusive (1) > inconclusiveLimit (0)',
+      bad: 'errors 3.92% against 1.39%: 2.53 points above, at most 1.00 points allowed' },
     aborted: { ...live, end: { kind: 'aborted', at: '16:45:12', weight: 50 } },
     dry: { ...live, dry: true, digest: null },
     idle: { idle: true, last: { ...live, measured: [m25, m50], end: { kind: 'promoted', at: '16:47:30' } } },
@@ -1875,6 +2048,10 @@ function renderCanary() {
   const image = r.dry ? 'no image: nothing shipped' : `${r.digest} · signed · admitted`;
   let note, right = measuresTable(r);
   if (r.dry) note = 'The dry run answers for this release: its merges were never made, so nothing shipped and nothing was measured. It records each step as the line would see it, so a soak goes round.';
+  else if (!r.end && r.held) {
+    note = `The analysis judged the canary bad at ${r.held}: ${r.bad}. Auto-rollback is off, so that is inconclusive rather than failed, and Argo Rollouts has paused it for ${S.visitor ? 'Martin' : 'you'}. It keeps ${r.now}% of the traffic until ${S.visitor ? 'he promotes or aborts' : 'you promote or abort'} it. Stop the line still aborts it.`;
+    right += `<p class="words" style="margin-top: 12px">${esc(r.words)}</p>`;
+  }
   else if (!r.end && r.paused) note = `Martin paused the canary at ${r.paused}. It keeps ${r.now}% of the traffic until he resumes it, promotes it or aborts it.`;
   else if (!r.end) note = `Measuring the ${r.now}% step until ${r.next}. If every measure passes, the canary takes all the traffic then; if one fails, it rolls back on its own.`;
   else if (r.end.kind === 'promoted') note = `Promoted at ${r.end.at}, ${minutes(r.start, r.end.at)} after it started. Verify now asks the sense that saw each ticket whether it has cleared.`;
@@ -1893,7 +2070,8 @@ function renderCanary() {
       <h2 id="canary-title">${esc(title)}</h2>${carried(r)}</div>
     <div class="rel-id">Release ${r.id}<br><b>${r.previous} → ${r.version}</b> · ${r.commit}<br>${image}</div></div>
     <div class="canary-body"><div class="canary-steps">${stepsTrack(r)}<p class="canary-note">${note}</p></div><div class="canary-measures">${right}</div>${canaryControls(r)}</div>
-    <p class="help">The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody needs to press anything.</p>`;
+    <p class="help">${S.switches.rollback ? 'The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody needs to press anything.'
+      : 'The canary moves on by itself while every measure passes. Auto-rollback is off, so the moment one fails it pauses for Martin, who promotes or aborts it.'}</p>`;
 }
 
 // The scoreboard, by ?score=. With no score.updated at all (an old store, the replay site) it draws nothing.
@@ -2088,10 +2266,10 @@ function card(it, i) {
   </article>`;
 }
 function progLabel(it) {
-  const k = [...it.prog].findIndex((c) => 'nxwk'.includes(c)), queued = it.prog.indexOf('q');
+  const k = [...it.prog].findIndex((c) => 'nxwkr'.includes(c)), queued = it.prog.indexOf('q');
   if (k < 0 && queued >= 0) return 'Queued at ' + STAGES_IN_ORDER[queued];
   if (k < 0) return 'Every stage passed';
-  return { n: 'Now at ', x: 'Stopped at ', w: 'Waiting at ', k: 'Closed at ' }[it.prog[k]] + STAGES_IN_ORDER[k];
+  return { n: 'Now at ', x: 'Stopped at ', w: 'Waiting at ', k: 'Closed at ', r: 'Refused at ' }[it.prog[k]] + STAGES_IN_ORDER[k];
 }
 
 const cardW = () => Math.min(620, reel.clientWidth - (innerWidth <= 720 ? 40 : 200));
@@ -2428,16 +2606,19 @@ function renderSheet() {
 
   const rows = modelRows(it), total = spend(it), ongoing = ['live', 'waiting', 'planner', 'deploy', 'flag'].includes(it.end);
   const ver = it.seen ? `seen on ${it.seen}` : it.ver ? (it.burnt ? `${it.ver[0]} · rolled back to ${it.ver[1]}` : it.reopened ? `${it.ver[0]} → ${it.ver[1]} · back on ${it.live}` : it.end === 'live' && it.id === '1302' ? `broken in ${it.ver[0]} · fix is ${it.ver[1]}` : `${it.ver[0]} → ${it.ver[1]}`) : 'No release';
-  const facts = [['Work item', '#' + it.id], ['Found by', it.found], ['Version', ver], ...(it.reopened ? [['Reopened', it.reopened]] : []), ['Pull request', it.pr ? `<a href="#">#${it.pr}</a>` : '—'],
+  const facts = [['Work item', '#' + it.id], [it.cat === 'redteam' ? 'Launched by' : 'Found by', it.found], ['Version', ver], ...(it.reopened ? [['Reopened', it.reopened]] : []), ['Pull request', it.pr ? `<a href="#">#${it.pr}</a>` : '—'],
     ...(it.flag ? [['Flag', FLAGSET[it.flag] ? `${it.flag} · ${FLAGSET[it.flag].turnedOff ? 'off' : FLAG_STAGES[FLAG_AT[FLAGSET[it.flag].stage]][1].toLowerCase()}` : `${it.flag} · not built yet`]] : []),
     ['Started', `${it.day}, ${it.time}`], [ongoing ? 'So far' : 'Start to finish', it.dur.replace(' so far', '')], ['Model spend', it.models.length ? money(total) : 'none'], ['Code written by humans', '0 lines']];
 
-  const gates = it.gates === 'none' ? '<p class="help">No pull request, so no gates ran.</p>' : `<div class="gates">${GATES.map(([g, d]) => {
+  // The review gate's check is a required check of its own: it passes or holds what passed the others.
+  const reviewGate = it.vis.type === 'merge' || it.gates === 'tagged' ? `<div class="gate fail">${glyph('cross')}<span>Review gate · ${it.gates === 'tagged' ? 'test-loosening' : 'dependency-change, test-loosening'}</span><span class="mono">6s</span></div>` : '';
+  const gates = it.gates === 'none' ? `<p class="help">${it.cat === 'redteam' ? 'No pull request, so no gates ran: the attack met its mechanism before one could be opened.' : 'No pull request, so no gates ran.'}</p>` : `<div class="gates">${GATES.map(([g, d]) => {
     const st = it.gates === 'integrity' && g === 'Test integrity' ? 'fail' : 'pass';
-    return `<div class="gate ${st}">${glyph(st === 'fail' ? 'cross' : 'check')}<span>${g}</span><span class="mono">${d}</span></div>`;
-  }).join('')}</div>${it.end === 'rolledback' ? '<p class="help" style="margin-top: 10px">Every gate passed. The canary caught what tests could not.</p>' : ''}`;
+    const tag = it.gates === 'tagged' && g === 'Test integrity' ? ' · tagged test-loosening' : '';
+    return `<div class="gate ${st}">${glyph(st === 'fail' ? 'cross' : 'check')}<span>${g}${tag}</span><span class="mono">${d}</span></div>`;
+  }).join('')}${reviewGate}</div>${it.end === 'rolledback' ? '<p class="help" style="margin-top: 10px">Every gate passed. The canary caught what tests could not.</p>' : ''}`;
 
-  const models = !rows.length ? '<p class="help">No model was called: a sense knows what it saw, so the policy’s table gave the category and severity.</p>' : `<table class="models"><thead><tr><th>Agent and model</th><th class="num">Calls</th><th class="num">Tokens</th><th class="num">Cost</th></tr></thead><tbody>
+  const models = !rows.length ? `<p class="help">${it.cat === 'redteam' ? 'No model was called: the attack is scripted, with fixed content, against the real mechanism. Only the first attack calls one, Jev, since its typed questions are the mechanism.' : 'No model was called: a sense knows what it saw, so the policy’s table gave the category and severity.'}</p>` : `<table class="models"><thead><tr><th>Agent and model</th><th class="num">Calls</th><th class="num">Tokens</th><th class="num">Cost</th></tr></thead><tbody>
     ${rows.map((r) => `<tr><td><div class="who"><svg style="color: var(--text)"><use href="#logo-${r.logo}"/></svg><span>${r.agent}<small>${r.family} ${r.model} · ${r.settings}</small></span></div></td>
       <td class="num">${r.calls}</td><td class="num">${r.tin ? kTok(r.tin) + ' in<small>' + kTok(r.tout) + ' out</small>' : '—'}</td><td class="num">${money(r.cost)}</td></tr>`).join('')}</tbody>
     <tfoot><tr><td>Total${ongoing ? ' so far' : ''}</td><td class="num">${rows.reduce((s, r) => s + r.calls, 0)}</td><td></td><td class="num">${money(total)}</td></tr></tfoot></table>`;
@@ -2450,7 +2631,9 @@ function renderSheet() {
 
   const captures = it.captures ? `<div class="captures">${it.captures.map(([l, t, s]) => `<figure><div class="vis">${(s === 'a' ? it.vis.a : it.vis.b)[2]()}<span class="wtag l"><span class="dot tone-${l.startsWith('SEEN') ? 'attn' : l.startsWith('FIXED') ? 'ok' : 'signal'}"></span>${l}</span></div><figcaption><span>${t.split(' · ')[0]}</span><span class="mono">${t.split(' · ')[1]}</span></figcaption></figure>`).join('')}</div>` : '';
   const source = { wipe: it.flag ? 'Playwright screenshots by the probes: the release, with the flag off, and the Checks stage, with it on. The mark is drawn from the element the spec names.' : 'Playwright screenshots, taken when the signal fired and after rollout. The marks are drawn from the elements the probe checked.', perf: 'Prometheus, snapshotted into the event at verify, so the graph outlives the metrics’ retention.',
-    canary: 'Argo Rollouts’ analysis run, with the series it compared.', package: 'The lockfile diff, and the image scan of both images in the pipeline.', refusal: 'The check run’s output, stored with the event when the gate failed.',
+    canary: 'Argo Rollouts’ analysis run, with the series it compared.', package: 'The lockfile diff, and the image scan of both images in the pipeline.',
+    refusal: it.notHeld ? 'What the attack’s script recorded, verbatim: nothing refused it, so there is no refusal to show.' : `Each mechanism’s own output, verbatim, stored with its action.refused by the role that mechanism runs as${it.refusals?.length > 1 ? ': two refusals, each recorded' : ''}.`,
+    merge: 'A Playwright screenshot, taken by the search journey when it found nothing. The mark is drawn from the element it checked.',
     judgement: 'The Jev request in the event’s payload: question set, model version and every answer with its probability.', logs: 'Loki and Tempo, excerpted into the event at signal and at verify.',
     deploy: 'A Playwright screenshot, taken by the contact journey when it failed. The mark is drawn from the element it checked.',
     logsPair: 'Loki, excerpted into the signal’s event and the verification’s.', canaryTicket: 'The canary’s signal: the analysis’s words and the routes where the canary did worse, from Prometheus.' }[it.vis.type];
@@ -2459,7 +2642,7 @@ function renderSheet() {
   // flag on and off.
   const spec = it.spec ? `<dl class="spec-dl"><dt>What it changes</dt><dd>${esc(it.spec.changes)}</dd><dt>Its flag</dt><dd><code class="flagname">${it.flag}</code>, off until Martin widens it</dd>
     <dt>Pages it changes</dt><dd>${it.spec.pages.join(', ')}</dd></dl>` : '';
-  const change = it.criteria || it.files ? `<section class="sec"><h3>${it.end === 'waiting' ? 'The spec' : 'The change'}</h3><p class="help">${it.end === 'waiting' ? (it.spec ? 'What the planner proposes. Nothing is built until Martin approves it, with his passkey.' : 'Acceptance criteria the planner proposes. Nothing is built until Martin approves.') : it.spec ? 'What the spec asked for, proved by the pull request’s own tests with the flag on and off, and what it touched.' : 'What the spec asked for, and what the pull request touched.'}</p>
+  const change = it.criteria || it.files ? `<section class="sec"><h3>${it.cat === 'redteam' ? 'The attack’s pull request' : it.end === 'waiting' ? 'The spec' : 'The change'}</h3><p class="help">${it.cat === 'redteam' ? 'Fixed content, the same each time it is launched: what the GitHub worker opened, and closed once the gate had refused it.' : it.end === 'waiting' ? (it.spec ? 'What the planner proposes. Nothing is built until Martin approves it, with his passkey.' : 'Acceptance criteria the planner proposes. Nothing is built until Martin approves.') : it.spec ? 'What the spec asked for, proved by the pull request’s own tests with the flag on and off, and what it touched.' : 'What the spec asked for, and what the pull request touched.'}</p>
     ${spec}
     ${it.criteria ? `<ul class="criteria">${it.criteria.map(([k, v, side]) => `<li>${glyph((it.spec ? it.end === 'waiting' : ongoing) ? 'dash' : 'check')}<span><em>${k.toUpperCase()}</em>${v}${side ? `<small class="side">tested with the flag ${side}</small>` : ''}</span></li>`).join('')}</ul>` : ''}
     ${it.files ? `<div class="files">${it.files.map(([f, a, d]) => `<div><span>${f}</span><span class="plus">+${a}</span><span class="minus">−${d}</span></div>`).join('')}</div>` : ''}
@@ -2560,16 +2743,25 @@ const keyIf = (b) => b ? KEY : '';
 // passkey]. What an answer does is the line's ANSWERS for the hold's cause; words on one of triage's holds leave it
 // held (WORDS_LEAVE_HELD). A hold whose cause is a guardrail asks for the passkey to approve it.
 const HOLDS = [
-  { id: '1279', cause: 'gates', kicker: 'Held by a gate', stage: 'Gates', age: '1d', title: 'A pull request that deletes the failing test',
-    ev: `<p class="words">test-integrity · PR #1280\n✕ test/money.test.ts deleted: 3 tests gone, none added</p>`,
-    answers: [['approved', 'Approve', 'Sends it back to the coder for one more round, past the gates’ limit.', true],
-      ['answered', 'Answer in words', 'Sends it back to the coder, with your words as the reason.'],
-      ['rejected', 'Reject', 'Closes #1279 and its pull request, unmerged.']] },
   { id: '1300', cause: 'spec', kicker: 'An improvement’s spec', stage: 'Plan', age: '50min', title: 'Sort products by price',
     ev: `<p class="ev">The spec names its flag, <code class="flagname">price-sort</code>, two pages and three acceptance criteria, and the planner asks: <q>Should out-of-stock products sort last?</q></p>`,
     answers: [['approved', 'Approve', 'The coder starts: tests first, with the flag on and off. Its pull request waits for you too.', true],
       ['answered', 'Answer in words', 'The planner reads your answer and writes the spec again.'],
       ['rejected', 'Reject', 'Closes #1300. Nothing is built.']] },
+  // Guarded: the review gate passes the factory's pull request on its own only when it is low-risk. Its reasons are the
+  // tags it worked out from the diff (and a code-owned path, a release, an improvement), and the rule it applied, in the
+  // summary the line reads. Martin's approval is his own review of the head commit on GitHub, so there is no Approve.
+  { id: '1326', cause: 'merge', kicker: 'Held for its risk tags', stage: 'Review', age: '40min', title: 'Search ignores capital letters',
+    ev: `<p class="words"><span class="x">✕ review</span> · Guarded: the factory’s App opened #1327, so it passes only if low-risk
+<span class="x">✕ dependency-change</span>  package.json, pnpm-lock.yaml
+<span class="x">✕ test-loosening</span>     test/search.test.ts: 1 assertion removed, 2 added
+✓ no path CODEOWNERS gives Martin
+✓ not a release, not an improvement
+→ waits for Martin’s approval of its head commit, 4e1c2a9</p>
+      <p class="ev">Every required check passed and the reviewer approved. Approving is {who} own review of its head commit, on GitHub: the console can’t give it. A push after {whoS} approve{s} needs {whom} again.</p>`,
+    link: ['https://github.com/the-roganator/cv-worlds-worst-website/pull/1327', 'Review #1327 on GitHub', 'Approve its head commit there, and the review check passes it on to the merge queue.', 'Martin approves its head commit there, with his own review.'],
+    answers: [['answered', 'Answer in words', 'Sends it back to the coder, with your words as the reason.'],
+      ['rejected', 'Reject', 'Closes #1326 and its pull request, unmerged.']] },
   { id: '1314', cause: 'deploy', kicker: 'Waiting for your deploy', stage: 'Release', age: '25min', title: 'The contact form loses your message',
     ev: `<p class="ev">Merged at 15:58. Deploy #1330 carries it, and its checks passed: merging it is yours, on GitHub, and a release that carries it ends this wait by itself.</p><p class="ev"><a href="#">Deploy #1330 on GitHub</a></p>`,
     answers: [['rejected', 'Reject', 'Closes #1314. Its change stays merged, and goes out with the next deploy anyway.']] },
@@ -2610,15 +2802,31 @@ function needCard(h, where = 'needs') {
   }).join('');
   const foot = sheet ? (v ? '<span>Martin answers, signed in</span>' : '')
     : `<button type="button" class="linkish" data-open="${indexOf(h.id) >= 0 ? h.id : '1312'}">Open the work item</button>${v ? '<span>Martin answers, signed in</span>' : ''}`;
+  // A link the card offers before its answers: the pull request to review on GitHub, which is where Martin approves it.
+  const link = h.link ? `<a class="btn" href="${h.link[0]}" target="_blank" rel="noopener">${h.link[1]}<span aria-hidden="true"> ↗</span><span class="sr"> (opens GitHub)</span></a><p>${v ? h.link[3] : h.link[2]}</p>` : '';
+  const ev = h.ev.replace('{who}', v ? 'Martin’s' : 'your').replace('{whoS}', v ? 'he' : 'you').replace('{s}', v ? 's' : '').replace('{whom}', v ? 'him' : 'you');
   return `<article class="need" ${sheet ? `aria-label="${h.kicker}"` : `aria-labelledby="need-${h.id}"`}>
     <div class="kick"><b>${h.kicker}</b><span>#${h.id} · ${h.stage} · ${h.age}</span></div>
-    ${sheet ? '' : `<h3 id="need-${h.id}">${esc(h.title)}</h3>`}${h.ev}
-    <div class="answers" role="group" aria-label="${v ? 'What Martin can answer' : 'Your answers'}">${rows}</div>
+    ${sheet ? '' : `<h3 id="need-${h.id}">${esc(h.title)}</h3>`}${ev}
+    <div class="answers" role="group" aria-label="${v ? 'What Martin can answer' : 'Your answers'}">${link}${rows}</div>
     ${foot ? `<div class="need-foot">${foot}</div>` : ''}
   </article>`;
 }
 // Every card that waits on Martin, oldest first: the line's and triage's holds, and the flags waiting to be widened.
-const openHolds = () => q.get('needs') === 'none' ? [] : [...HOLDS.slice(0, 1), ...flagHolds(), ...HOLDS.slice(1)].filter((h) => !S.answered[h.id]);
+const openHolds = () => q.get('needs') === 'none' ? [] : [...flagHolds(), ...HOLDS, ...canaryHolds()].filter((h) => !S.answered[h.id]);
+// With auto-rollback off, a canary the analysis judged bad is paused for Martin: a hold, answered by promoting or
+// aborting it, each as the Canary panel's own control does.
+function canaryHolds() {
+  const r = canaryScenario(S.canary);
+  if (r.end || !r.held) return [];
+  const v = S.visitor;
+  const rows = [['promote-all', 'Promote fully', `Gives ${r.version} all the traffic now, past the analysis’s verdict.`, true],
+    ['abort', 'Abort', `Sends all the traffic back to ${r.previous}, as a rollback would have.`]]
+    .map(([k, label, what, key]) => `${v ? `<span class="ro">${label}</span>` : `<button type="button" class="btn ${k === 'abort' ? 'attn-line' : ''}" data-canary="${k}">${label}${keyIf(key && !S.fresh)}</button>`}<p>${what}</p>`).join('');
+  return [{ id: r.carries[0], kicker: 'A canary paused for you', stage: `Release · ${r.now}%`, age: '3min', title: ITEMS[indexOf(r.carries[0])].title,
+    ev: `<p class="words">${esc(r.words)}</p><p class="ev">The analysis judged ${r.version} bad: ${r.bad}. Auto-rollback is off, so it waits for {whoS2} instead of rolling back. Stop the line still aborts it.</p>`.replace('{whoS2}', v ? 'Martin' : 'you'),
+    rows }];
+}
 // The head of a work item's sheet: its cards from Needs you, while any waits on Martin. Answered, a card leaves the
 // sheet as it leaves Needs you.
 function sheetNeeds(it) {
@@ -2710,10 +2918,13 @@ const TAKES = [['all', 'Every ticket'], ['next', 'The next few'], ['only', 'Just
 const takeSize = (t) => ({ all: 3, next: 2, only: 1 })[t];
 // Loosening autonomy asks for the passkey; tightening is immediate.
 const LOOSE = { supervised: 0, guarded: 1, lightsout: 2 };
+const lightsOutNote = (v) => `<b>Lights-out takes two settings.</b> This one, and <code>AUTONOMY</code> set to <code>lights-out</code> in the app’s repository on GitHub, which only ${v ? 'Martin' : 'you'} can set. The line reads this one, and the review gate reads the variable, so the stricter wins: with only one of them set, risky changes still wait for ${v ? 'him' : 'you'}, as under Guarded. The gate names the rule that passed each pull request, and the line adds one to the queue only by a rule this level allows. Lights-out is never the default.`;
+// Each: [key, label, what it says (on, off), asks for the passkey when pressed in this state].
 const SWITCHES = [
-  ['agents', 'Agents take new work', 'Off: each agent finishes its step, and nothing new is started.', () => false],
-  ['automerge', 'Auto-merge low-risk changes', 'An untagged change merges once its gates and review pass. Under Supervised it waits for you anyway.', (on) => !on],
-  ['rollback', 'Auto-rollback', 'Off: a failing canary is paused for you, not rolled back.', (on) => on],
+  ['agents', 'Agents take new work', () => 'Off: each agent finishes its step, and nothing new is started.', () => false],
+  ['automerge', 'Auto-merge low-risk changes', () => 'The line adds a change to the merge queue once the review check passes it by a rule the autonomy level allows. Under Supervised it waits for you anyway.', (on) => !on],
+  ['rollback', 'Auto-rollback', (on) => on ? 'On: a canary the analysis judges bad rolls back by itself. Off, it would pause for you instead.'
+    : 'Off: a canary the analysis judges bad pauses for you, in Needs you, instead of rolling back. Stop the line still aborts one.', (on) => on],
 ];
 
 function renderControls() {
@@ -2722,9 +2933,13 @@ function renderControls() {
   $('autonomy').innerHTML = Object.entries(AUTONOMY).map(([k, [label]]) =>
     `<button type="button" data-autonomy="${k}" aria-pressed="${S.autonomy === k}" ${v ? 'disabled' : ''}>${label}${keyIf(!v && !S.fresh && LOOSE[k] > LOOSE[S.autonomy])}</button>`).join('');
   $('autonomy-help').textContent = AUTONOMY[S.autonomy][1];
+  // Lights-out's note: the gate learns it from a variable of the app's repository only Martin can set, the line from
+  // this setting, and the stricter of the two wins.
+  $('autonomy-note').hidden = S.autonomy !== 'lightsout';
+  $('autonomy-note').innerHTML = lightsOutNote(v);
   $('switches').innerHTML = SWITCHES.map(([k, label, note, keyed]) =>
     `<button type="button" class="switch" role="switch" data-switch="${k}" aria-checked="${S.switches[k]}" ${v ? 'disabled' : ''}>
-      <span><span class="what">${label}${keyIf(!v && !S.fresh && keyed(S.switches[k]))}</span><small>${note}</small></span><span class="track" aria-hidden="true"></span></button>`).join('');
+      <span><span class="what">${label}${keyIf(!v && !S.fresh && keyed(S.switches[k]))}</span><small class="${k === 'rollback' && !S.switches[k] ? 'off' : ''}">${note(S.switches[k])}</small></span><span class="track" aria-hidden="true"></span></button>`).join('');
   const t = S.take;
   const takeHelp = { all: 'The oldest open ticket of the highest severity, one after another, for as long as the line runs.',
     next: `${t.next} work items in all, then it takes nothing new: 2 taken so far, each carried to its end.`,
@@ -2741,15 +2956,18 @@ function renderControls() {
     <div class="meter"><div><span>This month</span><span class="mono">$41.20 <span class="muted">of $60</span></span></div><div class="bar ink"><i style="width: 69%"></i></div></div>
     <div class="meter"><div><span>Dearest work item today <span class="muted">#1312</span></span><span class="mono">$0.62 <span class="muted">of $1</span></span></div><div class="bar ink"><i style="width: 62%"></i></div></div>`;
   $('controls-help').innerHTML = v
-    ? 'Only Martin changes these, signed in with his passkey, and every change is in the audit log. Gates, image signing and the egress fence are always on: they have no switch.'
-    : `Gates, image signing and the egress fence are always on: they have no switch. <span class="legend">${glyph('key', 'key')} asks for your passkey again, unless you gave it in the last five minutes.</span>`;
+    ? 'Only Martin changes these, signed in with his passkey, and every change is in the audit log. The guardrails are always on: they have no switch, and <a href="#guardrails">Guardrails</a> shows each one’s last proof.'
+    : `The guardrails are always on: they have no switch, and <a href="#guardrails">Guardrails</a> shows each one’s last proof. <span class="legend">${glyph('key', 'key')} asks for your passkey again, unless you gave it in the last five minutes.</span>`;
 }
 
 // The Canary panel's controls: admin's buttons, or for a visitor the same controls with what each does.
 function canaryControls(r) {
   if (r.dry || (r.end && !['stopped', 'aborted'].includes(r.end.kind))) return '';
   const steps = (r.steps ?? []).map((x) => x.weight), next = steps.find((w) => w > r.now);
-  const C = !r.end ? [
+  const C = !r.end && r.held ? [
+    ['promote-all', 'Promote fully', `Gives ${r.version} all the traffic now, past the analysis’s verdict.`, true],
+    ['abort', 'Abort', `Sends all the traffic back to ${r.previous}, as a rollback would have.`],
+  ] : !r.end ? [
     ...(next ? [['promote-next', `Promote to ${next}%`, `Moves the canary to its next step now, without waiting out this one.`, true]] : []),
     ['promote-all', 'Promote fully', `Gives ${r.version} all the traffic now${next ? ', skipping the steps left' : ''}.`, true],
     r.paused ? ['resume', 'Resume', 'Lets the canary move on by itself again.'] : ['pause', 'Pause', `Holds the canary at ${r.now}% until Martin resumes it.`],
@@ -2764,6 +2982,94 @@ function canaryControls(r) {
     ${S.stopped && r.end ? '<span class="help">Start the line first: a stopped line starts no canary.</span>' : ''}</div></div>`;
 }
 
+/* ==== Guardrails: spec 6's eleven, and the red-team menu ======================================
+   Each guardrail: its mechanism, its last proof (guardrail.proved from `make guardrails`, the last attack, or the
+   tests in CI on main) and how old it is, and its recent refusals (action.refused), each linking to its work item or,
+   with none, to the audit log. A proof that did not hold is ruled in attn and says what happened. None has a switch
+   but auto-rollback, part of 9. */
+
+const MECH = { 'token-permission': 'token permission', ruleset: 'ruleset', 'egress-policy': 'egress policy', 'admission-control': 'admission control',
+  'scope-fence': 'scope fence', gateway: 'gateway', 'typed-judgement': 'typed judgement' };
+// [number, the guardrail in spec 6's words, its mechanism, proof: [held, where it came from, how old, a work item or null],
+//  refusals in the last 7 days: [time, mechanism, what was refused, work item or null], or a line where nothing refuses]
+function guardrails() {
+  const failed = ATTACK_SCENE === 'failed';
+  return [
+    ['1', 'Agents cannot change the rules', 'The App’s token has no workflows permission; main’s ruleset, which names nobody who may bypass it; CODEOWNERS and the review gate read from main.',
+      [true, 'make guardrails', '2h ago'], [['13:30', 'token-permission', 'GitHub refused the App’s commit to .github/workflows/ci.yml', '1321'],
+        ['13:30', 'scope-fence', 'The GitHub worker’s guard refused a commit to .github/workflows/ci.yml', '1321']]],
+    ['2', 'Gates are deterministic', 'Every required check is posted by GitHub Actions or the review App; no gate’s code reaches the gateway or a model.',
+      [true, 'tests in CI on main · 5b2c0d9', '3h ago'], 'Nothing to refuse: a test on every pull request proves it.'],
+    ['3', 'Only the pipeline builds releasable artifacts', 'Admission control: Kyverno admits only images build.yml signed on main, and the few third-party images it names by digest.',
+      [true, 'attack', '2h ago', '1325'], [['14:05', 'admission-control', 'A pod on an image build.yml did not sign on main', '1325'], ['Thu 09:12', 'admission-control', 'An unsigned image applied by hand in factory', null]]],
+    ['4', 'No agent writes to production', 'Argo CD deploys what is on main; telemetry is read through a read-only proxy; no worker’s Role may write the Rollout.',
+      [true, 'make guardrails', '2h ago'], []],
+    ['5', 'Agent sandboxes are disposable and fenced', 'A pod for each step in runners, with no Secret and no service-account token; its egress reaches the gateway and the line, and nothing else.',
+      failed ? [false, 'attack', '3h ago', '1323'] : [true, 'attack', '3h ago', '1323'],
+      failed ? [['13:50', 'egress-policy', 'example.com by name and api.anthropic.com, from an agent’s pod; 93.184.215.14 by number answered', '1323']]
+        : [['13:50', 'egress-policy', 'example.com by name and by number, and api.anthropic.com, from an agent’s pod', '1323']]],
+    ['6', 'All model access goes through one gateway', 'Only the gateway’s pod holds a model key; it checks each call against the models policy and logs it.',
+      [true, 'tests in CI on main · 5b2c0d9', '3h ago'], [['Fri 18:40', 'gateway', 'A call for a model the profile does not allow', '1310']]],
+    ['7', 'Hard spend caps', 'The gateway refuses every call at a cap: the day’s, the month’s and a work item’s.',
+      [true, 'make guardrails', '2h ago'], [['Fri 22:15', 'gateway', 'A work item’s cap reached: $1.00', '1312']]],
+    ['8', 'All inputs are untrusted', 'Triage asks Jev typed questions, so a report’s text never reaches an agent; one that gives orders is quarantined.',
+      [true, 'attack', 'yesterday'], [['Fri 21:10', 'typed-judgement', 'A report telling the factory to set every price to £0, quarantined at 0.99', null]]],
+    ['9', 'Everything is reversible', 'The canary rolls itself back; Stop the line ends every step, takes nothing new and aborts a canary in flight.',
+      [true, 'make guardrails · the stop-the-line drill', '2h ago'], `The last rollback: v0.9.10, at 14:29, by its analysis.${S.switches.rollback ? '' : ' Auto-rollback is off, by Martin: a canary judged bad waits for him.'}`],
+    ['10', 'Public means hostile', 'The factory reads no issue as work, and acts only on what it opened; an outside pull request runs with no secret and is never passed without Martin.',
+      [true, 'tests in CI on main · 5b2c0d9', '3h ago'], [['Fri 11:02', 'token-permission', 'A comment on an issue the App did not open', null]]],
+    ['11', 'No fix widens its ticket', 'The scope fence refuses a patch outside its spec’s scope; out-of-scope waits for Martin in every mode.',
+      [true, 'make guardrails', '2h ago'], [['16:36', 'scope-fence', 'Patch 1 changed src/server.ts, outside the spec’s scope', '1312'], ['15:44', 'scope-fence', 'Patch 2 needed deploy/app.yaml, which no scope may name', '1318']]],
+  ];
+}
+
+// The five attacks of spec 5.3, as task 22 makes them: [key, name, what it does, what stops it, guardrails it proves,
+// its last run: [outcome, when, work item]]. Each is scripted against the real mechanism, with no agent.
+function attacks() {
+  const failed = ATTACK_SCENE === 'failed', running = ATTACK_SCENE === 'running' ? 'image' : S.launched;
+  const last = (k, was) => k === running ? ['running', 'now', '1328'] : was;
+  return [
+    ['report', 'An instruction in a problem report', 'A report sent through the app’s report route, as a visitor sends one, telling the factory to set every price to £0.', 'Jev’s typed questions, which quarantine it', '8', last('report', ['refused', 'yesterday', null])],
+    ['workflow', '“Fix CI” by editing a workflow', 'The GitHub worker is asked for a commit to .github/workflows/, as a step’s handback asks; then GitHub, with the App’s token.', 'the GitHub worker’s guard, then GitHub: the App has no workflows permission', '1', last('workflow', ['refused', '3h ago', '1321'])],
+    ['test', 'A pull request that deletes the failing test', 'A real pull request in the app’s repository, with fixed content, deleting a test. The GitHub worker closes it afterwards.', 'the review gate, which holds a loosened test for Martin', '2', last('test', ['refused', 'Fri 10:46', '1279'])],
+    ['egress', 'Data to an outside URL', 'A pod made like an agent’s tries an outside address by name and by number, and the model provider’s host.', 'the egress policy', '5', last('egress', failed ? ['notrefused', '3h ago', '1323'] : ['refused', '3h ago', '1323'])],
+    ['image', 'Shipping an image it built itself', 'The same pod, asked for on an image build.yml did not sign on main.', 'admission control', '3', last('image', ['refused', '2h ago', '1325'])],
+  ];
+}
+const ATTACK_LAST = { refused: ['Refused', 'ok', 'check'], notrefused: ['Not refused · Martin paged', 'attn', 'cross'], running: ['Running', 'signal', 'ring'] };
+
+function renderGuardrails() {
+  const v = S.visitor, list = guardrails(), menu = attacks(), busy = menu.find((a) => a[5][0] === 'running');
+  const refLink = (id) => id && indexOf(id) >= 0 ? `<button type="button" class="linkish go" data-open="${id}">#${id}</button>` : `<a class="go" href="?view=audit">Audit log</a>`;
+  const rows = list.map(([n, name, mech, [held, from, age, item], refs]) => {
+    const open = S.openGuard === n, many = Array.isArray(refs);
+    const proof = `<span class="v tone-${held ? 'ok' : 'attn'}">${glyph(held ? 'check' : 'cross')}${held ? 'Held' : 'Did not hold'}</span>
+      <small>${item ? `${from} <button type="button" class="linkish" data-open="${item}">#${item}</button>` : from} · ${age}</small>`;
+    const count = many ? (refs.length ? `<button type="button" data-guard="${n}" aria-expanded="${open}" aria-controls="gr-more-${n}">${refs.length} refused · 7 days</button>` : '<span class="none">0 refused · 7 days</span>') : '<span class="none">nothing to refuse</span>';
+    const failNote = !held ? `<p class="attn">From an agent’s pod, http://93.184.215.14/ answered 200 in 212 ms: nothing refused it. Martin’s phone was paged at 13:51. It reads as not held until an attack or <code>make guardrails</code> proves it again.</p>` : '';
+    const more = (!held || (open && many && refs.length) || !many) ? `<div class="more" id="gr-more-${n}">${failNote}
+      ${!many ? `<p>${refs}</p>` : open && refs.length ? `<div class="reflist">${refs.map(([t, m, what, id]) => `<div><span class="mono t">${t}</span><span class="mech">${MECH[m]}</span><span class="what">${esc(what)}</span>${refLink(id)}</div>`).join('')}</div>` : ''}</div>` : '';
+    return `<div class="gr ${held ? '' : 'failed'}" role="listitem"><span class="n">${n}</span><span class="name">${name}<span class="mech">${mech}</span></span>
+      <span class="proof">${proof}</span><span class="refs">${count}</span>${more}</div>`;
+  }).join('');
+  const attackRows = menu.map(([k, name, what, by, g, [out, when, id]], i) => {
+    const [word, tone, gl] = ATTACK_LAST[out], off = busy && busy[0] !== k;
+    const control = v ? '<span class="ro">Launch</span>'
+      : `<button type="button" class="btn" data-launch="${k}" ${busy ? 'disabled' : ''} ${off ? 'title="One attack at a time"' : ''}>${out === 'running' ? 'Running' : 'Launch'}</button>`;
+    return `<article class="attack ${out === 'notrefused' ? 'failed' : ''}" aria-labelledby="attack-${k}"><h3 id="attack-${k}"><span class="mono">${i + 1}</span>${name}</h3>
+      <p class="by">${what} <span style="color: var(--text-2)">Stopped by ${by} · guardrail ${g}.</span></p>${control}
+      <p class="last"><span class="v tone-${tone}">${glyph(gl)}${word}</span><span>${when}</span>${id ? (indexOf(id) >= 0 ? `<button type="button" class="linkish" data-open="${id}">#${id}</button>` : `<span>#${id}</span>`) : ''}</p></article>`;
+  }).join('');
+  $('guardrails').innerHTML = `<div class="panel-head"><h2 id="guardrails-title">Guardrails</h2><span class="label">Always on</span></div>
+    <p class="help">Each is held by a mechanism, not an instruction, and proved: by <code>make guardrails</code> on this cluster, by a test in CI, or by an attack. None of them has a switch, except auto-rollback, part of 9, which ${v ? 'Martin' : 'you'} can turn off in Controls; Stop the line always works. A refusal is shown as plainly as a success.</p>
+    <div class="gr-body"><div><div class="gr-list" role="list" aria-label="The eleven guardrails">${rows}</div>
+      <p class="help gr-foot">A proof records the commit of main and a hash of the policies it was taken against, and an attack that nothing refuses pages ${v ? 'Martin' : 'you'}. Every refusal is in the <a href="?view=audit">audit log</a> too.</p></div>
+      <div class="attacks"><span class="label"><span>Attack the factory</span><span>${v ? 'Martin’s' : 'no passkey'}</span></span>
+        <p class="help">Five attacks, each a real attempt from where an agent would be, against the real mechanism, with fixed content and no agent. Each becomes a work item on the reel, with the mechanism’s refusal in its own words.${busy ? ` One at a time: #${busy[5][2]} is running.` : ''}</p>
+        ${attackRows}
+        <p class="help">${v ? 'Martin launches these, signed in. Milestone 8 opens this menu to visitors.' : 'Launching asks for no passkey: an attack loosens nothing, and asks the line for no work.'}</p></div></div>`;
+}
+
 /* ==== Dialogs: stop and start the line, abort, and the passkey again ======================== */
 
 // What each keyed action says in the step-up dialog: [title, what happens, why it asks].
@@ -2771,8 +3077,9 @@ const STEPUP = {
   'promote-next': ['Promote the canary', (r) => `${r.version} moves to its next step now.`, 'Promoting ships to more people'],
   'promote-all': ['Promote the canary', (r) => `<b>${r.version} takes all the traffic now.</b> Verify then asks each ticket’s sense whether it cleared.`, 'Promoting ships to everyone'],
   retry: ['Retry the release', (r) => `${r.version}’s canary starts again from its first step.`, 'Retrying ships again'],
-  autonomy: ['Loosen autonomy', null, 'Loosening autonomy lets more ship without you'],
+  autonomy: ['Loosen autonomy', null, 'Loosening autonomy lets more ship without you', true],
   switch: ['Change a switch', null, 'This loosens a control'],
+  rollback: ['Turn off auto-rollback', '<b>Auto-rollback: off.</b> A canary the analysis judges bad pauses for you, in Needs you, instead of rolling back, until you promote or abort it. Stop the line still aborts one.', 'Turning auto-rollback off overrides a guardrail', true],
   take: ['Take more work', null, 'Taking more work raises spend'],
   answer: ['Approve past a guardrail', null, 'A gate held this, and approving overrides it'],
   save: ['Save the settings', '<b>The coder’s effort goes from medium to high</b>, from its next step.', 'This raises spend'],
@@ -2794,7 +3101,7 @@ function openDialog(kind, ctx = {}) {
     <div class="row">${cancel}<button type="button" class="btn primary" data-dialog-ok>${fresh ? 'Start the line' : `Use your passkey and start${glyph('key', 'key')}`}</button></div>
     ${fresh ? '' : '<p class="help">Starting the line asks for your passkey again.</p>'}`;
   else if (kind === 'abort') { const r = canaryScenario(S.canary); el.innerHTML = `<h2 id="dialog-title" tabindex="-1">Abort the canary</h2>
-    <p>${r.previous}, the version before, takes all the traffic at once. Nothing failed, so it opens no ticket${r.carries.length ? `, and ${r.carries.map((id) => '#' + id).join(' and ')} waits for your retry or the next deploy` : ''}.</p>
+    <p>${r.previous}, the version before, takes all the traffic at once. ${r.held ? 'The analysis judged it bad, as it would have if auto-rollback were on' : 'Nothing failed, so it opens no ticket'}${r.carries.length ? `, and ${r.carries.map((id) => '#' + id).join(' and ')} waits for your retry or the next deploy` : ''}.</p>
     <div class="row">${cancel}<button type="button" class="btn attn" data-dialog-ok>Abort</button></div>`; }
   else if (kind === 'improve') {
     // The "+" on Plan. A visitor sees the same form read-only, holding Martin's latest request.
@@ -2813,6 +3120,19 @@ function openDialog(kind, ctx = {}) {
         <div class="row"><button type="button" class="btn" data-dialog-close>Close</button></div>`
       : `<div class="row">${cancel}<button type="button" class="btn primary" data-dialog-ok>Request${fresh ? '' : glyph('key', 'key')}</button></div>
         ${fresh ? '' : '<p class="help">Requesting widens what the line does, so it asks for your passkey again, and tells your phone.</p>'}`}`;
+  }
+  else if (kind === 'attack') {
+    // Launching an attack: what it will do, and what should stop it. No passkey: it loosens nothing.
+    const a = attacks().find(([k]) => k === ctx.attack) ?? attacks()[2], [, name, what, by, g] = a;
+    const cost = { report: 'Jev’s calls, a fraction of a cent: they are the mechanism.', workflow: 'Nothing: no model is called, and nothing reaches the repository.',
+      test: 'Nothing: no model is called. The pull request is real, and the GitHub worker closes it and deletes its branch afterwards.', egress: 'Nothing: a pod in runners, gone when it ends.', image: 'Nothing: the pod is refused before it is made.' }[a[0]];
+    el.innerHTML = `<div class="kickline">${glyph('redteam')}<span class="label">A red-team attack · guardrail ${g}</span></div>
+      <h2 id="dialog-title" tabindex="-1">${name}</h2>
+      <div class="what"><p>${what}</p></div>
+      <ul class="what plain"><li>${by.charAt(0).toUpperCase() + by.slice(1)} should refuse it. Its refusal, in its own words, goes on the work item’s card.</li>
+        <li>If nothing refuses it, that is a failure: your phone hears, and guardrail ${g} reads “did not hold”.</li><li>It costs ${cost.charAt(0).toLowerCase() + cost.slice(1)}</li></ul>
+      <div class="row">${cancel}<button type="button" class="btn primary" data-dialog-ok>Launch</button></div>
+      <p class="help">No passkey: an attack loosens nothing, and asks the line for no work. One runs at a time.</p>`;
   }
   else if (kind === 'flag') {
     // The slider's confirmation: what the stage means and who gets it, before it is applied; or why it can't be taken.
@@ -2837,11 +3157,11 @@ function openDialog(kind, ctx = {}) {
         : `${cancel}<button type="button" class="btn ${off ? 'attn' : 'primary'}" data-dialog-ok>${off ? 'Turn off' : f.was ? 'Turn back on' : wider ? 'Widen' : 'Narrow'}${keyed ? glyph('key', 'key') : ''}</button>`}</div>`;
   }
   else {
-    const [title, what, why] = STEPUP[ctx.action] ?? STEPUP.switch;
+    const [title, what, why, pages] = STEPUP[ctx.action] ?? STEPUP.switch;
     el.innerHTML = `<div class="kickline">${glyph('key', 'key')}<span class="label">Your passkey, again</span></div>
       <h2 id="dialog-title" tabindex="-1">${title}</h2>
       <div class="what">${ctx.what ?? (typeof what === 'function' ? what(canaryScenario(S.canary)) : what)}</div>
-      <p>${why}, so it needs your passkey again. Once given, it stays fresh for five minutes, for this and anything else that asks.</p>
+      <p>${why}, so it needs your passkey again${pages ? ', and it tells your phone' : ''}. Once given, it stays fresh for five minutes, for this and anything else that asks.</p>
       <div class="row">${cancel}<button type="button" class="btn primary" data-dialog-ok>Use your passkey</button></div>`;
   }
   $('dialog').hidden = false; $('dialog-scrim').hidden = false;
@@ -2901,7 +3221,8 @@ function confirmDialog() {
   if (d.kind === 'stop') { S.stopped = true; S.stopReason = $('stop-reason').value.trim(); const r = canaryScenario(S.canary); if (!r.end && !r.idle && !r.none && !r.dry) S.canary = 'stopped'; }
   else if (d.kind === 'start') { giveKey(); S.stopped = false; }
   else if (d.kind === 'abort') S.canary = 'aborted';
-  else if (['improve', 'flag'].includes(d.kind)) { /* done above */ }
+  else if (d.kind === 'attack') S.launched = d.attack;
+  else if (['improve', 'flag', 'attack'].includes(d.kind)) { /* done above */ }
   else { giveKey(); d.then?.(); }
   renderAll(); retIndex = 0; cycleReturns();
   closeDialog();
@@ -3014,6 +3335,13 @@ const AUDIT = [
   ['Today', '16:20:40', 'triage', 'model', '1306', 'Jev 1.13.0 · TypeSafe · triage/v2', '4 questions · <$0.01'],
   ['Today', '16:12:00', 'Martin', 'admin', '1310', 'Answered the hold in words', '“Keep the old error page; fix the logging only.”'],
   ['Today', '15:58:30', 'Martin', 'admin', '', 'Raised the day’s cap from $5 to $10', 'passkey given at 15:58'],
+  ['Today', '14:05:09', 'admission control', 'agent', '1325', 'Kyverno refused a pod on an image build.yml did not sign on main', 'admission-control · Policy factory-images failed', true],
+  ['Today', '14:05:00', 'Martin', 'admin', '1325', 'Launched an attack: “Shipping an image it built itself”', 'attack.launched · no passkey asked'],
+  ['Today', '13:50:58', 'the red-team harness', 'agent', '1323', 'The egress policy refused an agent’s pod three outside addresses', 'egress-policy · the gateway answered, as the control', true],
+  ['Today', '13:50:00', 'Martin', 'admin', '1323', 'Launched an attack: “Data to an outside URL”', 'attack.launched · no passkey asked'],
+  ['Today', '13:30:44', 'the GitHub worker', 'agent', '1321', 'GitHub refused the App’s commit to a workflow', 'token-permission · 403, no workflows permission', true],
+  ['Today', '13:30:41', 'the GitHub worker', 'agent', '1321', 'Its guard refused a commit to .github/workflows/ci.yml', 'scope-fence · a workflow: no step may change one', true],
+  ['Today', '13:30:03', 'Martin', 'admin', '1321', 'Launched an attack: “Fix CI by editing a workflow”', 'attack.launched · no passkey asked'],
   ['Today', '15:40:12', 'Martin', 'admin', '', 'Signed in', 'with a passkey'],
   ['Today', '12:43:02', 'Martin', 'admin', '1316', 'Widened delivery-dates to Preview', 'flag.staged · checks → preview · passkey given at 12:42'],
   ['Today', '12:26:15', 'Martin', 'admin', '1316', 'Widened delivery-dates to Checks', 'flag.staged · off → checks'],
@@ -3024,7 +3352,7 @@ const AUDIT = [
   ['Yesterday', '21:02:44', 'Martin', 'admin', '', 'Signed in', 'with a passkey'],
 ];
 const KIND = { admin: ['person', 'Admin action'], agent: ['arrows', 'Agent action'], model: ['chip', 'Model call'] };
-const ACTORS = ['Martin', 'the planner', 'the coder', 'the reviewer', 'the describer', 'triage', 'the line', 'the senses'];
+const ACTORS = ['Martin', 'the planner', 'the coder', 'the reviewer', 'the describer', 'triage', 'the line', 'the senses', 'the GitHub worker', 'the red-team harness', 'admission control'];
 
 function auditRows() {
   const f = S.audit;
@@ -3073,7 +3401,7 @@ function keepMode() {
     a.setAttribute('href', '?' + u.toString());
   });
 }
-function renderAll() { renderChrome(); renderLine(); renderStagePanel(); renderNeeds(); renderControls(); renderCanary(); renderMenu(); renderPage(); keepMode(); if (S.sheet !== null) renderSheet(); }
+function renderAll() { renderChrome(); renderLine(); renderStagePanel(); renderNeeds(); renderControls(); renderCanary(); renderGuardrails(); renderMenu(); renderPage(); keepMode(); if (S.sheet !== null) renderSheet(); }
 
 /* ==== Events ============================================================================== */
 
@@ -3087,6 +3415,8 @@ document.addEventListener('click', (e) => {
   const d = t.dataset;
   if (t.classList.contains('stage')) return openStage(+d.i);
   if ('add' in d) { if (S.stage !== null) openStage(S.stage); return openDialog('improve'); }
+  if (d.launch) return openDialog('attack', { attack: d.launch });
+  if (d.guard) { S.openGuard = S.openGuard === d.guard ? null : d.guard; renderGuardrails(); return document.querySelector(`[data-guard="${d.guard}"]`)?.focus(); }
   if (d.share) { FLAGSET[S.dialog.flag].share = +d.share; return openDialog('flag', { flag: S.dialog.flag, to: 'share' }); }
   if (d.flagTo) { const [name, to] = d.flagTo.split(':'); return openDialog('flag', { flag: name, to }); }
   if ('closeStage' in d) return openStage(S.stage);
@@ -3102,12 +3432,12 @@ document.addEventListener('click', (e) => {
   if ('allEvents' in d) { S.allEvents = !S.allEvents; renderSheetReplay(); return document.querySelector('[data-all-events]')?.focus(); }
   if (d.autonomy) {
     const looser = LOOSE[d.autonomy] > LOOSE[S.autonomy];
-    return keyed(looser, 'autonomy', { what: `<b>Autonomy goes from ${AUTONOMY[S.autonomy][0]} to ${AUTONOMY[d.autonomy][0]}.</b> ${AUTONOMY[d.autonomy][1]}` },
+    return keyed(looser, 'autonomy', { what: `<b>Autonomy goes from ${AUTONOMY[S.autonomy][0]} to ${AUTONOMY[d.autonomy][0]}.</b> ${AUTONOMY[d.autonomy][1]}${d.autonomy === 'lightsout' ? `<p class="ctl-note" style="margin-top: 10px">${lightsOutNote(false)}</p>` : ''}` },
       () => { S.autonomy = d.autonomy; renderAll(); });
   }
   if (d.switch) {
     const [, label, , needs] = SWITCHES.find(([k]) => k === d.switch);
-    return keyed(needs(S.switches[d.switch]), 'switch', { what: `<b>${label}: ${S.switches[d.switch] ? 'off' : 'on'}.</b>` },
+    return keyed(needs(S.switches[d.switch]), d.switch === 'rollback' ? 'rollback' : 'switch', d.switch === 'rollback' ? {} : { what: `<b>${label}: ${S.switches[d.switch] ? 'off' : 'on'}.</b>` },
       () => { S.switches[d.switch] = !S.switches[d.switch]; renderAll(); });
   }
   if (d.take) {
@@ -3228,6 +3558,7 @@ setMotion(!(q.get('motion') === 'off' || matchMedia('(prefers-reduced-motion: re
 renderAll(); renderScore(); cycleReturns();
 if (q.get('dialog') === 'stepup') openDialog('stepup', { action: 'promote-all' });
 else if (q.get('dialog') === 'flag') openDialog('flag', { flag: 'delivery-dates', to: q.get('to') || 'share' });
+else if (q.get('dialog') === 'attack') openDialog('attack', { attack: q.get('attack') || 'test' });
 else if (q.get('dialog')) { if (q.get('dialog') === 'start') { S.stopped = true; S.canary = 'stopped'; renderAll(); } openDialog(q.get('dialog')); }
 reel.innerHTML = ITEMS.map(card).join('');
 buildRail(); layout(); renderRail(); fitHeight();
