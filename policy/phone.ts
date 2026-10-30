@@ -1,7 +1,7 @@
 /**
  * Whether alerts reach Martin's phone: every alert at its level, or none, as he switched it in the console
- * (`alerts.switched`). This is the one check: the admin service, which tells Prometheus, and the console's Controls each
- * turn the latest switch into the one in force with `phoneInForce`, so both agree.
+ * (`alerts.switched`). This is the one check: the admin service and the line, which each tell Prometheus, and the
+ * console's Controls each turn the latest switch into the one in force with `phoneInForce`, so all three agree.
  *
  * Before he switches it, the profile's default is in force: on for the cloud profiles, where the factory runs for
  * others to see and he must hear of it; off on the laptop, where alerts exist only to be tried before the cloud, and he
