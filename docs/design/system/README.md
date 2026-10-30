@@ -102,7 +102,7 @@ Width scales the drawing (`sf-station { width: 140px }`); height follows.
 
 | Part | Says | idle | working | returning | passing | blocked | failed |
 |---|---|---|---|---|---|---|---|
-| **Tool** | What the stage does | still | moving | moving | still (gate raised, page ticked, canary sings, card signed) | still | still (canary down) |
+| **Tool** | What the stage does | still (Review's page and Verify's card put away) | moving, once the page or card has come up | moving | still (gate raised, page ticked, canary sings, card signed) | still | still (canary down) |
 | **Face** | How it feels | eyes shut | busy eyes, blinking | glancing back | pleased | squinting | crossed out |
 | **Hatch** | Progress | blank | progress bar | left arrow | tick | hazard stripes | FAULT |
 | **Beacon** | Whether to look | dim | ink | ink | green glow | flashing ember, rays | flashing ember, rays, sparks, smoke; the machine rattles |
