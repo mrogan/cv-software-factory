@@ -270,7 +270,7 @@
       "id": 5,
       "type": "stat",
       "title": "Dashboard only",
-      "description": "Alerts firing now with no level, which reach no one but this dashboard; the app's objective alerts, which go to the intake, are not among them. Good is none.",
+      "description": "Alerts firing now with no level, which reach no one but this dashboard; the app's objective alerts, which go to the intake, are not among them, nor PhoneOff, which Reaching the phone shows. Good is none.",
       "gridPos": {
         "x": 12,
         "y": 1,
@@ -288,7 +288,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "count(ALERTS{alertstate=\"firing\", level=\"\", objective=\"\"}) or vector(0)",
+          "expr": "count(ALERTS{alertstate=\"firing\", level=\"\", objective=\"\", alertname!=\"PhoneOff\"}) or vector(0)",
           "instant": true,
           "range": false
         }

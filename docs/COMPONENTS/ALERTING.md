@@ -55,7 +55,7 @@ Anything that reached it could make a silence, and a silence keeps a page from M
 
 Grafana's Alerts dashboard ([`dashboards/alerts.json`](../../deploy/base/telemetry/dashboards/alerts.json)), linked from every dashboard's Dashboards row, shows every alert Prometheus has, firing or pending, whatever its level, from Prometheus's own `ALERTS` series:
 
-- **Now:** how many fire at each level (Page, Notify, Inform, Dashboard only), how many are pending, and whether alerts are reaching the phone: No while `PhoneOff` fires;
+- **Now:** how many fire at each level (Page, Notify, Inform, Dashboard only), how many are pending, and whether alerts are reaching the phone: No while `PhoneOff` fires. Dashboard only leaves `PhoneOff` out, though it has no level: Reaching the phone says it, and it would otherwise read 1 whenever the phone is off;
 - **Every alert now:** its name, state and level, then its labels, the app's objective alerts among them;
 - **Over the range:** when each was pending and when it fired.
 
