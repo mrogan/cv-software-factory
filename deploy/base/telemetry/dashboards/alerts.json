@@ -483,8 +483,8 @@
         "overrides": [
           {
             "matcher": {
-              "id": "byType",
-              "options": "string"
+              "id": "byRegexp",
+              "options": ".*"
             },
             "properties": [
               {

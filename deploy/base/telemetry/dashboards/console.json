@@ -186,7 +186,12 @@
         }
       ],
       "description": "The console’s latest traces, newest first; select one to open its spans. Tempo searches a day at most.",
-      "fieldConfig": { "defaults": { "noValue": "No traces in this range" }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": { "noValue": "No traces in this range" },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*" }, "properties": [{ "id": "noValue", "value": "—" }] }
+        ]
+      }
     }
   ]
 }

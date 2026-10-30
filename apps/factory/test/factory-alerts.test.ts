@@ -16,6 +16,7 @@ import {
   RULES_FILE,
   WORKERS,
 } from '../src/alerts/rules.ts';
+import { NO_CAP } from '../src/gateway/metrics.ts';
 import { TARGETS } from '../src/probes/health.ts';
 import { METRICS_FROM_THE_GATEWAY, METRICS_FROM_THE_LINE, METRICS_FROM_THE_PROBES } from '../src/provenance.ts';
 import { manifests } from './deploy.ts';
@@ -437,6 +438,22 @@ describe('the alerts on the factory’s health, releases and spend', () => {
             { series: gateway('gateway_cap_limit_usd', cap('day')), values: each(20, 20) },
           ],
           alert_rule_test: [{ eval_time: '1m', alertname: 'SpendCapReached', exp_alerts: [] }],
+        },
+        {
+          interval: '1m',
+          // The month's cap reached, then lifted: none reads NO_CAP, which no spend reaches, and the page stops.
+          input_series: [
+            { series: gateway('gateway_cap_spent_usd', cap('month')), values: each(6, 6, 6, 6) },
+            { series: gateway('gateway_cap_limit_usd', cap('month')), values: each(5, 5, NO_CAP, NO_CAP) },
+          ],
+          alert_rule_test: [
+            {
+              eval_time: '1m',
+              alertname: 'SpendCapReached',
+              exp_alerts: [firing('SpendCapReached', { cap: 'month' })],
+            },
+            { eval_time: '2m', alertname: 'SpendCapReached', exp_alerts: [] },
+          ],
         },
       ]),
     );

@@ -519,7 +519,7 @@ serverFiles:
               summary: "A worker is crash-looping"
               description: "{{ $labels.pod }} in factory has restarted three times in five minutes, and Kubernetes waits longer each time to start it again."
           - alert: SpendCapReached
-            expr: "max by (cap) (gateway_cap_spent_usd{cap=~\"day|month\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"gateway\"}) >= on (cap) min by (cap) (gateway_cap_limit_usd{cap=~\"day|month\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"gateway\"})"
+            expr: "max by (cap) (gateway_cap_spent_usd{cap=~\"day|month\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"gateway\"}) >= on (cap) (min by (cap) (gateway_cap_limit_usd{cap=~\"day|month\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"gateway\"}) >= 0)"
             for: 0s
             labels:
               level: "page"

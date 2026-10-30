@@ -676,7 +676,7 @@
         {
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(gateway_cap_limit_usd{cap=\"month\"})",
+          "expr": "max(gateway_cap_limit_usd{cap=\"month\"} >= 0)",
           "instant": true,
           "range": false,
           "legendFormat": "cap"
@@ -1165,7 +1165,12 @@
         }
       ],
       "options": { "showHeader": true, "cellHeight": "sm" },
-      "fieldConfig": { "defaults": { "noValue": "No steps in the last 24 hours" }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": { "noValue": "No steps in the last 24 hours" },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*" }, "properties": [{ "id": "noValue", "value": "—" }] }
+        ]
+      }
     }
   ]
 }

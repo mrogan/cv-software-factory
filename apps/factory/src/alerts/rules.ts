@@ -680,7 +680,7 @@ export function factoryRules(): Rule[] {
     },
     {
       alert: 'SpendCapReached',
-      expr: `max by (cap) (${fromTheGateway('gateway_cap_spent_usd', 'cap=~"day|month"')}) >= on (cap) min by (cap) (${fromTheGateway('gateway_cap_limit_usd', 'cap=~"day|month"')})`,
+      expr: `max by (cap) (${fromTheGateway('gateway_cap_spent_usd', 'cap=~"day|month"')}) >= on (cap) (min by (cap) (${fromTheGateway('gateway_cap_limit_usd', 'cap=~"day|month"')}) >= 0)`,
       for: '0s',
       labels: { level: LEVELS.page },
       annotations: {

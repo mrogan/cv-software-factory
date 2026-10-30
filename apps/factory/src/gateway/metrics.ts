@@ -79,8 +79,16 @@ const capSpent = meter.createObservableGauge('gateway.cap.spent_usd', {
 });
 
 const capLimit = meter.createObservableGauge('gateway.cap.limit_usd', {
-  description: "The profile's spend caps, by cap (day, month, work-item) and profile, in US dollars",
+  description:
+    'The spend caps in force, by cap (day, month, work-item) and profile, in US dollars; NO_CAP (-1) for a month with none',
 });
+
+/**
+ * What `gateway.cap.limit_usd` reads for a month with no cap: a figure no cap can be, which the alert and the
+ * dashboards leave out. Always reported, so a cap that is lifted stops at once: a series no longer observed would go on
+ * being sent at its last figure by the SDK, and page for a cap that is gone.
+ */
+export const NO_CAP = -1;
 
 // Each closed set as a record, so a value added to its type and left out here fails to type-check.
 const OUTCOMES: Record<Outcome, true> = { answered: true, replayed: true, refused: true, failed: true };
@@ -150,6 +158,7 @@ export interface CapReading {
 /**
  * Reports spend against the caps whenever metrics are collected, from `read`, which gives nothing until it knows.
  * One series a cap, never one a work item: a work item's cap is reported, and what each spends is the audit log's.
+ * A month with no cap reads `NO_CAP`.
  * Returns what stops it.
  */
 export function observeCaps(read: () => CapReading | undefined): () => void {
@@ -160,7 +169,7 @@ export function observeCaps(read: () => CapReading | undefined): () => void {
     result.observe(capSpent, reading.dayUsd, { cap: 'day', profile });
     result.observe(capSpent, reading.monthUsd, { cap: 'month', profile });
     result.observe(capLimit, limits.dayUsd, { cap: 'day', profile });
-    if (limits.monthUsd !== null) result.observe(capLimit, limits.monthUsd, { cap: 'month', profile });
+    result.observe(capLimit, limits.monthUsd ?? NO_CAP, { cap: 'month', profile });
     result.observe(capLimit, limits.workItemUsd, { cap: 'work-item', profile });
   };
   meter.addBatchObservableCallback(observe, [capSpent, capLimit]);

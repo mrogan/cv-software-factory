@@ -315,15 +315,16 @@ describe('Grafana’s dashboards', () => {
   );
 });
 
-describe('a table of alerts', () => {
-  it('says why it is empty without saying so in every cell an alert leaves without a label', () => {
-    // Grafana's empty state fills each empty cell too, and alerts' labels differ from one alert to the next.
+describe('every table', () => {
+  it('says why it is empty without saying so in every cell a row leaves blank', () => {
+    // Grafana's empty state fills each empty cell too: an alert's labels differ from the next one's, and a row of
+    // merged queries lacks what one of them did not answer, as a worker just restarted does.
     let seen = 0;
     for (const { dashboard } of dashboards) {
       for (const panel of drawn(dashboard).filter((p) => p.type === 'table')) {
-        if (!(panel.targets ?? []).some((t) => /\bALERTS\b/.test(t.expr ?? ''))) continue;
+        // Every field's, a number's as well as a label's: with no field, the panel's own shows.
         const strings = panel.fieldConfig?.overrides?.find(
-          (o) => o.matcher.id === 'byType' && o.matcher.options === 'string',
+          (o) => o.matcher.id === 'byRegexp' && o.matcher.options === '.*',
         );
         const cell = strings?.properties.find((p) => p.id === 'noValue')?.value;
         expect(cell, `${dashboard.uid}: ${panel.title}`).toBeTruthy();
