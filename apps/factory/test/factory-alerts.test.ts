@@ -119,6 +119,7 @@ describe('the alerts on the factory’s health, releases and spend', () => {
       'LineStuck',
       'LeaseOverrun',
       'StoreDown',
+      'StoreUnwatched',
       'WorkerCrashLooping',
       'SpendCapReached',
     ]) {
@@ -359,8 +360,9 @@ describe('the alerts on the factory’s health, releases and spend', () => {
           interval: '1m',
           input_series: [{ series: 'up{job="kubernetes-pods"}', values: each(1, 1, 1, 1, 1, 1) }],
           alert_rule_test: [
-            { eval_time: '4m', alertname: 'StoreDown', exp_alerts: [] },
-            { eval_time: '5m', alertname: 'StoreDown', exp_alerts: [firing('StoreDown', {}, 1)] },
+            { eval_time: '4m', alertname: 'StoreUnwatched', exp_alerts: [] },
+            { eval_time: '5m', alertname: 'StoreDown', exp_alerts: [] },
+            { eval_time: '5m', alertname: 'StoreUnwatched', exp_alerts: [firing('StoreUnwatched')] },
           ],
         },
       ]),
@@ -386,6 +388,17 @@ describe('the alerts on the factory’s health, releases and spend', () => {
             { series: restarts('factory', 'postgres-0'), values: looping },
             // One restart is not a loop.
             { series: restarts('factory', 'line-6b5c4d3e2-qwert'), values: each(0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1) },
+            // A CronJob's pod reads like a Deployment's, and is no worker's: only a ReplicaSet's pod is named so.
+            { series: restarts('factory', 'line-29361234-abcde'), values: looping },
+            ...[
+              [pod, 'ReplicaSet'],
+              ['line-6b5c4d3e2-qwert', 'ReplicaSet'],
+              ['postgres-0', 'StatefulSet'],
+              ['line-29361234-abcde', 'Job'],
+            ].map(([name, kind]) => ({
+              series: `kube_pod_owner{namespace="factory", pod="${name}", owner_kind="${kind}", owner_name="x"}`,
+              values: each(...Array.from({ length: 12 }, () => 1)),
+            })),
           ],
           alert_rule_test: [
             { eval_time: '1m', alertname: 'WorkerCrashLooping', exp_alerts: [] },
@@ -393,6 +406,7 @@ describe('the alerts on the factory’s health, releases and spend', () => {
               eval_time: '2m',
               alertname: 'WorkerCrashLooping',
               exp_alerts: [
+                firing('WorkerCrashLooping', { pod: 'line-29361234-abcde' }),
                 firing('WorkerCrashLooping', { pod: 'postgres-0' }),
                 firing('WorkerCrashLooping', { pod, worker: 'triage' }),
               ],
@@ -402,6 +416,7 @@ describe('the alerts on the factory’s health, releases and spend', () => {
               eval_time: '5m',
               alertname: 'WorkerCrashLooping',
               exp_alerts: [
+                firing('WorkerCrashLooping', { pod: 'line-29361234-abcde' }),
                 firing('WorkerCrashLooping', { pod: 'postgres-0' }),
                 firing('WorkerCrashLooping', { pod, worker: 'triage' }),
               ],

@@ -500,7 +500,7 @@ serverFiles:
             annotations:
               summary: "The store is not answering"
               description: "Postgres has not answered its exporter for a minute: the line, triage and the console cannot read or record anything."
-          - alert: StoreDown
+          - alert: StoreUnwatched
             expr: "absent(pg_up)"
             for: 5m
             keep_firing_for: 10m
@@ -510,7 +510,7 @@ serverFiles:
               summary: "Nothing says whether the store answers"
               description: "Postgres's exporter has reported nothing for some minutes, so the store going down would not be told."
           - alert: WorkerCrashLooping
-            expr: "max by (pod, worker) (label_replace(max_over_time(kube_pod_container_status_restarts_total{namespace=\"factory\"}[5m]) - min_over_time(kube_pod_container_status_restarts_total{namespace=\"factory\"}[5m]), \"worker\", \"$1\", \"pod\", \"(.+)-[a-z0-9]{5,10}-[a-z0-9]{5}\")) >= 3"
+            expr: "max by (pod, worker) (label_replace((max_over_time(kube_pod_container_status_restarts_total{namespace=\"factory\"}[5m]) - min_over_time(kube_pod_container_status_restarts_total{namespace=\"factory\"}[5m])) and on (namespace, pod) group by (namespace, pod) (kube_pod_owner{namespace=\"factory\", owner_kind=\"ReplicaSet\"}), \"worker\", \"$1\", \"pod\", \"(.+)-[a-z0-9]{5,10}-[a-z0-9]{5}\") or ((max_over_time(kube_pod_container_status_restarts_total{namespace=\"factory\"}[5m]) - min_over_time(kube_pod_container_status_restarts_total{namespace=\"factory\"}[5m])) unless on (namespace, pod) group by (namespace, pod) (kube_pod_owner{namespace=\"factory\", owner_kind=\"ReplicaSet\"}))) >= 3"
             for: 0s
             keep_firing_for: 10m
             labels:

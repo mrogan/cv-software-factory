@@ -183,6 +183,55 @@ describe('the collector stamps the app’s records, and the backends keep what t
     expect(metrics.indexOf('k8s_attributes/factory')).toBe(metrics.indexOf('k8s_attributes') + 1);
   });
 
+  it('takes no series over OTLP by the names of the exporters’ that page Martin or mute his pages', async () => {
+    const { config } = await values('otel-collector.yaml');
+    const metrics: string[] = config.service.pipelines.metrics.processors;
+    expect(metrics.indexOf('filter/scraped-names')).toBe(metrics.indexOf('memory_limiter') + 1);
+    const [condition] = config.processors['filter/scraped-names'].metrics.metric as string[];
+    const pattern = /IsMatch\(name, "(.+)"\)$/.exec(condition ?? '')?.[1] ?? '';
+    const dropped = (name: string) => new RegExp(pattern).test(name);
+    // Every way a sender could name one that Prometheus would make `pg_up` or a kube-state-metrics series.
+    for (const name of [
+      'pg_up',
+      'pg.up',
+      'pg',
+      'pg-up',
+      'kube_pod_container_status_restarts_total',
+      'kube.pod',
+      'argocd_app_info',
+    ]) {
+      expect(dropped(name), name).toBe(true);
+    }
+    for (const name of [
+      'line.steps',
+      'gateway.cap.spent_usd',
+      'probes.checks',
+      'pgbouncer',
+      'kubelet',
+      'store.connections',
+    ]) {
+      expect(dropped(name), name).toBe(false);
+    }
+    // And every series an alert reads without a sender's stamp is of those families, or Prometheus's own.
+    const { factoryRules } = await import('../src/alerts/rules.ts');
+    let read = 0;
+    for (const rule of factoryRules()) {
+      // Strings, selectors and label lists out; then each name not called as a function is a series.
+      const bare = rule.expr
+        .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+        .replace(/\{[^}]*\}/g, ' ')
+        .replace(/\[[^\]]*\]/g, ' ')
+        .replace(/\b(?:by|on|without|ignoring)\s*\([^)]*\)/g, ' ');
+      const names = [...bare.matchAll(/\b([a-zA-Z_][a-zA-Z0-9_]*)\b(?!\s*\()/g)].map(([, n]) => n ?? '');
+      for (const name of names.filter((n) => n.includes('_'))) {
+        const stamped = /^(line|probes|gateway)_/.test(name);
+        expect(stamped || dropped(name), `${rule.alert}: ${name}`).toBe(true);
+        read++;
+      }
+    }
+    expect(read).toBeGreaterThan(10);
+  });
+
   it('Prometheus keeps the line’s stamps as labels, which the alerts to Martin select on', async () => {
     const { server } = await values('prometheus.yaml');
     expect(server.otlp.promote_resource_attributes).toEqual(
