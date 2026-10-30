@@ -233,6 +233,13 @@ export const ADMIN_UNCOUNTED = 'AdminActionUncounted';
  */
 export const ADMIN_UNCOUNTED_FOR = '2m';
 
+/**
+ * How recent the line's word must be. Its series come over OTLP, which leaves Prometheus no staleness marker, so a pod
+ * that has gone would be read for five minutes more: a figure from a line replaced since would hold the alert, or its
+ * resolution, that long. The line sends every 15 seconds, so a minute always holds its latest.
+ */
+export const ADMIN_FRESH = '1m';
+
 /** What the alert says of each change no event names, and what Martin does about it. */
 export const ADMIN_UNCOUNTED_WORDS: Record<AdminAction, { summary: string; description: string }> = {
   flags: {
@@ -475,6 +482,9 @@ export function flagRules(): Rule[] {
 export const PHONE = fromTheAdminService('admin_alerts_phone');
 export const LINE_PHONE = fromTheLine('line_alerts_phone');
 
+/** How recent a worker's word that alerts are off must be for `PhoneOff` to take it. */
+const PHONE_FRESH = '1m';
+
 /** The alert that mutes every alert with a level in Alertmanager while it fires. */
 export const PHONE_OFF = 'PhoneOff';
 
@@ -533,14 +543,14 @@ export function martinRules(): Rule[] {
     },
     ...ADMIN_ACTIONS.map((action) => ({
       alert: ADMIN_UNCOUNTED,
-      expr: `max by (action) (${fromTheLine('line_admin_actions_uncounted', `action="${action}"`)}) == 1`,
+      expr: `max by (action) (last_over_time(${fromTheLine('line_admin_actions_uncounted', `action="${action}"`)}[${ADMIN_FRESH}])) == 1`,
       for: ADMIN_UNCOUNTED_FOR,
       labels: { level: LEVELS.page },
       annotations: ADMIN_UNCOUNTED_WORDS[action],
     })),
     {
       alert: ADMIN_UNCOUNTED,
-      expr: `max by (action) (${fromTheLine('line_admin_actions_compared')}) == 0`,
+      expr: `max by (action) (last_over_time(${fromTheLine('line_admin_actions_compared')}[${ADMIN_FRESH}])) == 0`,
       for: '10m',
       labels: { level: LEVELS.page, worker: WORKERS.line },
       annotations: {
@@ -564,7 +574,9 @@ export function martinRules(): Rule[] {
       // admin service and the line say off: neither alone can keep alerts from Martin, and with either's series
       // missing (down, or not yet scraped) it cannot fire, and every alert reaches the phone.
       alert: PHONE_OFF,
-      expr: `max(${PHONE}) == 0 and on () max(${LINE_PHONE}) == 0`,
+      // Each from a sample in the last minute (four of the workers' exports): pushed metrics leave no stale marker, so a
+      // worker gone would otherwise go on saying off for the five minutes Prometheus looks back.
+      expr: `max(last_over_time(${PHONE}[${PHONE_FRESH}])) == 0 and on () max(last_over_time(${LINE_PHONE}[${PHONE_FRESH}])) == 0`,
       for: '0s',
       labels: {},
       annotations: {
@@ -654,12 +666,16 @@ function notAnswering(target: Target): string {
   return `${outcome('answered')} == 0 and on (address) ${outcome('failed')} > 0`;
 }
 
+/** The pods in `factory` a ReplicaSet owns, a Deployment's: one series a pod. */
+const REPLICA_SET_PODS = 'group by (namespace, pod) (kube_pod_owner{namespace="factory", owner_kind="ReplicaSet"})';
+
 /**
- * Every Deployment's pod by its worker's name: `line-7d9f8b6c4-x2b7q` is the line's. A pod of a StatefulSet or a Job
- * keeps no `worker` label, and is told by its pod's name alone.
+ * Each series of a pod in `factory`, a Deployment's by its worker's name: `line-7d9f8b6c4-x2b7q` is the line's. Only a
+ * pod a ReplicaSet owns is named so, as a CronJob's (`line-29361234-abcde`) would read the same; a pod of a
+ * StatefulSet or a Job keeps no `worker` label, and is told by its pod's name alone.
  */
 const byWorker = (selector: string) =>
-  `label_replace(${selector}, "worker", "$1", "pod", "(.+)-[a-z0-9]{5,10}-[a-z0-9]{5}")`;
+  `label_replace((${selector}) and on (namespace, pod) ${REPLICA_SET_PODS}, "worker", "$1", "pod", "(.+)-[a-z0-9]{5,10}-[a-z0-9]{5}") or ((${selector}) unless on (namespace, pod) ${REPLICA_SET_PODS})`;
 
 /**
  * The alerts on the factory's health, its releases and its spend (docs/COMPONENTS/ALERTING.md):
@@ -750,7 +766,8 @@ export function factoryRules(): Rule[] {
       },
     },
     {
-      alert: 'StoreDown',
+      // A name of its own: the store may be up, and StoreDown mutes what follows from the store being down.
+      alert: 'StoreUnwatched',
       expr: 'absent(pg_up)',
       for: '5m',
       keepFiringFor: KEEP_FIRING,
@@ -777,7 +794,7 @@ export function factoryRules(): Rule[] {
     },
     {
       alert: 'SpendCapReached',
-      expr: `max by (cap) (${fromTheGateway('gateway_cap_spent_usd', 'cap=~"day|month"')}) >= on (cap) min by (cap) (${fromTheGateway('gateway_cap_limit_usd', 'cap=~"day|month"')})`,
+      expr: `max by (cap) (${fromTheGateway('gateway_cap_spent_usd', 'cap=~"day|month"')}) >= on (cap) (min by (cap) (${fromTheGateway('gateway_cap_limit_usd', 'cap=~"day|month"')}) >= 0)`,
       for: '0s',
       labels: { level: LEVELS.page },
       annotations: {

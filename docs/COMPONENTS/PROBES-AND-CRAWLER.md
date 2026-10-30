@@ -54,7 +54,7 @@ Whether the console and the app answer, for the [alerts](ALERTING.md#the-factory
 
 - **Every fifteen seconds** it asks each address `HEALTH_CHECKS` names on the probes' Deployment, `console=<address>` and `app=<address>`: on every profile the two Services from inside the cluster (`http://console/health`, `http://website.website/health`), and on a public one its public addresses beside them, each asked on its own.
 - **Answered** is a 2xx status within ten seconds; anything else, a redirect or no answer included, has failed. Each request sends `x-unmeasured`, so a check is not a visit.
-- **Counted** in `probes_checks_total`, by target, address (its origin, never a path) and outcome, each count from 0 as the probes start, and read only from the probes' own pod ([telemetry](TELEMETRY.md#the-probes-metrics)).
+- **Counted** in `probes_checks_total`, by target, address (its origin and path, never a query) and outcome, each count from 0 as the probes start, and read only from the probes' own pod ([telemetry](TELEMETRY.md#the-probes-metrics)).
 - **A mistyped address** fails the probes' start, rather than leaving the console unwatched.
 
 ## The page reader

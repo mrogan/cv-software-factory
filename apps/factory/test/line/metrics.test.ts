@@ -458,7 +458,7 @@ describe('the line’s metrics', () => {
       }
     });
 
-    it('report none while the line is stopped, or a day’s or month’s cap is reached, and again once it is not', async () => {
+    it('report none while the line is stopped, nor a step’s stage while a day’s or month’s cap is reached, and again once not', async () => {
       await three();
       const martin = new EventWriter(database.admin, {
         kind: 'real',
@@ -478,8 +478,9 @@ describe('the line’s metrics', () => {
         ]);
         const capped = { cap: 'day' as const, limitUsd: 20, spentUsd: 20, resets: '2026-10-07T00:00:00.000Z' };
         await events.append([event(null, 'spend.capped', capped)]);
+        // The gates call no model, and go on under a cap.
         expect(await read('gates', 'build')).toEqual([
-          [0, 0],
+          [1, 70],
           [0, 0],
         ]);
         await events.append([event(null, 'spend.cleared', { cap: 'day' })]);
@@ -498,6 +499,32 @@ describe('the line’s metrics', () => {
         expect(await read('gates', 'build')).toEqual([
           [1, 70],
           [1, 30],
+        ]);
+      } finally {
+        stop();
+      }
+    });
+
+    it('count no time the line was told to stand: from its last start, and at a step’s stage from a cap cleared', async () => {
+      await three();
+      const martin = new EventWriter(database.admin, {
+        kind: 'real',
+        artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))),
+      });
+      const stop = observeTaken(database.as.line, () => carrying());
+      try {
+        // Started again twenty minutes ago, after a stop longer than both work items' time.
+        const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+        await martin.append([{ ...event(null, 'line.started', {}, 'martin'), ts: ago(20) }]);
+        expect(await read('gates', 'build')).toEqual([
+          [1, 20],
+          [1, 20],
+        ]);
+        // A day's cap cleared five minutes ago: the build's time runs from then, the gates' does not.
+        await events.append([{ ...event(null, 'spend.cleared', { cap: 'day' }), ts: ago(5) }]);
+        expect(await read('gates', 'build')).toEqual([
+          [1, 20],
+          [1, 5],
         ]);
       } finally {
         stop();
@@ -527,9 +554,13 @@ describe('the line’s metrics', () => {
     });
 
     it('report how long a lease has been held past its expiry, and 0 with none', async () => {
-      const [gates, build] = await three();
+      const [gates, build, ended] = await three();
       const stop = observeLeases(database.as.line);
       try {
+        // A work item that has ended needs no lease, and no line takes it back: never paged.
+        await database.owner`
+          update line set held_by = 'line-gone', held_until = clock_timestamp() - interval '3 hours'
+          where work_item = ${ended}`;
         expect(at(await points('line.lease.overrun'), {})).toBe(0);
         await database.owner`
           update line set held_by = 'line-gone', held_until = clock_timestamp() - interval '8 minutes'

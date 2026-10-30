@@ -50,11 +50,16 @@ async function serving(statuses: Record<string, number>) {
 describe('the probes’ checks of who answers', () => {
   it('read the profile’s addresses, by target, and refuse anything else', () => {
     expect(healthChecks('console=http://console/health  app=http://website.website/health')).toEqual([
-      { target: 'console', url: 'http://console/health', address: 'http://console' },
-      { target: 'app', url: 'http://website.website/health', address: 'http://website.website' },
+      { target: 'console', url: 'http://console/health', address: 'http://console/health' },
+      { target: 'app', url: 'http://website.website/health', address: 'http://website.website/health' },
     ]);
     expect(healthChecks(undefined)).toEqual([]);
     expect(healthChecks('')).toEqual([]);
+    // Two paths of one origin are two addresses, each alerted on by itself; a query is no part of one.
+    expect(healthChecks('app=http://a/health?x=1 app=http://a/ready').map((c) => c.address)).toEqual([
+      'http://a/health',
+      'http://a/ready',
+    ]);
     expect(() => healthChecks('shop=http://website.website/health')).toThrow(/console or app/);
     expect(() => healthChecks('console')).toThrow(/console or app/);
     expect(() => healthChecks('console=not an address')).toThrow(/not an address/);
@@ -73,8 +78,8 @@ describe('the probes’ checks of who answers', () => {
     const env = probes?.spec.template.spec.containers[0]?.env ?? [];
     const value = env.find((e) => e.name === 'HEALTH_CHECKS')?.value;
     expect(healthChecks(value).map(({ target, address }) => `${target} ${address}`)).toEqual([
-      'console http://console',
-      'app http://website.website',
+      'console http://console/health',
+      'app http://website.website/health',
     ]);
   });
 
@@ -101,7 +106,10 @@ describe('the probes’ checks of who answers', () => {
     const all = await counts();
     const of = (target: string, outcome: string) =>
       all.find(
-        (p) => p.attributes.target === target && p.attributes.outcome === outcome && p.attributes.address === site.url,
+        (p) =>
+          p.attributes.target === target &&
+          p.attributes.outcome === outcome &&
+          String(p.attributes.address).startsWith(site.url),
       )?.value;
     expect(of('console', 'answered')).toBe(1);
     expect(of('console', 'failed')).toBe(0);

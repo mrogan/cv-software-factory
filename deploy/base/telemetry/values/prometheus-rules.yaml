@@ -247,7 +247,7 @@ serverFiles:
               summary: "Security events are not being counted"
               description: "The line has not counted sign-ins and the rest for some minutes, so none of them would reach you."
           - alert: AdminActionUncounted
-            expr: "max by (action) (line_admin_actions_uncounted{action=\"flags\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}) == 1"
+            expr: "max by (action) (last_over_time(line_admin_actions_uncounted{action=\"flags\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[1m])) == 1"
             for: 2m
             labels:
               level: "page"
@@ -255,7 +255,7 @@ serverFiles:
               summary: "The flags changed with no record"
               description: "flagd's flags hold a stage or a revision that no move of yours recorded: they were changed outside the console, or the admin service changed them without recording it. Controls shows each flag's stage as it is: move each that differs there, which records it, and look in the admin service's log."
           - alert: AdminActionUncounted
-            expr: "max by (action) (line_admin_actions_uncounted{action=\"rollout\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}) == 1"
+            expr: "max by (action) (last_over_time(line_admin_actions_uncounted{action=\"rollout\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[1m])) == 1"
             for: 2m
             labels:
               level: "page"
@@ -263,7 +263,7 @@ serverFiles:
               summary: "The app's Rollout changed with no record"
               description: "The app's Rollout was paused, resumed or promoted fully with no control of yours recorded: outside the Canary panel, or by the admin service without recording it. The Canary panel shows it as it is: act there, which records it, and look in the admin service's log."
           - alert: AdminActionUncounted
-            expr: "max by (action) (line_admin_actions_uncounted{action=\"sessions\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}) == 1"
+            expr: "max by (action) (last_over_time(line_admin_actions_uncounted{action=\"sessions\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[1m])) == 1"
             for: 2m
             labels:
               level: "page"
@@ -271,7 +271,7 @@ serverFiles:
               summary: "A session started with no sign-in"
               description: "The store holds a session of the last hour that no sign-in recorded: someone made it outside the admin service’s sign-in, or the admin service did without recording it. End every session with make enrol REVOKE_OTHERS=1, then enrol your passkey again. This ends an hour after the session started."
           - alert: AdminActionUncounted
-            expr: "max by (action) (line_admin_actions_compared{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}) == 0"
+            expr: "max by (action) (last_over_time(line_admin_actions_compared{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[1m])) == 0"
             for: 10m
             labels:
               level: "page"
@@ -288,7 +288,7 @@ serverFiles:
               summary: "Alerts are silenced"
               description: "Alertmanager has a silence in place, which keeps the alerts it matches from your phone."
           - alert: PhoneOff
-            expr: "max(admin_alerts_phone{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}) == 0 and on () max(line_alerts_phone{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}) == 0"
+            expr: "max(last_over_time(admin_alerts_phone{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}[1m])) == 0 and on () max(last_over_time(line_alerts_phone{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[1m])) == 0"
             for: 0s
             labels: {}
             annotations:
@@ -558,7 +558,7 @@ serverFiles:
             annotations:
               summary: "The store is not answering"
               description: "Postgres has not answered its exporter for a minute: the line, triage and the console cannot read or record anything."
-          - alert: StoreDown
+          - alert: StoreUnwatched
             expr: "absent(pg_up)"
             for: 5m
             keep_firing_for: 10m
@@ -568,7 +568,7 @@ serverFiles:
               summary: "Nothing says whether the store answers"
               description: "Postgres's exporter has reported nothing for some minutes, so the store going down would not be told."
           - alert: WorkerCrashLooping
-            expr: "max by (pod, worker) (label_replace(max_over_time(kube_pod_container_status_restarts_total{namespace=\"factory\"}[5m]) - min_over_time(kube_pod_container_status_restarts_total{namespace=\"factory\"}[5m]), \"worker\", \"$1\", \"pod\", \"(.+)-[a-z0-9]{5,10}-[a-z0-9]{5}\")) >= 3"
+            expr: "max by (pod, worker) (label_replace((max_over_time(kube_pod_container_status_restarts_total{namespace=\"factory\"}[5m]) - min_over_time(kube_pod_container_status_restarts_total{namespace=\"factory\"}[5m])) and on (namespace, pod) group by (namespace, pod) (kube_pod_owner{namespace=\"factory\", owner_kind=\"ReplicaSet\"}), \"worker\", \"$1\", \"pod\", \"(.+)-[a-z0-9]{5,10}-[a-z0-9]{5}\") or ((max_over_time(kube_pod_container_status_restarts_total{namespace=\"factory\"}[5m]) - min_over_time(kube_pod_container_status_restarts_total{namespace=\"factory\"}[5m])) unless on (namespace, pod) group by (namespace, pod) (kube_pod_owner{namespace=\"factory\", owner_kind=\"ReplicaSet\"}))) >= 3"
             for: 0s
             keep_firing_for: 10m
             labels:
@@ -577,7 +577,7 @@ serverFiles:
               summary: "A worker is crash-looping"
               description: "{{ $labels.pod }} in factory has restarted three times in five minutes, and Kubernetes waits longer each time to start it again."
           - alert: SpendCapReached
-            expr: "max by (cap) (gateway_cap_spent_usd{cap=~\"day|month\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"gateway\"}) >= on (cap) min by (cap) (gateway_cap_limit_usd{cap=~\"day|month\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"gateway\"})"
+            expr: "max by (cap) (gateway_cap_spent_usd{cap=~\"day|month\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"gateway\"}) >= on (cap) (min by (cap) (gateway_cap_limit_usd{cap=~\"day|month\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"gateway\"}) >= 0)"
             for: 0s
             labels:
               level: "page"

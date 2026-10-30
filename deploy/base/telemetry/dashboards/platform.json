@@ -197,6 +197,7 @@
       "fieldConfig": {
         "defaults": { "unit": "none", "noValue": "No worker is reporting", "custom": { "align": "auto" } },
         "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*" }, "properties": [{ "id": "noValue", "value": "—" }] },
           {
             "matcher": { "id": "byName", "options": "Worker" },
             "properties": [
