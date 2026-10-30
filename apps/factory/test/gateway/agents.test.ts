@@ -541,6 +541,11 @@ describe('reading the provider', () => {
     const refusal = capOf(402, JSON.stringify({ type: 'error', error: { type: 'billing_error', message: said } }));
     expect(refusal?.message).toBe('Your credit balance is too low…');
     expect(refusal?.message.isWellFormed()).toBe(true);
+    const plain = capOf(
+      402,
+      JSON.stringify({ type: 'error', error: { type: 'billing_error', message: 'a'.repeat(400) } }),
+    );
+    expect(plain?.message).toBe(`${'a'.repeat(299)}…`);
   });
 
   it('keys a step without its session or its date', () => {

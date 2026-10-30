@@ -318,4 +318,11 @@ describe('the page a report names, as triage may use it, whatever the page', () 
       }),
     );
   });
+
+  it('is cut between characters, where an emoji it decoded falls at the cut', () => {
+    const emoji = encodeURIComponent('\u{1F600}').repeat(10);
+    const path = privatePath(`/${'a'.repeat(191)}/${emoji}-someone@example.com`);
+    expect(path.isWellFormed()).toBe(true);
+    expect(path).toBe(`/${'a'.repeat(191)}/${'\u{1F600}'.repeat(3)}`);
+  });
 });
