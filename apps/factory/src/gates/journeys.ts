@@ -8,7 +8,7 @@
  *
  * The base and the change are observed at once, and only what failed on the change is observed again.
  */
-import { type Evidence, SYMPTOM_CLASSES, type SymptomClass } from '@software-factory/events';
+import { cutAt, cutTo, type Evidence, SYMPTOM_CLASSES, type SymptomClass } from '@software-factory/events';
 import { z } from 'zod';
 import { cell } from './report.ts';
 
@@ -140,10 +140,10 @@ export function summary(c: Comparison): string {
 export function comparisonMessage(c: Comparison, maxBytes = MESSAGE_BYTES): string {
   const all = c.regressions.slice(0, MOST_REGRESSIONS).map((s) => ({
     sense: s.sense,
-    check: s.check.slice(0, 80),
+    check: cutAt(s.check, 80),
     route: s.route,
     ...(s.symptom ? { symptom: s.symptom } : {}),
-    ...((s.message ?? s.trouble) ? { message: (s.message ?? s.trouble ?? '').trim().slice(0, 300) } : {}),
+    ...((s.message ?? s.trouble) ? { message: cutTo((s.message ?? s.trouble ?? '').trim(), 300) } : {}),
   }));
   for (let n = all.length; n >= 0; n--) {
     const more = c.regressions.length - n;

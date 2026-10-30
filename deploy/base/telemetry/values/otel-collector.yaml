@@ -50,6 +50,16 @@ config:
       actions:
         - pattern: ^k8s[^a-zA-Z0-9]+(pod|namespace)[^a-zA-Z0-9]
           action: delete
+    # The exporters' families that Prometheus scrapes, and which page Martin or mute his pages (Postgres's `pg_up`,
+    # kube-state-metrics' restarts, Argo CD's applications: apps/factory/src/alerts/rules.ts), are never taken over
+    # OTLP: a worker that sent its own `pg_up` at 0, or restarts of a pod it named, would fire an alert that Alertmanager
+    # mutes others by. Prometheus turns every character but an ASCII letter or digit into an underscore, and may add a
+    # unit's name after, so a name is dropped that is the family's prefix alone or followed by any such character.
+    filter/scraped-names:
+      error_mode: propagate
+      metrics:
+        metric:
+          - 'IsMatch(name, "^(pg|kube|argocd)([^a-zA-Z0-9]|$)")'
     # Each record from the app gains its pod's name and its rollouts-pod-template-hash label, which Argo Rollouts gives
     # the stable version's pods and the canary's each their own: the canary's analysis tells the two apart by it. The
     # pod is found by the address its record came from, so this runs before batching, which forgets it. Only the app's
@@ -179,6 +189,7 @@ config:
         receivers: [otlp]
         processors:
           - memory_limiter
+          - filter/scraped-names
           - resource/drop-pod-claims
           - attributes/drop-pod-claims
           - k8s_attributes

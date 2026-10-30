@@ -22,7 +22,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { query, type SDKMessage, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk';
 import { git } from './git.ts';
-import { bounded, type Log, runnerLog } from './log.ts';
+import { bounded, cutTo, type Log, runnerLog } from './log.ts';
 import {
   type Ending,
   type Handback,
@@ -267,10 +267,10 @@ export async function runAgent(
   return {
     ending: tooBig ? 'failed' : ending,
     patch,
-    note: (result?.subtype === 'success' ? result.result : '').slice(0, NOTE_LENGTH),
+    note: cutTo(result?.subtype === 'success' ? result.result : '', NOTE_LENGTH),
     turns: result?.num_turns ?? 0,
     session: result?.session_id ?? null,
-    ...(error ? { error: error.slice(0, NOTE_LENGTH) } : {}),
+    ...(error ? { error: cutTo(error, NOTE_LENGTH) } : {}),
     ...('result' in written ? { result: written.result } : {}),
   };
 }

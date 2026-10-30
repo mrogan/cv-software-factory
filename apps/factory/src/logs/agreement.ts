@@ -8,7 +8,7 @@
  * When all three disagree, or traces are not there yet, nothing can be said of the odd one out, and nothing is.
  * The window should end a few minutes ago, because a trace reaches Tempo a minute or two late.
  */
-import type { InboxSignal } from '@software-factory/events';
+import { cutTo, type InboxSignal } from '@software-factory/events';
 import type { Objectives } from '../../../../policy/objectives.ts';
 import { appSeries, quoted } from '../alerts/queries.ts';
 import type { Loki } from '../clients/loki.ts';
@@ -296,7 +296,7 @@ export async function signalForDisagreement(
           evidence: [
             {
               kind: 'metric' as const,
-              name: `Requests a minute. In ${minutes} minutes: ${counted}`.slice(0, 80),
+              name: cutTo(`Requests a minute. In ${minutes} minutes: ${counted}`, 80),
               unit: 'requests',
               start: picture.start.toISOString(),
               stepSeconds: picture.stepSeconds,

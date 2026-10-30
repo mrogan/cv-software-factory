@@ -88,7 +88,16 @@ import type {
   SignalSource,
   SymptomClass,
 } from '@software-factory/events';
-import { returnWords, SENSES, scopesOverlap, upcast, WORDS_LEAVE_HELD, workItemsWords } from '@software-factory/events';
+import {
+  cutAt,
+  cutTo,
+  returnWords,
+  SENSES,
+  scopesOverlap,
+  upcast,
+  WORDS_LEAVE_HELD,
+  workItemsWords,
+} from '@software-factory/events';
 import {
   askedByMartin,
   byMartin,
@@ -129,6 +138,7 @@ import {
   count,
   type EffectsContext,
   holdDraft,
+  LOCAL_MODEL_PACE,
   need,
   type StepContext,
   StepFailed,
@@ -156,7 +166,17 @@ import {
   STAGE_OF,
   type WorkItemState,
 } from './machine.ts';
-import { countRecorded, countStep, observeHolds, observeStages, type StepEnding, zeroCounts } from './metrics.ts';
+import {
+  type Carrying,
+  countRecorded,
+  countStep,
+  limitsFor,
+  observeHolds,
+  observeStages,
+  observeTaken,
+  type StepEnding,
+  zeroCounts,
+} from './metrics.ts';
 import { stepCalls, workItemSpend } from './model-calls.ts';
 import { type Own, pagesFor } from './pictures.ts';
 import { type Pending, Queue, type QueueItem, type Takes, takesOf } from './queue.ts';
@@ -529,7 +549,7 @@ export class Line {
           summary: 'Reopened: the dry run’s fix never shipped',
           payload: {
             sense: first.sense,
-            check: first.check.slice(0, 80),
+            check: cutAt(first.check, 80),
             route: first.route,
             version: left.against,
             reason: 'A dry run verified it, and its fix never shipped: the line, running live, takes it again',
@@ -643,8 +663,10 @@ export class Line {
       await sendCounts();
     }
     // The stages as the store has them, while the line runs: with LINE_MODE off, nothing moves them. And each hold
-    // that waits for Martin, from the store too.
-    const unobserved = this.#o.takesWork ? [observeStages(this.#o.sql), observeHolds(this.#o.sql)] : [];
+    // that waits for Martin, and what the line is carrying against its limits, from the store too.
+    const unobserved = this.#o.takesWork
+      ? [observeStages(this.#o.sql), observeHolds(this.#o.sql), observeTaken(this.#o.sql, () => this.#carrying())]
+      : [];
     const unobserve = () => {
       for (const stop of unobserved) stop();
     };
@@ -1044,7 +1066,7 @@ export class Line {
             type: 'work-item.closed',
             actor: 'factory',
             summary,
-            payload: { outcome: 'verified', reason: reason.slice(0, 200) },
+            payload: { outcome: 'verified', reason: cutTo(reason, 200) },
           },
         ]);
         this.#lookAgainAt.delete(workItem);
@@ -1104,7 +1126,7 @@ export class Line {
           return;
         }
         // A sense that still cannot tell long after the release may never: Martin judges, told why.
-        const reason = `Verify could not tell in ${hours} hours after the release: ${found.why}`.slice(0, 300);
+        const reason = cutTo(`Verify could not tell in ${hours} hours after the release: ${found.why}`, 300);
         await this.#append(workItem, [
           {
             ...holdDraft('factory', { stage: 'verify', kind: 'held', cause: 'verify', reason }),
@@ -1122,7 +1144,7 @@ export class Line {
               stage: 'verify',
               kind: 'approval',
               cause: 'verify',
-              reason: found.reason.slice(0, 300),
+              reason: cutTo(found.reason, 300),
             }),
             artifacts: (await shown()).artifacts,
           },
@@ -1222,7 +1244,7 @@ export class Line {
     const base = {
       for: occasion,
       ...(sense ? { sense } : {}),
-      check: (first?.check ?? 'the ticket’s signal').slice(0, 120),
+      check: cutAt(first?.check ?? 'the ticket’s signal', 120),
     };
     const promotion = await this.#latestPromotion();
     if (!promotion) {
@@ -1259,7 +1281,7 @@ export class Line {
         return;
       }
       case 'hold':
-        return this.#rechecked(workItem, { ...base, ...looked, outcome: 'unsure', why: found.reason.slice(0, 200) });
+        return this.#rechecked(workItem, { ...base, ...looked, outcome: 'unsure', why: cutTo(found.reason, 200) });
       case 'wait': {
         // A wait goes on for no longer than the policy's after the work it waited on ended; a hold's look stops there.
         const ended = occasion === 'wait' ? await this.#waitEnded(state) : undefined;
@@ -1269,7 +1291,7 @@ export class Line {
           return;
         }
         const hours = this.#o.verifyWaitMs / 3_600_000;
-        const said = `the sense could not tell in ${hours} hours: ${found.why}`.slice(0, 200);
+        const said = cutTo(`the sense could not tell in ${hours} hours: ${found.why}`, 200);
         return this.#rechecked(workItem, { ...base, ...looked, outcome: 'unsure', why: said });
       }
     }
@@ -1536,7 +1558,7 @@ export class Line {
           stage: STAGE_OF[agent],
           kind: 'held',
           cause: 'failures',
-          reason: `The ${agent}'s work could not be put in GitHub ${tries} times: ${reason}`.slice(0, 300),
+          reason: cutTo(`The ${agent}'s work could not be put in GitHub ${tries} times: ${reason}`, 300),
         });
         await this.#append(workItem, [...pending.called, hold]);
         await this.#queue.moved(workItem);
@@ -1558,6 +1580,18 @@ export class Line {
   /** An agent's turns and deadline, on the model its calls go to. */
   #bounds(agent: LineAgent): Bounds {
     return boundsOn(this.#o.agents[agent], this.#providerOf(agent));
+  }
+
+  /**
+   * What the line is carrying, as this pass read Martin's controls and the settings in force: the one work item it acts
+   * on, if only one, whether agents take new work, and each stage's limit, longer where its agents run on the local model.
+   */
+  #carrying(): Carrying {
+    return {
+      only: this.#only,
+      newWork: this.#newWork,
+      limits: limitsFor((agent) => this.#providerOf(agent), LOCAL_MODEL_PACE.deadline),
+    };
   }
 
   /** Where an agent's calls go under the settings in force. */
@@ -2007,7 +2041,7 @@ function acceptedWords(findings: number, suggestions: number): string {
 export function waitReason(on: readonly string[], files: readonly string[]): string {
   const who = workItemsWords(on, '').replace(/^work items? /, '');
   const what = files.length > 2 ? `${files.slice(0, 2).join(', ')} and ${files.length - 2} more` : files.join(' and ');
-  return `Waits for ${who}, whose spec${on.length > 1 ? 's also change' : ' also changes'} ${what}`.slice(0, 300);
+  return cutTo(`Waits for ${who}, whose spec${on.length > 1 ? 's also change' : ' also changes'} ${what}`, 300);
 }
 
 /**

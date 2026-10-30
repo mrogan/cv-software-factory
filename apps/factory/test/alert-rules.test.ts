@@ -260,9 +260,15 @@ describe('the alerts to Martin', () => {
     }
   });
 
-  it('page for what loosens a guardrail or changes who can sign in, notify of what widens the line’s work or a flag or acts on a release, and inform of the rest', () => {
+  it('page for what loosens a guardrail, changes who can sign in or keeps alerts from the phone, notify of what widens the line’s work or a flag or acts on a release, and inform of the rest', () => {
     const at = (level: string) => SECURITY_KINDS.filter((kind) => SECURITY_LEVELS[kind] === level).sort();
-    expect(at(LEVELS.page)).toEqual(['autonomy-loosened', 'guardrail-approved', 'passkey-enrolled', 'passkey-revoked']);
+    expect(at(LEVELS.page)).toEqual([
+      'autonomy-loosened',
+      'guardrail-approved',
+      'passkey-enrolled',
+      'passkey-revoked',
+      'phone-off',
+    ]);
     expect(at(LEVELS.notify)).toEqual([
       'auto-merge-on',
       'autonomy-tightened',
@@ -281,6 +287,7 @@ describe('the alerts to Martin', () => {
       'flag-off',
       'line-stopped',
       'new-work-off',
+      'phone-on',
       'sign-in',
       'take-narrowed',
     ]);

@@ -11,7 +11,7 @@
  * and `text` is what they wrote, each a field of the record. A record whose JSON body holds `page` and `text` is
  * read the same way.
  */
-import type { InboxSignal } from '@software-factory/events';
+import { cutTo, type InboxSignal } from '@software-factory/events';
 import { uuidFrom } from '@software-factory/triage/events';
 import type { Objectives } from '../../../../policy/objectives.ts';
 import { quoted } from '../alerts/queries.ts';
@@ -50,7 +50,7 @@ export function signalForReport(
   routeOf: (page: string) => string | undefined,
 ): InboxSignal | undefined {
   const { page: rawPage, text: rawText } = fieldsOf(record);
-  const text = typeof rawText === 'string' ? rawText.trim().slice(0, MAX_TEXT) : '';
+  const text = typeof rawText === 'string' ? cutTo(rawText.trim(), MAX_TEXT) : '';
   // The page's path only: its query string is the visitor's too.
   const page = typeof rawPage === 'string' ? (rawPage.split(/[?#]/)[0] ?? '') : '';
   const version = record.fields.service_version;

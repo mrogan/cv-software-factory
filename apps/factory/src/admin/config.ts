@@ -15,7 +15,8 @@
  *   written to, through the admin service's own Role (deploy/base/flagd/admin-stages-flags.yaml). Unset, every move of
  *   a flag is refused. Moving a flag into Share reads RELEASE_ROLLOUT's canary too, and without it is refused.
  * - FACTORY_PROFILE: local, do or aws (default local), as the gateway's and the line's: the bounds Martin's settings
- *   are held to (`policy/settings.ts`), and their defaults.
+ *   are held to (`policy/settings.ts`), and their defaults, and whether alerts reach his phone before he switches them
+ *   (`policy/phone.ts`).
  * - GRAFANA_URL, ARGOCD_URL: this deployment's Grafana and Argo CD, each an http or https address, which Martin's
  *   session names so his account menu links to them. Only a signed-in session is told them: a public deployment's
  *   internal hosts never reach a visitor's page. Unset, the menu has no link to that tool.
@@ -35,7 +36,7 @@ export interface AdminConfig {
   rollout?: RolloutRef;
   /** The FeatureFlag Martin's stages are written to; none, and every move is refused. */
   flags?: RolloutRef;
-  /** The profile whose policy Martin's settings are held to. */
+  /** The profile whose policy Martin's settings are held to, and whose default says whether alerts reach his phone. */
   profile: Profile;
   /** This deployment's tools, for Martin's account menu. */
   tools?: Tools;

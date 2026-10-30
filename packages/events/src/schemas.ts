@@ -1196,6 +1196,12 @@ export const PAYLOADS = {
     ]),
   }),
   /**
+   * Martin switched alerts to his phone in the console (`policy/phone.ts`): every alert at its level, or none. The admin
+   * service reads the latest one his roles appended, and tells Prometheus, whose `PhoneOff` then mutes every alert with
+   * a level in Alertmanager; Grafana's Alerts dashboard shows them all either way.
+   */
+  'alerts.switched': z.strictObject({ phone: z.boolean() }),
+  /**
    * Martin set a flag's stage in the console (the admin service): the flag, the stage `flags` held it at before (none
    * when it held it in no stage's shape) and the one he set, with its share at the share stage, the revision of the
    * flag set written with it, what the move was, whether his passkey was fresh as it was taken, and any flag set by

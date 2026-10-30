@@ -1243,6 +1243,21 @@ describe('Verify on the line', () => {
     ]);
   });
 
+  it('cuts a long approval’s words to fit the close, never inside an emoji', async () => {
+    const workItem = await merged(30, FIX_3, 'report');
+    await promote(workItem);
+    const { line: it } = line({ release: null });
+    await pass(it);
+    // `Martin judged it cleared, saying: ` is 34 units, so the emoji's two units sit at 198 and 199: the 199 units
+    // `cutTo` keeps before its mark would end on its first half, which it drops.
+    const answer = `${'x'.repeat(164)}🙂 and more after it`;
+    await martin.append([event(workItem, 'hold.answered', { decision: 'approved', answer }, 'martin')]);
+    await pass(it);
+    expect(await payloads(workItem, 'work-item.closed')).toEqual([
+      { outcome: 'verified', reason: `Martin judged it cleared, saying: ${'x'.repeat(164)}…` },
+    ]);
+  });
+
   it('looks again later when the sense cannot tell, never closes on it, and asks Martin after a day', async () => {
     const workItem = await merged(30, FIX_3);
     await promote(workItem);

@@ -297,7 +297,8 @@ describe('what the line does next', () => {
     // characters, never inside one, which the store would refuse.
     const many = Array.from({ length: 20 }, (_, i) => ({ path: `test/${'a'.repeat(40)}-${i}.test.ts`, reason: 'x' }));
     const barred = needsHold([{ path: 'deploy/app.yaml', reason: 'x' }, ...many], ['deploy/']).reason;
-    expect(barred).toHaveLength(300);
+    expect(barred.length).toBeLessThanOrEqual(300);
+    expect(barred.endsWith('…')).toBe(true);
     expect(barred).toContain('no scope may name deploy/app.yaml');
     const prefix = 'The coder needs a file outside the spec’s scope to meet its criteria: test/';
     // An emoji whose first half is the 299th character, where the reason is cut.
@@ -925,6 +926,13 @@ describe('Martin’s answer to a hold', () => {
     });
     const again = [...waiting, returned('review'), pushed(2), started(), finished('passed'), review('approved')];
     expect(decide(again, facts).next).toEqual({ do: 'step', agent: 'describer', round: 2 });
+  });
+
+  it('cuts his words to fit the reason, never inside an emoji', () => {
+    const lead = 'Martin sent it back: '.length;
+    const words = `${'a'.repeat(198 - lead)}😀 and more`;
+    const waiting = [...approvedAndDescribed, held('merge', 'review'), answer('answered', words)];
+    expect(decide(waiting, facts).next).toMatchObject({ reason: `Martin sent it back: ${'a'.repeat(198 - lead)}…` });
   });
 
   it('has a rule for every cause and every answer', () => {

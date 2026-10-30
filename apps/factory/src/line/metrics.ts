@@ -18,10 +18,17 @@
  * - Each count starts at 0 as the line starts, for every label set it can count (`zeroCounts`): Prometheus's
  *   `increase` and `changes` read nothing into a series' first sample, so a series that started at 1 would lose the
  *   first step, hold, release or verification of each kind after every restart.
+ * - What the line is carrying, the work items it has taken and should be moving, by stage, with the oldest's time
+ *   there and the stage's limit in force (`observeTaken`), and how long any lease has been held past its expiry
+ *   (`observeLeases`), are read from the store too: the alerts that the line is stuck read them
+ *   (`alerts/rules.ts`, `factoryRules`).
  */
 import { type Attributes, type BatchObservableResult, metrics } from '@opentelemetry/api';
 import { HOLD_CAUSES, type HoldCause, type PayloadOf, SENSES, STAGES } from '@software-factory/events';
+import { fromMartin, lineStopped } from '@software-factory/store';
 import type { Sql } from 'postgres';
+import { STUCK } from '../../../../policy/stuck.ts';
+import { capsInForce } from './caps.ts';
 import { openHolds } from './holds.ts';
 import { type LineAgent, type QueueStage, STAGE_OF } from './machine.ts';
 
@@ -301,4 +308,141 @@ export function observeHolds(sql: Sql): () => void {
   };
   meter.addBatchObservableCallback(callback, [holdAge]);
   return () => meter.removeBatchObservableCallback(callback, [holdAge]);
+}
+
+const takenItems = meter.createObservableGauge('line.taken.work_items', {
+  description:
+    'Work items the line has taken and is carrying, by stage: none while it is stopped or a day’s or month’s cap is reached',
+});
+
+const takenOldest = meter.createObservableGauge('line.taken.oldest', {
+  description: 'How long the work item the line is carrying longest at each stage has been there; 0 with none',
+  unit: 's',
+});
+
+const takenLimit = meter.createObservableGauge('line.taken.limit', {
+  description: 'How long a work item the line carries may stay at each stage that has a limit, as it is in force',
+  unit: 's',
+});
+
+const leaseOverrun = meter.createObservableGauge('line.lease.overrun', {
+  description: 'How long the lease held longest past its expiry has been so; 0 with none',
+  unit: 's',
+});
+
+/** Where an agent's calls go, as the line reads its settings. */
+export type StepProvider = 'anthropic' | 'bedrock' | 'local';
+
+/**
+ * Each stage's limit in force, in seconds, or null for none: `policy/stuck.ts`'s, and for a stage whose agents' steps
+ * run on the local model (Plan, Build, Review), that times `pace`, as a step there is given that much longer
+ * (`LOCAL_MODEL_PACE.deadline`, `agents/agent.ts`). ALL_LOCAL sends every agent there, and Martin's settings may send
+ * one.
+ */
+export function limitsFor(
+  providerOf: (agent: LineAgent) => StepProvider,
+  pace: number,
+): Record<OpenStage, number | null> {
+  const local = new Set(
+    (Object.keys(STAGE_OF) as LineAgent[]).filter((agent) => providerOf(agent) === 'local').map((a) => STAGE_OF[a]),
+  );
+  return Object.fromEntries(
+    OPEN_STAGES.map((stage) => {
+      const { minutes } = STUCK[stage];
+      if (minutes === null) return [stage, null];
+      return [stage, minutes * 60 * (local.has(stage as (typeof STAGE_OF)[LineAgent]) ? pace : 1)];
+    }),
+  ) as Record<OpenStage, number | null>;
+}
+
+/** What the line is carrying, as it last read Martin's controls and its settings. */
+export interface Carrying {
+  /** The one work item it acts on, under Just one or LINE_ONLY: no other is carried. */
+  only: string | null;
+  /** Whether agents take new work: with it off no step starts, so a work item at Plan, Build or Review stands. */
+  newWork: boolean;
+  /** Each stage's limit in force (`limitsFor`). */
+  limits: Record<OpenStage, number | null>;
+}
+
+/** The stages a work item moves on from only by an agent's step. */
+const STEP_STAGES = new Set<OpenStage>(Object.values(STAGE_OF));
+
+/**
+ * Reports what the line is carrying each time the SDK collects, until the function it gives back is called: for each
+ * stage, how many of the work items it has taken stand there, how long the oldest has, and the stage's limit in force.
+ * "Stuck" is the line not moving a work item it should be moving, so what it should not move reads as none:
+ *
+ * - everything, while the line is stopped;
+ * - Plan, Build and Review, where only a step moves a work item on, while a day's or a month's cap is reached, when it
+ *   starts no step, or agents take no new work: gates, Release and Verify go on;
+ * - every work item but the one, under Just one.
+ *
+ * And the time a pause lasted does not count: a work item's time runs from the later of its move to the stage and the
+ * line's last start, and at Plan, Build and Review from the last day's or month's cap cleared, or change of Martin's
+ * controls, too, so a line that starts again does not page at once for the hours it was told to stand.
+ *
+ * Every stage is reported, none as 0, so a figure falls when the line is told to stop rather than standing at its last
+ * value, which the SDK would otherwise send again. The limits are reported whatever the line carries. A read that
+ * fails reports nothing that time, and the SDK sends the last figures again.
+ */
+export function observeTaken(sql: Sql, carrying: () => Carrying): () => void {
+  const callback = async (result: BatchObservableResult) => {
+    const { only, newWork, limits } = carrying();
+    const [stopped, caps] = await Promise.all([lineStopped(sql), capsInForce(sql)]);
+    const capped = caps.some((cap) => cap.cap === 'day' || cap.cap === 'month');
+    // A pause does not count towards a work item's time: from the line's last start, for every stage, and for a step's
+    // stage from the last day's or month's cap cleared or change of Martin's controls (new work on among them) too.
+    const rows = stopped
+      ? []
+      : await sql<{ stage: OpenStage; n: number; oldest: number; stepping: number }[]>`
+          with resumed as (
+            select max(e.ts) filter (where e.type = 'line.started') as started,
+                   max(e.ts) filter (where e.type = 'controls.changed'
+                                       or (e.type = 'spend.cleared' and e.payload->>'cap' in ('day', 'month'))) as steps
+            from events e
+            where e.type in ('line.started', 'controls.changed', 'spend.cleared') and not e.sample
+              and ${fromMartin(sql, 'e')})
+          select stage, count(*)::int as n,
+                 extract(epoch from clock_timestamp()
+                   - greatest(min(moved_at), (select started from resumed)))::float8 as oldest,
+                 extract(epoch from clock_timestamp()
+                   - greatest(min(moved_at), (select started from resumed), (select steps from resumed)))::float8
+                   as stepping
+          from line where stage <> 'ended' ${only ? sql`and work_item = ${only}` : sql``}
+          group by stage`;
+    const by = new Map(rows.map((row) => [row.stage, row]));
+    for (const stage of OPEN_STAGES) {
+      const step = STEP_STAGES.has(stage);
+      const found = by.get(stage);
+      // A cap, or no new work, stops only the stages a step moves on: gates, Release and Verify go on.
+      const row =
+        step && (capped || !newWork) ? undefined : found && { ...found, oldest: step ? found.stepping : found.oldest };
+      result.observe(takenItems, row?.n ?? 0, { stage });
+      result.observe(takenOldest, Math.max(0, row?.oldest ?? 0), { stage });
+      const limit = limits[stage];
+      if (limit !== null) result.observe(takenLimit, limit, { stage });
+    }
+  };
+  const observed = [takenItems, takenOldest, takenLimit];
+  meter.addBatchObservableCallback(callback, observed);
+  return () => meter.removeBatchObservableCallback(callback, observed);
+}
+
+/**
+ * Reports, each time the SDK collects, how long the lease held longest past its expiry has been so, or 0 with none:
+ * a worker that took a work item and neither let go of it nor renewed its lease, as one that died mid-step leaves it
+ * until a line takes the work item again. Every open work item's, whatever the line carries, stopped or not, and whatever
+ * LINE_MODE is: `factory line serve` starts it beside the security events, not the line's loop. A read that fails
+ * reports nothing that time.
+ */
+export function observeLeases(sql: Sql): () => void {
+  const callback = async (result: BatchObservableResult) => {
+    const [row] = await sql<{ overrun: number | null }[]>`
+      select extract(epoch from clock_timestamp() - min(held_until))::float8 as overrun
+      from line where held_by is not null and held_until < clock_timestamp() and stage <> 'ended'`;
+    result.observe(leaseOverrun, Math.max(0, row?.overrun ?? 0));
+  };
+  meter.addBatchObservableCallback(callback, [leaseOverrun]);
+  return () => meter.removeBatchObservableCallback(callback, [leaseOverrun]);
 }

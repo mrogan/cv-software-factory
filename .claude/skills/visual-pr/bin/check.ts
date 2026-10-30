@@ -12,8 +12,14 @@ import { unrenderedFolds } from '../../../../apps/factory/src/line/agents/folds.
  * What is wrong with a description, given its Markdown and GitHub's rendering of it, which is empty when the folds
  * already failed; `published` adds local paths.
  */
-export function problems(body: string, html: string, published: boolean, folds = unrenderedFolds(body)): string[] {
+export function problems(body: string, rendered: string, published: boolean, folds = unrenderedFolds(body)): string[] {
   const found: string[] = [...folds];
+  // GitHub renders an attached video as a <details> of its own, whose <summary> has a class and the file's name for its
+  // title: not the describer's, so set aside before the rest is read.
+  const html = rendered.replace(
+    /<details[^>]*>\s*<summary[^>]*>(?:(?!<\/?(?:details|summary)[\s>])[\s\S])*<\/summary>\s*<video[\s>][\s\S]*?<\/video>\s*<\/details>/g,
+    '',
+  );
   const count = (re: RegExp) => html.match(re)?.length ?? 0;
 
   if (count(/<details[\s>]/g) !== count(/<\/details>/g)) found.push('a <details> is not closed');

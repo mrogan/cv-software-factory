@@ -500,6 +500,22 @@ describe('the flag.checked the pass records', () => {
     });
   });
 
+  it('cuts a long check’s name and message between characters, the name with no mark', () => {
+    // An emoji whose two units sit either side of a bare cut: at 119-120 in the name, at 299-300 in the message.
+    const check = `${'c'.repeat(119)}🙂 more`;
+    const message = `${'m'.repeat(298)}🙂 more`;
+    const draft = valid(
+      checkedDraft(
+        asked('off'),
+        answer({
+          journeys: { passed: 9, ran: 10 },
+          notClean: [{ sense: 'probe', check, route: '/search', failed: true, message }],
+        }),
+      ),
+    );
+    expect(draft.payload).toMatchObject({ notClean: [{ check: 'c'.repeat(119), message: `${'m'.repeat(298)}…` }] });
+  });
+
   it('records the baseline as the probes saw it, with its pictures as artifacts', () => {
     const draft = valid(
       checkedDraft(

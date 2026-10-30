@@ -2,7 +2,18 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { HOLD_ALERT_MINUTES, LEVELS } from '../src/alerts/rules.ts';
+import { objectives } from '../../../policy/objectives.ts';
+import {
+  ADMIN_UNCOUNTED,
+  factoryRules,
+  flagRules,
+  HOLD_ALERT_MINUTES,
+  LEVELS,
+  martinRules,
+  PHONE_KINDS,
+  PHONE_OFF,
+  rulesFor,
+} from '../src/alerts/rules.ts';
 import { APP_REPOSITORY } from '../src/line/worker.ts';
 import { DEPLOY, manifests } from './deploy.ts';
 
@@ -39,7 +50,13 @@ interface Receiver {
   pushover_configs?: Pushover[];
   [other: string]: unknown;
 }
+interface Inhibition {
+  source_matchers: string[];
+  target_matchers: string[];
+  equal?: string[];
+}
 interface Values {
+  server: { alertmanagers?: Record<string, unknown>[] };
   alertmanager: {
     extraArgs?: Record<string, string>;
     extraSecretMounts?: {
@@ -51,7 +68,7 @@ interface Values {
       optional: boolean;
     }[];
     templates?: Record<string, string>;
-    config: { route: Route; receivers: Receiver[]; templates?: string[] };
+    config: { route: Route; receivers: Receiver[]; templates?: string[]; inhibit_rules?: Inhibition[] };
   };
 }
 
@@ -373,5 +390,145 @@ describe('Alertmanager’s fence', () => {
         ports: [{ protocol: 'TCP', port: 8080 }],
       },
     ]);
+  });
+});
+
+describe('Prometheus’s way to Alertmanager', () => {
+  it('names Alertmanager by its Service, and sends it no service account’s token', async () => {
+    const { server } = await values();
+    expect(server.alertmanagers).toEqual([
+      { static_configs: [{ targets: ['prometheus-alertmanager.telemetry.svc:9093'] }] },
+    ]);
+    expect(JSON.stringify(server.alertmanagers)).not.toMatch(/token|kubernetes_sd|authorization/);
+  });
+});
+
+/**
+ * Whether Alertmanager mutes an alert while the others fire, by its inhibition rules: a rule mutes an alert its target
+ * matches while another that its source matches fires, with the same values of the labels in `equal`, a label not
+ * there being the empty string; and an alert that matches both sides is never muted by another that does too.
+ */
+function muted(rules: Inhibition[], alert: Record<string, string>, firing: Record<string, string>[]): boolean {
+  const all = (list: string[], labels: Record<string, string>) => list.every((m) => matches(m, labels));
+  return rules.some((rule) => {
+    if (!all(rule.target_matchers, alert)) return false;
+    const both = all(rule.source_matchers, alert);
+    return firing.some(
+      (source) =>
+        source !== alert &&
+        all(rule.source_matchers, source) &&
+        (rule.equal ?? []).every((label) => (source[label] ?? '') === (alert[label] ?? '')) &&
+        !(both && all(rule.target_matchers, source)),
+    );
+  });
+}
+
+describe('Alertmanager’s inhibitions: a cause pages, and what follows from it does not', () => {
+  const rules = async () => (await values()).alertmanager.config.inhibit_rules ?? [];
+  /** An alert as a rule raises it: its name, its rule's labels, and those its series give it. */
+  const alert = (name: string, labels: Record<string, string> = {}) => {
+    const rule = [...factoryRules(), ...martinRules(), ...flagRules()].find((r) => r.alert === name);
+    if (!rule) throw new Error(`No rule ${name}`);
+    return { alertname: name, ...rule.labels, ...labels };
+  };
+  const crashLooping = (worker: string) => alert('WorkerCrashLooping', { pod: `${worker}-7d9f8b6c4-x2b7q`, worker });
+
+  it('name only alerts the rules raise', async () => {
+    const names = new Set([...factoryRules(), ...martinRules(), ...flagRules()].map((r) => r.alert));
+    for (const rule of await rules()) {
+      for (const matcher of [...rule.source_matchers, ...rule.target_matchers]) {
+        const [, op, value] = /^alertname(=~|=|!=)"(.*)"$/.exec(matcher) ?? [];
+        if (!op || !value) continue;
+        for (const name of value.split('|')) expect(names, matcher).toContain(name);
+      }
+    }
+  });
+
+  it('mute what the store down leaves the line, the workers and Argo CD unable to do', async () => {
+    const store = alert('StoreDown');
+    for (const name of ['LineStuck', 'LeaseOverrun', 'SecurityEventsUncounted']) {
+      expect(muted(await rules(), alert(name, { stage: 'gates' }), [store]), name).toBe(true);
+    }
+    expect(muted(await rules(), crashLooping('triage'), [store])).toBe(true);
+    expect(muted(await rules(), alert('ArgoCDDegraded', { name: 'root' }), [store])).toBe(true);
+    for (const name of ['ConsoleDown', 'AppDown', 'ProbesDown', 'SpendCapReached', 'AlertmanagerSilenced']) {
+      expect(muted(await rules(), alert(name), [store]), name).toBe(false);
+    }
+    expect(muted(await rules(), alert('ArgoCDDegraded', { name: 'website' }), [store])).toBe(false);
+  });
+
+  it('mute a change the admin service made with no event while the store is down, and only for that cause', async () => {
+    const uncounted = martinRules().filter((r) => r.alert === ADMIN_UNCOUNTED);
+    expect(uncounted.length).toBeGreaterThan(1);
+    for (const rule of uncounted) {
+      const raised = { alertname: rule.alert, ...rule.labels, action: 'flags' };
+      // Without the store the line can compare nothing; a change none names is still there to compare after.
+      expect(muted(await rules(), raised, [alert('StoreDown')])).toBe(true);
+      for (const cause of [alert('SpendCapReached', { cap: 'day' }), alert('ProbesDown'), crashLooping('admin')]) {
+        expect(muted(await rules(), raised, [cause]), cause.alertname).toBe(false);
+      }
+      // The line crash-looping mutes only its not being able to compare, which follows from it.
+      expect(muted(await rules(), raised, [crashLooping('line')])).toBe(rule.labels.worker === 'line');
+    }
+  });
+
+  it('mute the line stuck while a spend cap is reached, and nothing else', async () => {
+    const cap = alert('SpendCapReached', { cap: 'day', profile: 'local' });
+    expect(muted(await rules(), alert('LineStuck', { stage: 'build' }), [cap])).toBe(true);
+    for (const name of ['LeaseOverrun', 'StoreDown', 'ConsoleDown']) {
+      expect(muted(await rules(), alert(name), [cap]), name).toBe(false);
+    }
+  });
+
+  it('mute what is said of a worker while it crash-loops, and only of that worker', async () => {
+    const line = crashLooping('line');
+    for (const name of ['LineStuck', 'LeaseOverrun', 'SecurityEventsUncounted']) {
+      expect(muted(await rules(), alert(name), [line]), name).toBe(true);
+    }
+    expect(muted(await rules(), alert('ConsoleDown', { address: 'http://console' }), [line])).toBe(false);
+    expect(muted(await rules(), alert('ConsoleDown'), [crashLooping('console')])).toBe(true);
+    expect(muted(await rules(), alert('ProbesDown'), [crashLooping('probes')])).toBe(true);
+    expect(muted(await rules(), alert('FlagsUnchecked'), [crashLooping('admin')])).toBe(true);
+    expect(muted(await rules(), alert('AppDown'), [crashLooping('probes')])).toBe(false);
+    // One crash loop never mutes another.
+    expect(muted(await rules(), crashLooping('triage'), [line])).toBe(false);
+    expect(muted(await rules(), line, [crashLooping('line')])).toBe(false);
+  });
+
+  it('mute nothing for the probes down, as what they watch cannot fire without them', async () => {
+    const probes = alert('ProbesDown');
+    for (const rule of [...factoryRules(), ...martinRules(), ...flagRules()]) {
+      expect(muted(await rules(), alert(rule.alert), [probes]), rule.alert).toBe(false);
+    }
+  });
+
+  it('mute every alert with a level while alerts to the phone are off, but switching the phone itself', async () => {
+    const off = alert(PHONE_OFF);
+    // It has no level, so it reaches no one, and nothing mutes it.
+    expect(off).toEqual({ alertname: PHONE_OFF });
+    const levelled = [...factoryRules(), ...martinRules(), ...flagRules()].filter((rule) => rule.labels.level);
+    expect(new Set(levelled.map((rule) => rule.labels.level))).toEqual(new Set(Object.values(LEVELS)));
+    for (const rule of levelled) {
+      const raised = { alertname: rule.alert, ...rule.labels };
+      const kind = rule.labels.kind ?? '';
+      const reaches = (PHONE_KINDS as readonly string[]).includes(kind);
+      expect(muted(await rules(), raised, [off]), `${rule.alert} ${kind}`).toBe(!reaches);
+    }
+    expect(PHONE_KINDS.length).toBeGreaterThan(0);
+  });
+
+  it('leave the app’s objective alerts to reach the intake while alerts to the phone are off', async () => {
+    for (const rule of rulesFor(objectives)) {
+      const raised = { alertname: rule.alert, ...rule.labels, http_route: '/basket' };
+      expect(muted(await rules(), raised, [alert(PHONE_OFF)]), rule.alert).toBe(false);
+    }
+  });
+
+  it('never mute a security event, a silence, or a hold for another alert’s cause', async () => {
+    const everything = [...factoryRules(), ...flagRules()].map((r) => alert(r.alert, { worker: 'line' }));
+    const crash = [crashLooping('line'), crashLooping('console')];
+    for (const name of ['SecurityEvent', 'AlertmanagerSilenced', 'HoldWaits', 'HoldStarted']) {
+      expect(muted(await rules(), alert(name), [...everything, ...crash]), name).toBe(false);
+    }
   });
 });

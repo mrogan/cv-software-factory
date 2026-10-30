@@ -28,7 +28,7 @@
  * has not reached the app, or another came since) or a version that moved says the run may not have seen the stage it
  * was asked about, and nothing is judged.
  */
-import { COLOR_SCHEMES, type ColorScheme, type Screenshot } from '@software-factory/events';
+import { COLOR_SCHEMES, type ColorScheme, cutAt, cutTo, type Screenshot } from '@software-factory/events';
 import type { ArtifactStore } from '@software-factory/store';
 import { z } from 'zod';
 import { type Count, compareJourneys, keyOf, type Seen } from '../gates/journeys.ts';
@@ -161,10 +161,10 @@ const bad = (s: Seen) => s.failed || s.trouble !== undefined;
 
 const asNotClean = (s: Seen): NotClean => ({
   sense: s.sense === 'crawler' ? 'crawler' : 'probe',
-  check: s.check.slice(0, 120),
+  check: cutAt(s.check, 120),
   route: s.route,
   failed: s.failed,
-  ...((s.message ?? s.trouble) && { message: (s.message ?? s.trouble ?? '').trim().slice(0, 300) }),
+  ...((s.message ?? s.trouble) && { message: cutTo((s.message ?? s.trouble ?? '').trim(), 300) }),
 });
 
 /**
@@ -191,7 +191,7 @@ export async function flagCheck(deps: FlagCheckDeps, request: FlagCheckRequest):
     else if (looked.after === null) moved.push('The app did not say its version after the run');
     else if (looked.after !== version) moved.push(`The app moved to ${looked.after}`);
     // Named as an event keeps them, so the baseline's names and this run's are the same.
-    const kept = looked.seen.filter((s) => !watchOfThePreview(s)).map((s) => ({ ...s, check: s.check.slice(0, 120) }));
+    const kept = looked.seen.filter((s) => !watchOfThePreview(s)).map((s) => ({ ...s, check: cutAt(s.check, 120) }));
     for (const s of kept) seen.set(keyOf(s), s);
     return kept;
   };

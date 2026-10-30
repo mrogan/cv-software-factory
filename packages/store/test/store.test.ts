@@ -108,6 +108,8 @@ describe('migrations', () => {
       { version: 34, name: 'flag-pictures' },
       { version: 35, name: 'improvement-requests' },
       { version: 36, name: 'flag-picture-schemes' },
+      { version: 37, name: 'alerts-switched' },
+      { version: 38, name: 'line-reads-sign-ins' },
     ]);
   });
 });

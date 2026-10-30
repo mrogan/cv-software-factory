@@ -4,11 +4,12 @@ Synthetic journeys and site checks, with screenshots for the event store, the ch
 
 - **v1:** Playwright on a schedule, on the `factory-browser` image ([workers and images](WORKERS-AND-IMAGES.md)).
 
-`factory probes run` serves three things on the probes worker:
+`factory probes run` serves four things on the probes worker:
 
 | What | Where | Who may call it |
 |---|---|---|
 | [The probes](#the-probes) | Its own schedule | |
+| [Who answers](#who-answers) | Every fifteen seconds | |
 | [Pictures](#pictures) | While the stable and canary versions differ | |
 | [The page reader](#the-page-reader) | `POST /v1/pages` | Triage, only |
 | [Verify](#verify) | `POST /v1/verify`, on `VERIFY_PORT` (8081) | The line, only |
@@ -46,6 +47,15 @@ Every request the probes, the crawler and the page reader make sends `x-unmeasur
 - sending a signal only for a check that has failed twice in a row, with a screenshot and the evidence.
 
 A check that costs something, such as sending a contact message, may run at most so often (the contact checks, once an hour).
+
+## Who answers
+
+Whether the console and the app answer, for the [alerts](ALERTING.md#the-factorys-health) that page Martin when either stops (`probes/health.ts`):
+
+- **Every fifteen seconds** it asks each address `HEALTH_CHECKS` names on the probes' Deployment, `console=<address>` and `app=<address>`: on every profile the two Services from inside the cluster (`http://console/health`, `http://website.website/health`), and on a public one its public addresses beside them, each asked on its own.
+- **Answered** is a 2xx status within ten seconds; anything else, a redirect or no answer included, has failed. Each request sends `x-unmeasured`, so a check is not a visit.
+- **Counted** in `probes_checks_total`, by target, address (its origin and path, never a query) and outcome, each count from 0 as the probes start, and read only from the probes' own pod ([telemetry](TELEMETRY.md#the-probes-metrics)).
+- **A mistyped address** fails the probes' start, rather than leaving the console unwatched.
 
 ## The page reader
 

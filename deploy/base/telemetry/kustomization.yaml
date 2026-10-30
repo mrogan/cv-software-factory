@@ -23,6 +23,14 @@ configMapGenerator:
   # Picked up by Grafana's dashboard sidecar, which watches for the grafana_dashboard label. One ConfigMap a dashboard:
   # Argo CD applies each with a copy of it in an annotation, which holds 256 KiB at most, and the dashboards together
   # are near half that.
+  - name: dashboard-alerts
+    namespace: telemetry
+    files:
+      - dashboards/alerts.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
   - name: dashboard-console
     namespace: telemetry
     files:

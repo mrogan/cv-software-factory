@@ -383,6 +383,7 @@ const PAYLOADS: Partial<Record<EventType, object>> = {
     take: null,
     change: { control: 'autonomy', before: 'supervised', after: 'guarded' },
   },
+  'alerts.switched': { phone: false },
   'flag.staged': {
     flag: 'delivery-dates',
     from: { stage: 'checks' },
@@ -514,6 +515,14 @@ describe('signing in', () => {
         );
       }
     }
+  });
+
+  it('lets the line read when each session started, to compare with the sign-ins, and nothing else of it', async () => {
+    await db.as.line`select signed_in_at from sessions`;
+    for (const column of ['id_sha256', 'passkey', 'expires_at', 'stepped_up_at', 'ended_at', 'ended_by']) {
+      await expect(db.as.line`select ${db.owner(column)} from sessions`, column).rejects.toThrow('permission denied');
+    }
+    await expect(db.as.line`update sessions set ended_at = now()`).rejects.toThrow('permission denied');
   });
 
   it('lets the enrolment add a code and revoke, and nothing more', async () => {
