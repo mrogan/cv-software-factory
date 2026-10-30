@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
-import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest';
  */
 
 /** The Makefile's `namespace` helper, run by make itself against a kubectl that logs each call. */
-async function namespace(exists: boolean, createFails = false) {
+async function namespace(cluster: 'has it' | 'has none' | 'cannot be read', createFails = false) {
   const dir = await mkdtemp(join(tmpdir(), 'namespace-'));
   const log = join(dir, 'calls');
   const kubectl = join(dir, 'kubectl');
@@ -23,7 +23,7 @@ async function namespace(exists: boolean, createFails = false) {
     `#!/usr/bin/env bash
 echo "$*" >> ${JSON.stringify(log)}
 case "$1" in
-  get) ${exists ? 'echo "NAME STATUS"; exit 0' : 'echo "Error from server (NotFound)" >&2; exit 1'} ;;
+  get) ${{ 'has it': 'echo namespace/factory', 'has none': 'exit 0', 'cannot be read': 'echo "Unable to connect to the server" >&2; exit 1' }[cluster]} ;;
   create) ${createFails ? 'echo "Unable to connect to the server" >&2; exit 1' : 'echo "namespace/$3 created"'} ;;
 esac
 `,
@@ -31,39 +31,60 @@ esac
   await chmod(kubectl, 0o755);
   const makefile = join(dir, 'Makefile');
   await writeFile(makefile, `include ${join(process.cwd(), 'Makefile')}\nns:\n\t@$(call namespace,factory)\n`);
-  const result = await promisify(execFile)('make', ['-s', '-f', makefile, `KUBECTL=${kubectl}`, 'ns']).then(
-    ({ stdout, stderr }) => ({ code: 0, out: stdout + stderr }),
-    (e: { code: number; stdout: string; stderr: string }) => ({ code: e.code, out: e.stdout + e.stderr }),
-  );
-  const calls = (await readFile(log, 'utf-8')).trim().split('\n');
-  return { ...result, calls };
+  // Not the outer make's flags (`make check` runs the tests), which would have this one talk about directories and jobs.
+  const { MAKEFLAGS, MFLAGS, MAKELEVEL, ...env } = process.env;
+  try {
+    const result = await promisify(execFile)('make', ['-s', '-f', makefile, `KUBECTL=${kubectl}`, 'ns'], { env }).then(
+      ({ stdout, stderr }) => ({ code: 0, out: stdout + stderr }),
+      (e: { code: number | string; stdout?: string; stderr?: string }) => {
+        if (typeof e.code === 'string') throw e; // make itself did not run
+        return { code: e.code, out: `${e.stdout}${e.stderr}` };
+      },
+    );
+    const calls = (await readFile(log, 'utf-8')).trim().split('\n');
+    return { ...result, calls };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 describe('making a namespace from the Makefile', () => {
   it('leaves one that exists alone, and says nothing', async () => {
-    expect(await namespace(true)).toEqual({ code: 0, out: '', calls: ['get namespace factory'] });
+    expect(await namespace('has it')).toEqual({
+      code: 0,
+      out: '',
+      calls: ['get namespace factory -o name --ignore-not-found'],
+    });
   });
 
   it('creates one that is missing, and says nothing', async () => {
-    expect(await namespace(false)).toEqual({
+    expect(await namespace('has none')).toEqual({
       code: 0,
       out: '',
-      calls: ['get namespace factory', 'create namespace factory'],
+      calls: ['get namespace factory -o name --ignore-not-found', 'create namespace factory'],
     });
   });
 
   it('fails, and says why, when it can make none', async () => {
-    const { code, out } = await namespace(false, true);
+    const { code, out } = await namespace('has none', true);
     expect(code).not.toBe(0);
     expect(out).toContain('Unable to connect to the server');
   });
 
-  it('is the only way the Makefile and the scripts make one', () => {
+  it('creates none, and stops, when it cannot tell whether there is one', async () => {
+    const { code, out, calls } = await namespace('cannot be read');
+    expect(code).not.toBe(0);
+    expect(out).toContain('Unable to connect to the server');
+    expect(calls).toEqual(['get namespace factory -o name --ignore-not-found']);
+  });
+
+  it('is the only way the Makefile, the scripts and the skills make one', () => {
     const files = [
       'Makefile',
-      ...readdirSync('scripts')
-        .filter((f) => f.endsWith('.sh'))
-        .map((f) => `scripts/${f}`),
+      ...['scripts', ...readdirSync('.claude/skills').map((skill) => `.claude/skills/${skill}/bin`)]
+        .filter((dir) => existsSync(dir))
+        .flatMap((dir) => readdirSync(dir, { withFileTypes: true }).map((f) => `${dir}/${f.name}`))
+        .filter((f) => statSync(f).isFile() && !f.endsWith('.test.ts')),
     ];
     for (const file of files) {
       // Continued lines joined, so a pipe on the next line is seen.

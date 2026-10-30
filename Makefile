@@ -37,8 +37,10 @@ as-operator = $(call as-martin,operator,$(1))
 # $(call namespace,name): create a namespace unless it exists, and never touch one that does. Argo CD makes each of ours
 # from deploy/base/namespaces.yaml, with its pod security label; applying a bare Namespace over one would take that
 # label, and Argo CD's tracking, away until Argo CD synced it again, and pods there would be admitted without the
-# restricted profile meanwhile. One made here gets them when Argo CD syncs it.
-namespace = { $(KUBECTL) get namespace $(1) >/dev/null 2>&1 || $(KUBECTL) create namespace $(1) >/dev/null; }
+# restricted profile meanwhile. One made here gets them when Argo CD syncs it. Made only when the cluster says there is
+# none: any other failure to read it stops here.
+namespace = { made="$$($(KUBECTL) get namespace $(1) -o name --ignore-not-found)" && \
+	{ [ -n "$$made" ] || $(KUBECTL) create namespace $(1) >/dev/null; }; }
 
 # $(call secret,namespace,name,data): create a Secret unless it exists.
 secret = $(call namespace,$(1)) && \
