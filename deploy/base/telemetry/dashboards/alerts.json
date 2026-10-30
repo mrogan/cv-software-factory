@@ -483,6 +483,18 @@
         "overrides": [
           {
             "matcher": {
+              "id": "byType",
+              "options": "string"
+            },
+            "properties": [
+              {
+                "id": "noValue",
+                "value": "—"
+              }
+            ]
+          },
+          {
+            "matcher": {
               "id": "byName",
               "options": "State"
             },

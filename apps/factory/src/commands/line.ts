@@ -282,6 +282,9 @@ async function serve(): Promise<number> {
   // him read them (line/security.ts).
   const { observeSecurity } = await import('../line/security.ts');
   const unobserveSecurity = observeSecurity(sql, log);
+  // Any lease held past its expiry, whatever LINE_MODE is: a lease a dead pod left is paged on a line that is off too.
+  const { observeLeases } = await import('../line/metrics.ts');
+  const unobserveLeases = observeLeases(sql);
   const abort = new AbortController();
   const working = line.run(abort.signal);
   await new Promise<void>((resolve) => {
@@ -290,6 +293,7 @@ async function serve(): Promise<number> {
   abort.abort();
   await working;
   unobserveSecurity();
+  unobserveLeases();
   await Promise.all([new Promise((r) => api.close(r)), new Promise((r) => handback.close(r))]);
   await Promise.all([sql.end(), shutdownTelemetry()]);
   return 0;
