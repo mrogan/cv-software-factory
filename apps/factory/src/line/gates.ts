@@ -163,7 +163,7 @@ function gateRun(
     });
   }
   for (const run of latest.values()) {
-    if (run.status !== 'completed' || record.finished.has(`${commit} ${run.name}`)) continue;
+    if (run.status !== 'completed' || record.finished.has(`${commit} ${cutAt(run.name, 80)}`)) continue;
     const conclusion = outcome(run.conclusion);
     const title = run.title?.trim();
     const summary = title === undefined ? undefined : cutTo(title, 200);

@@ -1248,12 +1248,13 @@ describe('Verify on the line', () => {
     await promote(workItem);
     const { line: it } = line({ release: null });
     await pass(it);
-    // `Martin judged it cleared, saying: ` is 34 units: the emoji's two units would sit either side of a bare cut at 200.
-    const answer = `${'x'.repeat(165)}🙂 and more after it`;
+    // `Martin judged it cleared, saying: ` is 34 units, so the emoji's two units sit at 198 and 199: the 199 units
+    // `cutTo` keeps before its mark would end on its first half, which it drops.
+    const answer = `${'x'.repeat(164)}🙂 and more after it`;
     await martin.append([event(workItem, 'hold.answered', { decision: 'approved', answer }, 'martin')]);
     await pass(it);
     expect(await payloads(workItem, 'work-item.closed')).toEqual([
-      { outcome: 'verified', reason: `Martin judged it cleared, saying: ${'x'.repeat(165)}…` },
+      { outcome: 'verified', reason: `Martin judged it cleared, saying: ${'x'.repeat(164)}…` },
     ]);
   });
 
