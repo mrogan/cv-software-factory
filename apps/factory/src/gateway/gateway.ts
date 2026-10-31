@@ -15,7 +15,8 @@
  *
  * A model not pinned or not priced, and a spend cap reached, are refusals of a guardrail, and are recorded as the
  * gateway's (`refusals.ts`) on no work item: no job token names one, and the work item a request names is the caller's
- * word. A request it cannot read is not.
+ * word. What was refused names the agent alone, so their repeats fold whatever else a request varies. A request it
+ * cannot read is not.
  */
 import { AGENTS, type Agent, cutAt } from '@software-factory/events';
 import type { Sql } from 'postgres';
@@ -193,7 +194,9 @@ export class Gateway {
         this.#options.refusals?.refused({
           workItem: null,
           cause,
-          action: `A ${questionSet} judgement for the ${agent} agent${workItem ? `, for work item ${workItem}` : ''}`,
+          // Only the agent, one of a few, names it: the question set and work item are the caller's to vary, and would
+          // let a caller with no token open a new fold with each request.
+          action: `A judgement for the ${agent} agent`,
           output: (error as Error).message,
           at: this.#clock(),
         });

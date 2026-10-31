@@ -6,7 +6,7 @@
  *
  * Each refusal's output is the gateway's own words, as its answer gives them. Repeats fold, through the log every
  * worker that records refusals keeps (`../refusal-log.ts`): the first of a kind is appended at once, and the rest of its
- * minute as one event with how many, each minute and as the gateway stops. Refusals of one cause fold apart from
+ * minute as one event with how many, soon after its minute ends and as the gateway stops. Refusals of one cause fold apart from
  * another's, so a fold's words and guardrails are its own.
  *
  * Appends run one at a time behind the answer, never before it: a store that cannot take one is logged, and the
@@ -80,7 +80,7 @@ export class Refusals {
     return this.#log.flush(now);
   }
 
-  /** Appends what is due each minute. */
+  /** Appends what is due, looking often enough that a fold waits little past its minute, whenever its minute began. */
   start(everyMs?: number): void {
     this.#log.start(everyMs);
   }

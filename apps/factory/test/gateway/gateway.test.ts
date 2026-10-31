@@ -266,7 +266,7 @@ describe('the gateway', () => {
     // nothing the gateway could read. The second is the first's repeat, held until its minute is up or the gateway
     // stops.
     await h.refusals.stop();
-    const policy = { mechanism: 'gateway', action: 'A triage/v1 judgement for the triage agent', guardrails: [6] };
+    const policy = { mechanism: 'gateway', action: 'A judgement for the triage agent', guardrails: [6] };
     expect(await h.refused()).toEqual([
       {
         work_item: null,
@@ -285,6 +285,21 @@ describe('the gateway', () => {
         },
       },
     ]);
+    await h.database.end();
+  });
+
+  it('folds an agent’s refused judgements into one, whatever question set or work item each names', async () => {
+    const h = await harness();
+    for (const [questionSet, workItem] of [
+      ['triage/v1', null],
+      ['triage/v2', '1000'],
+      ['anything/v9', '1001'],
+    ] as const) {
+      await failure(h.gateway.judge({ ...request({ model: 'jev-latest', workItem }), questionSet } as never));
+    }
+    await h.refusals.stop();
+    // A caller needs no token to ask for a judgement: what it varies opens no fold of its own.
+    expect((await h.refused()).map((row) => row.payload.count ?? 1)).toEqual([1, 2]);
     await h.database.end();
   });
 
@@ -367,7 +382,7 @@ describe('spend caps', () => {
         appended_by: 'factory_gateway',
         payload: {
           mechanism: 'gateway',
-          action: 'A triage/v1 judgement for the triage agent',
+          action: 'A judgement for the triage agent',
           output: 'The day spend cap of $0.04 has been reached ($0.04 spent); it resets at 2026-10-04T00:00:00.000Z.',
           guardrails: [7],
         },
@@ -443,9 +458,9 @@ describe('spend caps', () => {
     const error = await failure(h.gateway.judge(request({ workItem: '1000' })));
     expect(error).toBeInstanceOf(SpendCapped);
     expect(error).toMatchObject({ cap: 'work-item', limitUsd: 0.04, resets: null });
-    // On no work item, since no job token names one: the work item is the request's word, in what was refused.
+    // On no work item, since no job token names one: the work item is only the request's word.
     expect((await h.refused()).map((row) => [row.work_item, row.payload.action, row.payload.guardrails])).toEqual([
-      [null, 'A triage/v1 judgement for the triage agent, for work item 1000', [7]],
+      [null, 'A judgement for the triage agent', [7]],
     ]);
     expect((await h.gateway.judge(request({ workItem: '1001' }))).source).toBe('provider');
     expect((await h.gateway.judge(request({ workItem: null }))).source).toBe('provider');

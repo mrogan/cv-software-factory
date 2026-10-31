@@ -61,18 +61,6 @@ describe('validation', () => {
     });
   });
 
-  it('takes a refusal on the work item it was refused for, or on the line when it was none’s', () => {
-    const refused = {
-      ...opened,
-      type: 'action.refused',
-      version: 3,
-      actor: 'factory',
-      payload: { mechanism: 'gateway', action: 'A model call', output: 'Refused.', guardrails: [7] },
-    };
-    expect(validate(refused)).toEqual({ ok: true });
-    expect(validate({ ...refused, work_item: null })).toEqual({ ok: true });
-  });
-
   it('takes a release’s events on a work item it carries, or on the line when it carries none', () => {
     const started = {
       ...opened,
@@ -917,9 +905,10 @@ describe('upcasting the real catalogue', () => {
   });
 
   describe('action.refused at version 3', () => {
-    const refusal = (payload: Record<string, unknown>) =>
+    const refusal = (payload: Record<string, unknown>, envelope: Record<string, unknown> = {}) =>
       validate({
         ...opened,
+        ...envelope,
         type: 'action.refused',
         version: 3,
         actor: 'factory',
@@ -966,6 +955,11 @@ describe('upcasting the real catalogue', () => {
         uid: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
       };
       expect(refusal({ mechanism: 'admission-control', guardrails: [3], subject })).toEqual({ ok: true });
+      // One no work item asked for is on none: an object applied in the cluster, a call with no job token.
+      expect(refusal({ mechanism: 'admission-control', guardrails: [3], subject }, { work_item: null })).toEqual({
+        ok: true,
+      });
+      expect(refusal({}, { work_item: null })).toEqual({ ok: true });
       expect(refusal({ subject: { kind: 'Namespace', name: 'website' } })).toEqual({ ok: true });
       expect(refusal({ subject: { name: 'unsigned' } }).ok).toBe(false);
       expect(refusal({ output: 'x'.repeat(4000) })).toEqual({ ok: true });

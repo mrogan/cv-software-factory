@@ -4,7 +4,7 @@
  *
  * Refusals are folded within a group, which the worker names: two groups never fold into one event, so each group's
  * words and guardrails stay its own. The first of a kind is appended at once, and the rest of its minute as one event
- * with how many, each minute and as the worker stops.
+ * with how many, soon after its minute ends and as the worker stops.
  *
  * Appends run one at a time behind whatever was refused, never before it: a store that cannot take one is logged, and
  * the worker goes on as it would have.
@@ -52,8 +52,8 @@ export class RefusalLog<G extends string> {
     return this.#queue;
   }
 
-  /** Appends what is due each minute. */
-  start(everyMs = FOLD_MS): void {
+  /** Appends what is due, looking often enough that a fold waits little past its minute, whenever its minute began. */
+  start(everyMs = FOLD_MS / 6): void {
     this.#timer = setInterval(() => void this.flush(), everyMs);
     this.#timer.unref();
   }

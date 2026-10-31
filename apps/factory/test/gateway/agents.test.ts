@@ -399,13 +399,20 @@ describe('agents through the gateway', () => {
   });
 
   it('sends every agent to the local model when asked, and caps it when nothing is listening', async () => {
-    const { sql, token } = await start({ allLocal: true, local: 'http://127.0.0.1:9' });
+    const { sql, token, refusals } = await start({ allLocal: true, local: 'http://127.0.0.1:9' });
+    await new EventWriter(database.as.triage, { kind: 'real', artifacts: new DiskArtifacts(cassettesDir) }).append(
+      opened(),
+    );
     const refused = await call(token, agentRequest());
     expect(refused.status).toBe(429);
     const [capped] = await sql`select payload from events where type = 'spend.capped'`;
     expect(capped?.payload).toMatchObject({ cap: 'provider', provider: 'local', reason: 'unreachable' });
     const [row] = await sql`select provider, model, outcome from model_calls`;
     expect(row).toEqual({ provider: 'local', model: 'qwen/qwen3.8-27b', outcome: 'failed' });
+    // Held for an outage, not a cap: the next call is refused, and no guardrail is recorded as refusing it.
+    expect((await call(token, agentRequest())).status).toBe(429);
+    await refusals.stop();
+    expect(await refusalsIn(database.owner)).toEqual([]);
   });
 
   it('sends the local model no effort, whatever the runner asked for, and keys its cassette without one', async () => {
@@ -527,7 +534,12 @@ describe('agents through the gateway', () => {
       {
         work_item: '1001',
         appended_by: 'factory_gateway',
-        payload: { mechanism: 'gateway', action: 'A model call by the coder agent', output: cap, guardrails: [7] },
+        payload: {
+          mechanism: 'gateway',
+          action: 'A model call by the coder agent, at the work-item spend cap',
+          output: cap,
+          guardrails: [7],
+        },
       },
       {
         work_item: '1001',

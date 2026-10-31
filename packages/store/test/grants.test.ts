@@ -14,12 +14,13 @@ import {
   LINE_ONLY_TYPES,
   type NewEvent,
   REFUSAL_MECHANISMS,
+  type RefusalMechanism,
   VERSIONS,
 } from '@software-factory/events';
-import type { Sql } from 'postgres';
+import type { JSONValue, Sql } from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ENROLMENT_CODE, PASSKEYS, SESSION } from '../../../policy/access.ts';
-import { mayAppend, REFUSAL_ROWS, REFUSALS } from '../../../policy/refusals.ts';
+import { mayAppend, REFUSAL_READS, REFUSAL_ROWS, REFUSALS } from '../../../policy/refusals.ts';
 import { MARTINS_ROLES, STORE_GRANTS } from '../../../policy/store-grants.ts';
 import { DiskArtifacts } from '../src/artifacts.ts';
 import { EventWriter } from '../src/events.ts';
@@ -544,12 +545,38 @@ describe("the line's record of a release", () => {
 });
 
 describe('a refusal', () => {
-  /** A refusal by a mechanism, inserted as it stands, real or a sample, as any client could try. */
-  const refuse = (sql: Sql, mechanism: string, sample: boolean) => sql`
-    insert into events (id, ts, work_item, type, version, actor, summary, payload, artifacts, public, sample)
-    values (${crypto.randomUUID()}, now(), '3300', 'action.refused', 3, 'factory', 'Refused',
-            ${sql.json({ mechanism, action: 'An action', output: 'Refused.', guardrails: [1] })}, '[]', '{}',
-            ${sample})`;
+  /** The guardrails a mechanism shows, or the repository's for one that is no mechanism. */
+  const shown = (mechanism: string): number[] =>
+    mechanism in REFUSALS
+      ? [...new Set(Object.values(REFUSALS[mechanism as RefusalMechanism].guardrails).flat())]
+      : [1];
+
+  /**
+   * A refusal by a mechanism, inserted as it stands, real or a sample, as any client could try: with the guardrails
+   * its mechanism shows (none, for `null`), and a public view that names them, unless it says otherwise.
+   */
+  const refuse = (
+    sql: Sql,
+    mechanism: string,
+    sample: boolean,
+    {
+      version = 3,
+      guardrails = shown(mechanism) as unknown,
+      seen = {} as Record<string, unknown>,
+    }: { version?: number; guardrails?: unknown; seen?: Record<string, unknown> } = {},
+  ) => {
+    const payload = {
+      mechanism,
+      action: 'An action',
+      output: 'Refused.',
+      ...(guardrails !== null && { guardrails }),
+    };
+    const view = { summary: 'Refused', payload: { ...payload, ...seen }, artifacts: [] };
+    return sql`
+      insert into events (id, ts, work_item, type, version, actor, summary, payload, artifacts, public, sample)
+      values (${crypto.randomUUID()}, now(), '3300', 'action.refused', ${version}, 'factory', 'Refused',
+              ${sql.json(payload as JSONValue)}, '[]', ${sql.json(view as JSONValue)}, ${sample})`;
+  };
 
   it('is held to its mechanism’s roles by the table in policy/refusals.ts, mechanism by mechanism', async () => {
     const mechanisms = [...REFUSAL_MECHANISMS, 'not-a-mechanism'];
@@ -563,15 +590,83 @@ describe('a refusal', () => {
     });
   });
 
-  it('is held by the one restrictive policy on the store, for every role', async () => {
-    const restrictive = await db.owner<{ table: string; command: string; roles: string[]; check: string }[]>`
-      select tablename as table, lower(cmd) as command, roles::text[] as roles, with_check as check
-      from pg_policies where schemaname = 'public' and permissive = 'RESTRICTIVE'`;
-    // As the table writes it: no casts to text, and no parentheses round the whole.
-    const check = (printed: string) => printed.replaceAll('::text', '').replace(/^\((.*)\)$/, '$1');
+  it('shows only the guardrails policy/refusals.ts gives its mechanism, mechanism by mechanism', async () => {
+    const mechanisms = [...REFUSAL_MECHANISMS, 'not-a-mechanism'];
+    const rows = await db.owner<{ mechanism: string; guardrails: number[] }[]>`
+      select mechanism, refusal_guardrails(mechanism) as guardrails from unnest(${mechanisms}::text[]) as mechanism`;
+    expect(Object.fromEntries(rows.map((row) => [row.mechanism, [...row.guardrails].sort((a, b) => a - b)]))).toEqual({
+      ...Object.fromEntries(REFUSAL_MECHANISMS.map((m) => [m, shown(m).sort((a, b) => a - b)])),
+      'not-a-mechanism': [],
+    });
+  });
+
+  it('is held by the restrictive policies on the store, for every role', async () => {
+    const restrictive = await db.owner<
+      { name: string; table: string; command: string; roles: string[]; check: string }[]
+    >`
+      select policyname as name, tablename as table, lower(cmd) as command, roles::text[] as roles,
+             with_check as check
+      from pg_policies where schemaname = 'public' and permissive = 'RESTRICTIVE' order by policyname`;
+    // As the table writes it: no casts to text, on one line, and no parentheses round the whole.
+    const check = (printed: string) =>
+      printed
+        .replaceAll('::text', '')
+        .replace(/\s+/g, ' ')
+        .replace(/^\((.*)\)$/, '$1');
     expect(restrictive.map((policy) => ({ ...policy, check: check(policy.check) }))).toEqual([
-      { table: 'events', command: 'insert', roles: ['public'], check: REFUSAL_ROWS },
+      {
+        name: 'events_refused_as_it_reads',
+        table: 'events',
+        command: 'insert',
+        roles: ['public'],
+        check: REFUSAL_READS,
+      },
+      {
+        name: 'events_refused_by_its_mechanism',
+        table: 'events',
+        command: 'insert',
+        roles: ['public'],
+        check: REFUSAL_ROWS,
+      },
     ]);
+  });
+
+  it('reads in the console as it was appended, under its own mechanism’s guardrails', async () => {
+    const real = await freshDatabase('refusals_read');
+    try {
+      const line = real.as.line;
+      // The public view names another mechanism, or other guardrails, than the refusal.
+      await expect(refuse(line, 'scope-fence', false, { seen: { mechanism: 'admission-control' } })).rejects.toThrow(
+        'row-level security',
+      );
+      await expect(refuse(line, 'scope-fence', false, { seen: { guardrails: [3] } })).rejects.toThrow(
+        'row-level security',
+      );
+      await expect(refuse(line, 'scope-fence', false, { seen: { mechanism: undefined } })).rejects.toThrow(
+        'row-level security',
+      );
+      // Guardrails its mechanism does not show, none, or not a list of them.
+      for (const guardrails of [[3], [11, 1], [11, 11], [], 11, ['11'], null]) {
+        await expect(refuse(line, 'scope-fence', false, { guardrails }), JSON.stringify(guardrails)).rejects.toThrow(
+          'row-level security',
+        );
+      }
+      await expect(refuse(real.as.gateway, 'gateway', false, { guardrails: [6, 1] })).rejects.toThrow(
+        'row-level security',
+      );
+      // Before version 3 a refusal named no guardrails, and only version 2's mechanisms.
+      await expect(refuse(real.as.gateway, 'gateway', false, { version: 2, guardrails: null })).rejects.toThrow(
+        'row-level security',
+      );
+      await refuse(line, 'scope-fence', false, { version: 2, guardrails: null });
+      await refuse(line, 'admission-control', false, { guardrails: [4] });
+      await refuse(real.as.gateway, 'gateway', false, { guardrails: [9] });
+      const stored = await real.owner<{ mechanism: string }[]>`
+        select payload->>'mechanism' as mechanism from events order by seq`;
+      expect(stored.map((row) => row.mechanism)).toEqual(['scope-fence', 'admission-control', 'gateway']);
+    } finally {
+      await real.end();
+    }
   });
 
   it('is appended by its mechanism’s roles alone, Martin’s and the console’s refused, in a real store', async () => {

@@ -323,7 +323,11 @@ export class AgentCalls {
       instruments.capRefusals.add(1, { ...series, cap: 'provider' });
       await audit('refused', undefined, held.reason);
       const message = `${provider} refuses calls for now (${held.reason}): ${held.message}`;
-      this.#refused(call.workItem, call.agent, 'cap', message);
+      // A provider out of credit or at its workspace's limit is a cap; one unreachable is an outage, which no guardrail
+      // refused.
+      if (held.reason !== 'unreachable') {
+        this.#refused(call.workItem, call.agent, 'cap', message, `while ${provider} is at its ${held.reason} cap`);
+      }
       return apiError(429, 'rate_limit_error', message, { 'retry-after': '300' });
     }
     try {
@@ -332,7 +336,7 @@ export class AgentCalls {
       if (!(error instanceof SpendCapped)) throw error;
       instruments.capRefusals.add(1, { ...series, cap: error.cap });
       await audit('refused', undefined, error.message);
-      this.#refused(call.workItem, call.agent, 'cap', error.message);
+      this.#refused(call.workItem, call.agent, 'cap', error.message, `at the ${error.cap} spend cap`);
       // A day's or month's cap resets; a work item's does not, and holds the work item for Martin.
       return error.resets
         ? apiError(429, 'rate_limit_error', error.message, {
@@ -477,12 +481,15 @@ export class AgentCalls {
     };
   }
 
-  /** Records a refusal of a guardrail on the job's work item, behind the answer. */
-  #refused(workItem: string, agent: string, cause: GatewayCause, output: string): void {
+  /**
+   * Records a refusal of a guardrail on the job's work item, behind the answer. `which` names the cap, so one cap's
+   * repeats fold apart from another's, each in its own words.
+   */
+  #refused(workItem: string, agent: string, cause: GatewayCause, output: string, which?: string): void {
     this.#o.refusals?.refused({
       workItem,
       cause,
-      action: `A model call by the ${agent} agent`,
+      action: `A model call by the ${agent} agent${which ? `, ${which}` : ''}`,
       output,
       at: new Date(this.#now()),
     });
