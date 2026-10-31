@@ -2067,7 +2067,7 @@ function renderCanary() {
     <div class="rel-id">Release ${r.id}<br><b>${r.previous} → ${r.version}</b> · ${r.commit}<br>${image}</div></div>
     <div class="canary-body"><div class="canary-steps">${stepsTrack(r)}<p class="canary-note">${note}</p></div><div class="canary-measures">${right}</div>${canaryControls(r)}</div>
     <p class="help">${S.switches.rollback && !r.held ? 'The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody needs to press anything.'
-      : 'The canary moves on by itself while every measure passes. With auto-rollback off, the moment one fails it pauses for Martin, who promotes or aborts it.'}</p>`;
+      : 'The canary moves on by itself while every measure passes. With auto-rollback off, the moment errors or latency fail it pauses for Martin, who promotes or aborts it; a failed journeys check still rolls it back.'}</p>`;
 }
 
 // The scoreboard, by ?score=. With no score.updated at all (an old store, the replay site) it draws nothing.
@@ -2922,8 +2922,8 @@ const lightsOutNote = (v) => `<b>Lights-out takes two settings.</b> This one, an
 const SWITCHES = [
   ['agents', 'Agents take new work', () => 'Off: each agent finishes its step, and nothing new is started.', () => false],
   ['automerge', 'Auto-merge low-risk changes', () => 'The line adds a change to the merge queue once the review check passes it by a rule the autonomy level allows. Under Supervised it waits for you anyway.', (on) => !on],
-  ['rollback', 'Auto-rollback', (on) => on ? 'On: a canary the analysis judges bad rolls back by itself. Off, it would pause for you instead.'
-    : 'Off: a canary the analysis judges bad pauses for you, in Needs you, instead of rolling back. Stop the line still aborts one.', (on) => on],
+  ['rollback', 'Auto-rollback', (on) => on ? 'On: a canary the analysis judges bad rolls back by itself. Off, errors or latency judged bad would pause it for you instead.'
+    : 'Off: a canary whose errors or latency the analysis judges bad pauses for you, in Needs you, instead of rolling back. A failed journeys check still rolls it back, and Stop the line still aborts one.', (on) => on],
 ];
 
 function renderControls() {
@@ -3074,7 +3074,7 @@ const STEPUP = {
   retry: ['Retry the release', (r) => `${r.version}’s canary starts again from its first step.`, 'Retrying ships again'],
   autonomy: ['Loosen autonomy', null, 'Loosening autonomy lets more ship without you', true],
   switch: ['Change a switch', null, 'This loosens a control'],
-  rollback: ['Turn off auto-rollback', '<b>Auto-rollback: off.</b> A canary the analysis judges bad pauses for you, in Needs you, instead of rolling back, until you promote or abort it. Stop the line still aborts one.', 'Turning auto-rollback off overrides a guardrail', true],
+  rollback: ['Turn off auto-rollback', '<b>Auto-rollback: off.</b> A canary whose errors or latency the analysis judges bad pauses for you, in Needs you, instead of rolling back, until you promote or abort it. A failed journeys check still rolls it back, and Stop the line still aborts one.', 'Turning auto-rollback off overrides a guardrail', true],
   take: ['Take more work', null, 'Taking more work raises spend'],
   answer: ['Approve past a guardrail', null, 'A gate held this, and approving overrides it'],
   save: ['Save the settings', '<b>The coder’s effort goes from medium to high</b>, from its next step.', 'This raises spend'],
