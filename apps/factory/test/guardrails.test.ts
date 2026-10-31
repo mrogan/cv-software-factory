@@ -2,19 +2,28 @@
  * The guardrail catalogue (`policy/guardrails.ts`) is spec 6's eleven, in its words, each proof in it once, and each
  * attack against one guardrail.
  */
-import { readFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, readFileSync } from 'node:fs';
+import { matchesGlob } from 'node:path';
 import { GUARDRAIL_COUNT } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 import {
   ATTACKS,
+  CI_PROOFS,
   GUARDRAILS,
   guardrailAttacked,
   guardrailsProvedBy,
   PROOFS,
   type ProofId,
 } from '../../../policy/guardrails.ts';
+import { RECORDS } from '../../../scripts/policy-hash.ts';
+import vitest from '../../../vitest.config.ts';
+import { jobNames } from '../src/guardrails/ci.ts';
+import { ORDER, PRODUCTION_WRITES, TAKERS } from '../src/guardrails/proofs.ts';
 
 const SPEC = new URL('../../../docs/SPECIFICATION.md', import.meta.url);
+const ROOT = new URL('../../../', import.meta.url);
+const read = (path: string) => readFileSync(new URL(path, ROOT), 'utf-8');
 
 /** Spec 6's guardrails, by number, as its list writes each. */
 function specified(): Map<number, string> {
@@ -73,6 +82,66 @@ describe('the guardrail catalogue', () => {
     });
     for (const guardrail of GUARDRAILS) {
       expect(guardrail.proofs.length > 0 || 'attack' in guardrail, `guardrail ${guardrail.n}`).toBe(true);
+    }
+  });
+});
+
+describe('what takes each proof', () => {
+  it('is named for every proof in the catalogue, and the command takes each, once', () => {
+    expect(Object.keys(TAKERS).sort()).toEqual(Object.keys(PROOFS).sort());
+    expect([...ORDER].sort()).toEqual(Object.keys(PROOFS).sort());
+    expect(new Set(ORDER).size).toBe(ORDER.length);
+    // The drill, which asks Martin and stops the line, comes last, after every read and script.
+    expect(ORDER.at(-1)).toBe('stop-the-line');
+  });
+
+  it('takes again every refusal record the hash names, each in a proof: admission, production-writes or egress', () => {
+    expect([...PRODUCTION_WRITES, 'admission-refusals', 'egress'].sort()).toEqual(Object.keys(RECORDS).sort());
+    for (const record of Object.keys(RECORDS)) {
+      const script = record === 'flag-stages-refusals' ? `scripts/${record}.ts` : `scripts/${record}.sh`;
+      expect(existsSync(new URL(script, ROOT)), script).toBe(true);
+      // Each writes where REFUSALS_OUT says (egress.sh where its argument says), so deploy/test/ is left as it is.
+      if (record !== 'egress') expect(read(script), script).toMatch(/REFUSALS_OUT/);
+      if (script.endsWith('.sh')) accessSync(new URL(script, ROOT), constants.X_OK);
+    }
+  });
+
+  it('reads each proof from CI from a job that runs its tests, every part of it', () => {
+    expect(Object.keys(CI_PROOFS).sort()).toEqual(
+      Object.keys(PROOFS)
+        .filter((id) => id.startsWith('ci:'))
+        .sort(),
+    );
+    // The projects `make check-tests` runs, and the test files each takes.
+    const recipe = /^check-tests:.*\n\t(.+)$/m.exec(read('Makefile'))?.[1] ?? '';
+    const projects = [...recipe.matchAll(/--project (\w+)/g)].map(([, name]) => name);
+    expect(projects.sort()).toEqual(['database', 'unit']);
+    const ran = (vitest.test?.projects ?? []).flatMap((project) => {
+      const { test } = project as { test: { name: string; include: string[]; exclude?: string[] } };
+      return projects.includes(test.name) ? [test] : [];
+    });
+    expect(ran).toHaveLength(2);
+    const runs = (file: string) =>
+      ran.some(
+        (t) => t.include.some((g) => matchesGlob(file, g)) && !(t.exclude ?? []).some((g) => matchesGlob(file, g)),
+      );
+
+    for (const [id, proof] of Object.entries(CI_PROOFS)) {
+      const workflow = read(proof.workflow);
+      const job = (parse(workflow) as { jobs: Record<string, { steps: { run?: string }[]; strategy?: unknown }> }).jobs[
+        proof.job
+      ];
+      // The job runs the tests in parts, every part named: 1/N to N/N.
+      expect(
+        job?.steps.some((s) => s.run === 'make check-tests SHARD="$SHARD"'),
+        id,
+      ).toBe(true);
+      const parts = jobNames(workflow, proof.job);
+      expect(parts, id).toEqual(parts.map((_, i) => `tests (${i + 1}/${parts.length})`));
+      for (const test of proof.tests) {
+        expect(existsSync(new URL(test, ROOT)), `${id}: ${test}`).toBe(true);
+        expect(runs(test), `${id}: ${test} is run by make check-tests`).toBe(true);
+      }
     }
   });
 });
