@@ -407,14 +407,9 @@ describe('agents through the gateway', () => {
       output: 'anthropic refuses calls for now (credit): Your credit balance is too low to access the Anthropic API.',
       guardrails: [7],
     };
-    expect(await refusalsIn(database.owner)).toEqual([
-      { work_item: '1001', appended_by: 'factory_gateway', payload: capped },
-      {
-        work_item: '1001',
-        appended_by: 'factory_gateway',
-        payload: { ...capped, count: 1, lastAt: expect.any(String) },
-      },
-    ]);
+    // One repeat in its minute is appended as itself.
+    const recorded = { work_item: '1001', appended_by: 'factory_gateway', payload: capped };
+    expect(await refusalsIn(database.owner)).toEqual([recorded, recorded]);
   });
 
   it('sends every agent to the local model when asked, and caps it when nothing is listening', async () => {
