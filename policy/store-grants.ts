@@ -48,7 +48,8 @@ const READ = 'true';
  * Every worker appends any event but his commands, and opens any work item but an improvement, which only his roles
  * open (0035_improvement-requests.sql); and only the line appends its record of what a release did
  * (0039_release-events-the-lines.sql). Every role, his included, appends a refusal only by a mechanism
- * `policy/refusals.ts` lets it speak for, by a restrictive policy beside these (0040_refusals-by-mechanism.sql).
+ * `policy/refusals.ts` lets it speak for, under its guardrails, by restrictive policies beside these
+ * (0040_refusals-by-mechanism.sql, 0041_refusals-as-they-read.sql).
  */
 const NOT_HIS =
   '(NOT admin_event(type)) AND (NOT opens_improvement(type, payload)) AND ' +

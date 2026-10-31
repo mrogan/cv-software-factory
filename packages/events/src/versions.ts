@@ -112,12 +112,6 @@ export const RELEASE_TYPES: readonly EventType[] = [
 ];
 
 /**
- * Types that belong to a work item or to the line, besides a release's: a refusal is on the work item it was refused
- * for, and on the line when it was no work item's (a call no job token names, an image applied by hand).
- */
-export const WORK_ITEM_OR_LINE_TYPES: readonly EventType[] = [...RELEASE_TYPES, 'action.refused'];
-
-/**
  * The line's record of what a release did: the types only the line's role may append (row security on `events`,
  * `0039_release-events-the-lines.sql`), save samples from Martin's command line. The rollback proof, the line's
  * security count and the console's Canary panel trust them for that: row security is what holds them to the line. A
