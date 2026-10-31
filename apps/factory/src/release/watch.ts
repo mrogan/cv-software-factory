@@ -694,11 +694,13 @@ function canaryHold(
   const bad = measuresOf(judged.last)
     .filter((m) => m.phase === 'inconclusive')
     .map((m) => (m.value !== null && m.limit !== null ? `${m.name} ${m.value} against at most ${m.limit}` : m.name));
-  const said = words(judged.last.status.message, 120);
-  const reason = cutTo(
-    `With auto-rollback off, the analysis judged the canary of ${short(started.version)} bad at ${weight}% (${bad.join(', ')}). It keeps its share of the traffic until Martin promotes it fully or aborts it, which rolls it back; switching auto-rollback on again leaves it paused${said ? `. The analysis said: ${said}` : ''}`,
-    300,
-  );
+  // The analysis's words take the room left, so the reason always ends saying the canary is Martin's to settle, and
+  // that auto-rollback, switched on again, does not take it from him: the run that judged it has ended.
+  const judgedBad = `The analysis judged the canary of ${short(started.version)} bad at ${weight}% (${bad.join(', ')})`;
+  const his = `. It keeps its share of the traffic until Martin promotes it fully or aborts it (a rollback), whatever the switch says now`;
+  const room = Math.min(120, 300 - judgedBad.length - his.length - 2);
+  const said = room >= 20 ? words(judged.last.status.message, room) : undefined;
+  const reason = cutTo(`${judgedBad}${said ? `: ${said}` : ''}${his}`, 300);
   return {
     type: 'hold.started',
     actor: 'rollouts',

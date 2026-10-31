@@ -818,7 +818,7 @@ describe('a canary the analysis judged bad, with auto-rollback off', () => {
         kind: 'held',
         cause: 'canary',
         release: releaseOf(CANARY),
-        reason: `With auto-rollback off, the analysis judged the canary of ${commitOf(CANARY).slice(0, 7)} bad at 50% (errors 0.0213 against at most 0.01). It keeps its share of the traffic until Martin promotes it fully or aborts it, which rolls it back; switching auto-rollback on again leaves it paused. The analysis said: ${STEP_MESSAGE}`,
+        reason: `The analysis judged the canary of ${commitOf(CANARY).slice(0, 7)} bad at 50% (errors 0.0213 against at most 0.01): ${STEP_MESSAGE}. It keeps its share of the traffic until Martin promotes it fully or aborts it (a rollback), whatever the switch says now`,
       },
     ]);
     // Read again, or with Martin's own pause beside it: held already.
@@ -831,6 +831,20 @@ describe('a canary the analysis judged bad, with auto-rollback off', () => {
       pausedFor: 'InconclusiveAnalysis',
     });
     expect(s.pass(pausedToo, runs).said).toEqual({});
+  });
+
+  it("cuts the analysis's long words, never the hold's word that the canary is Martin's whatever the switch says", () => {
+    const s = judgedAt50();
+    const runs = [background(), step(2), judgedStep(5, { message: `${STEP_MESSAGE} ${'and more '.repeat(40)}` })];
+    s.pass(paused50, runs);
+    const reason = String((s.of('1001', 'hold.started')[0] as { reason?: string } | undefined)?.reason);
+    expect(reason.length).toBeLessThanOrEqual(300);
+    expect(reason).toMatch(
+      /^The analysis judged the canary of \w{7} bad at 50% \(errors 0\.0213 against at most 0\.01\): Metric /,
+    );
+    expect(reason).toMatch(
+      /…\. It keeps its share of the traffic until Martin promotes it fully or aborts it \(a rollback\), whatever the switch says now$/,
+    );
   });
 
   it('holds nothing for a pause of another kind, nor for an Inconclusive run Argo Rollouts has not paused on', () => {
