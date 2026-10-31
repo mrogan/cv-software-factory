@@ -192,5 +192,7 @@ configs=$("${kubectl[@]}" get helmchartconfigs.helm.cattle.io -A -o json | jq '[
 jq -n --argjson taken "$taken" --arg k3s "$k3s" --argjson traefik "$traefik" --argjson configs "$configs" \
   --slurpfile cases "$answers" --slurpfile live "$live" \
   '$taken + {k3s: $k3s, helmChartConfigs: $configs, traefik: $traefik, cases: $cases, live: $live}' >"$out"
+# As `make check` would have it.
+pnpm exec biome format --write "$out" >/dev/null
 jq -r '"k3s \(.k3s), Traefik \(.traefik.image)", (.traefik.providers[] | "  \(.)"),
   (.cases[], .live[] | "\(.outcome)  \(.case): \(.message)")' "$out"

@@ -96,4 +96,6 @@ live=$(jq -n --argjson held "$held" --arg public "$public" \
   '{keys: ($held.data // {} | keys), matchesSecret: ($held.data["public-key"] == $public + "\n")}')
 
 jq -n --argjson taken "$taken" --slurpfile cases "$answers" --argjson live "$live" '$taken + {cases: $cases, live: $live}' >"$out"
+# As `make check` would have it.
+pnpm exec biome format --write "$out" >/dev/null
 jq -r '(.cases[] | "\(.outcome)  \(.case): \(.message)"), "share-key holds \(.live.keys | join(", ")); the public half of the Secret: \(.live.matchesSecret)"' "$out"

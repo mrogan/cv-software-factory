@@ -73,4 +73,6 @@ trap 'rm -f "$answers"' EXIT
   try console-and-app 'Host(`console.localhost`) && Host(`website.localhost`)'
 } >"$answers"
 jq -s --argjson taken "$taken" '$taken + {cases: .}' "$answers" >"$out"
+# As `make check` would have it.
+pnpm exec biome format --write "$out" >/dev/null
 jq -r '.cases[] | "\(.outcome)  \(.case): \(.message)"' "$out"

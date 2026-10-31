@@ -109,4 +109,6 @@ try() { # case subresource patch: the patch made conditional on the Rollout as i
     '{"spec":{"weighted":{"services":[]}}}'
 } >"$work/answers"
 jq -s --argjson taken "$taken" '$taken + {cases: .}' "$work/answers" >"$out"
+# As `make check` would have it.
+pnpm exec biome format --write "$out" >/dev/null
 jq -r '.cases[] | "\(.outcome)  \(.case): \(.message)"' "$out"
