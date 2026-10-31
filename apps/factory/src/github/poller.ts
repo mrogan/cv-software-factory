@@ -7,6 +7,7 @@
  * saw last, and hands each change to whatever waits for it. A watch that fails is logged and tried again next time;
  * it never stops the others.
  */
+import { setTimeout as sleep } from 'node:timers/promises';
 import type { Logger } from 'pino';
 import { z } from 'zod';
 import type { GitHub } from './client.ts';
@@ -20,15 +21,15 @@ export interface PollerOptions {
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
 
-const abortableSleep = (ms: number, signal: AbortSignal) =>
-  new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    const wake = () => {
-      clearTimeout(timer);
-      resolve();
-    };
-    signal.addEventListener('abort', wake, { once: true });
-  });
+/** Waits `ms`, or until `signal` aborts, and leaves no listener behind on the signal either way. */
+export async function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  try {
+    await sleep(ms, undefined, { signal });
+  } catch (error) {
+    // Being stopped is a wake like any other.
+    if (!(error instanceof Error && error.name === 'AbortError')) throw error;
+  }
+}
 
 export class Poller {
   readonly #watches = new Map<string, Watch>();
