@@ -68,6 +68,15 @@ export const rolloutSchema = z.object({
         })
         .optional(),
       conditions: z.array(condition).default([]),
+      /**
+       * Why the controller paused the canary, each with when: `InconclusiveAnalysis` when an analysis run of it ended
+       * Inconclusive, which with auto-rollback off is a canary the analysis judged bad, paused for Martin. A promotion
+       * clears it, and an abort drops it.
+       */
+      pauseConditions: z
+        .array(z.object({ reason: z.string(), startTime: z.string().optional() }))
+        .nullish()
+        .catch(undefined),
     })
     .default({ conditions: [] }),
 });
@@ -117,6 +126,8 @@ export const analysisRunSchema = z.object({
             message: z.string().optional(),
             /** How many of its looks failed, across the run: Argo Rollouts fails the run when this passes the limit. */
             failed: z.number().int().nonnegative().optional().catch(undefined),
+            /** How many were inconclusive, across the run: past its limit, Argo Rollouts ends the run Inconclusive. */
+            inconclusive: z.number().int().nonnegative().optional().catch(undefined),
             measurements: z.array(measurement).default([]),
           }),
         )
@@ -148,9 +159,17 @@ export interface Observed {
   /** The canary's steps, as `release.started` records them; null when the Rollout's cannot be read. */
   plan: CanaryStep[] | null;
   stepIndex: number;
+  /**
+   * Whether the controller paused the canary on an analysis run that ended Inconclusive (`InconclusiveAnalysis`): with
+   * auto-rollback off, judged bad, and paused for Martin to promote fully or abort.
+   */
+  inconclusivePause: boolean;
   /** Every run of the Rollout, oldest first. */
   runs: AnalysisRun[];
 }
+
+/** The reason the controller gives a pause for an analysis run that ended Inconclusive. */
+export const INCONCLUSIVE_PAUSE = 'InconclusiveAnalysis';
 
 const DIGEST = /@(sha256:[0-9a-f]{64})$/;
 
@@ -183,6 +202,8 @@ export function observe(rollout: Rollout, runs: readonly AnalysisRun[]): Observe
     weights,
     plan: planOf(steps),
     stepIndex,
+    inconclusivePause:
+      status.abort !== true && (status.pauseConditions ?? []).some((c) => c.reason === INCONCLUSIVE_PAUSE),
     runs: [...runs].sort(
       (a, b) =>
         a.metadata.creationTimestamp.localeCompare(b.metadata.creationTimestamp) ||

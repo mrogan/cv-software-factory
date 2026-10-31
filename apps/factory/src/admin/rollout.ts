@@ -15,10 +15,16 @@
  *   before takes all of the traffic at once. Nothing failed, so it is no signal; the line records `release.aborted`
  *   with `by: martin`, from this control's event.
  * - **Retry**: `status.abort` cleared, and any pause left set cleared too, for a release that was stopped (by Martin, by
- *   stopping the line, or by an analysis error), which starts again from its first step. Not while the line is stopped, which starts no canary,
- *   and never after a rollback, which is the analysis's: the fix goes out with the next release that carries it.
+ *   stopping the line, or by an analysis error) or rolled back, which starts again from its first step, judged by its
+ *   analysis afresh: with auto-rollback on, a canary judged bad rolls back again by itself. Not while the line is
+ *   stopped, which starts no canary.
  *
- * There is no rollback: that stays the analysis's alone.
+ * **Paused for Martin** (auto-rollback off, the analysis judged the canary bad, `pauseConditions` naming
+ * `InconclusiveAnalysis`): only Promote fully, past the analysis's verdict, and Abort, which the line records as a
+ * rollback (`release/watch.ts`). Promote to the next step, Pause and Resume are refused: each would give the canary
+ * past the verdict a step at a time, or leave it where it is.
+ *
+ * There is no rollback: that stays the analysis's, or Martin's abort of a canary it judged bad.
  *
  * **Stop the line** aborts whatever canary is in flight as the line stops (`line.ts`), named by nothing: the same abort,
  * recorded with a mark that it came with the stop, so the line records `release.aborted` with `by: stop` from it. A
@@ -103,6 +109,11 @@ export interface Canary {
   paused: boolean;
   /** Whether it is being promoted fully already (`status.promoteFull`), by Martin or by `kubectl argo rollouts`. */
   promotingFully: boolean;
+  /**
+   * Whether the analysis judged it bad and Argo Rollouts paused it for Martin, with auto-rollback off: a run of it
+   * ended Inconclusive (`InconclusiveAnalysis`).
+   */
+  judgedBad: boolean;
   /** The canary's share of the traffic now. */
   weight: number;
   /** The next step that sets a weight short of 100%, if there is one after the step it is at. */
@@ -135,6 +146,7 @@ export function canaryOf(rollout: Rollout, recorded: Recorded = new Map(), lastR
     aborted: out && aborted,
     paused: spec.paused === true,
     promotingFully: status.promoteFull === true,
+    judgedBad: out && o.inconclusivePause,
     weight: aborted ? 0 : weight,
     next,
   };
@@ -153,13 +165,19 @@ export function planOf(action: ReleaseControl, canary: Canary): Plan | { refused
   const promotingFully = { refused: 'The canary is being promoted fully already.' };
   // A promotion gives a paused canary back to Argo Rollouts too, as `kubectl argo rollouts promote` does.
   const resume = canary.paused ? { spec: { paused: false } } : {};
+  const judgedBad = {
+    refused:
+      'The analysis judged the canary bad, and it waits for you: promote it fully past its verdict, or abort it.',
+  };
   switch (action) {
     case 'pause':
       if (!canary.inFlight) return notInFlight;
+      if (canary.judgedBad) return judgedBad;
       if (canary.paused) return { refused: 'The canary is paused already.' };
       return { spec: { paused: true } };
     case 'resume':
       if (!canary.inFlight) return notInFlight;
+      if (canary.judgedBad) return judgedBad;
       if (!canary.paused) return { refused: 'The canary is not paused.' };
       return { spec: { paused: false } };
     case 'abort':
@@ -169,6 +187,7 @@ export function planOf(action: ReleaseControl, canary: Canary): Plan | { refused
     case 'promote':
       if (!canary.inFlight) return notInFlight;
       if (canary.promotingFully) return promotingFully;
+      if (canary.judgedBad) return judgedBad;
       if (!canary.next) return { refused: 'The canary has no step before all of the traffic: promote it fully.' };
       return {
         status: { pauseConditions: null, controllerPause: false, currentStepIndex: canary.next.index },
@@ -319,14 +338,7 @@ export class ReleaseControls {
       throw new Refused('release', 409, 'The line has not recorded this release yet: look again in a moment.');
     }
     if (action === 'retry') {
-      if (record.ended === 'rolled-back') {
-        throw new Refused(
-          'release',
-          409,
-          'A rollback is the analysis’s: the fix goes out with the next release that carries it.',
-        );
-      }
-      if (record.ended !== 'aborted' && record.ended !== 'errored') {
+      if (record.ended !== 'aborted' && record.ended !== 'errored' && record.ended !== 'rolled-back') {
         throw new Refused('release', 409, 'The line has not recorded how this release stopped yet: look again.');
       }
       if (await lineStopped(this.#sql)) {

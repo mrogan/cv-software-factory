@@ -807,7 +807,9 @@ export const PAYLOADS = {
     reason: text(200),
     /**
      * Each measure that failed, with the series that condemned it when there is one to draw, and how many of its run's
-     * looks failed, as Argo Rollouts counted them: across the run, not in a row. A version 2 rollback never said.
+     * looks failed, as Argo Rollouts counted them: across the run, not in a row. A version 2 rollback never said. In
+     * Martin's rollback, each measure the analysis judged bad, as it said it: `inconclusive`, with auto-rollback off, and
+     * how many of its looks were.
      */
     failed: z
       .array(measure.extend({ series: series.optional(), failures: z.number().int().min(1).max(10_000).optional() }))
@@ -818,6 +820,11 @@ export const PAYLOADS = {
      * him with auto-rollback off. A version 3 rollback was always the analysis's.
      */
     by: z.enum(['analysis', 'martin']),
+    /**
+     * When Argo Rollouts acted on the abort, to the second, as the Rollout says, when it says: a retry's attempt is what
+     * ended after it. Martin's rollback always has it. A version 3 rollback never said.
+     */
+    abortedAt: timestamp.optional(),
   }),
   /**
    * Martin aborted the canary, and Argo Rollouts sent all of the traffic back to the stable version, with no analysis
@@ -980,6 +987,11 @@ export const PAYLOADS = {
         .min(1)
         .max(V.MAX_NEEDS)
         .optional(),
+      /**
+       * A `canary` hold's release, as the line names it: the canary paused for Martin. Its promotion, rollback, abort
+       * or Error ends the hold.
+       */
+      release: releaseId.optional(),
     })
     .refine((hold) => (hold.cause === 'finding') === (hold.defect !== undefined), {
       message: 'a finding’s hold, and only one, names the defect',
@@ -988,6 +1000,10 @@ export const PAYLOADS = {
     .refine((hold) => hold.needs === undefined || hold.cause === 'scope', {
       message: 'only a scope hold names the files the coder needs',
       path: ['needs'],
+    })
+    .refine((hold) => (hold.cause === 'canary') === (hold.release !== undefined), {
+      message: 'a canary’s hold, and only one, names the release',
+      path: ['release'],
     }),
   'hold.answered': z.strictObject({
     decision: z.enum(V.HOLD_ANSWERS),

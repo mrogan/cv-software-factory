@@ -1,9 +1,10 @@
 /**
  * Whether auto-rollback is on, as a gauge a worker reports: Martin's latest `controls.changed` read from the store, or
- * policy's default, on (`policy/line.ts`), 1 if on, 0 if off. The admin service and the line each report one
- * (`admin/auto-rollback.ts`, `line/auto-rollback.ts`), and the canary's analysis calls a bad verdict inconclusive, so
- * that Argo Rollouts pauses the canary for Martin rather than rolling it back, only while there is exactly one series
- * from each and both read 0 (`release/analysis.ts`). So the two read it the same way, here.
+ * policy's default, on (`policy/line.ts`), 1 if on, 0 if off. The admin service and the line each report one (their
+ * own `auto-rollback.ts`), and the canary's analysis calls a bad verdict inconclusive, so that Argo Rollouts pauses the
+ * canary for Martin rather than rolling it back, only while there is exactly one series from each and both read 0 (the
+ * release's `analysis.ts`). So the two read it the same way, here. Each is named here without its folder: the browser
+ * tests' check of what they reach reads a path from here as a file this starts.
  *
  * Read each time the SDK collects. A read that fails observes nothing new, and says so once in the log until one
  * succeeds again; a worker that never read it reports nothing, and with nothing, a bad canary rolls back.

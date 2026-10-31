@@ -2,6 +2,7 @@
  * A rollback as signals: which runs send one, under which symptom class and route, and the name each goes in the
  * inbox under. The I/O around it is the line's (`test/line/release.test.ts`).
  */
+import { cutTo } from '@software-factory/events';
 import { validateSignal } from '@software-factory/events/schemas';
 import { describe, expect, it } from 'vitest';
 import { recordedFrom } from '../../src/release/recorded.ts';
@@ -148,6 +149,61 @@ describe('a rollback’s signals', () => {
     expect(lost.signal).toMatchObject({ check: 'journeys', route: '*', symptom: JOURNEY_FALLBACK });
     expect(lost.signal.evidence?.[0]).not.toHaveProperty('checks');
     expect(validateSignal(lost.signal)).toEqual({ ok: true });
+  });
+
+  it('come from what the analysis judged bad in a canary Martin rolled back, in its words, and not from one stopped', () => {
+    const verdict = 'Metric "errors" assessed Inconclusive due to inconclusive (1) > inconclusiveLimit (0)';
+    const judged = run({
+      step: 2,
+      created: T0,
+      completed: FAILED_AT,
+      phase: 'Inconclusive',
+      message: verdict,
+      metrics: { errors: { phase: 'Inconclusive', value: '[0.0213,0.0213]', inconclusive: 1 } },
+    });
+    const ending = (type: string, payload: object) => ({
+      work_item: '1290',
+      ts: '2026-10-11T09:05:00Z',
+      type,
+      payload: { release: releaseOf(CANARY), version: commitOf(CANARY), restored: commitOf(STABLE), ...payload },
+    });
+    const started = [...(recorded().get(releaseOf(CANARY))?.values() ?? [])][0]?.started;
+    const startedRow = { work_item: '1290', ts: T0, type: 'release.started', payload: started };
+    const at = { abortedAt: '2026-10-11T09:04:00Z' };
+    const byMartin = recordedFrom([startedRow, ending('release.rolled-back', { by: 'martin', ...at })]);
+    const [errors, ...more] = failedMeasures(observe(aborted, [judged]), byMartin);
+    expect(more).toEqual([]);
+    if (!errors) throw new Error('the errors were judged bad');
+    const { signal } = canarySignal(errors, {});
+    expect(signal).toMatchObject({ check: 'errors', symptom: 'server-error', route: '*' });
+    expect(signal.summary).toBe(
+      cutTo(
+        `${commitOf(CANARY).slice(0, 7)} did worse than ${commitOf(STABLE).slice(0, 7)} on errors, judged bad and rolled back by Martin: ${verdict}`,
+        200,
+      ),
+    );
+    // The analysis's verdict, verbatim, with the measure as it judged it.
+    expect(signal.evidence?.[0]).toMatchObject({
+      measure: { name: 'errors', phase: 'inconclusive', value: 0.0213, limit: 0.01, message: verdict },
+    });
+    expect(validateSignal(signal)).toEqual({ ok: true });
+    // Stopped with the line, promoted fully, or not ended yet: what it judged bad sends nothing.
+    const byStop = recordedFrom([startedRow, ending('release.aborted', { by: 'stop', ...at })]);
+    expect(failedMeasures(observe(aborted, [judged]), byStop)).toEqual([]);
+    const promoted = recordedFrom([
+      startedRow,
+      ending('release.promoted', { previous: commitOf(STABLE), watched: true, dryRun: false }),
+    ]);
+    expect(failedMeasures(observe(rollout({ current: CANARY, stable: CANARY }), [judged]), promoted)).toEqual([]);
+    expect(failedMeasures(observe(aborted, [judged]), recorded())).toEqual([]);
+    // Martin's rollback of a later attempt says nothing of a run an earlier attempt's abort ended.
+    const later = recordedFrom([
+      startedRow,
+      ending('release.aborted', { by: 'martin', ...at }),
+      { ...startedRow, ts: '2026-10-11T09:10:00Z' },
+      ending('release.rolled-back', { by: 'martin', abortedAt: '2026-10-11T09:20:00Z' }),
+    ]);
+    expect(failedMeasures(observe(aborted, [judged]), later)).toEqual([]);
   });
 
   it('are named by the run and the measure, so sending one again is the same signal, whatever was read', () => {

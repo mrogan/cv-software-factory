@@ -32,6 +32,21 @@ export interface TargetRecord {
    * `measurementOf`.
    */
   looked?: Set<string>;
+  /** Whether the line held this work item for Martin in its latest attempt, as a canary paused for him. */
+  canaryHeld?: boolean;
+  /** How each attempt ended, in order, over every attempt. */
+  ends?: AttemptEnd[];
+}
+
+/**
+ * How an attempt of a release ended, and when: when Argo Rollouts acted on its abort, as its event says, or else when
+ * the line recorded the end. A run of the release that ended by then, and after the attempt before ended, is of it.
+ */
+export interface AttemptEnd {
+  how: NonNullable<TargetRecord['ended']>;
+  /** Who rolled it back, for a rollback. */
+  by?: PayloadOf<'release.rolled-back'>['by'];
+  at: string;
 }
 
 /** Adds a look's measurements to what a record has recorded. */
@@ -63,21 +78,42 @@ export function recordedFrom(
         stepsBefore: record?.steps ?? 0,
         ended: undefined,
         ...(record?.looked ? { looked: record.looked } : {}),
+        ...(record?.ends ? { ends: record.ends } : {}),
       });
       continue;
     }
     if (!record) continue;
     if (type === 'canary.stepped') record.steps += 1;
     if (type === 'canary.measuring') looked(record, payload as PayloadOf<'canary.measuring'>);
-    if (type === 'release.promoted') record.ended = 'promoted';
-    if (type === 'release.rolled-back') record.ended = 'rolled-back';
+    if (type === 'hold.started') record.canaryHeld = true;
+    const endWith = (end: AttemptEnd) => {
+      record.ends ??= [];
+      record.ends.push(end);
+    };
+    if (type === 'release.promoted') {
+      record.ended = 'promoted';
+      endWith({ how: 'promoted', at: ts });
+    }
+    if (type === 'release.rolled-back') {
+      const { abortedAt, by } = payload as PayloadOf<'release.rolled-back'>;
+      record.ended = 'rolled-back';
+      // A version 3 rollback did not say when Argo Rollouts acted on its abort.
+      if (abortedAt) record.abortedAt = abortedAt;
+      else delete record.abortedAt;
+      endWith({ how: 'rolled-back', by, at: abortedAt ?? ts });
+    }
     if (type === 'release.aborted' || type === 'release.errored') {
+      const { abortedAt } = payload as PayloadOf<'release.aborted' | 'release.errored'>;
       record.ended = type === 'release.aborted' ? 'aborted' : 'errored';
-      record.abortedAt = (payload as PayloadOf<'release.aborted' | 'release.errored'>).abortedAt;
+      record.abortedAt = abortedAt;
+      endWith({ how: record.ended, at: abortedAt });
     }
   }
   return recorded;
 }
+
+/** The line's role in the store: only the holds it appended of a canary paused for Martin are its record of one. */
+const LINE_ROLE = 'factory_line';
 
 /** The annotation Argo Rollouts keeps its revision in, on the Rollout and on each run it makes. */
 export const REVISION = 'rollout.argoproj.io/revision';
@@ -97,7 +133,8 @@ export interface RecordedRow {
 }
 
 /**
- * The release events recorded for these releases, upcast, in order; or, `byHash`, for every release of these versions,
+ * The release events recorded for these releases, upcast, in order, with the line's holds of a canary paused for Martin
+ * (`hold.started` of cause `canary`, which names its release); or, `byHash`, for every release of these versions,
  * whatever its revision: the line's record of a release in flight may be under another name than the Rollout's
  * (`namedReleases`), and only the record of every release of its hash says which.
  */
@@ -106,7 +143,9 @@ export async function releaseRecords(sql: Sql, names: readonly string[], byHash 
   const release = byHash ? sql`split_part(payload->>'release', '-', 1)` : sql`payload->>'release'`;
   const rows = await sql<(RawEvent & { work_item: string | null; ts: Date })[]>`
     select seq, work_item, ts, type, version, payload from events
-    where type in ${sql(RELEASE_TYPES as string[])} and ${release} in ${sql(names as string[])}
+    where (type in ${sql(RELEASE_TYPES as string[])}
+           or (type = 'hold.started' and payload->>'cause' = 'canary' and appended_by = ${LINE_ROLE}))
+      and ${release} in ${sql(names as string[])}
     order by seq`;
   return rows.flatMap((row) => {
     const read = upcast({ ...row, seq: Number(row.seq) });

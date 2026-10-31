@@ -13,6 +13,12 @@
  * the Rollout as a failed analysis does, but it terminates the runs, which fails none, so an abort sends nothing. Too
  * few requests fails a step too, but says the traffic fell short, not that the canary did worse: it sends nothing.
  *
+ * With auto-rollback off, the analysis judges a bad canary Inconclusive instead, and Argo Rollouts pauses it for
+ * Martin. His abort of it is a rollback (`release.rolled-back` by `martin`, `watch.ts`), and sends what the analysis
+ * judged bad as a failed measure would be sent: each measure that was inconclusive in the runs of the attempt he
+ * aborted, with the analysis's words verbatim. An Inconclusive run of an attempt that was promoted, or stopped with
+ * the line, sends nothing.
+ *
  * A signal is named by the run and the measure, so the line can send it again after a restart and triage takes it
  * once, whatever it reads the second time: not by its route, which comes from reads (Prometheus, the Job's pod) that
  * could answer differently later. Only the runs of a release the line recorded starting, and watched, are read: an
@@ -23,7 +29,7 @@ import { cutTo, type InboxSignal, type PayloadOf, type SymptomClass } from '@sof
 import { uuidFrom } from '@software-factory/triage/events';
 import type { Regression } from '../gates/journeys.ts';
 import type { RoutesWorse } from './read.ts';
-import { type Recorded, short } from './recorded.ts';
+import { type AttemptEnd, type Recorded, short } from './recorded.ts';
 import type { AnalysisRun, Observed } from './rollout.ts';
 import { measuresOf, recordOf, type Series } from './watch.ts';
 
@@ -50,17 +56,35 @@ export interface FailedMeasure {
   started: Started;
 }
 
-/** Every failed measure that sends a signal, in the runs of the releases the line recorded, oldest run first. */
+/**
+ * Every failed measure that sends a signal, in the runs of the releases the line recorded, oldest run first: each that
+ * failed, and each the analysis judged bad in an attempt Martin rolled back.
+ */
 export function failedMeasures(o: Observed, recorded: Recorded): FailedMeasure[] {
   return o.runs.flatMap((run) => {
-    if (run.status.phase !== 'Failed') return [];
-    const started = [...(recordOf(recorded, run)?.values() ?? [])][0]?.started;
+    const phase =
+      run.status.phase === 'Failed' ? 'failed' : run.status.phase === 'Inconclusive' ? 'inconclusive' : null;
+    if (!phase || run.spec.terminate) return [];
+    const record = [...(recordOf(recorded, run)?.values() ?? [])][0];
+    const started = record?.started;
     // A release found live was out before the line watched it: its runs, failed or not, are from before.
     if (!started?.watched) return [];
+    if (phase === 'inconclusive' && !rolledBackByMartin(run, record?.ends ?? [])) return [];
     return measuresOf(run)
-      .filter((measure) => measure.phase === 'failed' && SYMPTOMS[measure.name] !== undefined)
+      .filter((measure) => measure.phase === phase && SYMPTOMS[measure.name] !== undefined)
       .map((measure) => ({ run, measure, started }));
   });
+}
+
+/**
+ * Whether the attempt a run ended in was Martin's rollback: the first end recorded at or after the run's own, to the
+ * second Argo Rollouts keeps its abort to.
+ */
+function rolledBackByMartin(run: AnalysisRun, ends: readonly AttemptEnd[]): boolean {
+  const at = Date.parse(run.status.completedAt ?? '');
+  if (!Number.isFinite(at)) return false;
+  const end = ends.find((e) => Date.parse(e.at) + 1_000 >= at);
+  return end?.how === 'rolled-back' && end.by === 'martin';
 }
 
 /** What the line read for a failed measure: its series and the routes where the canary did worse, or the journeys'. */
@@ -89,7 +113,11 @@ export function canarySignal(failed: FailedMeasure, read: Read): { id: string; s
     run.status.metricResults.find((m) => m.name === measure.name)?.measurements.at(-1)?.finishedAt ??
     run.metadata.creationTimestamp;
   const where = route === '*' ? '' : ` on ${route}`;
-  const words = measure.message ?? 'the analysis failed it';
+  // Judged bad with auto-rollback off, its verdict is the run's: Argo Rollouts says why it was inconclusive there.
+  const judged = measure.phase === 'inconclusive';
+  const verdict = measure.message ?? (judged ? run.status.message?.trim() || undefined : undefined);
+  const how = judged ? ', judged bad and rolled back by Martin' : '';
+  const words = verdict ?? (judged ? 'the analysis judged it inconclusive' : 'the analysis failed it');
   const signal: InboxSignal = {
     sense: 'canary',
     check: measure.name,
@@ -102,7 +130,7 @@ export function canarySignal(failed: FailedMeasure, read: Read): { id: string; s
         release: started.release,
         version: started.version,
         against: started.previous,
-        measure,
+        measure: verdict && !measure.message ? { ...measure, message: cutTo(verdict, 300) } : measure,
         ...(read.series ? { series: read.series } : {}),
         ...(read.routes?.worse.length ? { routes: read.routes } : {}),
         ...(read.journeys?.length ? { checks: read.journeys } : {}),
@@ -110,7 +138,7 @@ export function canarySignal(failed: FailedMeasure, read: Read): { id: string; s
     ],
     observedAt: new Date(at).toISOString(),
     summary: cutTo(
-      `${short(started.version)} did worse than ${short(started.previous)} on ${measure.name}${where}: ${words}`,
+      `${short(started.version)} did worse than ${short(started.previous)} on ${measure.name}${where}${how}: ${words}`,
       200,
     ),
     artifacts: [],

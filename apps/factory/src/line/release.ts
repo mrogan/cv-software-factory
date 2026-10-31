@@ -9,7 +9,7 @@
  *   work item no release has carried whose fix is already in it. A commit GitHub never had (a dry run's) is in neither.
  * - for each step, and each look of the background analysis, each version's figures from Prometheus at its time, and
  *   how many of the journeys' checks passed of how many ran, from the Job's termination message, where it ran them;
- *   for a rollback, the series of each failed measure.
+ *   for a rollback, the series of each failed measure, or of each the analysis judged bad in a canary Martin aborted.
  * - for an abort, who made it, from the control the admin service records once its patch is made
  *   (`release.controlled`, appended by one of Martin's roles), within the minute before the abort: Stop the line, when
  *   the control says it came with the console's stop; Martin, when he aborted this release from the Canary panel.
@@ -22,6 +22,9 @@
  *   after it counts as before it.
  *
  * A figure or series it could not read is left out, and the step or rollback recorded without it.
+ *
+ * With auto-rollback off, a canary the analysis judges bad pauses for Martin (`release/watch.ts`): the line holds each
+ * work item it carries (`canary`), and his abort of it is a rollback, whose signals go to triage as a failure's do.
  *
  * Each measure that failed a release it recorded is also a signal to triage, from the `canary` sense
  * (`release/signals.ts`), with the routes where the canary did worse, from Prometheus, or for the journeys, the checks
@@ -243,7 +246,8 @@ export class Releases {
       const at = run.status.completedAt;
       const from = startOf(o, run);
       if (!hashes || !at || !from) continue;
-      for (const measure of measuresOf(run).filter((m) => m.phase === 'failed')) {
+      // Each measure that condemned it: failed, or judged bad with auto-rollback off (`judgedBadOf`).
+      for (const measure of measuresOf(run).filter((m) => m.phase === 'failed' || m.phase === 'inconclusive')) {
         try {
           const drawn = await seriesOf(prometheus, measure.name, hashes, new Date(from), new Date(at));
           if (drawn) series.set(`${run.metadata.name}/${measure.name}`, drawn);
@@ -435,7 +439,8 @@ export class Releases {
         -- This attempt's: after the abort or Error that ended the one before it, if it was retried.
         and e.ts >= coalesce((
           select max((p.payload->>'abortedAt')::timestamptz) from events p
-          where p.type in ('release.aborted', 'release.errored') and p.payload->>'release' = ${release}
+          where p.type in ('release.aborted', 'release.errored', 'release.rolled-back')
+            and p.payload->>'release' = ${release}
             and (p.payload->>'abortedAt')::timestamptz < ${at}::timestamptz
         ) + interval '1 second', '-infinity')
       order by e.seq desc limit 1`;

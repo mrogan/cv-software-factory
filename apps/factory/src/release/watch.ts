@@ -24,13 +24,19 @@
  * - **It is promoted** when it is the stable version.
  * - **It rolls back** when the Rollout is aborted and an AnalysisRun of the release has failed. Only a run whose phase
  *   is Failed fails a release.
+ * - **It pauses for Martin** with auto-rollback off, when a run of the release judged it bad: Argo Rollouts calls a bad
+ *   figure Inconclusive then, ends the run so, and pauses the Rollout (`pauseConditions`, `InconclusiveAnalysis`).
+ *   Once the Rollout says so and that run is the attempt's last to end, each work item the release carries is held for
+ *   him (`hold.started`, cause `canary`), once in the attempt; its end, whatever it is, ends the hold (`line/machine.ts`).
+ *   His abort of it then is a rollback all the same (`release.rolled-back`, `by: martin`), with what the analysis judged
+ *   bad as what condemned it; Stop the line's stays an abort.
  * - **It errs** when the Rollout is aborted, no run of the release has failed, and one ended in Error in the minute
  *   before Argo Rollouts acted on the abort: the analysis could not judge the canary, and aborted the Rollout itself.
  *   That says neither that the canary was worse nor that anybody stopped it, so it is an end of its own, with the run's
  *   words and the measures it could not take, and no signal.
- * - **It is aborted** when the Rollout is aborted and no run of the release has failed or erred: Martin aborted it,
- *   from the console's Canary panel, by stopping the line (`make stop-the-line`) or by hand. His abort terminates the
- *   runs, which fails none (and a terminated step run is no step). To Argo Rollouts each is the same patch of the
+ * - **It is aborted** when the Rollout is aborted, no run of the release has failed or erred, and it was not his abort of
+ *   a canary judged bad: Martin aborted it, from the console's Canary panel, by stopping the line (`make stop-the-line`)
+ *   or by hand. His abort terminates the runs, which fails none (and a terminated step run is no step). To Argo Rollouts each is the same patch of the
  *   Rollout's status, so who aborted it is the line's to say (`Facts.abortedBy`), from his control's own event
  *   (`release.controlled`), or else from whether the line was stopped then. His abort within the minute
  *   after a run ended in Error, before Argo Rollouts acted on the Error, reads as the Error's: the time is all the
@@ -120,6 +126,30 @@ const errorsOf = (o: Observed, release: string) => {
     return isOf(run, release) && run.status.phase === 'Error' && ended >= at - 60_000 && ended <= at + 1_000;
   });
 };
+
+/**
+ * What the analysis judged bad in an attempt of a release, with auto-rollback off: its runs that ended Inconclusive on
+ * a measure, when the last run of the attempt to end did. Argo Rollouts calls a measure Inconclusive when its figure
+ * meets neither its success nor its failure condition, which the templates make so of a bad figure only while
+ * auto-rollback is off (`release/analysis.ts`), and pauses the canary for a person. A run an abort or a promotion terminated is
+ * none: it judged nothing. Undefined when the last run did not end so.
+ */
+export function judgedBadOf(
+  o: Observed,
+  release: string,
+  inAttempt: (run: AnalysisRun) => boolean,
+): { last: AnalysisRun; runs: AnalysisRun[] } | undefined {
+  const ran = o.runs
+    .filter((run) => isOf(run, release) && ENDED.has(run.status.phase ?? '') && !run.spec.terminate && inAttempt(run))
+    .sort((a, b) => Date.parse(a.status.completedAt ?? '') - Date.parse(b.status.completedAt ?? ''));
+  const last = ran.at(-1);
+  if (!last || !inconclusiveOn(last)) return undefined;
+  return { last, runs: ran.filter(inconclusiveOn) };
+}
+
+/** Whether a run ended Inconclusive on one of its measures. */
+const inconclusiveOn = (run: AnalysisRun) =>
+  run.status.phase === 'Inconclusive' && measuresOf(run).some((m) => m.phase === 'inconclusive');
 
 /** Who aborted, in the line's words: "Stop the line aborted", or "Martin aborted". */
 export const whoAborted = (by: PayloadOf<'release.aborted'>['by']) =>
@@ -215,6 +245,25 @@ const ENDINGS: Record<Measure['phase'], string> = {
   error: 'could not judge it',
   inconclusive: 'was inconclusive',
 };
+
+/**
+ * A measure of a run with the looks Argo Rollouts counted of it as `phase`, and its series where the line drew one: as
+ * a rollback records each measure that condemned the canary.
+ */
+function condemned(run: AnalysisRun, phase: 'failed' | 'inconclusive', facts: Facts): Failed[] {
+  return measuresOf(run)
+    .filter((m) => m.phase === phase)
+    .map((m) => {
+      const series = facts.series.get(`${run.metadata.name}/${m.name}`);
+      const result = run.status.metricResults.find((r) => r.name === m.name);
+      const looks = phase === 'failed' ? result?.failed : result?.inconclusive;
+      return {
+        ...m,
+        ...(series ? { series } : {}),
+        ...(looks ? { failures: Math.min(looks, 10_000) } : {}),
+      };
+    });
+}
 
 /** Argo's words, cut to what an event keeps; nothing when there are none. */
 const words = (text: string | undefined, max: number) => {
@@ -424,6 +473,7 @@ function forTarget(
   o: Observed,
   names: Named,
   name: string,
+  target: Target,
   record: TargetRecord,
   facts: Facts,
 ): { drafts: Draft[]; steps: AnalysisRun[]; looks: Look[]; failures: AnalysisRun[]; aborted: boolean } {
@@ -436,7 +486,7 @@ function forTarget(
   if (ended === 'rolled-back' || ended === 'errored' || ended === 'aborted') {
     // Retried, it goes again; otherwise it is over. Retried and aborted again between two reads (by Martin, or by an
     // Error), it has a later abort.
-    const abortedAgain = ended !== 'rolled-back' && Date.parse(o.abortedAt ?? '') > Date.parse(record.abortedAt ?? '');
+    const abortedAgain = Date.parse(o.abortedAt ?? '') > Date.parse(record.abortedAt ?? '');
     if (!live || (o.aborted && !abortedAgain)) return none;
     drafts.push({
       type: 'release.started',
@@ -514,6 +564,13 @@ function forTarget(
   let aborted = false;
   // A retry in this pass has recorded none of its steps yet; its earlier attempts' were recorded before it.
   const attempt = () => ran.slice(retried ? record.steps : record.stepsBefore);
+  // Paused for Martin: with auto-rollback off, an analysis run of this attempt judged the canary bad, and Argo Rollouts
+  // paused it rather than roll it back. Each work item it carries is held for him once in the attempt, until its
+  // promotion, rollback, abort or Error ends the hold; the line has no work item to hold.
+  if (target !== null && !o.aborted && o.inconclusivePause && names.current === name && names.stable !== name) {
+    const judged = judgedBadOf(o, name, inAttempt);
+    if (judged && !(record.canaryHeld && !retried)) drafts.push(canaryHold(o, name, started, judged, attempt()));
+  }
   // The stable version took all of the traffic: if the line missed the moment, a later release may be in flight.
   if (names.stable === name) {
     drafts.push({
@@ -533,21 +590,7 @@ function forTarget(
     failures = failuresOf(o, name).filter(inAttempt);
     const last = failures.at(-1) as AnalysisRun;
     const weight = endedAt(o, name, last, attempt());
-    const failed: Failed[] = failures
-      .flatMap((run) =>
-        measuresOf(run)
-          .filter((m) => m.phase === 'failed')
-          .map((m) => {
-            const series = facts.series.get(`${run.metadata.name}/${m.name}`);
-            const looks = run.status.metricResults.find((r) => r.name === m.name)?.failed;
-            return {
-              ...m,
-              ...(series ? { series } : {}),
-              ...(looks ? { failures: Math.min(looks, 10_000) } : {}),
-            };
-          }),
-      )
-      .slice(0, 8);
+    const failed = failures.flatMap((run) => condemned(run, 'failed', facts)).slice(0, 8);
     const reason = words(last.status.message, 200) ?? 'The analysis failed the canary';
     drafts.push({
       type: 'release.rolled-back',
@@ -562,6 +605,7 @@ function forTarget(
         failed,
         dryRun: false,
         by: 'analysis',
+        ...(o.abortedAt ? { abortedAt: o.abortedAt } : {}),
       },
     });
   } else if (o.aborted && o.abortedAt && names.current === name && errorsOf(o, name).some(inAttempt)) {
@@ -589,10 +633,34 @@ function forTarget(
       },
     });
   } else if (o.aborted && o.abortedAt && names.current === name) {
-    // Recorded once Argo Rollouts has acted on the abort, and the line has said who made it.
+    // Recorded once Argo Rollouts has acted on the abort, and the line has said who made it. Martin's abort of a
+    // canary the analysis judged bad, which with auto-rollback off paused it for him, is a rollback all the same; the
+    // line reads the series of what it judged bad before it knows whose the abort was. Stop the line's is an abort.
     aborted = true;
     const by = facts.abortedBy;
-    if (by) {
+    const judged = judgedBadOf(o, name, inAttempt);
+    if (judged) failures = judged.runs;
+    if (by === 'martin' && judged) {
+      const weight = endedAt(o, name, judged.last, attempt());
+      const failed = judged.runs.flatMap((run) => condemned(run, 'inconclusive', facts)).slice(0, 8);
+      const reason = words(judged.last.status.message, 200) ?? 'The analysis judged the canary bad';
+      drafts.push({
+        type: 'release.rolled-back',
+        actor: 'martin',
+        summary: cutTo(`Martin rolled it back at ${weight}%, judged bad: ${reason}`, 200),
+        payload: {
+          release: name,
+          version: started.version,
+          restored: started.previous,
+          weight,
+          reason,
+          failed,
+          dryRun: false,
+          by: 'martin',
+          abortedAt: o.abortedAt,
+        },
+      });
+    } else if (by) {
       drafts.push({
         type: 'release.aborted',
         actor: 'martin',
@@ -608,6 +676,34 @@ function forTarget(
     }
   }
   return { drafts, steps, looks, failures, aborted };
+}
+
+/**
+ * The hold of a work item a canary paused for Martin carries: what the analysis judged bad, by how much, in its words.
+ * His controls are the Canary panel's, promoting it fully or aborting it, and an abort is a rollback.
+ */
+function canaryHold(
+  o: Observed,
+  name: string,
+  started: Started,
+  judged: NonNullable<ReturnType<typeof judgedBadOf>>,
+  attempt: readonly AnalysisRun[],
+): Draft {
+  const weight = endedAt(o, name, judged.last, attempt);
+  const bad = measuresOf(judged.last)
+    .filter((m) => m.phase === 'inconclusive')
+    .map((m) => (m.value !== null && m.limit !== null ? `${m.name} ${m.value} against at most ${m.limit}` : m.name));
+  const said = words(judged.last.status.message, 120);
+  const reason = cutTo(
+    `With auto-rollback off, the analysis judged the canary of ${short(started.version)} bad at ${weight}% (${bad.join(', ')})${said ? `: ${said}` : ''}. It keeps its share of the traffic until Martin promotes it fully or aborts it, which rolls it back`,
+    300,
+  );
+  return {
+    type: 'hold.started',
+    actor: 'rollouts',
+    summary: cutTo(`Canary paused for Martin at ${weight}%: the analysis judged it bad`, 200),
+    payload: { stage: 'release', kind: 'held', cause: 'canary', reason, release: name },
+  };
 }
 
 /** What a release's first events would need: the start, if it is to be recorded now, as `releaseEvents` decides. */
@@ -651,10 +747,10 @@ export function releaseNeeds(o: Observed, recorded: Recorded, lastRelease?: stri
       o.plan,
     );
     const record: TargetRecord = { started, startedAt: '', attempts: 1, steps: 0, stepsBefore: 0, ended: undefined };
-    add(forTarget(o, names, start.release, record, empty));
+    add(forTarget(o, names, start.release, null, record, empty));
   }
   for (const name of releasesIn(names)) {
-    for (const record of recorded.get(name)?.values() ?? []) add(forTarget(o, names, name, record, empty));
+    for (const record of recorded.get(name)?.values() ?? []) add(forTarget(o, names, name, null, record, empty));
   }
   return { ...(start ? { start } : {}), steps, looks: [...looks.values()], failures, aborted };
 }
@@ -737,14 +833,14 @@ export function releaseEvents(o: Observed, recorded: Recorded, facts: Facts): Ma
             summary: `${short(read.commit)} ${how}; canary started`,
             payload: started,
           },
-          ...forTarget(o, names, start.release, record, facts).drafts,
+          ...forTarget(o, names, start.release, target, record, facts).drafts,
         ]);
       }
     }
   }
   for (const name of releasesIn(names)) {
     for (const [target, record] of recorded.get(name) ?? []) {
-      add(target, forTarget(o, names, name, record, facts).drafts);
+      add(target, forTarget(o, names, name, target, record, facts).drafts);
     }
   }
   return out;

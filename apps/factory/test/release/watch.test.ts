@@ -6,6 +6,7 @@ import { asEvent } from '../../src/line/gates.ts';
 import { hashesOf } from '../../src/release/read.ts';
 import { recordedFrom, type Target } from '../../src/release/recorded.ts';
 import { type AnalysisRun, observe, planOf, podHashes, type Rollout, secondsOf } from '../../src/release/rollout.ts';
+import { failedMeasures } from '../../src/release/signals.ts';
 import {
   dryRunEvents,
   dryRunRelease,
@@ -310,6 +311,7 @@ describe('a release, from the Rollout and its runs', () => {
         ],
         dryRun: false,
         by: 'analysis',
+        abortedAt: ABORTED_AT,
       },
     ]);
     expect(s.pass(aborted, [failedRun]).said).toEqual({});
@@ -744,6 +746,332 @@ describe('a release, from the Rollout and its runs', () => {
     });
     expect([...drafts.keys()]).toEqual([null]);
     expect(s.of(null, 'release.promoted')).toMatchObject([{ previous: commitOf(STABLE), watched: false }]);
+  });
+});
+
+describe('a canary the analysis judged bad, with auto-rollback off', () => {
+  // As Argo Rollouts writes them: a measure whose figure meets neither its success nor its failure condition is
+  // Inconclusive (the templates answer a bad figure twice while auto-rollback is off, `[x,x]`), the run ends
+  // Inconclusive past its `inconclusiveLimit`, terminating what it still measured, and the controller pauses the
+  // Rollout with `pauseConditions` naming `InconclusiveAnalysis`, `controllerPause` set.
+  const STEP_MESSAGE = 'Metric "errors" assessed Inconclusive due to inconclusive (1) > inconclusiveLimit (0)';
+  const BACKGROUND_MESSAGE = 'Metric "latency" assessed Inconclusive due to inconclusive (2) > inconclusiveLimit (1)';
+  const judgedStep = (index: number, state: Partial<Parameters<typeof run>[0]> = {}) =>
+    step(index, {
+      phase: 'Inconclusive',
+      message: STEP_MESSAGE,
+      metrics: {
+        errors: { phase: 'Inconclusive', value: '[0.0213,0.0213]', inconclusive: 1 },
+        journeys: { phase: 'Successful', message: 'Metric Terminated' },
+      },
+      ...state,
+    });
+  const at50 = rollout({ current: CANARY, stable: STABLE, stepIndex: 5, weight: 50 });
+  const paused50 = rollout({
+    current: CANARY,
+    stable: STABLE,
+    stepIndex: 5,
+    weight: 50,
+    pausedFor: 'InconclusiveAnalysis',
+  });
+  const abortedAt = (when: string) =>
+    rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt: when });
+  /** The terminated background run an abort leaves: it judged nothing more. */
+  const terminated = background({ phase: 'Successful', message: 'Run Terminated', terminate: true });
+  const kinds = (s: ReturnType<typeof store>, target: Target) =>
+    s.log.filter((e) => e.work_item === target).map((e) => e.type);
+
+  /** A release at 50%, its first step passed, judged bad at the second. */
+  function judgedAt50(start: Start = START) {
+    const s = store(STABLE_RECORDED);
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], { start });
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 3, weight: 50 }), [background(), step(2)]);
+    return s;
+  }
+
+  it('records the step as inconclusive, and holds each work item it carries once Argo Rollouts pauses it, once', () => {
+    const s = judgedAt50();
+    const runs = [background(), step(2), judgedStep(5)];
+    // The run has ended, and the controller has not paused the canary yet: the step, and no hold.
+    expect(
+      s
+        .pass(at50, runs)
+        .drafts.get('1001')
+        ?.map((d) => [d.type, d.summary]),
+    ).toEqual([['canary.stepped', 'Canary at 50%: the analysis was inconclusive']]);
+    expect(s.of('1001', 'canary.stepped').at(-1)).toMatchObject({
+      weight: 50,
+      analysis: {
+        phase: 'inconclusive',
+        // The first of the two answers is the figure.
+        measures: expect.arrayContaining([{ name: 'errors', phase: 'inconclusive', value: 0.0213, limit: 0.01 }]),
+      },
+    });
+    const { drafts } = s.pass(paused50, runs);
+    expect([...drafts.keys()]).toEqual(['1001', '1006']);
+    expect(drafts.get('1001')?.map((d) => [d.type, d.actor, d.summary])).toEqual([
+      ['hold.started', 'rollouts', 'Canary paused for Martin at 50%: the analysis judged it bad'],
+    ]);
+    expect(s.of('1006', 'hold.started')).toEqual([
+      {
+        stage: 'release',
+        kind: 'held',
+        cause: 'canary',
+        release: releaseOf(CANARY),
+        reason: `With auto-rollback off, the analysis judged the canary of ${commitOf(CANARY).slice(0, 7)} bad at 50% (errors 0.0213 against at most 0.01): ${STEP_MESSAGE}. It keeps its share of the traffic until Martin promotes it fully or aborts it, which rolls it back`,
+      },
+    ]);
+    // Read again, or with Martin's own pause beside it: held already.
+    expect(s.pass(paused50, runs).said).toEqual({});
+    const pausedToo = rollout({
+      current: CANARY,
+      stable: STABLE,
+      stepIndex: 5,
+      weight: 50,
+      pausedFor: 'InconclusiveAnalysis',
+    });
+    expect(s.pass(pausedToo, runs).said).toEqual({});
+  });
+
+  it('holds nothing for a pause of another kind, nor for an Inconclusive run Argo Rollouts has not paused on', () => {
+    const s = judgedAt50();
+    const stepPause = rollout({
+      current: CANARY,
+      stable: STABLE,
+      stepIndex: 4,
+      weight: 50,
+      pausedFor: 'CanaryPauseStep',
+    });
+    expect(s.pass(stepPause, [background(), step(2)]).said).toEqual({});
+    // Paused on an Inconclusive run while the attempt's last run to end passed: that one is not what paused it.
+    const later = step(5, { created: t(8), completed: t(8.5) });
+    expect(
+      s.pass(paused50, [background(), step(2), judgedStep(5, { name: 'website-68ff668868-4-5-early' }), later]).said,
+    ).toEqual({
+      1001: ['canary.stepped', 'canary.stepped'],
+      1006: ['canary.stepped', 'canary.stepped'],
+    });
+  });
+
+  it('records Martin’s abort of it as a rollback by him, with what it judged bad, its series and its count', () => {
+    const s = judgedAt50();
+    s.pass(paused50, [background(), step(2), judgedStep(5)]);
+    const runs = [terminated, step(2), judgedStep(5)];
+    const aborted = abortedAt(ABORTED_AT);
+    // Before the line knows whose abort it is, it reads the series of what was judged bad, and records nothing.
+    const asked = s.pass(aborted, runs);
+    expect(asked.needs).toMatchObject({ aborted: true });
+    expect(asked.needs.failures.map((r) => r.metadata.name)).toEqual([judgedStep(5).metadata.name]);
+    expect(asked.said).toEqual({});
+    const series: Series = {
+      label: 'share of 5xx answers',
+      unit: '%',
+      start: t(0),
+      stepSeconds: 15,
+      canary: [0.1, 2.3],
+      baseline: [0.1, 0.1],
+      at: 1,
+    };
+    const { drafts } = s.pass(aborted, runs, {
+      abortedBy: 'martin',
+      series: new Map([[`${judgedStep(5).metadata.name}/errors`, series]]),
+    });
+    expect(drafts.get('1001')?.map((d) => [d.type, d.actor, d.summary])).toEqual([
+      ['release.rolled-back', 'martin', `Martin rolled it back at 50%, judged bad: ${STEP_MESSAGE}`],
+    ]);
+    expect(s.of('1001', 'release.rolled-back')).toEqual([
+      {
+        release: releaseOf(CANARY),
+        version: commitOf(CANARY),
+        restored: commitOf(STABLE),
+        weight: 50,
+        reason: STEP_MESSAGE,
+        failed: [{ name: 'errors', phase: 'inconclusive', value: 0.0213, limit: 0.01, series, failures: 1 }],
+        dryRun: false,
+        by: 'martin',
+        abortedAt: ABORTED_AT,
+      },
+    ]);
+    expect(s.of('1006', 'release.aborted')).toEqual([]);
+    // Still aborted: nothing more, and nothing to ask.
+    const again = s.pass(aborted, runs, { abortedBy: 'martin' });
+    expect([again.said, again.needs.aborted]).toEqual([{}, false]);
+  });
+
+  it('records Stop the line’s abort of it as an abort, whatever the analysis judged', () => {
+    const s = judgedAt50();
+    s.pass(paused50, [background(), step(2), judgedStep(5)]);
+    const runs = [terminated, step(2), judgedStep(5)];
+    expect(s.pass(abortedAt(ABORTED_AT), runs, { abortedBy: 'stop' }).said).toEqual({
+      1001: ['release.aborted'],
+      1006: ['release.aborted'],
+    });
+    expect(s.of('1001', 'release.aborted')).toMatchObject([{ by: 'stop', abortedAt: ABORTED_AT }]);
+    expect(s.of('1001', 'release.rolled-back')).toEqual([]);
+  });
+
+  it('records Martin’s abort of a canary the analysis did not judge bad as his abort', () => {
+    const s = judgedAt50();
+    // Promoted past the inconclusive step by hand, it went on and passed the next: the last run to end passed.
+    const runs = [
+      terminated,
+      step(2),
+      judgedStep(5),
+      step(5, { name: 'website-68ff668868-4-5-again', created: t(8), completed: t(8.5) }),
+    ];
+    s.pass(at50, runs.slice(1));
+    expect(s.pass(abortedAt(ABORTED_AT), runs, { abortedBy: 'martin' }).said).toEqual({
+      1001: ['release.aborted'],
+      1006: ['release.aborted'],
+    });
+    expect(s.of('1001', 'release.rolled-back')).toEqual([]);
+  });
+
+  it('pauses from the background on the look that judged it bad, and rolls back by Martin at the weight it reached', () => {
+    const s = judgedAt50();
+    const judged = background({
+      phase: 'Inconclusive',
+      completed: t(5),
+      message: BACKGROUND_MESSAGE,
+      metrics: { latency: { phase: 'Inconclusive', value: '[0.31,0.31]', inconclusive: 2 } },
+    });
+    const paused = rollout({
+      current: CANARY,
+      stable: STABLE,
+      stepIndex: 4,
+      weight: 50,
+      pausedFor: 'InconclusiveAnalysis',
+    });
+    const held = s.pass(paused, [judged, step(2)]);
+    // The look that judged it, then the hold: an inconclusive background run pauses the release, and ends nothing.
+    expect(held.drafts.get('1001')?.map((d) => [d.type, d.summary])).toEqual([
+      ['canary.measuring', 'Canary at 50%, a look: latency inconclusive; errors and journeys passed'],
+      ['hold.started', 'Canary paused for Martin at 50%: the analysis judged it bad'],
+    ]);
+    expect(s.pass(abortedAt(ABORTED_AT), [judged, step(2)], { abortedBy: 'martin' }).said).toEqual({
+      1001: ['release.rolled-back'],
+      1006: ['release.rolled-back'],
+    });
+    expect(s.of('1001', 'release.rolled-back')).toMatchObject([
+      {
+        weight: 50,
+        reason: BACKGROUND_MESSAGE,
+        failed: [{ name: 'latency', phase: 'inconclusive', value: 0.31, limit: 0, failures: 2 }],
+        by: 'martin',
+      },
+    ]);
+  });
+
+  it('holds nothing on the line for a release that carries no work item, and records Martin’s rollback there', () => {
+    const s = judgedAt50({ ...START, carries: [] });
+    const runs = [background(), step(2), judgedStep(5)];
+    expect(s.pass(paused50, runs).said).toEqual({ null: ['canary.stepped'] });
+    expect(s.pass(abortedAt(ABORTED_AT), [terminated, step(2), judgedStep(5)], { abortedBy: 'martin' }).said).toEqual({
+      null: ['release.rolled-back'],
+    });
+    expect(s.of(null, 'release.rolled-back')).toMatchObject([{ by: 'martin', weight: 50 }]);
+    expect(s.of(null, 'hold.started')).toEqual([]);
+  });
+
+  it('is promoted when Martin promotes it fully past the verdict', () => {
+    const s = judgedAt50();
+    const runs = [background(), step(2), judgedStep(5)];
+    s.pass(paused50, runs);
+    expect(s.pass(rollout({ current: CANARY, stable: CANARY }), [terminated, step(2), judgedStep(5)]).said).toEqual({
+      1001: ['release.promoted'],
+      1006: ['release.promoted'],
+    });
+    expect(kinds(s, '1001').slice(-2)).toEqual(['hold.started', 'release.promoted']);
+  });
+
+  it('goes round as Martin’s drill does: rolled back by itself, retried and rolled back by him, retried and stopped', () => {
+    const s = store(STABLE_RECORDED);
+    const start = { ...START, carries: ['1001'] };
+    s.pass(rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 }), [background()], { start });
+    // Auto-rollback on: the step fails, and Argo Rollouts rolls the canary back by itself.
+    const failed = step(2, {
+      phase: 'Failed',
+      message: 'Metric "errors" assessed Failed due to failed (1) > failureLimit (0)',
+      metrics: { errors: { phase: 'Failed', value: '[0.0213]', failed: 1 } },
+    });
+    const first = [terminated, failed];
+    s.pass(abortedAt(ABORTED_AT), first);
+    expect(s.of('1001', 'release.rolled-back')).toMatchObject([{ by: 'analysis', abortedAt: ABORTED_AT }]);
+
+    // Off, and retried from the console: a second canary, which the analysis judges bad at its first step.
+    const second = background({ name: 'website-68ff668868-4.1', created: t(20) });
+    const at25 = rollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
+    expect(
+      s
+        .pass(at25, [...first, second])
+        .drafts.get('1001')
+        ?.map((d) => d.summary),
+    ).toEqual([
+      `${commitOf(CANARY).slice(0, 7)} started again after its rollback`,
+      'Canary at 25%, a look: errors, latency and journeys passed',
+    ]);
+    const judged2 = judgedStep(2, { name: 'website-68ff668868-4-2.1', created: t(23), completed: t(23.5) });
+    const paused25 = rollout({
+      current: CANARY,
+      stable: STABLE,
+      stepIndex: 2,
+      weight: 25,
+      pausedFor: 'InconclusiveAnalysis',
+    });
+    // Held as a first attempt is: the first attempt's failure is no part of it.
+    expect(s.pass(paused25, [...first, second, judged2]).said).toEqual({ 1001: ['canary.stepped', 'hold.started'] });
+    const secondEnded = [...first, { ...second, spec: { ...second.spec, terminate: true } }, judged2];
+    expect(s.pass(abortedAt(t(25).replace(/\.\d{3}Z$/, 'Z')), secondEnded, { abortedBy: 'martin' }).said).toEqual({
+      1001: ['release.rolled-back'],
+    });
+    expect(s.of('1001', 'release.rolled-back').at(-1)).toMatchObject({
+      by: 'martin',
+      weight: 25,
+      failed: [{ name: 'errors', phase: 'inconclusive' }],
+    });
+
+    // On again, and retried: a third canary. The second's inconclusive run holds nothing in it, paused or not.
+    const third = background({ name: 'website-68ff668868-4.2', created: t(30) });
+    expect(s.pass(at25, [...secondEnded, third]).said).toEqual({ 1001: ['release.started', 'canary.measuring'] });
+    expect(s.pass(paused25, [...secondEnded, third]).said).toEqual({});
+    // Judged bad in the third too, held, and Stop the line aborts it: an abort, not a rollback.
+    const judged3 = judgedStep(2, { name: 'website-68ff668868-4-2.2', created: t(33), completed: t(33.5) });
+    expect(s.pass(paused25, [...secondEnded, third, judged3]).said).toEqual({
+      1001: ['canary.stepped', 'hold.started'],
+    });
+    const thirdEnded = [...secondEnded, { ...third, spec: { ...third.spec, terminate: true } }, judged3];
+    expect(s.pass(abortedAt(t(35).replace(/\.\d{3}Z$/, 'Z')), thirdEnded, { abortedBy: 'stop' }).said).toEqual({
+      1001: ['release.aborted'],
+    });
+    expect(kinds(s, '1001')).toEqual([
+      'release.started',
+      'canary.measuring',
+      'canary.stepped',
+      'release.rolled-back',
+      'release.started',
+      'canary.measuring',
+      'canary.stepped',
+      'hold.started',
+      'release.rolled-back',
+      'release.started',
+      'canary.measuring',
+      'canary.stepped',
+      'hold.started',
+      'release.aborted',
+    ]);
+
+    // Triage hears of the first rollback's failure and of what the second judged bad, not of what the stopped third
+    // judged bad.
+    const o = observe(abortedAt(t(35).replace(/\.\d{3}Z$/, 'Z')), thirdEnded);
+    const signalled = failedMeasures(o, recordedFrom(s.log)).map((f) => [
+      f.run.metadata.name,
+      f.measure.name,
+      f.measure.phase,
+    ]);
+    expect(signalled).toEqual([
+      [failed.metadata.name, 'errors', 'failed'],
+      ['website-68ff668868-4-2.1', 'errors', 'inconclusive'],
+    ]);
   });
 });
 

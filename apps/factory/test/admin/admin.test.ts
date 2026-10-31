@@ -941,6 +941,7 @@ describe('the release controls', () => {
             failed: [],
             dryRun: false,
             by: 'analysis',
+            abortedAt: at(30),
           },
   });
 
@@ -1032,7 +1033,7 @@ describe('the release controls', () => {
     ]);
   });
 
-  it('retries a stopped release with the passkey again, never while the line is stopped or after a rollback', async () => {
+  it('retries a stopped or rolled-back release with the passkey again, never while the line is stopped', async () => {
     const stopped = { current: CANARY, stable: STABLE, stepIndex: 0, abort: true };
     let kube = await withRollout(stopped, { ends: ['release.aborted'] });
     const { browser, passkey } = await signedIn();
@@ -1055,12 +1056,47 @@ describe('the release controls', () => {
     });
     expect(kube.patches.map((p) => p.body)).toEqual([{ status: { abort: false } }]);
 
+    // Rolled back, by the analysis or by Martin's abort of a canary it judged bad: retried, it is judged afresh.
     kube = await withRollout(stopped, { ends: ['release.rolled-back'] });
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect(await browser.post('/admin/release/retry', { release: RELEASE })).toMatchObject({
+      status: 200,
+      body: { action: 'retry', weight: 0 },
+    });
+    expect(kube.patches.map((p) => p.body)).toEqual([{ status: { abort: false } }]);
+    // In flight, there is nothing to retry.
+    kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
     expect(await browser.post('/admin/release/retry', { release: RELEASE })).toMatchObject({
       status: 409,
       body: { refused: 'release' },
     });
     expect(kube.patches).toEqual([]);
+  });
+
+  it('takes only Promote fully and Abort of a canary the analysis judged bad and paused for Martin', async () => {
+    const held = { current: CANARY, stable: STABLE, stepIndex: 5, weight: 50, pausedFor: 'InconclusiveAnalysis' };
+    const kube = await withRollout(held);
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    for (const action of ['promote', 'pause', 'resume']) {
+      expect(await browser.post(`/admin/release/${action}`, { release: RELEASE }), action).toMatchObject({
+        status: 409,
+        body: { refused: 'release', message: expect.stringContaining('judged the canary bad') },
+      });
+    }
+    expect(kube.patches).toEqual([]);
+    expect(await browser.post('/admin/release/abort', { release: RELEASE })).toMatchObject({
+      status: 200,
+      body: { action: 'abort', weight: 50 },
+    });
+    expect(kube.patches.map((p) => p.body)).toEqual([{ status: { abort: true } }]);
+    // Promoted fully instead, past the analysis's verdict.
+    const again = await withRollout(held);
+    expect(await browser.post('/admin/release/promote', { release: RELEASE, fully: true })).toMatchObject({
+      status: 200,
+      body: { action: 'promote-fully', to: 100 },
+    });
+    expect(again.patches.map((p) => p.body)).toEqual([{ status: { promoteFull: true } }]);
   });
 
   it('refuses a release that is not the one in the Rollout, or not recorded, and a control its state does not take', async () => {
