@@ -83,7 +83,8 @@ describe('a report', () => {
   it('quarantined: quiet, the deciding answer first, no page, and its text never shown', () => {
     expect(card('1007')).toMatchObject({ outcome: 'quarantined', category: 'red-team', from: '/about' });
     expect(card('1007')?.picture.type).toBe('quarantine');
-    expect(card('1007')?.segments.slice(0, 2)).toEqual(['passed', 'closed']);
+    // Typed judgement refused it at Triage, as the line draws any refusal at the stage that refused.
+    expect(card('1007')?.segments.slice(0, 2)).toEqual(['passed', 'stopped']);
     expect(sheet('1007')?.report).toEqual({ page: '/about', quarantined: true, by: 'visitor', times: 1, texts: [] });
     expect(sheet('1007')?.chapters.find((c) => c.label === 'QUARANTINED')?.tone).toBe('faint');
   });

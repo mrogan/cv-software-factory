@@ -107,6 +107,18 @@ His choice is a `settings.changed` event, which the [admin service](ADMIN-SERVIC
 - **Each work item** has a cap of its own ([the line](ORCHESTRATOR.md#spend)).
 - **Prices** include the cache's (`gateway/prices.ts`), and a long prompt's where a model has one: a Claude Haiku 5.5 call whose prompt (fresh, cached and written to the cache) is over 100K tokens is priced whole at the long rate, five times the other.
 
+## Refusals
+
+Each refusal of a guardrail is recorded as `action.refused`, mechanism `gateway`, in the gateway's own words as its answer gives them, appended as the gateway's own role (`policy/refusals.ts` holds the mechanism to it), so the console counts it under the guardrail it shows:
+
+- **A spend cap** (guardrail 7): a day's, a month's or a work item's, or a provider the gateway holds [capped](#caps-the-factory-does-not-own).
+- **Its policy on agents and models** (guardrail 6): an agent that calls no model through the Messages API, or a judgement asking for a model that is not pinned or has no price.
+- **The line stopped** (guardrail 9): any agent's call while it is.
+
+An agent's refusal is on the work item its job token names. A judgement's is on none, since no job token names one: the work item the request names is the caller's word, and is kept in what was refused. A token that is no running job's, a request the gateway cannot read (a body or beta it does not take), and a replay with no cassette refuse no guardrail, and are not recorded.
+
+Repeats of one refusal (its cause, work item and action) within a minute fold into one event with how many and when the last was (`apps/factory/src/refusals.ts`): the first is appended at once, the rest of its minute once the minute is up, and what is still held as the gateway stops. So a runner retrying in a loop is at most two events a minute. Appends run behind the answer, one at a time: one the store will not take is logged, and the answer is the same.
+
 ## Logging and telemetry
 
 - It never logs a state, a prompt or a provider's body.

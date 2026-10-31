@@ -61,6 +61,18 @@ describe('validation', () => {
     });
   });
 
+  it('takes a refusal on the work item it was refused for, or on the line when it was none’s', () => {
+    const refused = {
+      ...opened,
+      type: 'action.refused',
+      version: 3,
+      actor: 'factory',
+      payload: { mechanism: 'gateway', action: 'A model call', output: 'Refused.', guardrails: [7] },
+    };
+    expect(validate(refused)).toEqual({ ok: true });
+    expect(validate({ ...refused, work_item: null })).toEqual({ ok: true });
+  });
+
   it('takes a release’s events on a work item it carries, or on the line when it carries none', () => {
     const started = {
       ...opened,

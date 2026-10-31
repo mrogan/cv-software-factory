@@ -29,7 +29,7 @@ flowchart TD
 
 - **A sense's signal** takes its category and severity from `policy/triage.ts`, and repeats by fingerprint.
 - **Only reports and the planner's findings go to Jev** (`triage/v2`), with routing as plain code.
-- It quarantines injection attempts, and parks suggestions for Martin, which close when he [rejects them](#a-suggestion).
+- It quarantines injection attempts, and parks suggestions for Martin, which close when he [rejects them](#a-suggestion). A quarantine is recorded as typed judgement refusing the report (`action.refused`, mechanism `typed-judgement`, guardrail 8), on the quarantined work item before it closes, appended as triage's role, which alone may (`policy/refusals.ts`). Its output is Jev's typed answers verbatim, with their probabilities, one line an answer; never the report's words, nor the questions, which are the factory's.
 - **One fingerprint, one ticket.**
 - **More new problems than a handful from one sense at once** wait for Martin as one [burst](#a-burst), before any has a ticket.
 - **A new problem seen while what its sense reads was not healthy** waits for Martin too, its cause [the environment](#what-a-sense-reads).
@@ -117,7 +117,7 @@ Elsewhere the text goes sooner, or is the cluster's to keep:
 
 ## The planner's findings
 
-A planner's finding is trusted no more than a report, since a visitor can read the app's public code and argue an agent into seeing a bug. It is judged the same way but never opens a ticket (`routeFinding`). Nothing else opens a ticket from a finding.
+A planner's finding is trusted no more than a report, since a visitor can read the app's public code and argue an agent into seeing a bug. It is judged the same way but never opens a ticket (`routeFinding`). Nothing else opens a ticket from a finding. One quarantined is recorded as typed judgement refusing it, as a report is.
 
 - **A defect it noticed** holds for Martin (cause `finding`), with its fingerprint as a report's ticket would have it: the route the planner named and the symptom Jev judged, or, for wrong words, the passage of the page Jev chose.
 - **One that repeats an open ticket** joins its evidence, though never the ticket the planner was planning, which it is beyond. One with that ticket's fingerprint is held, saying so, until that ticket closes and a sense's ticket can take it.

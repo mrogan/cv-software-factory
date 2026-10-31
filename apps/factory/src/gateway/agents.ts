@@ -20,6 +20,8 @@
  * 5. Writes one audit row in `model_calls` for every call, answered or not, with its tokens, cache use and cost. A
  *    stream that breaks off is audited at what it had cost by then: the provider bills what it generated. The same
  *    figures go on the call's `model call` span, a child of the step's span the job token keeps (`spans.ts`).
+ * 6. Records each refusal of a guardrail on the job's work item (`refusals.ts`): an agent that calls no model, the
+ *    line stopped, a provider the gateway holds capped, a spend cap reached.
  *
  * Prompt caching passes through untouched: the runner's `cache_control` markers reach the provider as sent.
  *
@@ -45,6 +47,7 @@ import * as instruments from './metrics.ts';
 import { costOf, priceOf, type Usage } from './prices.ts';
 import type { ProviderCaps } from './provider-caps.ts';
 import { capOf, forwardedHeaders, type MessagesProvider, type ProviderName } from './providers.ts';
+import type { GatewayCause, Refusals } from './refusals.ts';
 import type { Spend } from './spend.ts';
 
 export interface Reply {
@@ -126,12 +129,17 @@ export interface AgentCallsOptions {
   clock?: () => Date;
   /** How long a provider may take over one call, streaming included. */
   providerTimeoutMs?: number;
+  /** Where each refusal of a guardrail is recorded; without it, none is. */
+  refusals?: Refusals;
 }
 
 type Headers = Record<string, string | string[] | undefined>;
 
 /** Whose call it is: the job its token was issued for, whose issue decides the settings the job runs under. */
 type Who = Pick<Call, 'job' | 'workItem' | 'agent'>;
+
+/** A call refused before the gateway takes its request: the answer, and the refusal to record, if it is one. */
+type Refused = Reply & { refused?: { workItem: string; agent: string; cause: GatewayCause; message: string } };
 
 interface Call {
   job: string;
@@ -205,7 +213,11 @@ export class AgentCalls {
     const started = performance.now();
     const startTime = new Date();
     const authorised = await this.#authorise(headers);
-    if ('status' in authorised) return authorised;
+    if ('status' in authorised) {
+      const { refused, ...reply } = authorised;
+      if (refused) this.#refused(refused.workItem, refused.agent, refused.cause, refused.message);
+      return reply;
+    }
     const { traceparent, ...who } = authorised;
     const betas = (header(headers, 'anthropic-beta') ?? '')
       .split(',')
@@ -310,9 +322,9 @@ export class AgentCalls {
     if (held) {
       instruments.capRefusals.add(1, { ...series, cap: 'provider' });
       await audit('refused', undefined, held.reason);
-      return apiError(429, 'rate_limit_error', `${provider} refuses calls for now (${held.reason}): ${held.message}`, {
-        'retry-after': '300',
-      });
+      const message = `${provider} refuses calls for now (${held.reason}): ${held.message}`;
+      this.#refused(call.workItem, call.agent, 'cap', message);
+      return apiError(429, 'rate_limit_error', message, { 'retry-after': '300' });
     }
     try {
       await spend.check(call.workItem);
@@ -320,6 +332,7 @@ export class AgentCalls {
       if (!(error instanceof SpendCapped)) throw error;
       instruments.capRefusals.add(1, { ...series, cap: error.cap });
       await audit('refused', undefined, error.message);
+      this.#refused(call.workItem, call.agent, 'cap', error.message);
       // A day's or month's cap resets; a work item's does not, and holds the work item for Martin.
       return error.resets
         ? apiError(429, 'rate_limit_error', error.message, {
@@ -433,19 +446,28 @@ export class AgentCalls {
    */
   async countTokens(headers: Headers, read: () => Promise<string>): Promise<Reply> {
     const who = await this.#authorise(headers);
-    if ('status' in who) return who;
+    // A count is no model call: one refused is the next call's to record, if the SDK makes it.
+    if ('status' in who) {
+      const { refused: _, ...reply } = who;
+      return reply;
+    }
     return json(200, { input_tokens: Math.ceil((await read()).length / 4) });
   }
 
-  async #authorise(headers: Headers): Promise<(Who & { traceparent?: string }) | Reply> {
+  async #authorise(headers: Headers): Promise<(Who & { traceparent?: string }) | Refused> {
     const token = header(headers, 'x-api-key') ?? header(headers, 'authorization')?.replace(/^Bearer\s+/i, '');
     const job = token ? await jobForToken(this.#o.sql, token) : undefined;
+    // Not a job's token: nothing was refused but a guess, and there is no work item to record it on.
     if (!job) return apiError(401, 'authentication_error', 'This is not the token of a job that is running.');
+    const refuse = (cause: GatewayCause, message: string): Refused => ({
+      ...apiError(403, 'permission_error', message),
+      refused: { workItem: job.workItem, agent: job.agent, cause, message },
+    });
     if (!(MODEL_AGENTS as readonly string[]).includes(job.agent)) {
-      return apiError(403, 'permission_error', `The ${job.agent} agent does not call models through this API.`);
+      return refuse('policy', `The ${job.agent} agent does not call models through this API.`);
     }
     if (await this.#lineStopped()) {
-      return apiError(403, 'permission_error', 'The line is stopped: agents take no new calls until it starts again.');
+      return refuse('stopped', 'The line is stopped: agents take no new calls until it starts again.');
     }
     return {
       job: job.job,
@@ -453,6 +475,17 @@ export class AgentCalls {
       agent: job.agent as ModelAgent,
       ...(job.traceparent ? { traceparent: job.traceparent } : {}),
     };
+  }
+
+  /** Records a refusal of a guardrail on the job's work item, behind the answer. */
+  #refused(workItem: string, agent: string, cause: GatewayCause, output: string): void {
+    this.#o.refusals?.refused({
+      workItem,
+      cause,
+      action: `A model call by the ${agent} agent`,
+      output,
+      at: new Date(this.#now()),
+    });
   }
 
   async #lineStopped(): Promise<boolean> {

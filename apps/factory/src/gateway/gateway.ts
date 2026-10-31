@@ -12,15 +12,20 @@
  *
  * With no API key the gateway replays whatever mode was asked for. A replay costs nothing and is not held back by
  * a spend cap.
+ *
+ * A model not pinned or not priced, and a spend cap reached, are refusals of a guardrail, and are recorded as the
+ * gateway's (`refusals.ts`) on no work item: no job token names one, and the work item a request names is the caller's
+ * word. A request it cannot read is not.
  */
 import { AGENTS, type Agent, cutAt } from '@software-factory/events';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import type { Logger } from '../log.ts';
 import { type Cassettes, cassetteKey } from './cassettes.ts';
-import { BadRequest, CassetteMissing, ProviderError, problemsOf, SpendCapped } from './errors.ts';
+import { BadRequest, CassetteMissing, ModelRefused, ProviderError, problemsOf, SpendCapped } from './errors.ts';
 import * as instruments from './metrics.ts';
 import { costOf, priceOf } from './prices.ts';
+import type { Refusals } from './refusals.ts';
 import type { Spend } from './spend.ts';
 import {
   PINNED_MODEL,
@@ -88,6 +93,8 @@ export interface GatewayOptions {
   typesafe?: TypeSafe | undefined;
   log: Logger;
   clock?: () => Date;
+  /** Where each refusal of a guardrail is recorded; without it, none is. */
+  refusals?: Refusals;
 }
 
 interface Call {
@@ -181,6 +188,16 @@ export class Gateway {
       return judgement;
     } catch (error) {
       const outcome = refusal(error);
+      const cause = error instanceof SpendCapped ? 'cap' : error instanceof ModelRefused ? 'policy' : undefined;
+      if (cause) {
+        this.#options.refusals?.refused({
+          workItem: null,
+          cause,
+          action: `A ${questionSet} judgement for the ${agent} agent${workItem ? `, for work item ${workItem}` : ''}`,
+          output: (error as Error).message,
+          at: this.#clock(),
+        });
+      }
       if (outcome) {
         await this.#record(
           {
@@ -202,9 +219,13 @@ export class Gateway {
   /** The request as the provider takes it, if it is one the gateway will send. */
   #prepare({ model, state, questions }: z.infer<typeof judgeRequest>): TypeSafeRequest {
     if (!PINNED_MODEL.test(model)) {
-      throw new BadRequest(`Model ${model} is not pinned. Name a version such as jev-1.13.0, never an alias.`);
+      throw new ModelRefused(`Model ${model} is not pinned. Name a version such as jev-1.13.0, never an alias.`);
     }
-    priceOf(model);
+    try {
+      priceOf(model);
+    } catch (error) {
+      throw error instanceof BadRequest ? new ModelRefused(error.message) : error;
+    }
     const parsed = typesafeRequest.safeParse({ model, state, questions });
     if (!parsed.success)
       throw new BadRequest(

@@ -6,7 +6,7 @@
 import { z } from 'zod';
 import { PAGE_PATH, PATH_CHARS } from './line.ts';
 import { REQUEST_WORDS } from './request.ts';
-import { type EventType, LINE_TYPES, RELEASE_TYPES, VERSIONS } from './versions.ts';
+import { type EventType, LINE_TYPES, VERSIONS, WORK_ITEM_OR_LINE_TYPES } from './versions.ts';
 import * as V from './vocabulary.ts';
 
 const text = (max: number) => z.string().trim().min(1).max(max);
@@ -1467,8 +1467,8 @@ export function validate(input: unknown): Validated {
   if (event.version !== VERSIONS[event.type]) {
     problems.push(`version ${event.version} of ${event.type} is not current; append version ${VERSIONS[event.type]}`);
   }
-  // A release's events may be on a work item or on the line; every other type is on one or the other.
-  if (!RELEASE_TYPES.includes(event.type)) {
+  // A release's events and a refusal may be on a work item or on the line; every other type is on one or the other.
+  if (!WORK_ITEM_OR_LINE_TYPES.includes(event.type)) {
     const line = LINE_TYPES.includes(event.type);
     if (line && event.work_item !== null) problems.push(`${event.type} belongs to the line, not to a work item`);
     if (!line && event.work_item === null) problems.push(`${event.type} needs a work item`);
