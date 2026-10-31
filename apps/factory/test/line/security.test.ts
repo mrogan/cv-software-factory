@@ -205,6 +205,42 @@ describe('the count of Martin’s security events', () => {
     expect(tally.holds).toMatchObject({ merge: 1, question: 1 });
   });
 
+  it('counts auto-rollback turned off or on by what an event puts in force, whatever control its change names', async () => {
+    const { admin } = database;
+    const controls = (autoRollback: boolean, change: object) => ({
+      autonomy: 'supervised',
+      newWork: true,
+      autoMerge: false,
+      take: null,
+      autoRollback,
+      change,
+    });
+    // Off under a change that only informs him: it still pages as auto-rollback off.
+    await append(
+      admin,
+      'controls.changed',
+      controls(false, { control: 'autonomy', before: 'guarded', after: 'supervised' }),
+    );
+    // Still off: nothing more of auto-rollback.
+    await append(admin, 'controls.changed', controls(false, { control: 'new-work', before: true, after: false }));
+    // Its own switch on, counted once.
+    await append(admin, 'controls.changed', controls(true, { control: 'auto-rollback', before: false, after: true }));
+    // On again from off under another change.
+    await append(admin, 'controls.changed', controls(false, { control: 'auto-rollback', before: true, after: false }));
+    await append(admin, 'controls.changed', controls(true, { control: 'new-work', before: false, after: true }));
+    const tally = await readOn(database.as.line, emptyTally());
+    expect(tally.kinds).toMatchObject({
+      'autonomy-tightened': 1,
+      'new-work-off': 1,
+      'new-work-on': 1,
+      'auto-rollback-off': 2,
+      'auto-rollback-on': 2,
+    });
+    expect(tally.autoRollback).toBe(true);
+    // A reader that starts afresh agrees.
+    expect(await readOn(database.as.line, emptyTally())).toEqual(tally);
+  });
+
   it('counts nothing in a store of samples, which never happened', async () => {
     await append(database.operator, 'admin.signed-in', {}, null, { sample: true });
     await append(database.operator, 'hold.started', { cause: 'merge' }, 'WI-7', { sample: true });

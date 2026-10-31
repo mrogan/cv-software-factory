@@ -100,7 +100,7 @@ Martin is alerted to each of his security events, at its kind's level, counted f
 | `new-work-on`, `new-work-off` | `controls.changed` that lets agents take new work, or stops them | Notify, Inform |
 | `auto-merge-on`, `auto-merge-off` | `controls.changed` that turns auto-merge of low-risk changes on or off | Notify, Inform |
 | `take-widened`, `take-narrowed` | `controls.changed` that widens or narrows what the line takes | Notify, Inform |
-| `auto-rollback-off`, `auto-rollback-on` | `controls.changed` that turns auto-rollback off, so a canary judged bad pauses for him, or on | Page, Inform |
+| `auto-rollback-off`, `auto-rollback-on` | `controls.changed` that turns auto-rollback off, so a canary judged bad pauses for him, or on: told by what the event puts in force as well as the control its change names, so an event that names another change cannot turn it off quietly | Page, Inform |
 | `phone-on`, `phone-off` | `alerts.switched` that sends every alert to his phone, or none | Inform, Page |
 | `flag-widened`, `flag-narrowed`, `flag-off` | `flag.staged` that widens a feature flag (to Checks too, and turning one back on for everyone), narrows it, or turns it off | Notify, Inform, Inform |
 | `improvement-requested` | every `improvement.requested`, from the console's "+" | Notify |

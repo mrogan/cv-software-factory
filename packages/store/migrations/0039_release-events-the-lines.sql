@@ -2,8 +2,8 @@
 -- and how the release ended (promoted, rolled back, aborted or in error). The rollback proof, the line's count of what
 -- pages Martin and the console's Canary panel trust them, so no other worker may append one, in the line's name or its
 -- own: a worker that untrusted input had turned could otherwise record a rollback that never happened, or a promotion
--- that hid one. `LINE_ONLY_TYPES` in the events package, which the store's tests hold this to; each reader also reads
--- only those `factory_line` appended, so this policy is not the only lock.
+-- that hid one. `LINE_ONLY_TYPES` in the events package, which the store's tests hold this to; its readers trust this
+-- policy, and do not check who appended each.
 --
 -- Every worker's insert policy (`events_not_his`) is rewritten, rather than one added beside it: Postgres ORs
 -- permissive policies, so a second would let through what the first does. Martin's command line appends them only as

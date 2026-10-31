@@ -33,7 +33,8 @@
  * on, and the same figure twice, the second marked, only while there is exactly one fresh series from each pod and both
  * read 0 (`autoRollbackOff`): two answers that fail the success condition are inconclusive, one is a failure. Anything
  * else, a series missing, stale, doubled or reading 1, answers once, and a bad canary rolls back. Nothing here writes the
- * Rollout.
+ * Rollout. A canary with no figure to judge (none of its series reached Prometheus) is not judged bad but unmeasured,
+ * and still fails.
  *
  * The switch covers what the analysis judges of the canary against its baseline in Prometheus: errors and latency. It
  * leaves alone what says the analysis could not judge: too few requests still fails a step, and an analysis error
@@ -177,8 +178,10 @@ and on () ${one(AUTO_ROLLBACK.line)}`;
 export const OFF_LABEL = 'auto_rollback';
 
 /**
- * A measure's query with the switch: its figure, and, only while auto-rollback is off by both series, the same figure
- * again under `OFF_LABEL`. Both are the one figure, so `result[0]` is it whichever comes first.
+ * A measure's query with the switch: its figure, and, only while auto-rollback is off by both series and the figure is
+ * finite, the same figure again under `OFF_LABEL`. Both are the one figure, so `result[0]` is it whichever comes first.
+ * An infinite figure, a version with nothing to compare (`queries`), is no verdict on the canary but that it could not
+ * be measured, so it answers once and fails, whatever the switch.
  */
 export function switched(query: string): string {
   return `(
@@ -187,7 +190,9 @@ ${query}
 or
 (
   label_replace(
+(
 ${query}
+) < Inf
   , "${OFF_LABEL}", "off", "", "")
   and on ()
 ${autoRollbackOff()}
