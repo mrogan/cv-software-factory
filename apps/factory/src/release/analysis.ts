@@ -158,7 +158,7 @@ export const AUTO_ROLLBACK = {
 /**
  * How long a pushed series' last sample is believed, as the alerts believe the workers' (`alerts/rules.ts`'s
  * `PUSHED_FRESH`, which a test holds this to): OTLP leaves Prometheus no staleness marker, so a worker gone would be read
- * for the five minutes it looks back.
+ * for the five minutes of Prometheus's own lookback, which this shortens to one.
  */
 export const SWITCH_FRESH = '1m';
 
@@ -330,7 +330,9 @@ export function templatesFor(r: Release) {
   ]);
   const background = template(TEMPLATES.background, [
     // Paused on the same look that would have failed it: Argo Rollouts counts a run's inconclusive looks as it counts
-    // its failed ones, across the run.
+    // its failed ones, across the run. It counts the two apart, and has no limit on both together, so a run whose
+    // switch is flipped while it runs may see up to 2 × (failures − 1) bad looks (two, at policy’s two) before the next
+    // decides, Failed or Inconclusive by the switch then: one more than a run with the switch left alone.
     ...compared(r).map(({ name, successCondition, failureCondition, query }) => ({
       name,
       interval: `${r.background.intervalMinutes}m`,

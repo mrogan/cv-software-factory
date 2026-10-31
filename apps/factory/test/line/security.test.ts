@@ -6,11 +6,13 @@
 import { metrics as api } from '@opentelemetry/api';
 import * as metrics from '@opentelemetry/sdk-metrics';
 import { HOLD_CAUSES, RELEASE_CONTROLS, VERSIONS } from '@software-factory/events';
+import { latestControls } from '@software-factory/store';
 import pino from 'pino';
 import type { Sql } from 'postgres';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import { ACCESS, GUARDRAIL_HOLDS } from '../../../../policy/access.ts';
+import { controlsInForce } from '../../../../policy/line.ts';
 
 const reader = new metrics.PeriodicExportingMetricReader({
   exporter: new metrics.InMemoryMetricExporter(metrics.AggregationTemporality.CUMULATIVE),
@@ -39,7 +41,13 @@ async function append(
   type: string,
   payload: object,
   workItem: string | null = null,
-  { version = VERSIONS[type as keyof typeof VERSIONS] ?? 1, sample = false } = {},
+  {
+    version = (VERSIONS[type as keyof typeof VERSIONS] as number | undefined) ?? 1,
+    sample = false,
+  }: {
+    version?: number;
+    sample?: boolean;
+  } = {},
 ): Promise<void> {
   await sql`
     insert into events (id, ts, work_item, type, version, actor, summary, payload, artifacts, public, sample)
@@ -95,14 +103,22 @@ describe('the count of Martin’s security events', () => {
     await append(operator, 'line.stopped', { reason: 'night' });
     await append(admin, 'line.stopped', { reason: 'from the console' });
     for (const action of RELEASE_CONTROLS) await append(admin, 'release.controlled', { action });
-    await append(admin, 'controls.changed', {
-      change: { control: 'autonomy', before: 'supervised', after: 'guarded' },
-    });
-    await append(admin, 'controls.changed', { change: { control: 'take', before: null, after: { kind: 'every' } } });
-    await append(admin, 'controls.changed', { change: { control: 'new-work', before: true, after: false } });
-    await append(admin, 'controls.changed', { change: { control: 'auto-rollback', before: true, after: false } });
-    await append(admin, 'controls.changed', { change: { control: 'auto-rollback', before: false, after: true } });
-    await append(admin, 'controls.changed', { change: { control: 'auto-rollback', before: true, after: false } });
+    // Each change of the controls with what it puts in force, as the admin service stores it.
+    const controls = (autoRollback: boolean, change: object) => ({ autoRollback, change });
+    await append(
+      admin,
+      'controls.changed',
+      controls(true, { control: 'autonomy', before: 'supervised', after: 'guarded' }),
+    );
+    await append(
+      admin,
+      'controls.changed',
+      controls(true, { control: 'take', before: null, after: { kind: 'every' } }),
+    );
+    await append(admin, 'controls.changed', controls(true, { control: 'new-work', before: true, after: false }));
+    await append(admin, 'controls.changed', controls(false, { control: 'auto-rollback', before: true, after: false }));
+    await append(admin, 'controls.changed', controls(true, { control: 'auto-rollback', before: false, after: true }));
+    await append(admin, 'controls.changed', controls(false, { control: 'auto-rollback', before: true, after: false }));
     await append(admin, 'flag.staged', { from: { stage: 'off' }, to: { stage: 'checks' } });
     await append(admin, 'flag.staged', { from: { stage: 'checks' }, to: { stage: 'share', share: 50 } });
     await append(admin, 'flag.staged', { from: { stage: 'share', share: 50 }, to: { stage: 'preview' } });
@@ -238,6 +254,49 @@ describe('the count of Martin’s security events', () => {
     });
     expect(tally.autoRollback).toBe(true);
     // A reader that starts afresh agrees.
+    expect(await readOn(database.as.line, emptyTally())).toEqual(tally);
+  });
+
+  it('follows auto-rollback in force through the events its series follow, so its before is theirs', async () => {
+    const { admin, owner } = database;
+    const controls = (autoRollback: boolean, change: object) => ({
+      autonomy: 'supervised',
+      newWork: true,
+      autoMerge: false,
+      take: null,
+      autoRollback,
+      change,
+    });
+    /** Whether the series say auto-rollback is on now: Martin's latest controls, through policy. */
+    const inForce = async () => controlsInForce(await latestControls(database.as.line)).autoRollback;
+    // Off in a change none of Martin's roles appended: counted by its change, as every stored change is, but not in
+    // force, as the series do not read it.
+    await append(
+      owner,
+      'controls.changed',
+      controls(false, { control: 'take', before: null, after: { kind: 'every' } }),
+    );
+    let tally = await readOn(database.as.line, emptyTally());
+    expect(await inForce()).toBe(true);
+    expect(tally).toMatchObject({ autoRollback: true, kinds: { 'take-widened': 1, 'auto-rollback-off': 0 } });
+    // Martin's own off, under a change that only informs him, is the switch the series see, and pages.
+    await append(
+      admin,
+      'controls.changed',
+      controls(false, { control: 'autonomy', before: 'guarded', after: 'supervised' }),
+    );
+    // On again under a version newer than this code knows, which the series read as it stands.
+    await append(
+      admin,
+      'controls.changed',
+      { ...controls(true, { control: 'new-work', before: true, after: false }), newer: true },
+      null,
+      { version: VERSIONS['controls.changed'] + 1 },
+    );
+    tally = await readOn(database.as.line, tally);
+    expect(await inForce()).toBe(true);
+    expect(tally).toMatchObject({ autoRollback: true, kinds: { 'auto-rollback-off': 1, 'auto-rollback-on': 1 } });
+    // Read all at once, in order, it is the same.
     expect(await readOn(database.as.line, emptyTally())).toEqual(tally);
   });
 
