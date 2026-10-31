@@ -1912,7 +1912,9 @@ ${lines}</div>`).join('')}</div>
 const visual = (it) => `<div class="vis">${VIS[it.vis.type](it)}</div>`;
 // A refusal on a card is cut where it wraps past five lines. Its type is sized by the card's width (cqw), so a line
 // holds the same 80 characters at every width, and the cut is worked out from the text alone; the sheet shows it whole.
-const wraps = (out) => out.replace(/<[^>]+>/g, '').split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 80)), 0);
+// The refusal's text as drawn, read from a template (the outputs are this page's own sample data).
+const plain = (html) => { const t = document.createElement('template'); t.innerHTML = html; return t.content.textContent; };
+const wraps = (out) => plain(out).split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 80)), 0);
 
 /* ==== State ================================================================================ */
 
@@ -3051,8 +3053,8 @@ function renderGuardrails() {
   const rows = list.map(([n, name, mech, [held, from, age, item, what], refs]) => {
     const open = S.openGuard === n, many = Array.isArray(refs);
     const proof = `<span class="v tone-${held ? 'ok' : 'attn'}">${glyph(held ? 'check' : 'cross')}${held ? 'Held' : 'Did not hold'}</span>
-      <small>${item ? `${from} <button type="button" class="linkish" data-open="${item}">#${item}</button>` : from} · ${age}</small>`;
-    const count = many ? (refs.length ? `<button type="button" data-guard="${n}" aria-expanded="${open}" aria-controls="gr-more-${n}">${refs.length} refused · 7 days</button>` : '<span class="none">0 refused · 7 days</span>') : '<span class="none">nothing to refuse</span>';
+      <small>${item ? `${from} ${indexOf(item) >= 0 ? `<button type="button" class="linkish" data-open="${item}">#${item}</button>` : `#${item}`}` : from} · ${age}</small>`;
+    const count = many ? (refs.length ? `<button type="button" data-guard="${n}" aria-expanded="${open}" ${open ? `aria-controls="gr-more-${n}"` : ''}>${refs.length} refused · 7 days</button>` : '<span class="none">0 refused · 7 days</span>') : '<span class="none">nothing to refuse</span>';
     const failNote = !held ? `<p class="attn">${what} It reads as not held until an attack or <code>make guardrails</code> proves it again.</p>` : '';
     const more = (!held || (open && many && refs.length) || !many) ? `<div class="more" id="gr-more-${n}">${failNote}
       ${!many ? `<p>${refs}</p>` : open && refs.length ? `<div class="reflist">${refs.map(([t, m, what, id]) => `<div><span class="mono t">${t}</span><span class="mech">${MECH[m]}</span><span class="what">${esc(what)}</span>${refLink(id)}</div>`).join('')}</div>` : ''}</div>` : '';
@@ -3138,8 +3140,10 @@ function openDialog(kind, ctx = {}) {
       <div class="what"><p>${what}</p></div>
       <ul class="what plain"><li>What should refuse it: ${by}. Its refusal, in its own words, goes on the work item’s card.</li>
         <li>If nothing refuses it, that is a failure: your phone hears, and guardrail ${g} reads “did not hold”.</li><li>What it costs: ${cost}</li></ul>
-      <div class="row">${cancel}<button type="button" class="btn primary" data-dialog-ok>Launch</button></div>
-      <p class="help">No passkey: an attack loosens nothing, and asks the line for no work. One runs at a time.</p>`;
+      ${S.visitor ? `<div class="answers"><span class="ro">Launch</span><p>Martin launches it, signed in. Milestone 8 opens this menu to visitors.</p></div>
+        <div class="row"><button type="button" class="btn" data-dialog-close>Close</button></div>`
+      : `<div class="row">${cancel}<button type="button" class="btn primary" data-dialog-ok>Launch</button></div>
+      <p class="help">No passkey: an attack loosens nothing, and asks the line for no work. One runs at a time.</p>`}`;
   }
   else if (kind === 'flag') {
     // The slider's confirmation: what the stage means and who gets it, before it is applied; or why it can't be taken.
@@ -3229,7 +3233,7 @@ function confirmDialog() {
   else if (d.kind === 'start') { giveKey(); S.stopped = false; }
   // Aborting a canary paused for Martin as judged bad counts as a rollback; any other abort is his manual abort.
   else if (d.kind === 'abort') S.canary = canaryScenario(S.canary).held ? 'heldabort' : 'aborted';
-  else if (d.kind === 'attack') S.launched = d.attack;
+  else if (d.kind === 'attack' && !S.visitor) S.launched = d.attack;
   else if (['improve', 'flag'].includes(d.kind)) { /* done above */ }
   else { giveKey(); d.then?.(); }
   renderAll(); retIndex = 0; cycleReturns();
@@ -3346,7 +3350,10 @@ const AUDIT = [
   ['Today', '15:40:12', 'Martin', 'admin', '', 'Signed in', 'with a passkey'],
   ['Today', '14:05:09', 'admission control', 'agent', '1325', 'Kyverno refused a pod on an image build.yml did not sign on main', 'admission-control · Policy factory-images failed', true],
   ['Today', '14:05:00', 'Martin', 'admin', '1325', 'Launched an attack: “Shipping an image it built itself”', 'attack.launched · no passkey asked'],
-  ['Today', '13:50:58', 'the red-team harness', 'agent', '1323', 'The egress policy refused an agent’s pod three outside addresses', 'egress-policy · the gateway answered, as the control', true],
+  ...(ATTACK_SCENE === 'failed'
+    ? [['Today', '13:51:00', 'alertmanager', 'agent', '1323', 'Paged Martin: a red-team attack was not refused', 'RedTeamAttackNotRefused · guardrail 5'],
+      ['Today', '13:50:58', 'the red-team harness', 'agent', '1323', 'An agent’s pod reached 93.184.215.14 by number: 200 in 212 ms, nothing refused it', 'not refused · two other addresses refused by the egress policy', true]]
+    : [['Today', '13:50:58', 'the red-team harness', 'agent', '1323', 'The egress policy refused an agent’s pod three outside addresses', 'egress-policy · the gateway answered, as the control', true]]),
   ['Today', '13:50:00', 'Martin', 'admin', '1323', 'Launched an attack: “Data to an outside URL”', 'attack.launched · no passkey asked'],
   ['Today', '13:30:44', 'the GitHub worker', 'agent', '1321', 'GitHub refused the App’s commit to a workflow', 'token-permission · 403, no workflows permission', true],
   ['Today', '13:30:41', 'the GitHub worker', 'agent', '1321', 'Its guard refused a commit to .github/workflows/ci.yml', 'github-guard · a workflow: no step may change one', true],
