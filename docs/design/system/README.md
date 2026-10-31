@@ -319,7 +319,7 @@ An **MR monogram**: Martin Rogan's initials in Instrument Serif, with the R set 
 
 One page, three widths. The console is designed to be read from top to bottom: *is it running → what is happening → what does it need from me*.
 
-The Canary panel sits full width directly under the line, at every width: it is the Release station opened up. The bottom row, Needs you and Controls, sits under the reel, for everyone; Try it yourself joins it for visitors in milestone 8. Guardrails sits full width under the bottom row, for everyone: the eleven guardrails on the left and the red-team menu on the right, from 1180 up, and the menu under them below that. Sign-in, enrolment, the settings and the audit log are pages of their own (see Admin).
+The Canary panel sits full width directly under the line, at every width: it is the Release station opened up. The bottom row, Needs you and Controls, sits under the reel, for everyone; Try it yourself joins it for visitors in milestone 8. Guardrails sits full width under the bottom row, for everyone: a checklist of the eleven, in two columns from 1180 up and one below. Sign-in, enrolment, the settings and the audit log are pages of their own (see Admin).
 
 | Width | The line | The Canary panel | The reel and the sheet | Bottom row |
 |---|---|---|---|---|
@@ -342,7 +342,7 @@ Each panel does one job:
 - **The sheet:** one work item in full: what waits on Martin for it, answered there as in Needs you, the stage scrubber and the site at each step, the evidence, the change, the model calls and the gates.
 - **Needs you:** one card per hold, the line's and triage's (a spec and the planner's question on it are one decision), and each flag that waits for Martin to widen it, each answer beside what it does. Requesting an improvement lives on the Plan station, not here.
 - **Controls:** autonomy, three switches, what the line takes, the flags, and spend against the day's, the month's and a work item's caps; the models and the caps themselves are on the settings page. Guardrails that can't be switched off are not drawn as switches; one line says so, and points to Guardrails.
-- **Guardrails:** each of spec 6's eleven, its mechanism, its last proof and its recent refusals, and the red-team menu. It is how a visitor sees that the factory can be trusted, so it is on the console, not a page of its own.
+- **Guardrails:** a checklist of spec 6's eleven, each held or not and how old its proof is; each opens in place to what holds it, its refusals and its red-team attack. It is how a visitor sees that the factory can be trusted, so it is on the console, not a page of its own, and kept short there.
 - **Left out on purpose:** placeholders for other apps, a live-feed ticker (the stations and the reel already show what is happening), an always-on feedback loop under the belt (production feeding Sense is a return like any other), sparklines, and help text that repeats itself.
 
 ## Sensing and triage
@@ -505,10 +505,11 @@ The card keeps the `attn` rule on its left edge. A count in the panel's head say
 
 Four groups, each under a `t-label`, then a key to the key, and links to the settings and the audit log:
 
-- **Autonomy:** Supervised, Guarded, Lights-out, and one line saying what the chosen one means. Loosening asks for the passkey and tells Martin's phone; tightening is immediate. The words take the room of the longest level's, so nothing below moves when the level changes. Lights-out is never the default.
-  - **Lights-out's note:** while Lights-out is chosen, and in the passkey's dialog that chooses it, a note ruled in `line-strong` (a fact, not a fault) says it takes two settings: this one, and `AUTONOMY` set to `lights-out` in the app's repository on GitHub, which only Martin can set. The line reads this one and the review gate reads the variable, so the stricter wins: with only one of them set, risky changes still wait for him, as under Guarded. The gate names the rule that passed each pull request, and the line adds one to the queue only by a rule this level allows. A visitor's says the same of Martin.
+- **Autonomy** and **What the line takes** are drawn alike: each a segmented control the panel's full width, its choices equally wide and ordered tightest to loosest, with one line under it saying what the choice in force means. In both, the key sits on each choice looser than the one in force, so it moves with the selection: moving there needs the passkey, and tightening never does.
+- **Autonomy:** Supervised, Guarded, Lights-out. Loosening asks for the passkey and tells Martin's phone; tightening is immediate. Lights-out is never the default.
+  - **Lights-out's note:** while Lights-out is chosen, one more line: "Also needs `AUTONOMY` set to `lights-out` in the app's repository, which only you can set". The passkey's dialog that chooses it says the whole of it: it takes two settings: this one, and `AUTONOMY` set to `lights-out` in the app's repository on GitHub, which only Martin can set. The line reads this one and the review gate reads the variable, so the stricter wins: with only one of them set, risky changes still wait for him, as under Guarded. The gate names the rule that passed each pull request, and the line adds one to the queue only by a rule this level allows. A visitor's line says the same of Martin.
 - **Switches:** Agents take new work, Auto-merge low-risk changes, Auto-rollback, each with a line saying what it does, or what off means. Turning agents back on asks for nothing: it is not starting the line, which has its own button and asks. Auto-merge has the line add a pull request to the merge queue once the review check passes it by a rule the autonomy level allows; under Supervised it waits for Martin anyway. **Auto-rollback** says what each position does: on, a canary the analysis judges bad rolls back by itself; off, it pauses for Martin in Needs you instead, and Stop the line still aborts one. Turning it off asks for the passkey ("Turn off auto-rollback": overriding a guardrail) and tells his phone; turning it on asks for nothing.
-- **What the line takes:** Every ticket, The next few (with how many, and how many it has taken so far) or Just one (with its number), and a line saying what the line will do. These are `LINE_TAKE` and `LINE_ONLY` as settings.
+- **What the line takes:** Just one (with its number), The next few (with how many, and how many it has taken so far) or Every ticket, a line saying what the line will do, and then the number its choice takes. These are `LINE_TAKE` and `LINE_ONLY` as settings.
 - **Spend:** three meters in ink (spend is not a fault): models today against the day's cap, this month against the month's, and the dearest work item today against a work item's cap, with when the day resets, in UTC. A meter at its cap turns `attn`.
 
 ### The settings
@@ -635,21 +636,25 @@ The same views, read-only, by the rules above: the "+" and its form as described
 
 ## Guardrails
 
-Spec 6's eleven guardrails, how each is held and when it was last proved, and the red-team attacks that try them, agreed as a set: the Guardrails panel, the red-team menu and its launch, an attack's card and sheet, an attack nothing refused, auto-rollback's switch and a canary paused for Martin, Lights-out's note, and a merge held for its risk tags. The last four are in "Controls", "The Canary panel" and "Needs you" above. The mockup draws each (`?open=`, `?attack=`, `?canary=held`, `?autonomy=lightsout` and the rest in its comment). Visitors see all of it, read-only by the rules in "Read only": it is part of the demo.
+Spec 6's eleven guardrails, how each is held and when it was last proved, and the red-team attacks that try them, agreed as a set: the Guardrails checklist and its rows opened, each attack in its guardrail's row and its launch, an attack's card and sheet, an attack nothing refused, auto-rollback's switch and a canary paused for Martin, Lights-out's note, and a merge held for its risk tags. The last four are in "Controls", "The Canary panel" and "Needs you" above. The mockup draws each (`?open=`, `?attack=`, `?canary=held`, `?autonomy=lightsout` and the rest in its comment). Visitors see all of it, read-only by the rules in "Read only": it is part of the demo.
 
 ### The panel
 
-Full width under the bottom row, headed **Guardrails** with "Always on" on the right, then one line: each is held by a mechanism and proved, by `make guardrails` (on the cluster, or from main's last CI run of the tests) or by an attack; none has a switch except auto-rollback, part of 9, which Martin turns off in Controls; Stop the line always works.
+Full width under the bottom row, headed **Guardrails** with how many hold on the right ("11 held", or "10 held · 1 did not" in `attn`), one line saying each is held by a mechanism and proved, then the checklist, and under it one line: only auto-rollback can be switched off, in Controls; Stop the line always works.
 
-- **One row per guardrail,** in spec 6's order and words: its number in mono, its name, and under it its mechanism in a sentence (`text-muted`); then its **last proof**: a tick and **Held** in `ok`, or a cross and **Did not hold** in `attn`, over where the proof came from and how old it is in mono ("make guardrails · 2h ago", "attack #1323 · 3h ago", "tests in CI on main · 5b2c0d9 · 3h ago", which `make guardrails` records from main's last run of the tests that prove it, held only if that run passed at main's head or a day before), an attack's number opening its sheet; then its **refusals** in the last seven days, right-aligned: "2 refused · 7 days", which lists them under the row when pressed, "0 refused · 7 days", or "nothing to refuse" where the guardrail is a structure, with a line under it saying what proves it instead (2's test on every pull request; 9's last rollback, and that auto-rollback is off while it is).
-- **A refusal** is a row of its own: its time, its mechanism in `attn` mono (scope fence, GitHub worker's guard, token permission, ruleset, review gate, egress policy, admission control, gateway, typed judgement), what was refused in a few words, and its work item, opening its sheet; with none (Kyverno refusing a pod applied by hand), **Audit log**. The panel counts each by the role that appended it.
-- **A proof that did not hold** takes the `attn` rule down the row's left edge, and says what happened in a sentence of its own: what got through, that Martin's phone was paged and when, and that it reads as not held until an attack or `make guardrails` proves it again. It never folds away.
-- Under the rows: a proof records main's commit and a hash of the policies it was taken against, an attack nothing refuses pages Martin, and every refusal is in the audit log too.
-- **Widths:** from 1180 up the guardrails take seven twelfths and the menu the rest; below, the menu goes under them. On a phone each row stacks its proof and its refusals under its name.
+- **A row** is one line and a button: a tick and **Held** in `ok`, or a cross and **Did not hold** in `attn`; the guardrail's number in mono and its name in spec 6's words; how old its last proof is, in mono; and a chevron. Eleven rows, in two columns from 1180 up (1 to 6, 7 to 11), one column below.
+- **Opening a row** shows its details in place, under it: not a popup or a drawer. The row has `aria-expanded`, and one is open at a time: opening another closes it. The chevron turns. Open, it says:
+  - **what holds it,** its mechanism in a sentence;
+  - **its last proof:** held or not, where the proof came from ("make guardrails", "attack #1323", or "tests in CI on main · 5b2c0d9", which `make guardrails` records from main's last run of the tests that prove it, held only if that run passed at main's head or a day before), and when; an attack's number opens its sheet;
+  - **its refusals** in the last seven days, the last three, a line each: the time, its mechanism in `attn` mono (scope fence, GitHub worker's guard, token permission, ruleset, review gate, egress policy, admission control, gateway, typed judgement), what was refused in a few words, and its work item, opening its sheet, or, with none (Kyverno refusing a pod applied by hand), **Audit log**. Where the guardrail is a structure with nothing to refuse, a line says what proves it instead (2's tests on every pull request; 9's last rollback, and that auto-rollback is off while it is). The panel counts each refusal by the role that appended it;
+  - **its attack,** for the five guardrails one proves (below): a `raised` card with its name, its last run in mono (a tick and REFUSED in `ok`; a cross and NOT REFUSED · MARTIN PAGED in `attn`, with the card's `attn` rule; or a ring and RUNNING in `signal`), when, and its work item; and **Launch** on the right.
+- **A proof that did not hold** takes the `attn` rule down its row's left edge; opened, it says what got through, that Martin's phone was paged and when, and that it reads as not held until an attack or `make guardrails` proves it again.
+- **Nothing long on the main page:** a refusal in its own words is on the attack's card and sheet, which the row links to.
+- **On a phone** the row keeps its word, number and name, with the proof's age under the name, and opens the same way.
 
-### The red-team menu
+### The attacks
 
-**Attack the factory**, beside the guardrails: a line saying each attack is a real attempt from where an agent would be, against the real mechanism, with fixed content and no agent, and becomes a work item on the reel with the refusal in the mechanism's own words. Then the five of spec 5.3, each a `raised` card: its number and name; what it does and what should stop it, with the guardrail it proves ("Stopped by the egress policy · guardrail 5"); its last run in mono (a tick and REFUSED in `ok`, a cross and NOT REFUSED · MARTIN PAGED in `attn` with the card's `attn` rule, or a ring and RUNNING in `signal`), when, and its work item; and **Launch** on the right.
+The five of spec 5.3, each in the row of the guardrail it proves:
 
 | Attack | What it does | Stopped by | Guardrail |
 |---|---|---|---|
@@ -659,9 +664,11 @@ Full width under the bottom row, headed **Guardrails** with "Always on" on the r
 | Data to an outside URL | A pod made like an agent's tries an outside address by name and by number, and the provider's host | The egress policy | 5 |
 | Shipping an image it built itself | The same pod, on an image `build.yml` did not sign on main | Admission control | 3 |
 
-- **Launch** opens a dialog: "A red-team attack · guardrail 3", the attack's name, what it does in a ruled box, then that its mechanism should refuse it and the refusal goes on its card, that if nothing refuses it his phone hears and the guardrail reads "did not hold", and what it costs (nothing, or Jev's calls for the first). **Launch** in `signal`, with no key: an attack loosens nothing and asks the line for no work, which a line under it says.
-- **One at a time:** while one runs, its Launch reads Running, every Launch is dashed and disabled, and the menu's line names the attack running.
-- **For a visitor,** Launch is a label, and the menu's last line says Martin launches these, signed in, and that milestone 8 opens this menu to visitors.
+Each is a real attempt from where an agent would be, against the real mechanism, with fixed content and no agent, and becomes a work item on the reel with the refusal in the mechanism's own words.
+
+- **Launch** opens a dialog: "A red-team attack · guardrail 3", the attack's name, what it does in a ruled box, then what should refuse it and that the refusal goes on its card, that if nothing refuses it his phone hears and the guardrail reads "did not hold", and what it costs (nothing, or Jev's calls for the first). **Launch** in `signal`, with no key: an attack loosens nothing and asks the line for no work, which a line under it says.
+- **One at a time:** while one runs, its Launch reads Running, and every other Launch is dashed and disabled.
+- **For a visitor,** Launch is a label, and its dialog says Martin launches it, signed in, and that milestone 8 opens the attacks to visitors, with only Close.
 
 ### An attack's card and sheet
 
