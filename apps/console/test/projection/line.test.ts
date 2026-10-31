@@ -277,7 +277,8 @@ describe('a promoted release', () => {
     const item = promoted();
     const t = item.at(4) + PASSING_MS + 60_000;
     const view = project(item.events, t);
-    expect(view.canary.state).toBe('idle');
+    // The panel still draws the promoted release in full: it stays until the next starts.
+    expect(view.canary).toMatchObject({ state: 'shown', release: { end: { kind: 'promoted' } } });
     expect(stationAt(item.events, t, 'release')).toMatchObject({ status: 'idle', figure: '1 today' });
     expect(view.panels.release.rows).toMatchObject([{ item: '1', note: 'passed on to verify', state: 'passed' }]);
     expect(stationAt(item.events, t, 'verify')).toMatchObject({ status: 'working', figure: '1 check' });

@@ -78,13 +78,18 @@ describe('the Canary panel, from the samples', () => {
     });
   });
 
-  it('keeps a promoted release in full for a quarter of an hour, then folds it to one line', () => {
+  it('keeps a promoted release in full until the next starts, while its station reads passed for a quarter of an hour', () => {
     expect(shown(at('2026-10-06T07:10:00Z')).canary).toMatchObject({
       state: 'shown',
       release: { end: { kind: 'promoted' } },
     });
     expect(shown(at('2026-10-06T07:10:00Z')).station?.status).toBe('passing');
-    expect(shown(at('2026-10-06T08:00:00Z')).canary).toMatchObject({ state: 'idle', release: { version: 'v0.9.12' } });
+    // Long after: the station is idle again, and the panel still draws the release in full.
+    expect(shown(at('2026-10-06T08:00:00Z')).station?.status).not.toBe('passing');
+    expect(shown(at('2026-10-06T08:00:00Z')).canary).toMatchObject({
+      state: 'shown',
+      release: { version: 'v0.9.12', end: { kind: 'promoted' } },
+    });
   });
 
   it('links a rollback before any step was measured to the ticket its signal opened', () => {
@@ -1064,7 +1069,7 @@ describe('Martin’s controls of the canary', () => {
       by: 'martin',
     });
     const all = releases(aborted.events, [], aborted.at(300));
-    expect(canaryView(all, aborted.at(300)).state).toBe('shown');
+    expect(canaryView(all).state).toBe('shown');
   });
 
   it('asks for the passkey where the access table does, and counts it fresh as long', () => {

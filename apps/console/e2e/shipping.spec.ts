@@ -179,7 +179,7 @@ test.describe('the Canary panel', () => {
     await expect(page.getByRole('dialog', { name: 'Release' })).toContainText('Merged · deploy #1331’s checks running');
   });
 
-  test('draws each abort and an analysis error, marks a dry run, and folds to one line when nothing is in flight', async ({
+  test('draws each abort and an analysis error, marks a dry run, and keeps the last release in full until the next', async ({
     page,
   }) => {
     await page.goto(consoleUrl({ at: CANARY.stopped }));
@@ -200,9 +200,11 @@ test.describe('the Canary panel', () => {
     await shown(page);
     await expect(panel(page).locator('.kick')).toHaveText('Canary · 50%, as the dry run records itDry run');
     await expect(panel(page)).toContainText('no image: nothing shipped');
-    await page.goto(consoleUrl({ at: CANARY.idle }));
+    // Nearly an hour after its promotion, with nothing in flight, the panel still draws it in full.
+    await page.goto(consoleUrl({ at: Date.parse('2026-10-06T08:00:00Z') }));
     await shown(page);
-    await expect(panel(page)).toContainText('No release in flight The last, v0.9.12, was promoted at 08:06');
+    await expect(panel(page).locator('.kick')).toHaveText('Promoted · all traffic');
+    await expect(panel(page)).not.toContainText('No release in flight');
   });
 
   // A row is one line at every laptop width, with the steps beside the measures (above 1180px) or above them; on a

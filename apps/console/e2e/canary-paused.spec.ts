@@ -129,4 +129,13 @@ test('Martin sees only Promote fully, with the key, and Abort, which counts as a
     await expect.poll(async () => (await controlled()).map((c) => c.payload.action)).toEqual(['abort']);
     expect(rollout.patches.at(-1)).toEqual({ status: { abort: true } });
   });
+
+  await test.step('the abort shows at once, in the card and the panel, before the line records the rollback', async () => {
+    await expect(panel(page).locator('.kick .out')).toHaveText('Aborting at 50%…');
+    await expect(controls.getByRole('button')).toHaveCount(0);
+    await expect(card.locator('.answers')).toHaveCount(0);
+    await expect(card.getByRole('status')).toHaveText(
+      /^You aborted the canary at 50%, at \d\d:\d\d:\d\d: Argo Rollouts sends all the traffic back to v0\.9\.12\. Since the analysis judged it bad, it counts as a rollback\. The line records it at its next pass\.$/,
+    );
+  });
 });

@@ -118,6 +118,25 @@ export interface Release {
    * flight (`judgedBadOf`).
    */
   judgedBad: JudgedBad | undefined;
+  /**
+   * What Martin, or Stop the line, did to it through the admin service that the line has not recorded yet: an abort or
+   * a full promotion of the attempt in flight, or a retry of the one that ended. The admin service records the act the
+   * moment it makes it (`release.controlled`), and the line its outcome at its next pass, up to half a minute later:
+   * until then the panel says it is under way, and offers no control it has made pointless. Promote to the next step,
+   * Pause and Resume need none of this: the projection moves the canary for them at once.
+   */
+  acting: Acting | undefined;
+}
+
+/**
+ * An act the line has not recorded yet (`Release.acting`): which, when, the canary's weight then as the Rollout had it
+ * (0 for a release that was stopped), and whether Stop the line made it.
+ */
+export interface Acting {
+  action: 'abort' | 'promote-fully' | 'retry';
+  at: number;
+  weight: number;
+  stop: boolean;
 }
 
 /**
@@ -132,10 +151,10 @@ export interface JudgedBad {
 }
 
 /**
- * What the Canary panel shows: no release yet, the newest one in full, or, once it has ended a while, one line. A
- * release that was stopped stays in full while it is the newest, since it waits for Martin's retry.
+ * What the Canary panel shows: no release yet, or the newest one in full, in flight or however it ended, until the next
+ * starts. A release that was stopped or rolled back waits for Martin's retry, and one promoted says how it went.
  */
-export type CanaryView = { state: 'none' } | { state: 'shown'; release: Release } | { state: 'idle'; release: Release };
+export type CanaryView = { state: 'none' } | { state: 'shown'; release: Release };
 
 /**
  * The analysis's measures, as the panel names them, each with its rule in `policy/release.ts`'s terms. The console's
@@ -419,9 +438,6 @@ export const endedWords = (end: End) => {
   return by ? stopWords(by) : end.kind === 'rolled-back' ? 'rolled back' : 'promoted';
 };
 
-/** How long a release stays in full on the panel after it ends: as long as a station reads "passed". */
-const SHOWN_MS = 15 * 60_000;
-
 const ALL: Step = { weight: 100, pauseSeconds: null, analysis: true };
 
 interface Building extends Release {
@@ -435,6 +451,12 @@ interface Building extends Release {
   shift: number | undefined;
   /** When the line first held a work item this attempt carries for Martin, as a canary paused for him. */
   heldAt: number | undefined;
+}
+
+/** Ends an attempt by its own event: what was under way is done, whatever it was. */
+function close(r: Building, end: End) {
+  r.end = end;
+  r.acting = undefined;
 }
 
 /**
@@ -591,6 +613,7 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
         paused: undefined,
         promotions: [],
         judgedBad: undefined,
+        acting: undefined,
         held: [],
         stoppedAt: undefined,
         seen: new Set(),
@@ -603,8 +626,19 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
     // a promotion moves it on. What the Rollout then does, the line records.
     if (event.type === 'release.controlled') {
       const r = byId.get(event.payload.release);
-      if (!r || r.end) continue;
-      const { action, weight, to } = event.payload;
+      if (!r) continue;
+      const { action, weight, to, stop } = event.payload;
+      // Stop the line's abort, made by the admin service, is one the line records: the stop says nothing more of it.
+      if (stop && !r.end) {
+        recordsAborts = true;
+        r.stoppedAt = undefined;
+      }
+      // A retry asks the release that ended to start again: the line's next start of it is the answer.
+      if (endOf(r)) {
+        if (action === 'retry') r.acting = { action, at, weight, stop: false };
+        continue;
+      }
+      if (action === 'abort' || action === 'promote-fully') r.acting = { action, at, weight, stop: stop === true };
       if (action === 'pause') r.paused = { at, weight };
       // Resumed or promoted, it runs again; aborted, it stays where he held it, which is where it stopped.
       else if (r.paused && action !== 'abort' && action !== 'retry') {
@@ -647,18 +681,18 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
       // The line records a step on each work item the release carries, not always in the same pass.
       if (!r.measured.some((m) => m.weight === weight)) r.measured.push({ weight, at, stepped: event.payload });
     }
-    if (event.type === 'release.promoted') r.end = { kind: 'promoted', at, weight: 100 };
+    if (event.type === 'release.promoted') close(r, { kind: 'promoted', at, weight: 100 });
     if (event.type === 'release.rolled-back') {
       const { weight, reason, failed, by } = event.payload;
-      r.end = { kind: 'rolled-back', at, weight, reason, failed, ticket: undefined, by };
+      close(r, { kind: 'rolled-back', at, weight, reason, failed, ticket: undefined, by });
     }
     // Recorded a pass after Argo Rollouts acted on the abort the Error made: it ended then.
     if (event.type === 'release.errored') {
       const { weight, reason, errored, abortedAt } = event.payload;
-      r.end = { kind: 'errored', at: Date.parse(abortedAt), weight, reason, errored };
+      close(r, { kind: 'errored', at: Date.parse(abortedAt), weight, reason, errored });
     }
     // Recorded a pass after Argo Rollouts acted on it: it ended then, at the step it had reached.
-    if (event.type === 'release.aborted') r.end = abortedAt(r, Date.parse(event.payload.abortedAt), event.payload.by);
+    if (event.type === 'release.aborted') close(r, abortedAt(r, Date.parse(event.payload.abortedAt), event.payload.by));
   }
   return [...byId.values()].map((r): Release => {
     const {
@@ -680,7 +714,9 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
     release.looks = [...r.looks].sort((a, b) => a.at - b.at);
     const looked = release.looks.findLast((l) => l.measures.some((m) => m.name !== 'journeys'));
     if (!end && !r.dryRun && !judged && looked) release.nextLook = looked.at + BACKGROUND.intervalMs;
-    return { ...release, ...place, weight: end ? end.weight : place.weight, end, judgedBad: judged };
+    // An end the history inferred from a stop answers an abort as its own event does; only a retry outlives an end.
+    const acting = end && r.acting?.action !== 'retry' ? undefined : r.acting;
+    return { ...release, ...place, weight: end ? end.weight : place.weight, end, judgedBad: judged, acting };
   });
 }
 
@@ -753,13 +789,10 @@ const abortedAt = (r: Building, at: number, by: AbortedBy): End => ({
   by,
 });
 
-/** The newest release, in full while it is in flight and for a while after; then one line. */
-export function canaryView(all: readonly Release[], t: number): CanaryView {
+/** The newest release, in full, until the next starts. */
+export function canaryView(all: readonly Release[]): CanaryView {
   const release = all.at(-1);
-  if (!release) return { state: 'none' };
-  // One that was stopped or rolled back waits for Martin's retry, or the next deploy.
-  const waits = !release.dryRun && release.end !== undefined && release.end.kind !== 'promoted';
-  return { state: !release.end || waits || t - release.end.at <= SHOWN_MS ? 'shown' : 'idle', release };
+  return release ? { state: 'shown', release } : { state: 'none' };
 }
 
 /**
@@ -787,7 +820,8 @@ export interface Control {
  * own: that is the analysis's, or his abort of a canary it judged bad.
  */
 export function controlsOf(r: Release, lineStopped: boolean): Control[] {
-  if (r.dryRun) return [];
+  // An act under way leaves nothing to press until the line records what it did (`acting`).
+  if (r.dryRun || r.acting) return [];
   const version = shortVersion(r.version);
   const control = (action: ReleaseControl, label: string, what: string, off?: string): Control => ({
     action,
@@ -835,9 +869,50 @@ export function controlsOf(r: Release, lineStopped: boolean): Control[] {
   ];
 }
 
+/**
+ * An act under way, in a few words, for the kicker: "Aborting at 25%", "Promoting fully", "Starting again".
+ */
+export function actingKicker(a: Acting): string {
+  if (a.action === 'retry') return 'Starting again';
+  if (a.action === 'promote-fully') return 'Promoting fully';
+  const at = a.weight ? ` at ${a.weight}%` : '';
+  return a.stop ? `Stopping with the line${at}` : `Aborting${at}`;
+}
+
+/**
+ * An act under way, as the note and the paused card say it: who did what when, what Argo Rollouts does now, and that
+ * the line records it at its next pass.
+ */
+export function actingWords(r: Release, a: Acting, viewer: 'martin' | 'visitor', when: string): string {
+  const who = viewer === 'martin' ? 'You' : 'Martin';
+  const recorded = 'The line records it at its next pass.';
+  if (a.action === 'retry')
+    return `${who} retried the release at ${when}: Argo Rollouts starts ${shortVersion(r.version)}’s canary again from its first step. ${recorded}`;
+  if (a.action === 'promote-fully')
+    return `${who} promoted the canary fully at ${when}${r.judgedBad ? ', past the analysis’s verdict' : ''}: Argo Rollouts gives ${shortVersion(r.version)} all the traffic. ${recorded}`;
+  const by = a.stop ? 'Stop the line aborted the canary' : `${who} aborted the canary`;
+  const rollback = r.judgedBad ? ' Since the analysis judged it bad, it counts as a rollback.' : '';
+  return `${by}${a.weight ? ` at ${a.weight}%` : ''}, at ${when}: Argo Rollouts sends all the traffic back to ${shortVersion(r.previous)}.${rollback} ${recorded}`;
+}
+
 /** The work items a rollback fails at Release: "#1302 fails Release", "#1302 and #1304 fail Release". */
 export const failsRelease = (r: Release) =>
   `${r.items.map((i) => `#${i.number}`).join(' and ')} ${r.items.length > 1 ? 'fail' : 'fails'} Release`;
+
+/**
+ * Whether a canary in flight is past its step's pause at a step the analysis judges, and so waits for that analysis to
+ * end (a journeys Job still running, say): it moves on then, not at the time its pause ended. Not while Martin's pause,
+ * an act under way, or a verdict waiting for him holds it.
+ */
+export const waitsForAnalysis = (r: Release, t: number) =>
+  !r.end &&
+  !r.dryRun &&
+  !r.paused &&
+  !r.acting &&
+  !r.judgedBad &&
+  r.until !== undefined &&
+  t >= r.until &&
+  r.steps[r.step]?.analysis === true;
 
 /** The release in flight: the newest, while it has not ended. */
 export const inFlight = (all: readonly Release[]) => {

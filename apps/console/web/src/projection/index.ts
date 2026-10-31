@@ -150,7 +150,7 @@ export function project(events: readonly PublicEvent[], t: number): View {
     panels: Object.fromEntries(
       STAGES.map((stage) => [stage, panel(stage, items, sent, seen, line, t, shipped)]),
     ) as Record<Stage, StagePanel>,
-    canary: canaryView(shipped, t),
+    canary: canaryView(shipped),
     cards,
     timeline: timeline(cards, shipped),
     needs: needsView(items, t, inFlight(shipped)),

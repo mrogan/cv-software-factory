@@ -6,19 +6,11 @@
 import type { ReleaseControl } from '@software-factory/events';
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { type Admin, said, write } from '../admin.ts';
-import {
-  capital,
-  clock,
-  clockSeconds,
-  countdown,
-  duration,
-  isCommit,
-  shortVersion,
-  shortWhen,
-  times,
-} from '../format.ts';
+import { capital, clockSeconds, countdown, duration, isCommit, shortVersion, times } from '../format.ts';
 import type { CanaryView, Carried, Measured, Release } from '../projection/index.ts';
 import {
+  actingKicker,
+  actingWords,
   BACKGROUND,
   type Control,
   controlsOf,
@@ -39,6 +31,7 @@ import {
   sawOf,
   stoppedBy,
   type Unit,
+  waitsForAnalysis,
   written,
 } from '../projection/release.ts';
 import { Dialog } from './Dialog.tsx';
@@ -95,7 +88,9 @@ export function Verdict({
 
 /** How the release stands, as the kicker says it, in its tone. */
 export function standing(r: Release): [word: string, tone: Tone, dot: string] {
-  const { end, weight } = r;
+  const { end, weight, acting } = r;
+  // An act the line has not recorded yet: under way, blinking, warm for an abort.
+  if (acting) return [`${actingKicker(acting)}…`, acting.action === 'abort' ? 'attn' : 'signal', 'blink'];
   if (!end) {
     // Judged bad with auto-rollback off, Argo Rollouts holds it for Martin: warm, ringed.
     if (r.judgedBad) return [`Paused for Martin at ${weight}% · judged bad`, 'attn', 'ring'];
@@ -581,7 +576,9 @@ function StepTime({ r, clock: { t, ticking, motion } }: { r: Release; clock: Clo
   const now = useRef(t);
   now.current = t;
   const { since, until } = r;
-  const on = !r.end && !r.paused && since !== undefined && until !== undefined;
+  const on = !r.end && !r.paused && !r.acting && since !== undefined && until !== undefined;
+  // Past its pause, a judged step waits for its analysis to end, however long that takes: no time left to count.
+  const over = on && waitsForAnalysis(r, t);
   const runs = on && ticking && motion;
   const done = (at: number) =>
     since === undefined || until === undefined
@@ -606,7 +603,7 @@ function StepTime({ r, clock: { t, ticking, motion } }: { r: Release; clock: Clo
     if (run.current && since !== undefined) run.current.currentTime = t - since;
   }, [t, since]);
   useEachSecond(t, on && ticking, (at) => {
-    if (until !== undefined) rewrite(left.current, `${countdown(until - at)} left`);
+    if (until !== undefined) rewrite(left.current, stepLeft(until - at));
     if (!run.current && bar.current) bar.current.style.transform = `scaleX(${done(at)})`;
   });
   if (!on) return null;
@@ -618,8 +615,8 @@ function StepTime({ r, clock: { t, ticking, motion } }: { r: Release; clock: Clo
           ? `The ${r.weight}% step, as the dry run records it`
           : `${analysed ? 'Measuring' : 'Holding at'} the ${r.weight}% step`}
       </span>
-      <span className="left mono" ref={left}>
-        {`${countdown(until - t)} left`}
+      <span className={`left${over ? '' : ' mono'}`} ref={left}>
+        {stepLeft(until - t)}
       </span>
       <span className="bar" aria-hidden="true">
         <span ref={bar} style={runs ? undefined : { transform: `scaleX(${done(t)})` }} />
@@ -627,6 +624,9 @@ function StepTime({ r, clock: { t, ticking, motion } }: { r: Release; clock: Clo
     </div>
   );
 }
+
+/** What is left of a step's pause: "2:13 left", or, once it is over, that the step waits for its analysis. */
+const stepLeft = (ms: number) => (ms > 0 ? `${countdown(ms)} left` : 'waiting for its analysis');
 
 /**
  * Whether the panel shows the measures' own table: always before an end, and after a rollback or an error only when it
@@ -773,11 +773,12 @@ function againWords(r: Release): string {
 }
 
 /** What happens next, or what happened, in the release's own times. */
-function note(r: Release, switched: Switched): string {
-  const { end } = r;
+function note(r: Release, switched: Switched, t: number): string {
+  const { end, acting } = r;
   if (r.dryRun)
     return 'The dry run answers for this release: its merges were never made, so nothing shipped and nothing was measured. It records each step as the line would see it, so a soak goes round.';
-  if (!end) return againWords(r) + flying(r, switched);
+  if (acting) return actingWords(r, acting, switched.viewer, clockSeconds(acting.at));
+  if (!end) return againWords(r) + flying(r, switched, t);
   const took = duration(end.at - r.startedAt);
   if (end.kind === 'promoted')
     return `Promoted at ${clockSeconds(end.at)}, ${took} after it started.${r.items.length ? ' Verify now asks the sense that saw each ticket whether it has cleared.' : ''}`;
@@ -809,7 +810,7 @@ interface Switched {
 }
 
 /** What happens next to a release in flight. */
-function flying(r: Release, switched: Switched): string {
+function flying(r: Release, switched: Switched, t: number): string {
   const { viewer } = switched;
   const step = r.steps[r.step];
   const { judgedBad } = r;
@@ -826,21 +827,14 @@ function flying(r: Release, switched: Switched): string {
     return `The canary holds at ${r.weight}% until someone promotes it; if a measure fails, ${failing(switched)}.`;
   // The step's own words and the time left are over the bar above: this says what happens when it ends.
   const next = r.steps[r.step + 1]?.weight ?? 100;
-  const moves = `${next === 100 ? 'takes all the traffic' : `moves to ${next}%`} at ${clockSeconds(r.until)}`;
+  const to = next === 100 ? 'takes all the traffic' : `moves to ${next}%`;
+  // Its pause is over and its analysis still running (the journeys' Job, say): it moves when that ends, not at a time.
+  if (waitsForAnalysis(r, t))
+    return `The ${r.weight}% step’s pause ended at ${clockSeconds(r.until)}, and the canary waits for the step’s analysis to end. If every measure passes, it ${to}; if one fails, ${failing(switched)}.`;
+  const moves = `${to} at ${clockSeconds(r.until)}`;
   return step.analysis
     ? `If every measure passes, the canary ${moves}; if one fails, ${failing(switched)}.`
     : `The canary ${moves}; if a measure fails first, ${failing(switched)}.`;
-}
-
-/** How the last release ended, in the idle line's words: "promoted", "rolled back at 25%". */
-function ended(r: Release, t: number): [word: string, tone: Tone, when: string] {
-  const { end } = r;
-  if (!end) return ['', 'faint', ''];
-  const word = end.kind === 'promoted' ? 'promoted' : `${endedWords(end)} at ${end.weight}%`;
-  const today = new Date(end.at).toDateString() === new Date(t).toDateString();
-  const when = today ? `at ${clock(end.at)}` : `on ${shortWhen(end.at)}`;
-  if (r.dryRun) return [`${word} in a dry run`, 'faint', when];
-  return [word, end.kind === 'promoted' ? 'ok' : 'attn', when];
 }
 
 /** What the step-up dialog says of each control that asks for the passkey. */
@@ -961,7 +955,13 @@ const Refusal = ({ text }: { text: string | undefined }) =>
 function CanaryControls({ r, admin, lineStopped }: { r: Release; admin: Admin; lineStopped: boolean }) {
   const controls = controlsOf(r, lineStopped);
   const acts = useActs(r, admin, controls);
-  if (!controls.length) return null;
+  // None left to press, as when an act is under way: what the admin service said of the last stays said.
+  if (!controls.length)
+    return acts.refusal ? (
+      <div className="canary-controls">
+        <Refusal text={acts.refusal} />
+      </div>
+    ) : null;
   if (admin.kind !== 'martin') {
     return (
       <div className="canary-controls">
@@ -1015,6 +1015,13 @@ export function CanaryAnswers({ r, admin }: { r: Release; admin: Admin }) {
   const controls = controlsOf(r, false);
   const acts = useActs(r, admin, controls);
   const martin = admin.kind === 'martin';
+  // Answered, and not yet recorded by the line: what is under way, in place of the answers it took away.
+  if (r.acting)
+    return (
+      <p className="ev acting" role="status">
+        {actingWords(r, r.acting, martin ? 'martin' : 'visitor', clockSeconds(r.acting.at))}
+      </p>
+    );
   return (
     <>
       <div className="answers">
@@ -1065,33 +1072,13 @@ interface CanaryProps {
 export const rollouts = (r: Release) => !r.dryRun && r.image?.admitted === true;
 
 export function Canary({ view, t, onOpen, admin, lineStopped, ticking, motion, autoRollback }: CanaryProps) {
-  if (view.state !== 'shown') {
-    const r = view.state === 'idle' ? view.release : undefined;
-    const [word, tone, when] = r ? ended(r, t) : [];
+  if (view.state !== 'shown')
     return (
       <section className="canary idle" aria-labelledby="canary-title">
         <h2 id="canary-title">Canary</h2>
-        {r?.end ? (
-          <p>
-            <span className="out tone-faint">
-              <span className="dot" aria-hidden="true" />
-              No release in flight
-            </span>{' '}
-            The last, <b className="mono">{shortVersion(r.version)}</b>, was{' '}
-            <span className={`said tone-${tone}`}>{word}</span> {when} carrying{' '}
-            {r.items.length
-              ? r.items.map((item) => <Item key={item.number} item={item} titled={false} onOpen={onOpen} />)
-              : 'no work item'}{' '}
-            · release {r.id}
-          </p>
-        ) : (
-          <p>
-            No release yet. Each deploy Martin merges goes out here as a canary, beside the version it would replace.
-          </p>
-        )}
+        <p>No release yet. Each deploy Martin merges goes out here as a canary, beside the version it would replace.</p>
       </section>
     );
-  }
   const r = view.release;
   const [word, tone, dot] = standing(r);
   const { items, image } = r;
@@ -1162,7 +1149,7 @@ export function Canary({ view, t, onOpen, admin, lineStopped, ticking, motion, a
         <div className="canary-steps">
           <Steps r={r} tone={tone} />
           <StepTime r={r} clock={clock} />
-          <p className="canary-note">{note(r, switched)}</p>
+          <p className="canary-note">{note(r, switched, t)}</p>
         </div>
         {right && <div className="canary-measures">{right}</div>}
         {/* A release of its own: what was pressed for another, and refused, is not said under this one. */}

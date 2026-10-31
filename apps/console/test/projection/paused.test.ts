@@ -188,7 +188,7 @@ describe('a canary paused for Martin', () => {
     const all = releases(one.events, [], one.at(300));
     expect(all[0]).toMatchObject({ judgedBad: undefined, end: { kind: 'rolled-back', by: 'martin', weight: 25 } });
     expect(all[0] && controlsOf(all[0], false).map((c) => c.action)).toEqual(['retry']);
-    expect(canaryView(all, one.at(300)).state).toBe('shown');
+    expect(canaryView(all).state).toBe('shown');
   });
 });
 

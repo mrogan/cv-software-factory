@@ -163,6 +163,38 @@ describe('the canary bird', () => {
     ]);
   });
 
+  // The try's sequence (2026-10-31): Martin's abort of a canary judged bad, recorded as a rollback, then his retry of
+  // the same release, which keeps its id, then two looks that passed. The retry's canary is out on the panel, whether
+  // the page heard the rollback live or held it as it opened (a reload, or a sign-in again, which reads from the start).
+  it('leaves for a retry after a rollback by Martin, and keels for nothing while the retry is in flight', () => {
+    const one = work('1')
+      .add(1, 'release.started', 'rollouts', started())
+      .add(2, 'canary.measuring', 'rollouts', look([measure('latency', 120, 'inconclusive')]))
+      .add(3, 'canary.measuring', 'rollouts', look([measure('latency', 180, 'inconclusive')]))
+      .add(5, 'release.rolled-back', 'rollouts', {
+        ...ended,
+        weight: 25,
+        reason: 'Metric "latency" assessed Inconclusive',
+        failed: [],
+        dryRun: false,
+        by: 'martin',
+      })
+      .add(7, 'release.started', 'rollouts', started())
+      .add(7, 'canary.measuring', 'rollouts', look([measure('latency', 420)]))
+      .add(8, 'canary.measuring', 'rollouts', look([measure('latency', 480)]));
+    expect(reactions(one.events).slice(3)).toEqual([
+      { kind: 'keel' },
+      { kind: 'leave', paper: false },
+      { kind: 'hop' },
+      { kind: 'hop' },
+    ]);
+    for (const opened of [4, 5, 6]) {
+      const watch = heard(one.events.slice(0, opened));
+      expect(one.events.slice(opened).map((event) => hear(watch, event))).not.toContainEqual({ kind: 'keel' });
+      expect(watch.release).toBe('r1');
+    }
+  });
+
   it('has heard everything the page holds as it opens, so a copy that arrives after is no news', () => {
     // The samples end with v0.9.13 in flight, its 50% step's looks landed.
     const watch = heard(SAMPLES);
