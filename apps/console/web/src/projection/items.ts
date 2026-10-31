@@ -172,6 +172,10 @@ const REFUSED_AT: Record<PayloadOf<'action.refused'>['mechanism'], Stage | null>
   gateway: null,
 };
 
+/** Admission control refusing a runner's step: the only admission refusal the line puts on a work item. */
+const runnersStep = ({ mechanism, subject }: PayloadOf<'action.refused'>) =>
+  mechanism === 'admission-control' && subject?.namespace === 'runners' && subject.kind === 'Job';
+
 /** The stage an event moves its item to, if any. */
 export function stageOf(event: PublicEvent): Stage | null {
   switch (event.type) {
@@ -215,10 +219,11 @@ export function stageOf(event: PublicEvent): Stage | null {
       return event.payload.to;
     case 'hold.started':
       return event.payload.stage;
-    // Where each mechanism stands on the line. The gateway refuses a call from whichever stage its work item is at, so
-    // its refusal leaves the item there (`foldItem` fails it at that stage).
+    // Where each mechanism stands on the line. The gateway refuses a call from whichever stage its work item is at, and
+    // admission control a runner's step Job (in `runners`) from whichever stage started it, so their refusals leave the
+    // item there (`foldItem` fails it at that stage).
     case 'action.refused':
-      return REFUSED_AT[event.payload.mechanism];
+      return runnersStep(event.payload) ? null : REFUSED_AT[event.payload.mechanism];
     case 'model.called':
       return {
         planner: 'plan',
@@ -413,13 +418,9 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
       passedBefore &&
       (!failed || rebuilding) &&
       (event.type === 'gates.started' || event.type === 'gate.finished' || event.type === 'gates.finished');
-    // The gateway refuses a call from whichever stage its work item is at: its refusal fails the item there, where
-    // every other refusal fails it at its mechanism's stage.
-    const stage =
-      joining || rerun
-        ? null
-        : (stageOf(event) ??
-          (event.type === 'action.refused' && event.payload.mechanism === 'gateway' ? state.stage : null));
+    // The gateway's refusal, and admission control's of a runner's step, fail the item at whichever stage it is at,
+    // where every other refusal fails it at its mechanism's stage.
+    const stage = joining || rerun ? null : (stageOf(event) ?? (event.type === 'action.refused' ? state.stage : null));
     if (stage) {
       if (stage !== state.stage) state.sentBack = undefined;
       enter(stage, time);
