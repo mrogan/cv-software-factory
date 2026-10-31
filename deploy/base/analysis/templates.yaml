@@ -48,6 +48,7 @@ spec:
             (
               label_replace(
             (
+            (
               (
                 (sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}", http_response_status_code=~"5.."}[3m])) or vector(0))
                 / sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m]))
@@ -60,6 +61,7 @@ spec:
             or on () vector(Inf)
             )
             and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
+            ) < Inf
               , "auto_rollback", "off", "", "")
               and on ()
             (count(last_over_time(admin_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="admin"}[1m])) == 1 and on () max(last_over_time(admin_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="admin"}[1m])) == 0)
@@ -90,6 +92,7 @@ spec:
             (
               label_replace(
             (
+            (
               histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m])))
             -
               (
@@ -99,6 +102,7 @@ spec:
             or on () vector(Inf)
             )
             and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
+            ) < Inf
               , "auto_rollback", "off", "", "")
               and on ()
             (count(last_over_time(admin_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="admin"}[1m])) == 1 and on () max(last_over_time(admin_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="admin"}[1m])) == 0)
@@ -211,6 +215,7 @@ spec:
             (
               label_replace(
             (
+            (
               (
                 (sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}", http_response_status_code=~"5.."}[3m])) or vector(0))
                 / sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m]))
@@ -223,6 +228,7 @@ spec:
             or on () vector(Inf)
             )
             and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
+            ) < Inf
               , "auto_rollback", "off", "", "")
               and on ()
             (count(last_over_time(admin_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="admin"}[1m])) == 1 and on () max(last_over_time(admin_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="admin"}[1m])) == 0)
@@ -254,6 +260,7 @@ spec:
             (
               label_replace(
             (
+            (
               histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m])))
             -
               (
@@ -263,6 +270,7 @@ spec:
             or on () vector(Inf)
             )
             and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
+            ) < Inf
               , "auto_rollback", "off", "", "")
               and on ()
             (count(last_over_time(admin_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="admin"}[1m])) == 1 and on () max(last_over_time(admin_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="admin"}[1m])) == 0)

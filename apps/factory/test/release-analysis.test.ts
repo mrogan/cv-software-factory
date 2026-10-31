@@ -221,14 +221,14 @@ describe('auto-rollback, as the analysis reads it', () => {
   });
 
   /** Whether the switch's query answers its figure twice at 5m, given these series of the switch over the 5 minutes. */
-  function offAt5m(series: { series: string; values: string }[]): boolean {
+  function offAt5m(series: { series: string; values: string }[], figure = 'sum(figure)'): boolean {
     const folder = mkdtempSync(join(tmpdir(), 'auto-rollback-'));
     const test = (expected: number) => ({
       interval: '15s',
       input_series: [{ series: 'figure', values: '0.17x40' }, ...series],
       promql_expr_test: [
         {
-          expr: `count(${switched('sum(figure)')})`,
+          expr: `count(${switched(figure)})`,
           eval_time: '5m',
           exp_samples: [{ labels: '{}', value: expected }],
         },
@@ -295,6 +295,10 @@ describe('auto-rollback, as the analysis reads it', () => {
         { series: `line_auto_rollback{${triage}}`, values: steady(0) },
       ]),
     ).toBe(false);
+  });
+
+  it('answers an infinite figure once, whatever the switch: a canary that could not be measured still fails', () => {
+    expect(offAt5m([admin(steady(0)), line(steady(0))], 'sum(figure) / 0')).toBe(false);
   });
 
   it('parses as Prometheus reads it, around the real measures', () => {
