@@ -81,7 +81,7 @@ jobs:
   # `make check` in two halves side by side, the tests in three parts, each on a runner of its own. A part that fails
   # stops none of the others, so a run shows every failure.
   static:
-    name: lint, types, generated files, manifests
+    name: static checks
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -99,7 +99,7 @@ jobs:
       - run: make check-static
 
   tests:
-    name: tests (${{ matrix.shard }})
+    name: tests
     needs: kind
     # Skipped only for a release or a deploy: the required check below stands on its base's tests instead.
     if: ${{ !cancelled() && !contains(fromJSON('["release", "deploy"]'), needs.kind.outputs.kind) }}
@@ -190,7 +190,7 @@ jobs:
   # The browser tests run side by side: the console's, in parts, and the factory's senses (the crawler and the probes).
   # Each needs the pinned Playwright image, on arm64 like the laptops the snapshots are made on, so they match.
   console-browser:
-    name: console browser tests (${{ matrix.part }})
+    name: console browser
     needs: kind
     # Skipped only for a release, deploy or manifests pull request, and a deploy in the merge queue: they change nothing
     # a browser test could see.
@@ -203,6 +203,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        part: [1/3, 2/3, 3/3, speed]
         include:
           - part: 1/3
             tests: --project console --project live --shard 1/3
@@ -246,7 +247,7 @@ jobs:
           retention-days: 7
 
   senses-browser:
-    name: senses browser tests
+    name: senses browser
     needs: kind
     if: ${{ !cancelled() && !contains(fromJSON('["release", "deploy", "manifests"]'), needs.kind.outputs.kind) }}
     runs-on: ubuntu-24.04-arm
@@ -266,7 +267,7 @@ jobs:
   # virtual passkey. A finding fails it unless apps/console/zap/rules.tsv keeps a reason for it. It runs on the runner
   # itself, not in the Playwright image, because ZAP runs in Docker beside it.
   zap:
-    name: ZAP baseline scan
+    name: ZAP scan
     needs: kind
     if: ${{ !cancelled() && !contains(fromJSON('["release", "deploy", "manifests"]'), needs.kind.outputs.kind) }}
     runs-on: ubuntu-24.04

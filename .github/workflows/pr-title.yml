@@ -2,7 +2,7 @@
 #
 # Shared: cv-worlds-worst-website calls this workflow at a pinned commit, so both repositories keep one rule,
 # and the rule stays out of reach of anything that can write to the app's repository.
-name: pr-title
+name: pr title
 
 on:
   pull_request:

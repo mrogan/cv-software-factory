@@ -23,17 +23,21 @@ concurrency:
 
 jobs:
   cache:
-    name: toolchain cache (${{ matrix.tools }})
+    name: cache
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        tools:
-          - node pnpm kustomize
-          - node pnpm kustomize step promtool
-          - node pnpm
+        job: [static, tests, zap]
+        include:
+          - job: static
+            tools: node pnpm kustomize
+          - job: tests
+            tools: node pnpm kustomize step promtool
+          - job: zap
+            tools: node pnpm
     steps:
       # The whole checkout, as check.yml's jobs have it, so the cache's key hashes the same files.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

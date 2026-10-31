@@ -17,7 +17,7 @@
 # Every job is skipped for a deploy or release pull request the factory's App opened (`skip`), which changes nothing
 # they judge. In the merge queue every required job runs, since a merge group names no author to tell them apart by;
 # tests first, which the line reads from the pull request, does not.
-name: app-gates
+name: app gates
 
 on:
   workflow_call:

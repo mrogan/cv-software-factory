@@ -32,7 +32,7 @@ export default defineConfig({
         },
       },
       {
-        // Needs Chromium, so it runs in the pinned Playwright image (`make e2e`, and CI's senses browser tests), not in
+        // Needs Chromium, so it runs in the pinned Playwright image (`make e2e`, and CI's senses browser job), not in
         // `make check`.
         extends: true,
         test: {
