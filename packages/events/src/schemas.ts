@@ -1020,7 +1020,8 @@ export const PAYLOADS = {
    * A mechanism stopped an action: the platform's (a token's permissions, a ruleset, the egress policy, admission
    * control), the coder's scope fence, the GitHub worker's own guard, the review check, the gateway, or triage
    * quarantining a report. Each is appended only by the roles `policy/refusals.ts` names for its mechanism, which row
-   * security holds it to (0040_refusals-by-mechanism.sql).
+   * security holds it to (0040_refusals-by-mechanism.sql), with the guardrails that file gives its mechanism
+   * (0041_refusals-as-they-read.sql).
    */
   'action.refused': z
     .strictObject({
@@ -1467,8 +1468,9 @@ export function validate(input: unknown): Validated {
   if (event.version !== VERSIONS[event.type]) {
     problems.push(`version ${event.version} of ${event.type} is not current; append version ${VERSIONS[event.type]}`);
   }
-  // A release's events may be on a work item or on the line; every other type is on one or the other.
-  if (!RELEASE_TYPES.includes(event.type)) {
+  // A release's events may be on a work item or on the line, and so may a refusal, of what no work item asked for (an
+  // object applied in the cluster, a model call with no job token); every other type is on one or the other.
+  if (!RELEASE_TYPES.includes(event.type) && event.type !== 'action.refused') {
     const line = LINE_TYPES.includes(event.type);
     if (line && event.work_item !== null) problems.push(`${event.type} belongs to the line, not to a work item`);
     if (!line && event.work_item === null) problems.push(`${event.type} needs a work item`);

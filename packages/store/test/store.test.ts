@@ -112,6 +112,7 @@ describe('migrations', () => {
       { version: 38, name: 'line-reads-sign-ins' },
       { version: 39, name: 'release-events-the-lines' },
       { version: 40, name: 'refusals-by-mechanism' },
+      { version: 41, name: 'refusals-as-they-read' },
     ]);
   });
 });
