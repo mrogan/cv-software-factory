@@ -77,13 +77,19 @@ export function failedMeasures(o: Observed, recorded: Recorded): FailedMeasure[]
 }
 
 /**
- * Whether the attempt a run ended in was Martin's rollback: the first end recorded at or after the run's own, to the
- * second Argo Rollouts keeps its abort to.
+ * Whether the attempt a run ended in was Martin's rollback: the first attempt that ended at or after the run did, and
+ * that it was made in. Argo Rollouts keeps both times to the second, rounded down, so a run that ended before the abort
+ * ended no later than its second. A retry comes after the abort, so a run made in the abort's second or after, once the
+ * release started again, is the retry's, however soon it ended: it never takes the earlier attempt's end for its own.
  */
 function rolledBackByMartin(run: AnalysisRun, ends: readonly AttemptEnd[]): boolean {
-  const at = Date.parse(run.status.completedAt ?? '');
-  if (!Number.isFinite(at)) return false;
-  const end = ends.find((e) => Date.parse(e.at) + 1_000 >= at);
+  const done = Date.parse(run.status.completedAt ?? '');
+  const made = Date.parse(run.metadata.creationTimestamp);
+  if (!Number.isFinite(done) || !Number.isFinite(made)) return false;
+  const end = ends.find((e) => {
+    const at = Date.parse(e.at);
+    return at >= done && !(e.retried && made >= at);
+  });
   return end?.how === 'rolled-back' && end.by === 'martin';
 }
 

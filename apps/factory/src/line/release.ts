@@ -436,12 +436,13 @@ export class Releases {
       where e.type = 'release.controlled' and e.payload->>'action' = 'abort' and e.payload->>'release' = ${release}
         and e.ts < ${at}::timestamptz + interval '1 second' and e.ts >= ${at}::timestamptz - interval '1 minute'
         and ${fromMartin(sql, 'e')}
-        -- This attempt's: after the abort or Error that ended the one before it, if it was retried.
+        -- This attempt's: after the abort or Error that ended the one before it, if it was retried. A version 3
+        -- rollback does not say when Argo Rollouts acted on its abort, and was recorded after it: its record stands in.
         and e.ts >= coalesce((
-          select max((p.payload->>'abortedAt')::timestamptz) from events p
+          select max(coalesce((p.payload->>'abortedAt')::timestamptz, p.ts)) from events p
           where p.type in ('release.aborted', 'release.errored', 'release.rolled-back')
             and p.payload->>'release' = ${release}
-            and (p.payload->>'abortedAt')::timestamptz < ${at}::timestamptz
+            and coalesce((p.payload->>'abortedAt')::timestamptz, p.ts) < ${at}::timestamptz
         ) + interval '1 second', '-infinity')
       order by e.seq desc limit 1`;
     if (control) return control.stop ? 'stop' : 'martin';

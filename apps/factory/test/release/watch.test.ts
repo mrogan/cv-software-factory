@@ -847,6 +847,30 @@ describe('a canary the analysis judged bad, with auto-rollback off', () => {
     );
   });
 
+  it("keeps the hold's word that the canary is Martin's however long the measures it judged bad run", () => {
+    const s = judgedAt50();
+    const long = '[1.2345678901234567e+200,1.2345678901234567e+200]';
+    const metrics = {
+      errors: { phase: 'Inconclusive', value: long, inconclusive: 1 },
+      latency: { phase: 'Inconclusive', value: '[2.2345678901234567e+200]', inconclusive: 1 },
+      journeys: { phase: 'Inconclusive', value: long, inconclusive: 1 },
+      // Measures the Rollout may name some day, each with a name of its own.
+      ...Object.fromEntries(
+        [1, 2, 3, 4].map((n) => [
+          `measure-of-the-canary-${n}`,
+          { phase: 'Inconclusive', value: long, inconclusive: 1 },
+        ]),
+      ),
+    } as const;
+    s.pass(paused50, [background(), step(2), judgedStep(5, { metrics })]);
+    const reason = String((s.of('1001', 'hold.started')[0] as { reason?: string } | undefined)?.reason);
+    expect(reason.length).toBeLessThanOrEqual(300);
+    expect(reason).toMatch(/^The analysis judged the canary of \w{7} bad at 50% \(errors 1\.2345678901234567e\+200/);
+    expect(reason).toMatch(
+      /\. It keeps its share of the traffic until Martin promotes it fully or aborts it \(a rollback\), whatever the switch says now$/,
+    );
+  });
+
   it('holds nothing for a pause of another kind, nor for an Inconclusive run Argo Rollouts has not paused on', () => {
     const s = judgedAt50();
     const stepPause = rollout({

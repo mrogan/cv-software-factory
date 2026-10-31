@@ -89,12 +89,20 @@ async function openHold(tx: TransactionSql, workItem: string): Promise<Holds> {
     order by e.seq`;
   let open: OpenHold | undefined;
   const respecified = new Set<string>();
-  // The release carrying the merged change, while it has not ended, and the commit the latest gates ran on.
-  let release: { name: string; ended: boolean } | undefined;
+  // The latest release carrying the merged change, whether it was promoted, and whether it has ended otherwise, and
+  // the commit the latest gates ran on.
+  let release: { name: string; promoted: boolean; ended: boolean } | undefined;
   let gates: string | undefined;
   // Whether the change has merged since the work item last went back to Plan or reopened: a release before it carries
   // nothing.
   let merged = false;
+  // The end of a release other than the latest to carry the change says nothing about it. Its end, however it came,
+  // ends a hold of its canary paused for Martin, as the line's fold does.
+  const ends = (name: string, promoted: boolean) => {
+    if (release?.name !== name) return;
+    release = promoted ? { ...release, promoted: true } : { ...release, ended: true };
+    if (open?.cause === 'canary') open = undefined;
+  };
   for (const row of rows) {
     const read = upcast({ ...row, seq: Number(row.seq) });
     if (!read.ok) continue;
@@ -103,6 +111,14 @@ async function openHold(tx: TransactionSql, workItem: string): Promise<Holds> {
       case 'hold.started':
         // A hold for a deploy decided as a release started is already answered by it.
         if (event.payload.cause === 'deploy' && release && !release.ended) break;
+        // A canary's hold is of the release in flight that carries the change: one of any other, or one that has
+        // ended, holds nothing.
+        if (
+          event.payload.cause === 'canary' &&
+          !(release && release.name === event.payload.release && !release.promoted && !release.ended)
+        ) {
+          break;
+        }
         open = { id: row.id, cause: event.payload.cause };
         break;
       case 'spec.written':
@@ -137,21 +153,19 @@ async function openHold(tx: TransactionSql, workItem: string): Promise<Holds> {
         release = undefined;
         gates = undefined;
         break;
-      // A release that carries the merged change ends a wait for its deploy.
+      // A release that carries the merged change ends a wait for its deploy, and a hold of an earlier release's canary.
       case 'release.started':
         if (!merged) break;
-        release = { name: event.payload.release, ended: false };
-        if (open?.cause === 'deploy') open = undefined;
+        release = { name: event.payload.release, promoted: false, ended: false };
+        if (open?.cause === 'deploy' || open?.cause === 'canary') open = undefined;
         break;
-      // A release's end ends a hold of its canary paused for Martin, as the line's fold does.
       case 'release.promoted':
-        if (open?.cause === 'canary') open = undefined;
+        ends(event.payload.release, true);
         break;
       case 'release.rolled-back':
       case 'release.aborted':
       case 'release.errored':
-        if (release?.name === event.payload.release) release = { ...release, ended: true };
-        if (open?.cause === 'canary') open = undefined;
+        ends(event.payload.release, false);
         break;
       case 'work-item.closed':
         open = undefined;
