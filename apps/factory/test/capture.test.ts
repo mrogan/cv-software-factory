@@ -35,8 +35,13 @@ const options = { route: '/products/:slug', version: 'a'.repeat(40) };
 describe('a screenshot', () => {
   it('is taken again when Chromium could not capture the frame, and the second one kept', async () => {
     const page = fakePage(new Error(UNABLE));
-    expect(await screenshot(page as unknown as Page, { type: 'png' }, async () => {})).toBe(PNG);
+    const pauses: number[] = [];
+    const sleep = async (ms: number) => {
+      pauses.push(ms);
+    };
+    expect(await screenshot(page as unknown as Page, { type: 'png' }, sleep)).toBe(PNG);
     expect(page.calls).toBe(2);
+    expect(pauses).toEqual([250]);
   });
 
   it('is taken once only on any other error, which is thrown as it came', async () => {
