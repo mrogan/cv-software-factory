@@ -59,7 +59,9 @@
  * A merged change waits at Release, held for Martin (`deploy`), until a release that carries it starts: the deploy
  * pull request that carries it is his to merge, and the release's start ends the hold by itself. A release that rolls
  * back holds it again, for the next; so does one whose analysis erred, or that Martin aborted, until he retries it,
- * which starts it again, or a later release carries the change. A dry run's merge, which no deploy can carry, is not
+ * which starts it again, or a later release carries the change. With auto-rollback off, a canary the analysis judges
+ * bad pauses for Martin, and the release watch holds the work item (`canary`) until the release ends: promoted fully,
+ * it goes on to Verify; aborted by him, it rolled back, and is held for the next, or for his retry, as any rollback. A dry run's merge, which no deploy can carry, is not
  * held: it waits at Release for the dry run's release. One that promotes moves it to Verify, where the sense that saw
  * the defect looks again (`verify.ts`). A signal that has cleared closes the work item as verified. One that persists
  * sends the work back to Plan, with the verification for the planner: a fresh pass, with a new spec, a new pull
@@ -251,7 +253,7 @@ export interface WorkItemState {
         started: PayloadOf<'release.started'>;
         promoted: PayloadOf<'release.promoted'> | undefined;
         ended:
-          | { how: 'rolled-back' }
+          | { how: 'rolled-back'; by: PayloadOf<'release.rolled-back'>['by'] }
           | { how: 'errored' }
           | { how: 'aborted'; by: PayloadOf<'release.aborted'>['by'] }
           | undefined;
@@ -440,6 +442,9 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
       case 'hold.started':
         // A hold for a deploy decided as a release started is already answered by it.
         if (event.payload.cause === 'deploy' && state.release && !state.release.ended) break;
+        // A canary's hold is of the release in flight that carries the change: one of any other, or one that has
+        // ended, holds nothing.
+        if (event.payload.cause === 'canary' && !inFlight(state, event.payload.release)) break;
         state.hold = event.payload;
         forgetLook(state);
         break;
@@ -466,6 +471,9 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         answers += 1;
         if (!state.hold) break;
         const { cause, stage } = state.hold;
+        // A canary's hold is answered on the Canary panel, and ends with its release; an answer of the holds', which
+        // the admin service refuses, would leave the canary paused with nothing on the line saying so.
+        if (cause === 'canary') break;
         const resolution = ANSWERS[cause][event.payload.decision];
         // His words on a work item a visitor's report opened stay his: no agent reads them, as none reads a report,
         // since what an agent writes is public and a paraphrase of a report would pass any redactor. His answer still
@@ -537,27 +545,32 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         if (!state.merged) break;
         state.release = { started: event.payload, promoted: undefined, ended: undefined };
         state.verification = undefined;
-        if (state.hold?.cause === 'deploy') state.hold = undefined;
+        if (state.hold?.cause === 'deploy' || state.hold?.cause === 'canary') state.hold = undefined;
         break;
-      // The end of a release other than the latest to carry the change says nothing about it.
+      // The end of a release other than the latest to carry the change says nothing about it. Its end, however it
+      // came, ends a canary's hold.
       case 'release.promoted':
         if (state.release?.started.release === event.payload.release) {
           state.release = { ...state.release, promoted: event.payload };
+          endCanaryHold(state);
         }
         break;
       case 'release.rolled-back':
         if (state.release?.started.release === event.payload.release) {
-          state.release = { ...state.release, ended: { how: 'rolled-back' } };
+          state.release = { ...state.release, ended: { how: 'rolled-back', by: event.payload.by } };
+          endCanaryHold(state);
         }
         break;
       case 'release.aborted':
         if (state.release?.started.release === event.payload.release) {
           state.release = { ...state.release, ended: { how: 'aborted', by: event.payload.by } };
+          endCanaryHold(state);
         }
         break;
       case 'release.errored':
         if (state.release?.started.release === event.payload.release) {
           state.release = { ...state.release, ended: { how: 'errored' } };
+          endCanaryHold(state);
         }
         break;
       case 'verification.finished':
@@ -582,6 +595,18 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
     }
   }
   return state;
+}
+
+/** Whether a release is the one in flight that carries the change: started, and neither promoted nor ended. */
+const inFlight = (state: WorkItemState, release: string | undefined) =>
+  state.release !== undefined &&
+  state.release.started.release === release &&
+  !state.release.promoted &&
+  !state.release.ended;
+
+/** Ends a hold of a canary paused for Martin: its release has ended. */
+function endCanaryHold(state: WorkItemState): void {
+  if (state.hold?.cause === 'canary') state.hold = undefined;
 }
 
 /**
@@ -1002,8 +1027,10 @@ function endedReason(
   version: string,
   ended: NonNullable<NonNullable<WorkItemState['release']>['ended']>,
 ): string {
+  if (ended.how === 'rolled-back' && ended.by === 'martin')
+    return `Martin aborted the release that carried the ${change}, ${version}, which the analysis judged bad, so it rolled back: it waits for the next deploy pull request to carry it, or for his retry`;
   if (ended.how === 'rolled-back')
-    return `The release that carried the ${change}, ${version}, rolled back: it waits for the next deploy pull request to carry it`;
+    return `The release that carried the ${change}, ${version}, rolled back: it waits for the next deploy pull request to carry it, or for Martin to retry it`;
   if (ended.how === 'errored')
     return `The release that carried the ${change}, ${version}, stopped when its analysis could not judge it: it waits for Martin to retry it, or for the next deploy pull request to carry it`;
   const who = ended.by === 'martin' ? 'him' : 'Martin';

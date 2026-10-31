@@ -27,6 +27,7 @@ describe('the canary, as the controls see it', () => {
       aborted: false,
       paused: false,
       promotingFully: false,
+      judgedBad: false,
       weight: 25,
       next: { index: 3, weight: 50 },
     });
@@ -47,6 +48,15 @@ describe('the canary, as the controls see it', () => {
     expect(canaryOf(withVersion, recordedFrom([started(CANARY)]))?.release).toBe(CANARY);
     // Recorded at its revision, it is that.
     expect(canaryOf(withVersion, recordedFrom([started(releaseOf(CANARY))]))?.release).toBe(releaseOf(CANARY));
+  });
+
+  it('is judged bad while the controller holds it paused on an Inconclusive run, and not once it is aborted', () => {
+    const held = { current: CANARY, stable: STABLE, stepIndex: 5, weight: 50, pausedFor: 'InconclusiveAnalysisRun' };
+    expect(read(held)).toMatchObject({ inFlight: true, judgedBad: true, paused: false, weight: 50 });
+    // Paused by a step's own pause, the controller names another reason.
+    expect(read({ ...held, pausedFor: 'CanaryPauseStep' })?.judgedBad).toBe(false);
+    // An abort drops the pause conditions; one left behind by a write in between still judges nothing.
+    expect(read({ ...held, abort: true })).toMatchObject({ judgedBad: false, aborted: true });
   });
 
   it('is stopped once aborted, at nought; between releases, nothing is in flight; and it waits for the status', () => {
@@ -83,10 +93,12 @@ describe('each control', () => {
     aborted: false,
     paused: false,
     promotingFully: false,
+    judgedBad: false,
     weight: 25,
     next: { index: 3, weight: 50 },
   };
   const paused = { ...flying, paused: true };
+  const judgedBad = { ...flying, judgedBad: true };
   const stopped = { ...flying, inFlight: false, aborted: true, weight: 0 };
   const over = { ...flying, inFlight: false };
 
@@ -125,6 +137,25 @@ describe('each control', () => {
     expect(planOf('retry', over)).toHaveProperty('refused');
   });
 
+  it('takes only Promote fully and Abort of a canary the analysis judged bad and paused for Martin', () => {
+    const refusal = {
+      refused:
+        'The analysis judged the canary bad, and it waits for you: promote it fully past its verdict, or abort it.',
+    };
+    for (const action of ['promote', 'pause', 'resume'] as const) {
+      expect(planOf(action, judgedBad), action).toEqual(refusal);
+      expect(planOf(action, { ...judgedBad, paused: true }), action).toEqual(refusal);
+    }
+    expect(planOf('promote-fully', judgedBad)).toEqual({ status: { promoteFull: true }, to: 100 });
+    expect(planOf('abort', judgedBad)).toEqual({ status: { abort: true } });
+    // His own pause, set before the analysis judged it, is cleared with either, so none outlives the canary.
+    expect(planOf('abort', { ...judgedBad, paused: true })).toEqual({
+      status: { abort: true },
+      spec: { paused: false },
+    });
+    expect(planOf('retry', judgedBad)).toHaveProperty('refused');
+  });
+
   it('changes only the fields the admission policy lets the admin service change', async () => {
     const policy = parse(
       (await readFile(join(DEPLOY, 'base/admission/website/rollout-controls.yaml'), 'utf-8')).split('\n---\n')[0] ?? '',
@@ -133,7 +164,7 @@ describe('each control', () => {
       [...(policy.spec.variables.find((v) => v.name === name)?.expression ?? '').matchAll(/'([^']+)'/g)].map(
         (m) => m[1],
       );
-    for (const canary of [flying, paused, stopped]) {
+    for (const canary of [flying, paused, stopped, judgedBad]) {
       for (const action of ['pause', 'resume', 'abort', 'promote', 'promote-fully', 'retry'] as const) {
         const plan = planOf(action, canary);
         if ('refused' in plan) continue;

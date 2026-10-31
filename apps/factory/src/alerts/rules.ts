@@ -337,12 +337,12 @@ export const HOLD_WORDS: Record<HoldCause, { summary: string; description: strin
   deploy: {
     summary: 'waits for your deploy',
     description:
-      '{{ if $labels.pull_request }}Its fix is merged, and the deploy pull request that carries it has passed its checks.{{ else }}Its release was aborted or erred, and waits for your retry.{{ end }}',
+      '{{ if $labels.pull_request }}Its fix is merged, and the deploy pull request that carries it has passed its checks.{{ else }}Its release rolled back, was aborted or erred, and waits for your retry or the next deploy.{{ end }}',
   },
   canary: {
     summary: 'waits for you: a canary paused',
     description:
-      'With auto-rollback off, the analysis judged its canary bad, and it keeps its share of the traffic until you promote it fully or abort it.',
+      'With auto-rollback off, the analysis judged its canary bad, and it keeps its share of the traffic until you promote it fully or abort it: switching auto-rollback on again leaves it paused.',
   },
   verify: {
     summary: 'waits for you: Verify asks',
@@ -860,7 +860,7 @@ export function factoryRules(): Rule[] {
       annotations: {
         summary: 'A release rolled back',
         description:
-          "The canary's analysis failed it, and the stable version serves every visitor again. Its work items wait for the next deploy.",
+          "The canary's analysis failed it, or judged it bad and you aborted it, and the stable version serves every visitor again. Its work items wait for the next deploy, or your retry.",
       },
     },
     {

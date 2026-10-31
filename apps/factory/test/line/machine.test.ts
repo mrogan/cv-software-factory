@@ -800,13 +800,74 @@ describe('after the merge', () => {
           kind: 'approval',
           cause: 'deploy',
           reason:
-            'The release that carried the fix, v0.9.4, rolled back: it waits for the next deploy pull request to carry it',
+            'The release that carried the fix, v0.9.4, rolled back: it waits for the next deploy pull request to carry it, or for Martin to retry it',
         },
       },
     });
     const next = [...back, deployHold(back), release('7f5b9c8d6', 'v0.9.5')];
     expect(decide(next, facts).next).toEqual({ do: 'wait', for: 'release' });
     expect(decide([...next, promoted('7f5b9c8d6', 'v0.9.5')], facts).stage).toBe('verify');
+  });
+
+  it('holds the work item for Martin while its canary is paused for him, until the release ends', () => {
+    const canary = (id = RELEASE): LineEvent => ({
+      type: 'hold.started',
+      payload: {
+        stage: 'release',
+        kind: 'held',
+        cause: 'canary',
+        reason: 'With auto-rollback off, the analysis judged the canary of v0.9.4 bad at 50%',
+        release: id,
+      },
+    });
+    const inFlight = [...done, deployHold(done), release()];
+    const held = [...inFlight, canary()];
+    expect(decide(held, facts)).toEqual({ stage: 'held', next: { do: 'wait', for: 'martin' } });
+    expect(fold(held).hold).toMatchObject({ cause: 'canary', release: RELEASE });
+    // An answer of the holds' settles nothing: the canary is still paused, and Martin's to settle on the Canary panel.
+    expect(fold([...held, answer('approved')]).hold).toMatchObject({ cause: 'canary' });
+    // Promoted fully past the analysis's verdict: on to Verify.
+    expect(decide([...held, promoted()], facts)).toMatchObject({ stage: 'verify', next: { do: 'verify' } });
+    // Aborted by Martin, it rolled back by him: it fails Release, and waits for the next deploy or his retry.
+    const byMartin: LineEvent = {
+      type: 'release.rolled-back',
+      payload: {
+        release: RELEASE,
+        version: 'v0.9.4',
+        restored: 'v0.9.3',
+        weight: 50,
+        reason: 'Metric "errors" assessed Inconclusive due to inconclusive (1) > inconclusiveLimit (0)',
+        failed: [{ name: 'errors', phase: 'inconclusive', value: 0.0213, limit: 0.01, failures: 1 }],
+        dryRun: false,
+        by: 'martin',
+        abortedAt: '2026-10-10T09:00:00Z',
+      },
+    };
+    const rolled = [...held, byMartin];
+    expect(fold(rolled).hold).toBeUndefined();
+    expect(decide(rolled, facts)).toEqual({
+      stage: 'held',
+      next: {
+        do: 'hold',
+        hold: {
+          stage: 'release',
+          kind: 'approval',
+          cause: 'deploy',
+          reason:
+            'Martin aborted the release that carried the fix, v0.9.4, which the analysis judged bad, so it rolled back: it waits for the next deploy pull request to carry it, or for his retry',
+        },
+      },
+    });
+    // Stopped with the line, or ended in Error: the hold ends with it, and the release's end holds it as ever.
+    expect(decide([...held, aborted('stop')], facts).next).toMatchObject({ do: 'hold', hold: { cause: 'deploy' } });
+    expect(decide([...held, errored()], facts).next).toMatchObject({ do: 'hold', hold: { cause: 'deploy' } });
+    // Retried after Martin's rollback, the release starts again, and a pause of the new attempt holds it again.
+    const retried = [...rolled, deployHold(rolled), release()];
+    expect(decide(retried, facts).next).toEqual({ do: 'wait', for: 'release' });
+    expect(decide([...retried, canary()], facts).next).toEqual({ do: 'wait', for: 'martin' });
+    // A canary's hold of another release, or of one that has ended, holds nothing.
+    expect(decide([...inFlight, canary('6c4d2a1f9-7')], facts).next).toEqual({ do: 'wait', for: 'release' });
+    expect(decide([...inFlight, promoted(), canary()], facts).stage).toBe('verify');
   });
 
   it('holds the work item for Martin when its release is aborted, until he retries it', () => {
@@ -1886,7 +1947,7 @@ describe('an improvement Martin asked for', () => {
         stage: 'release',
         cause: 'deploy',
         reason:
-          'The release that carried the improvement, v0.9.4, rolled back: it waits for the next deploy pull request to carry it',
+          'The release that carried the improvement, v0.9.4, rolled back: it waits for the next deploy pull request to carry it, or for Martin to retry it',
       },
     });
     expect(decide([...rolled, held('deploy', 'release'), release('r9'), promoted('r9')], facts).next).toMatchObject({

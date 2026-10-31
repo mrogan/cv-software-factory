@@ -23,6 +23,9 @@ const STEPS = [
   { analysis: { templates: [{ templateName: 'website-step', clusterScope: true }] } },
 ];
 
+/** When the controller paused the canary for a run that ended Inconclusive, unless a test says. */
+export const PAUSED_AT = '2026-10-10T23:05:00Z';
+
 /** When an aborted Rollout's controller acted on the abort, unless a test says. */
 export const ABORTED_AT = '2026-10-10T23:12:00Z';
 
@@ -41,6 +44,11 @@ export interface RolloutState {
   /** The canary's weight now; by default the weight of its step, or nought when aborted or done. */
   weight?: number;
   conditions?: { type: string; status: string; reason?: string; message?: string }[];
+  /**
+   * Why the controller paused the canary, as Argo Rollouts writes it: `InconclusiveAnalysisRun` when a run of it ended
+   * Inconclusive, with `controllerPause` set beside it.
+   */
+  pausedFor?: string;
 }
 
 export function rollout(state: RolloutState): Rollout {
@@ -77,7 +85,11 @@ export function rollout(state: RolloutState): Rollout {
         },
       },
       conditions: state.conditions ?? [],
-      phase: state.abort ? 'Degraded' : 'Progressing',
+      ...(state.pausedFor
+        ? { pauseConditions: [{ reason: state.pausedFor, startTime: PAUSED_AT }], controllerPause: true }
+        : {}),
+      phase: state.abort ? 'Degraded' : state.pausedFor ? 'Paused' : 'Progressing',
+      ...(state.pausedFor ? { message: state.pausedFor } : {}),
     },
   });
 }
@@ -97,7 +109,7 @@ export interface RunState {
   step?: number;
   phase?: Phase;
   /** Each metric's phase and latest value, as Argo keeps it. */
-  metrics?: Record<string, { phase?: Phase; value?: string; message?: string; failed?: number }>;
+  metrics?: Record<string, { phase?: Phase; value?: string; message?: string; failed?: number; inconclusive?: number }>;
   message?: string;
   created: string;
   completed?: string;
@@ -164,6 +176,7 @@ export function run(state: RunState): AnalysisRun {
         phase: m.phase ?? 'Successful',
         count: 1,
         ...('failed' in m && m.failed !== undefined ? { failed: m.failed } : {}),
+        ...('inconclusive' in m && m.inconclusive !== undefined ? { inconclusive: m.inconclusive } : {}),
         ...('message' in m && m.message ? { message: m.message } : {}),
         measurements: [
           {

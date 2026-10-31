@@ -941,6 +941,7 @@ describe('the release controls', () => {
             failed: [],
             dryRun: false,
             by: 'analysis',
+            abortedAt: at(30),
           },
   });
 
@@ -1032,7 +1033,7 @@ describe('the release controls', () => {
     ]);
   });
 
-  it('retries a stopped release with the passkey again, never while the line is stopped or after a rollback', async () => {
+  it('retries a stopped or rolled-back release with the passkey again, never while the line is stopped', async () => {
     const stopped = { current: CANARY, stable: STABLE, stepIndex: 0, abort: true };
     let kube = await withRollout(stopped, { ends: ['release.aborted'] });
     const { browser, passkey } = await signedIn();
@@ -1055,12 +1056,47 @@ describe('the release controls', () => {
     });
     expect(kube.patches.map((p) => p.body)).toEqual([{ status: { abort: false } }]);
 
+    // Rolled back, by the analysis or by Martin's abort of a canary it judged bad: retried, it is judged afresh.
     kube = await withRollout(stopped, { ends: ['release.rolled-back'] });
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect(await browser.post('/admin/release/retry', { release: RELEASE })).toMatchObject({
+      status: 200,
+      body: { action: 'retry', weight: 0 },
+    });
+    expect(kube.patches.map((p) => p.body)).toEqual([{ status: { abort: false } }]);
+    // In flight, there is nothing to retry.
+    kube = await withRollout({ current: CANARY, stable: STABLE, stepIndex: 1, weight: 25 });
     expect(await browser.post('/admin/release/retry', { release: RELEASE })).toMatchObject({
       status: 409,
       body: { refused: 'release' },
     });
     expect(kube.patches).toEqual([]);
+  });
+
+  it('takes only Promote fully and Abort of a canary the analysis judged bad and paused for Martin', async () => {
+    const held = { current: CANARY, stable: STABLE, stepIndex: 5, weight: 50, pausedFor: 'InconclusiveAnalysisRun' };
+    const kube = await withRollout(held);
+    const { browser, passkey } = await signedIn();
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    for (const action of ['promote', 'pause', 'resume']) {
+      expect(await browser.post(`/admin/release/${action}`, { release: RELEASE }), action).toMatchObject({
+        status: 409,
+        body: { refused: 'release', message: expect.stringContaining('judged the canary bad') },
+      });
+    }
+    expect(kube.patches).toEqual([]);
+    expect(await browser.post('/admin/release/abort', { release: RELEASE })).toMatchObject({
+      status: 200,
+      body: { action: 'abort', weight: 50 },
+    });
+    expect(kube.patches.map((p) => p.body)).toEqual([{ status: { abort: true } }]);
+    // Promoted fully instead, past the analysis's verdict.
+    const again = await withRollout(held);
+    expect(await browser.post('/admin/release/promote', { release: RELEASE, fully: true })).toMatchObject({
+      status: 200,
+      body: { action: 'promote-fully', to: 100 },
+    });
+    expect(again.patches.map((p) => p.body)).toEqual([{ status: { promoteFull: true } }]);
   });
 
   it('refuses a release that is not the one in the Rollout, or not recorded, and a control its state does not take', async () => {
@@ -2230,6 +2266,127 @@ describe('Needs you', () => {
       (await browser.post(`/admin/holds/${other.workItem}/answer`, { hold: other.hold, words: 'x'.repeat(301) }))
         .status,
     ).toBe(400);
+  });
+
+  it('takes no answer of a canary’s hold, and finds it ended with its release, as the line does', async () => {
+    const { browser } = await signedIn();
+    for (const end of ['release.promoted', 'release.rolled-back'] as const) {
+      const { workItem } = await held('failures');
+      const release = { release: '68ff668868-4', version: 'v0.9.5', previous: 'v0.9.4', watched: true, dryRun: false };
+      const hold = event(workItem, 'hold.started', 'rollouts', {
+        stage: 'release',
+        kind: 'held',
+        cause: 'canary',
+        reason: 'The analysis judged the canary bad',
+        release: release.release,
+      });
+      await append(db.as.line, [
+        event(workItem, 'pull-request.merged', 'martin', { number: 8, commit: 'c'.repeat(40), by: 'martin' }),
+        event(workItem, 'release.started', 'rollouts', {
+          ...release,
+          image: { digest: `sha256:${'a'.repeat(64)}`, signed: true, admitted: true },
+          steps: null,
+        }),
+        hold,
+      ]);
+      expect(await browser.post(`/admin/holds/${workItem}/reject`, { hold: hold.id }), end).toMatchObject({
+        status: 422,
+        body: { refused: 'answer' },
+      });
+      await append(db.as.line, [
+        end === 'release.promoted'
+          ? event(workItem, end, 'rollouts', release)
+          : event(workItem, end, 'martin', {
+              release: release.release,
+              version: release.version,
+              restored: release.previous,
+              weight: 50,
+              reason: 'Judged bad',
+              failed: [],
+              dryRun: false,
+              by: 'martin',
+            }),
+      ]);
+      expect(await browser.post(`/admin/holds/${workItem}/reject`, { hold: hold.id }), end).toMatchObject({
+        status: 409,
+        body: { refused: 'hold', message: expect.stringContaining('has no hold waiting now') },
+      });
+      expect(await answers(workItem)).toEqual([]);
+    }
+  });
+
+  it('holds a canary’s hold to the release in flight that carries the change, as the line does', async () => {
+    const { browser } = await signedIn();
+    const release = (name: string) => ({
+      release: name,
+      version: 'v0.9.5',
+      previous: 'v0.9.4',
+      watched: true,
+      dryRun: false,
+    });
+    const started = (workItem: string, name: string) =>
+      event(workItem, 'release.started', 'rollouts', {
+        ...release(name),
+        image: { digest: `sha256:${'a'.repeat(64)}`, signed: true, admitted: true },
+        steps: null,
+      });
+    const canary = (workItem: string, name: string) =>
+      event(workItem, 'hold.started', 'rollouts', {
+        stage: 'release',
+        kind: 'held',
+        cause: 'canary',
+        reason: 'The analysis judged the canary bad',
+        release: name,
+      });
+    const rolledBack = (workItem: string, name: string) =>
+      event(workItem, 'release.rolled-back', 'martin', {
+        release: name,
+        version: 'v0.9.5',
+        dryRun: false,
+        restored: 'v0.9.4',
+        weight: 50,
+        reason: 'Judged bad',
+        failed: [],
+        by: 'martin',
+      });
+    /** A merged change whose release `first` started, and these events after it, ending with the hold named. */
+    const after = async (events: (workItem: string) => NewEvent[]) => {
+      const { workItem } = await held('failures');
+      const merge = event(workItem, 'pull-request.merged', 'martin', {
+        number: 8,
+        commit: 'c'.repeat(40),
+        by: 'martin',
+      });
+      const rest = events(workItem);
+      await append(db.as.line, [merge, started(workItem, 'first-1'), ...rest]);
+      return { workItem, hold: rest.findLast((e) => e.type === 'hold.started')?.id as string };
+    };
+    // Still held: the end of a release other than the one it holds, promoted or rolled back, ends nothing.
+    for (const end of [
+      (w: string) => event(w, 'release.promoted', 'rollouts', release('other-2')),
+      (w: string) => rolledBack(w, 'other-2'),
+    ]) {
+      const { workItem, hold } = await after((w) => [canary(w, 'first-1'), end(w)]);
+      expect(await browser.post(`/admin/holds/${workItem}/reject`, { hold })).toMatchObject({
+        status: 422,
+        body: { refused: 'answer' },
+      });
+      expect(await lineHold(workItem)).toMatchObject({ cause: 'canary' });
+    }
+    // Ended, or never held: a newer release started; a hold of a release not in flight, or of one promoted already.
+    for (const events of [
+      (w: string) => [canary(w, 'first-1'), started(w, 'second-2')],
+      (w: string) => [canary(w, 'other-2')],
+      (w: string) => [event(w, 'release.promoted', 'rollouts', release('first-1')), canary(w, 'first-1')],
+      (w: string) => [rolledBack(w, 'first-1'), canary(w, 'first-1')],
+    ]) {
+      const { workItem, hold } = await after(events);
+      expect(await browser.post(`/admin/holds/${workItem}/reject`, { hold })).toMatchObject({
+        status: 409,
+        body: { refused: 'hold', message: expect.stringContaining('has no hold waiting now') },
+      });
+      expect(await lineHold(workItem)).toBeUndefined();
+    }
   });
 
   it('asks for the passkey again to approve a guardrail’s hold, decided by the stored cause, and for nothing else', async () => {

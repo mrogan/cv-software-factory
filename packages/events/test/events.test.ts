@@ -1178,13 +1178,21 @@ describe('upcasting the real catalogue', () => {
   });
 
   it('holds a canary paused for Martin from version 10 of hold.started', () => {
-    const canary = { stage: 'release', kind: 'held', cause: 'canary', reason: 'The analysis judged the canary bad' };
-    expect(validate({ ...opened, type: 'hold.started', version: 10, actor: 'rollouts', payload: canary })).toEqual({
-      ok: true,
-    });
-    expect(validate({ ...opened, type: 'hold.started', version: 9, actor: 'rollouts', payload: canary }).ok).toBe(
-      false,
-    );
+    const canary = {
+      stage: 'release',
+      kind: 'held',
+      cause: 'canary',
+      reason: 'The analysis judged the canary bad',
+      release: '68ff668868-4',
+    };
+    const held = (payload: object, version = 10) =>
+      validate({ ...opened, type: 'hold.started', version, actor: 'rollouts', payload });
+    expect(held(canary)).toEqual({ ok: true });
+    expect(held(canary, 9).ok).toBe(false);
+    // A canary's hold names its release, and no other hold does.
+    const { release: _, ...unnamed } = canary;
+    expect(held(unnamed).ok).toBe(false);
+    expect(held({ ...canary, cause: 'deploy' }).ok).toBe(false);
   });
 
   it('reads version 1 of verification.finished as a verification that ran, by a sense it never named', () => {
