@@ -5,7 +5,27 @@
  */
 import type { Screenshot } from '@software-factory/events';
 import type { ArtifactStore } from '@software-factory/store';
-import type { Page } from 'playwright';
+import type { Page, PageScreenshotOptions } from 'playwright';
+
+/**
+ * What Chromium says when it could not produce a frame for a screenshot, as Playwright words it. It has come back
+ * once in a while under a busy CPU, and the same call a moment later succeeds, so it alone is tried again.
+ */
+const UNABLE_TO_CAPTURE = 'Protocol error (Page.captureScreenshot): Unable to capture screenshot';
+
+/**
+ * Takes a screenshot as Playwright does, trying it once more, after a short pause, when Chromium could not capture
+ * the frame. Any other error, or that one twice, is thrown as it came.
+ */
+export async function screenshot(page: Page, options: PageScreenshotOptions, pause = 250): Promise<Uint8Array> {
+  try {
+    return await page.screenshot(options);
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes(UNABLE_TO_CAPTURE)) throw error;
+    await new Promise((resolve) => setTimeout(resolve, pause));
+    return page.screenshot(options);
+  }
+}
 
 /** An element the probe looked at: where the problem shows, or the thing as it should be. */
 export interface Check {
@@ -40,7 +60,7 @@ export async function capture(page: Page, store: ArtifactStore, options: Capture
     if (width <= 0 || height <= 0) throw new Error(`${check.selector} is outside the viewport on ${page.url()}`);
     boxes.push({ x, y, width, height, kind: check.kind, ...(check.label && { label: check.label }) });
   }
-  const png = await page.screenshot({ type: 'png', animations: 'disabled', caret: 'hide' });
+  const png = await screenshot(page, { type: 'png', animations: 'disabled', caret: 'hide' });
   return {
     kind: 'screenshot',
     hash: await store.put(png),
@@ -98,9 +118,12 @@ export async function capturePage(
       selectors.push(check.selector);
     }
   }
-  const png = await page
-    .screenshot({ type: 'png', clip: { x: 0, y: 0, width, height }, animations: 'disabled', caret: 'hide' })
-    .finally(() => page.setViewportSize(viewport));
+  const png = await screenshot(page, {
+    type: 'png',
+    clip: { x: 0, y: 0, width, height },
+    animations: 'disabled',
+    caret: 'hide',
+  }).finally(() => page.setViewportSize(viewport));
   return {
     png,
     screenshot: {
