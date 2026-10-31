@@ -2922,6 +2922,8 @@ const TAKES = [['all', 'Every ticket'], ['next', 'The next few'], ['only', 'Just
 const takeSize = (t) => ({ all: 3, next: 2, only: 1 })[t];
 // Loosening autonomy asks for the passkey; tightening is immediate.
 const LOOSE = { supervised: 0, guarded: 1, lightsout: 2 };
+// What a control says, spoken of Martin for a visitor.
+const third = (t, v) => v ? t.replace('You approve', 'Martin approves').replace(/\byou\b/g, 'Martin') : t;
 const lightsOutNote = (v) => `<b>Lights-out takes two settings.</b> This one, and <code>AUTONOMY</code> set to <code>lights-out</code> in the app’s repository on GitHub, which only ${v ? 'Martin' : 'you'} can set. The line reads this one, and the review gate reads the variable, so the stricter wins: with only one of them set, risky changes still wait for ${v ? 'him' : 'you'}, as under Guarded. The gate names the rule that passed each pull request, and the line adds one to the queue only by a rule this level allows. Lights-out is never the default.`;
 // Each: [key, label, what it says (on, off), asks for the passkey when pressed in this state].
 const SWITCHES = [
@@ -2936,14 +2938,14 @@ function renderControls() {
   $('autonomy').className = 'seg' + (v ? ' ro-seg' : '');
   $('autonomy').innerHTML = Object.entries(AUTONOMY).map(([k, [label]]) =>
     `<button type="button" data-autonomy="${k}" aria-pressed="${S.autonomy === k}" ${v ? 'disabled' : ''}>${label}${keyIf(!v && !S.fresh && LOOSE[k] > LOOSE[S.autonomy])}</button>`).join('');
-  $('autonomy-help').textContent = AUTONOMY[S.autonomy][1];
+  $('autonomy-help').textContent = third(AUTONOMY[S.autonomy][1], v);
   // Lights-out's note: the gate learns it from a variable of the app's repository only Martin can set, the line from
   // this setting, and the stricter of the two wins.
   $('autonomy-note').hidden = S.autonomy !== 'lightsout';
   $('autonomy-note').innerHTML = lightsOutNote(v);
   $('switches').innerHTML = SWITCHES.map(([k, label, note, keyed]) =>
     `<button type="button" class="switch" role="switch" data-switch="${k}" aria-checked="${S.switches[k]}" ${v ? 'disabled' : ''}>
-      <span><span class="what">${label}${keyIf(!v && !S.fresh && keyed(S.switches[k]))}</span><small class="${k === 'rollback' && !S.switches[k] ? 'off' : ''}">${note(S.switches[k])}</small></span><span class="track" aria-hidden="true"></span></button>`).join('');
+      <span><span class="what">${label}${keyIf(!v && !S.fresh && keyed(S.switches[k]))}</span><small class="${k === 'rollback' && !S.switches[k] ? 'off' : ''}">${third(note(S.switches[k]), v)}</small></span><span class="track" aria-hidden="true"></span></button>`).join('');
   const t = S.take;
   const takeHelp = { all: 'The oldest open ticket of the highest severity, one after another, for as long as the line runs.',
     next: `${t.next} work items in all, then it takes nothing new: 2 taken so far, each carried to its end.`,
