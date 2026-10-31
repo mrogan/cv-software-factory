@@ -8,21 +8,30 @@ import type { ArtifactStore } from '@software-factory/store';
 import type { Page, PageScreenshotOptions } from 'playwright';
 
 /**
- * What Chromium says when it could not produce a frame for a screenshot, as Playwright words it. It has come back
- * once in a while under a busy CPU, and the same call a moment later succeeds, so it alone is tried again.
+ * What Chromium says when it could not produce a frame for a screenshot, in its own words, which Playwright passes on
+ * after its own (`page.screenshot: Protocol error (Page.captureScreenshot): …`). It has come back once in a while
+ * under a busy CPU, and the same call a moment later succeeds, so it alone is tried again. Playwright gives it no
+ * class of its own, so its text is all there is to tell it by.
  */
-const UNABLE_TO_CAPTURE = 'Protocol error (Page.captureScreenshot): Unable to capture screenshot';
+const UNABLE_TO_CAPTURE = 'Unable to capture screenshot';
+
+/** How long to wait before trying a screenshot again. */
+const PAUSE_MS = 250;
 
 /**
  * Takes a screenshot as Playwright does, trying it once more, after a short pause, when Chromium could not capture
  * the frame. Any other error, or that one twice, is thrown as it came.
  */
-export async function screenshot(page: Page, options: PageScreenshotOptions, pause = 250): Promise<Uint8Array> {
+export async function screenshot(
+  page: Page,
+  options: PageScreenshotOptions,
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+): Promise<Uint8Array> {
   try {
     return await page.screenshot(options);
   } catch (error) {
     if (!(error instanceof Error) || !error.message.includes(UNABLE_TO_CAPTURE)) throw error;
-    await new Promise((resolve) => setTimeout(resolve, pause));
+    await sleep(PAUSE_MS);
     return page.screenshot(options);
   }
 }

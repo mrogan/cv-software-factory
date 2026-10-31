@@ -14,10 +14,13 @@ function fakePage(...failures: Error[]) {
     calls: 0,
     viewport: { width: 800, height: 600 },
     viewportSize: () => page.viewport,
+    sizes: [] as Array<{ width: number; height: number }>,
     setViewportSize: async (size: { width: number; height: number }) => {
+      page.sizes.push(size);
       page.viewport = size;
     },
-    evaluate: async () => 600,
+    // The page is taller than the viewport, so a capture of the whole of it resizes the viewport first.
+    evaluate: async () => 1200,
     screenshot: async () => {
       const failure = failures[page.calls++];
       if (failure) throw failure;
@@ -32,19 +35,23 @@ const options = { route: '/products/:slug', version: 'a'.repeat(40) };
 describe('a screenshot', () => {
   it('is taken again when Chromium could not capture the frame, and the second one kept', async () => {
     const page = fakePage(new Error(UNABLE));
-    expect(await screenshot(page as unknown as Page, { type: 'png' }, 0)).toBe(PNG);
+    expect(await screenshot(page as unknown as Page, { type: 'png' }, async () => {})).toBe(PNG);
     expect(page.calls).toBe(2);
   });
 
   it('is taken once only on any other error, which is thrown as it came', async () => {
     const page = fakePage(new Error('page.screenshot: Target page, context or browser has been closed'));
-    await expect(screenshot(page as unknown as Page, { type: 'png' }, 0)).rejects.toThrow('has been closed');
+    await expect(screenshot(page as unknown as Page, { type: 'png' }, async () => {})).rejects.toThrow(
+      'has been closed',
+    );
     expect(page.calls).toBe(1);
   });
 
   it('is taken twice at most, and Chromium failing both times is thrown', async () => {
     const page = fakePage(new Error(UNABLE), new Error(UNABLE));
-    await expect(screenshot(page as unknown as Page, { type: 'png' }, 0)).rejects.toThrow('Unable to capture');
+    await expect(screenshot(page as unknown as Page, { type: 'png' }, async () => {})).rejects.toThrow(
+      'Unable to capture',
+    );
     expect(page.calls).toBe(2);
   });
 });
@@ -63,5 +70,9 @@ describe('a capture', () => {
     expect(png).toBe(PNG);
     expect(page.calls).toBe(2);
     expect(page.viewport).toEqual({ width: 800, height: 600 });
+    expect(page.sizes).toEqual([
+      { width: 800, height: 1200 },
+      { width: 800, height: 600 },
+    ]);
   });
 });
