@@ -1807,7 +1807,7 @@ describe('the line’s controls', () => {
     const off = (await changes()).at(-1);
     expect(off).toMatchObject({
       appended_by: 'factory_admin',
-      summary: 'Martin turned off auto-rollback: a canary judged bad pauses for him',
+      summary: 'Martin turned off auto-rollback: a canary whose errors or latency are judged bad pauses for him',
       payload: { autoRollback: false, change: { control: 'auto-rollback', before: true, after: false } },
     });
     // Off again records nothing.

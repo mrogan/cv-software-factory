@@ -213,11 +213,12 @@ const SECURITY_WORDS: Record<SecurityKind, { summary: string; description: strin
   'auto-rollback-off': {
     summary: 'Auto-rollback was turned off',
     description:
-      'Auto-rollback was turned off in the console: a canary the analysis judges bad now pauses for you to promote or abort, rather than rolling back by itself. Stop the line still aborts one.',
+      'Auto-rollback was turned off in the console: a canary whose errors or latency the analysis judges bad now pauses for you to promote or abort, rather than rolling back by itself. A failed journeys check still rolls it back, and Stop the line still aborts one.',
   },
   'auto-rollback-on': {
     summary: 'Auto-rollback was turned on',
-    description: 'Auto-rollback was turned on in the console: a canary the analysis judges bad rolls back by itself.',
+    description:
+      'Auto-rollback was turned on in the console: a canary the analysis judges bad rolls back by itself. One already paused for you stays paused until you promote or abort it.',
   },
 };
 
