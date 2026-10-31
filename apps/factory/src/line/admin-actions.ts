@@ -284,9 +284,11 @@ export function observeAdminActions(
         let named: boolean;
         try {
           const signal = deadline(action);
+          let ended: (() => void) | undefined;
           const late = new Promise<never>((_, reject) => {
-            if (signal.aborted) reject(signal.reason);
-            else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+            ended = () => reject(new Error('no answer by its deadline', { cause: signal.reason }));
+            if (signal.aborted) ended();
+            else signal.addEventListener('abort', ended, { once: true });
           });
           let running = pending.get(action);
           if (!running) {
@@ -295,7 +297,9 @@ export function observeAdminActions(
             running.catch(() => {});
             pending.set(action, running);
           }
-          named = await Promise.race([running, late]);
+          named = await Promise.race([running, late]).finally(
+            () => ended && signal.removeEventListener('abort', ended),
+          );
         } catch (error) {
           if (!failing.has(action))
             log.warn({ err: error, action }, 'could not compare what the admin service changed');
