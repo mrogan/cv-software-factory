@@ -1,0 +1,148 @@
+# Admission control refuses objects in the five guarded namespaces (ADR 0010), and records it as Events: a controller's
+# `FailedCreate` in the namespace of a pod it could not make, and Kyverno's `PolicyViolation` in `default` for a request
+# it blocked. The line lists them and records each denial as `action.refused` (apps/factory/src/line/refusals.ts). So in
+# each of those namespaces, and in `default`, it may list Events, and nothing else: not get, watch or write them, nor
+# read anything else there. A Role in each namespace rather than a ClusterRole, so it reads no other namespace's.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: line-reads-admission
+  namespace: factory
+rules:
+  - apiGroups: ['']
+    resources: [events]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: line-reads-admission
+  namespace: factory
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: line-reads-admission
+subjects:
+  - kind: ServiceAccount
+    name: line
+    namespace: factory
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: line-reads-admission
+  namespace: runners
+rules:
+  - apiGroups: ['']
+    resources: [events]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: line-reads-admission
+  namespace: runners
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: line-reads-admission
+subjects:
+  - kind: ServiceAccount
+    name: line
+    namespace: factory
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: line-reads-admission
+  namespace: website
+rules:
+  - apiGroups: ['']
+    resources: [events]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: line-reads-admission
+  namespace: website
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: line-reads-admission
+subjects:
+  - kind: ServiceAccount
+    name: line
+    namespace: factory
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: line-reads-admission
+  namespace: scoreboard
+rules:
+  - apiGroups: ['']
+    resources: [events]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: line-reads-admission
+  namespace: scoreboard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: line-reads-admission
+subjects:
+  - kind: ServiceAccount
+    name: line
+    namespace: factory
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: line-reads-admission
+  namespace: flagd
+rules:
+  - apiGroups: ['']
+    resources: [events]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: line-reads-admission
+  namespace: flagd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: line-reads-admission
+subjects:
+  - kind: ServiceAccount
+    name: line
+    namespace: factory
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: line-reads-admission
+  namespace: default
+rules:
+  - apiGroups: ['']
+    resources: [events]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: line-reads-admission
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: line-reads-admission
+subjects:
+  - kind: ServiceAccount
+    name: line
+    namespace: factory

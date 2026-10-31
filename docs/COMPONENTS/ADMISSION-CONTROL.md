@@ -24,7 +24,7 @@ It checks the signature, not the SBOM: the deploy pull requests' checks verify t
 
 ## Behaviour
 
-- **A refusal** names the policy, the check and the images.
+- **A refusal** names the policy, the check and the images. The line records each of Kyverno's as `action.refused` (`admission-control`), from the Events it leaves: Kyverno's own in `default` for a request it blocked, or a controller's `FailedCreate` for a pod it could not make ([the line](ORCHESTRATOR.md#refusals-it-records-for-others)). The ValidatingAdmissionPolicies below leave no Event, and are not recorded.
 - **It fails closed.**
 - **Outside it:** Kyverno's namespace, Argo CD's and the system's. Telemetry's, the pod log collector's and Argo Rollouts' are not guarded, since they run only upstream charts.
 - **Every copy enforces.**

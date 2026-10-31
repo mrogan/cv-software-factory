@@ -9,7 +9,7 @@ flowchart LR
   line[The line] -- "POST /v1/actions/…<br>POST /v1/reads/…" --> worker[GitHub worker]
   worker -- "installation token;<br>its poller watches once a minute" --> github[GitHub]
   worker -- anonymous --> ghcr[GHCR]
-  worker -- "dry run;<br>refusals" --> artifacts[(Artifact store)]
+  worker -- "dry run;<br>refusals, signed" --> artifacts[(Artifact store)]
 ```
 
 ## Identity
@@ -42,7 +42,7 @@ The line names the work item an action is for in `x-factory-work-item`, and the 
 Guardrail 10, as built (`github/issues.ts`). The factory reads no issue as work: Martin asks the line for work with the console's "+", and no issue, or label on one, does.
 
 - **The guard.** Every action that names an issue or pull request is refused, before GitHub is asked to change anything, on one the App did not open, whoever asks: commenting, labelling, closing and reopening an issue; updating, describing, readying, putting back to draft, reviewing, resolving the threads of and closing a pull request. It reads the author by numeric id, never by login, once for each issue, since it never changes: the App's bot user (337765427) passes, and anyone else is refused. Readying and putting back to draft act on the id GitHub gives that number, whatever id they were sent. Every caller acts on the App's own: the line on the work item's issue and the pull request it opened, the deploy watch on its deploy pull request.
-- **A refusal** is answered 403, `issue-refused`, as GitHub answers an issue the App may not change, so the line leaves the issue and goes on. It is kept as an `action.refused` record (mechanism `scope-fence`) in the artifact store, whose hash the answer and the worker's log carry. The worker touches no store, so the record is not an event yet. A worker with the key will not start without `ARTIFACTS_DIR`, so every refusal is kept.
+- **A refusal** is answered 403, `issue-refused`, as GitHub answers an issue the App may not change, so the line leaves the issue and goes on. It is kept and answered signed, as `github-guard`, as each of the worker's refusals is ([its refusals](#its-refusals-signed)).
 - **A dry run** is guarded the same way: an issue or pull request numbered from a billion up is one the dry run opened, and passes; any other is asked of GitHub, and a refusal is recorded beside the dry run's actions.
 
 #### The outside reply
@@ -61,6 +61,15 @@ It moves, deletes and commits to the factory's own branches only, and refuses an
 
 - those under `factory/`: a fix is `factory/<work item>-<a few words of its ticket's title>`;
 - the deploy branches.
+
+## Its refusals, signed
+
+The worker touches no store, so what it refuses is recorded by the worker that asked, which holds a role there: the line, for its own requests. So that the line cannot make one up or change one, the worker signs each (`github/refusals.ts`, `signed-refusals.ts`):
+
+- **What it signs.** Its guard's refusals, as `github-guard`: a patch that changes a protected path (guardrail 1), a branch it does not own (1), a deploy pull request or image that is not one (1), an issue or pull request the App did not open (10). And GitHub's refusal of a write with status 403, as `token-permission` (1). A patch it cannot read or apply is the coder's failure, and a 401, a rate limit or any other status is not GitHub refusing the token: none is a refusal. A read is never one.
+- **The record.** Each is kept in the artifact store as an `action.refused` record: the repository, the issue or pull request if the action named one, when, and the payload, as JSON with its keys in order. The worker logs it with the record's hash, for Loki: a relay that drops a refusal is caught there.
+- **The answer.** Its status and kind are as they would be without it, and its body carries `refusal`: the record's fields, its hash, and an Ed25519 signature over its bytes, which covers the payload, the repository, the number, the time and the hash. The line verifies it with the public key before it records it ([the line](ORCHESTRATOR.md)).
+- **The key.** The Secret `refusal-signing-key`, which `make refusal-key` (and so `make up`) makes once, through stdin, and which only this pod reads; its public half is the ConfigMap `refusal-key` in `factory`, written again from it each time. Without the key the worker keeps and logs each refusal, and answers it unsigned, which the line does not record.
 
 ## Reads
 

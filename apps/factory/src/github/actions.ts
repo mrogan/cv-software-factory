@@ -24,6 +24,7 @@ import { carriesSection, type Deploy, DeployRefused, deployTarget, deployTitle, 
 import { type IssueAction, IssueGuard, openedBy } from './issues.ts';
 import { applyTo, filesIn, PatchRefused } from './patches.ts';
 import { CODEOWNERS_PATHS, inScope, protectedFrom } from './paths.ts';
+import { RefusalRecorder } from './refusals.ts';
 
 /** How the App appears as a pull request's author, and as whoever merged one or added it to the merge queue. */
 export const APP_LOGIN = 'mrogan-software-factory[bot]';
@@ -676,9 +677,7 @@ export class DryRunActions implements Actions {
       openedBy: async () => {
         throw new Error('This dry run reads no issues.');
       },
-      artifacts,
-      log,
-      now,
+      recorder: new RefusalRecorder({ artifacts, log, now }),
     }),
   ) {
     this.#artifacts = artifacts;

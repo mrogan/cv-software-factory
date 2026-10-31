@@ -1,0 +1,10 @@
+# The line's read of admission control's denials (apps/factory/src/line/refusals.ts): list the Events in each namespace
+# admission guards, and in `default`, where Kyverno keeps its own record of a request it blocked (on the policy, which
+# is cluster-wide). Nothing more. Each Role names its namespace itself, so this sets none.
+#
+# Not listed in deploy/base/kustomization.yaml: it is the line's, so a profile brings it in with the line
+# (deploy/overlays/local/factory-image).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - roles.yaml

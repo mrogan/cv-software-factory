@@ -26,22 +26,33 @@ export const issueGone = (error: unknown) => error instanceof GitHubWorkerError 
 export class GitHubWorkerError extends Error {
   readonly status: number;
   readonly kind: string;
+  /** The signed refusal the worker answered with, as it came: unverified (`../signed-refusals.ts`). */
+  readonly refusal: unknown;
 
-  constructor(status: number, kind: string, message: string) {
+  constructor(status: number, kind: string, message: string, refusal?: unknown) {
     super(message);
     this.status = status;
     this.kind = kind;
+    this.refusal = refusal;
   }
 }
+
+/** Told of each refusal the worker answers an action with, and what the action was for, before the action fails. */
+export type OnRefusal = (refusal: unknown, on: ActingFor) => void;
 
 export class GitHubWorker {
   readonly #url: string;
   readonly #dryRun: boolean;
+  readonly #onRefusal: OnRefusal | undefined;
 
-  /** With `dryRun`, every action is recorded by the worker and none is done. */
-  constructor(url: string, { dryRun = false } = {}) {
+  /**
+   * With `dryRun`, every action is recorded by the worker and none is done. `onRefusal` is told of each refusal an
+   * action is answered with, to relay; it must not throw, and the action fails as it would have.
+   */
+  constructor(url: string, { dryRun = false, onRefusal }: { dryRun?: boolean; onRefusal?: OnRefusal } = {}) {
     this.#url = url.replace(/\/$/, '');
     this.#dryRun = dryRun;
+    this.#onRefusal = onRefusal;
   }
 
   /** `on` names the work item, and the agent, an action is taken for, for the worker's log of it. */
@@ -51,11 +62,16 @@ export class GitHubWorker {
     args: ActionArgs[K],
     on: ActingFor = {},
   ): Promise<ActionResult<K>> {
-    return this.#post(`actions/${action}`, repo, args, {
-      ...(this.#dryRun ? { 'x-factory-dry-run': 'true' } : {}),
-      ...(on.workItem ? { [WORK_ITEM_HEADER]: on.workItem } : {}),
-      ...(on.agent ? { [AGENT_HEADER]: on.agent } : {}),
-    });
+    try {
+      return await this.#post(`actions/${action}`, repo, args, {
+        ...(this.#dryRun ? { 'x-factory-dry-run': 'true' } : {}),
+        ...(on.workItem ? { [WORK_ITEM_HEADER]: on.workItem } : {}),
+        ...(on.agent ? { [AGENT_HEADER]: on.agent } : {}),
+      });
+    } catch (error) {
+      if (error instanceof GitHubWorkerError && error.refusal !== undefined) this.#onRefusal?.(error.refusal, on);
+      throw error;
+    }
   }
 
   /**
@@ -73,9 +89,15 @@ export class GitHubWorker {
       body: JSON.stringify({ repo, ...args }),
       signal: AbortSignal.timeout(120_000),
     });
-    const body = (await response.json()) as { result?: T; error?: string; message?: string };
-    if (!response.ok)
-      throw new GitHubWorkerError(response.status, body.error ?? 'unknown', body.message ?? `${path} failed`);
+    const body = (await response.json()) as { result?: T; error?: string; message?: string; refusal?: unknown };
+    if (!response.ok) {
+      throw new GitHubWorkerError(
+        response.status,
+        body.error ?? 'unknown',
+        body.message ?? `${path} failed`,
+        body.refusal,
+      );
+    }
     return body.result as T;
   }
 }
