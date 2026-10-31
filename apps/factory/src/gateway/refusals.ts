@@ -82,8 +82,8 @@ export class Refusals {
     return this.#queue;
   }
 
-  /** Appends what is due each minute. */
-  start(everyMs = FOLD_MS): void {
+  /** Appends what is due, looking often enough that a fold waits little past its minute, whenever its minute began. */
+  start(everyMs = FOLD_MS / 6): void {
     this.#timer = setInterval(() => void this.flush(), everyMs);
     this.#timer.unref();
   }
