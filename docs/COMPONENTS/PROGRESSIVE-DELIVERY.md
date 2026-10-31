@@ -56,7 +56,7 @@ Throughout:
 - errors and latency every minute, once the split has sent the canary enough requests;
 - the journeys every three minutes.
 
-Each fails the release at its second failed look. The line records each look as it lands ([`canary.measuring`](RELEASE-AND-VERIFY.md#its-events)), for the console to show while the canary holds its step.
+Each fails the release at its second failed look, or with auto-rollback off, for errors and latency, pauses it there ([below](#auto-rollback)). The line records each look as it lands ([`canary.measuring`](RELEASE-AND-VERIFY.md#its-events)), for the console to show while the canary holds its step.
 
 ### The journeys
 
@@ -64,6 +64,15 @@ The journeys are the [journeys gate](CI-PIPELINE.md#journeys) aimed at the clust
 
 - It fails on a check that passes on the base and fails on the change twice, a probe's `/device` among them: a canary that starts to keep anything on a visitor's device, or to ask another origin, is rolled back.
 - It writes the checks that regressed, and how many passed of how many ran on each version, to its container's termination message, where the line reads them.
+
+### Auto-rollback
+
+Martin's switch in the console's Controls (`autoRollback` in [`policy/line.ts`](../../policy/line.ts), on by default). On, a measure judged bad fails its run, and Argo Rollouts rolls the canary back by itself. Off, errors and latency judged bad are **inconclusive** instead, and Argo Rollouts pauses the canary at its step for a person: it keeps its share of the traffic until Martin promotes it fully or aborts it. Stop the line still aborts it.
+
+- **How the templates read it.** Errors and latency have a failure condition beside their success condition, and a measurement that meets neither is Inconclusive. Each query answers its figure once with the switch on, and the same figure twice, the second marked `auto_rollback="off"`, only while auto-rollback is off by both of its series: two answers that do not pass are inconclusive, one is a failure. A step pauses on its first bad figure, the background analysis on the look that would have failed it (`inconclusiveLimit` matches `failureLimit`). Argo Rollouts counts failed and inconclusive looks apart, so a switch flipped during a background run can let through one bad look more before the run ends: with the policy's two, a failed look before the flip and an inconclusive one after leave it running, and the third bad look fails it or pauses it, by the switch then.
+- **Two series, each held to its pod.** The admin service, which appends the switch, reports it as `admin_auto_rollback`, and the line, from its own read of Martin's latest `controls.changed`, as `line_auto_rollback` (1 on, 0 off), each read from the store each time its SDK collects, and reported on when the read fails, so a word of off is believed only while it is read. Each is believed only from its own pod, by what the collector stamps on it ([telemetry](TELEMETRY.md)), and only from a sample in the last minute. Off needs exactly one fresh series from each, both reading 0: a series missing, stale, doubled or reading anything else rolls a bad canary back. So the admin service, which the internet reaches, cannot switch it off alone, and nothing new writes the Rollout.
+- **What it does not cover.** Too few requests still fails a step, a canary with no figure to judge (none of its series reached Prometheus) still fails, and an analysis error still aborts: none is a verdict on the canary. The journeys still roll a canary back: they are a Job, which Argo Rollouts ends only Successful or Failed, so a step's run cannot wait for the Job and then judge its result with the switch.
+- **Who is told.** Switching it off needs the passkey again and pages Martin; on informs him ([alerting](ALERTING.md#security-events)). The admin service's word differing from his recorded switch for two minutes pages him too ([alerting](ALERTING.md#changes-no-event-records)).
 
 ## Whose requests are judged
 

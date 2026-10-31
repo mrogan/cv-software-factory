@@ -561,6 +561,7 @@ function forTarget(
         reason,
         failed,
         dryRun: false,
+        by: 'analysis',
       },
     });
   } else if (o.aborted && o.abortedAt && names.current === name && errorsOf(o, name).some(inAttempt)) {

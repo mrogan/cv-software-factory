@@ -49,6 +49,8 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
     7: (payload) => payload,
     // Version 9 adds the files a coder said it needs outside its scope, to a scope hold; a version 8 hold reads as it was.
     8: (payload) => payload,
+    // Version 10 adds a canary paused for Martin, with auto-rollback off; a version 9 hold reads as it was.
+    9: (payload) => payload,
   },
   // Version 2 names the hold it answers, and says when its words stay Martin's; a version 1 answer said neither.
   'hold.answered': { 1: (payload) => payload },
@@ -57,6 +59,8 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
   'line.started': { 1: (payload) => payload },
   // Version 2 marks the abort that came with Stop the line; a version 1 control was always the Canary panel's.
   'release.controlled': { 1: (payload) => payload },
+  // Version 2 adds auto-rollback to the controls; until it had a switch, it was always on.
+  'controls.changed': { 1: (payload) => ({ ...payload, autoRollback: true }) },
   // Version 2 of a release's events names the release, says whether the line watched it and whether the dry run
   // answers for it, and records the analysis's own measures. A version 1 release was told apart by its version, was
   // watched, and shipped.
@@ -119,6 +123,8 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
     },
     // Version 3 adds how many of each failed measure's looks failed; a version 2 rollback never counted them.
     2: (payload) => payload,
+    // Version 4 says who rolled it back; until auto-rollback could be switched off, the analysis always did.
+    3: (payload) => ({ ...payload, by: 'analysis' }),
   },
   // Version 2 adds the sense and the version verified, and whether the dry run answers for it; a version 1
   // verification was a sense's, though it never said which.

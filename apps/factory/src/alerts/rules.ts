@@ -29,6 +29,7 @@ import {
   METRICS_FROM_THE_LINE,
   METRICS_FROM_THE_PROBES,
 } from '../provenance.ts';
+import { AUTO_ROLLBACK as AUTO_ROLLBACK_SERIES } from '../release/analysis.ts';
 import * as query from './queries.ts';
 
 export const RULES_FILE = join(import.meta.dirname, '../../../../deploy/base/telemetry/values/prometheus-rules.yaml');
@@ -113,6 +114,9 @@ export const SECURITY_LEVELS: Record<SecurityKind, Level> = {
   // Off loosens what reaches him, as nothing will; Alertmanager lets both through its mute (`PHONE_KINDS`).
   'phone-off': LEVELS.page,
   'phone-on': LEVELS.inform,
+  // Off overrides a guardrail: a canary the analysis judges bad no longer rolls back by itself.
+  'auto-rollback-off': LEVELS.page,
+  'auto-rollback-on': LEVELS.inform,
   'release-control': LEVELS.notify,
   'setting-changed': LEVELS.notify,
   'line-started': LEVELS.notify,
@@ -205,6 +209,16 @@ const SECURITY_WORDS: Record<SecurityKind, { summary: string; description: strin
   'phone-on': {
     summary: 'Alerts reach your phone again',
     description: 'Alerts to your phone were switched on in the console: every alert reaches it, at its level.',
+  },
+  'auto-rollback-off': {
+    summary: 'Auto-rollback was turned off',
+    description:
+      'Auto-rollback was turned off in the console: a canary whose errors or latency the analysis judges bad now pauses for you to promote or abort, rather than rolling back by itself. A failed journeys check still rolls it back, and Stop the line still aborts one.',
+  },
+  'auto-rollback-on': {
+    summary: 'Auto-rollback was turned on',
+    description:
+      'Auto-rollback was turned on in the console: a canary the analysis judges bad rolls back by itself. One already paused for you stays paused until you promote or abort it.',
   },
 };
 
@@ -324,6 +338,11 @@ export const HOLD_WORDS: Record<HoldCause, { summary: string; description: strin
     summary: 'waits for your deploy',
     description:
       '{{ if $labels.pull_request }}Its fix is merged, and the deploy pull request that carries it has passed its checks.{{ else }}Its release was aborted or erred, and waits for your retry.{{ end }}',
+  },
+  canary: {
+    summary: 'waits for you: a canary paused',
+    description:
+      'With auto-rollback off, the analysis judged its canary bad, and it keeps its share of the traffic until you promote it fully or abort it.',
   },
   verify: {
     summary: 'waits for you: Verify asks',
@@ -490,6 +509,13 @@ export function flagRules(): Rule[] {
 export const PHONE = fromTheAdminService('admin_alerts_phone');
 export const LINE_PHONE = fromTheLine('line_alerts_phone');
 
+/**
+ * Whether auto-rollback is on, from the admin service's read of Martin's switch (`admin/auto-rollback.ts`), and from
+ * the line's (`line/auto-rollback.ts`): 1 if so, 0 if not, each from its own pod alone, as the canary's analysis reads
+ * them.
+ */
+const { admin: AUTO_ROLLBACK, line: LINE_AUTO_ROLLBACK } = AUTO_ROLLBACK_SERIES;
+
 /** The alert that mutes every alert with a level in Alertmanager while it fires. */
 export const PHONE_OFF = 'PhoneOff';
 
@@ -504,7 +530,8 @@ const RECENT = '5m';
  *   has not been able to read the store for five: no security event would reach him meanwhile;
  * - a page when a change the admin service makes (the flags, the app's Rollout, a session) stands for two minutes with
  *   no event naming it, by the line's comparison of each with Martin's events (`line/admin-actions.ts`): someone got
- *   round the audit log; and when the line has not been able to compare one for ten minutes;
+ *   round the audit log; and when the line has not been able to compare one for ten minutes; and when the admin
+ *   service's word on auto-rollback differs from the line's read of his switch for as long;
  * - a page while Alertmanager has a silence in place, active or pending, from its own figures: a silence keeps pages
  *   from Martin, and nothing here makes one. A silence that matches this alert keeps it quiet too: the limit the dead
  *   man's switch covers (milestone 10). The rule takes the highest of any series by that name, so another can only page
@@ -563,6 +590,20 @@ export function martinRules(): Rule[] {
         description: `For ten minutes the line has not been able to compare ${ADMIN_COMPARED_WORDS[action]} with the events that record them, so a change none records would not reach you. The line’s log says why.`,
       },
     })),
+    {
+      // The admin service's word on auto-rollback, against the line's read of Martin's switch from the store: the two
+      // series the canary's analysis reads (`release/analysis.ts`). Compared here, where both are, rather than by the
+      // line: each worker reads the store again at every export, so they differ only for a moment after a switch.
+      alert: ADMIN_UNCOUNTED,
+      expr: `max(last_over_time(${AUTO_ROLLBACK}[${PUSHED_FRESH}])) != on () max(last_over_time(${LINE_AUTO_ROLLBACK}[${PUSHED_FRESH}]))`,
+      for: ADMIN_UNCOUNTED_FOR,
+      labels: { level: LEVELS.page, action: 'auto-rollback' },
+      annotations: {
+        summary: 'Auto-rollback differs from your switch',
+        description:
+          "The admin service says auto-rollback is one way and your latest switch in the store says the other: it reports what you did not record, or cannot read the store. A canary is paused for you only while both say off. Controls shows the switch as recorded: switch it there, which records it, and look in the admin service's log.",
+      },
+    },
     {
       alert: 'AlertmanagerSilenced',
       expr: 'max(alertmanager_silences{state=~"active|pending"}) > 0',

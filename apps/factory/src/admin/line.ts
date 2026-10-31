@@ -16,8 +16,8 @@
  * `make stop-the-line` keeps its own path, which needs neither the console nor the admin service.
  *
  * **The line's controls** (`POST /admin/line/controls`), from the console's Controls: the autonomy level, whether
- * agents take new work, whether low-risk changes merge by themselves, and what the line takes, within policy
- * (`policy/line.ts`). One change a request, and one `controls.changed` event, carrying every control as it now stands
+ * agents take new work, whether low-risk changes merge by themselves, what the line takes, and auto-rollback, within
+ * policy (`policy/line.ts`). One change a request, and one `controls.changed` event, carrying every control as it now stands
  * and the one changed, with its value before and after.
  *
  * - Which action a change is (`autonomy.loosen`, `take.widen`, …) is decided from the controls in force as it is taken,
@@ -29,6 +29,9 @@
  * - The next few count from when Martin chose them: any number chosen, larger, smaller or the same, counts again from
  *   then, so "the next two" are two from now.
  * - A change to what is already so records nothing.
+ * - Auto-rollback switched off overrides a guardrail, so it needs the passkey again, and the line pages Martin from its
+ *   event. It reaches the canary's analysis only through the two series the admin service and the line report of it
+ *   (`auto-rollback.ts`, `release/analysis.ts`). Stopping the line still aborts a canary, whatever it says.
  */
 import { AUTONOMY } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
@@ -140,6 +143,7 @@ export const CHANGE = z.union([
   z.strictObject({ autonomy: z.enum(AUTONOMY) }),
   z.strictObject({ newWork: z.boolean() }),
   z.strictObject({ autoMerge: z.boolean() }),
+  z.strictObject({ autoRollback: z.boolean() }),
   z.strictObject({
     take: z.discriminatedUnion('kind', [
       z.strictObject({ kind: z.literal('every') }),
@@ -183,6 +187,10 @@ export function changeSummary(change: ControlChange): string {
       const how = controlAction(change) === 'take.widen' ? 'widened' : 'narrowed';
       return `Martin ${how} what the line takes to ${takeWords(change.after)}`;
     }
+    case 'auto-rollback':
+      return change.after
+        ? 'Martin turned on auto-rollback: a canary judged bad rolls back by itself'
+        : 'Martin turned off auto-rollback: a canary whose errors or latency are judged bad pauses for him';
   }
 }
 
@@ -194,6 +202,9 @@ function changeOf(before: Controls, asked: Change, now: string): ControlChange {
   if ('autonomy' in asked) return { control: 'autonomy', before: before.autonomy, after: asked.autonomy };
   if ('newWork' in asked) return { control: 'new-work', before: before.newWork, after: asked.newWork };
   if ('autoMerge' in asked) return { control: 'auto-merge', before: before.autoMerge, after: asked.autoMerge };
+  if ('autoRollback' in asked) {
+    return { control: 'auto-rollback', before: before.autoRollback, after: asked.autoRollback };
+  }
   const { take } = asked;
   const after: Take = take.kind === 'next-few' ? { kind: 'next-few', count: take.count, since: now } : take;
   return { control: 'take', before: before.take, after };
@@ -213,6 +224,8 @@ function withChange(controls: Controls, change: ControlChange): Controls {
       return { ...controls, autoMerge: change.after };
     case 'take':
       return { ...controls, take: change.after };
+    case 'auto-rollback':
+      return { ...controls, autoRollback: change.after };
   }
 }
 

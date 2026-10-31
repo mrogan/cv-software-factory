@@ -238,6 +238,7 @@ describe('a station’s figure', () => {
       reason: 'An older release',
       failed: [],
       dryRun: false,
+      by: 'analysis',
     });
     const release = project(late.events, late.at(5)).stations.find((s) => s.stage === 'release');
     expect(release).toMatchObject({ figure: '25%' });

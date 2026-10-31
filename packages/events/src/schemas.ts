@@ -792,7 +792,11 @@ export const PAYLOADS = {
     watched: z.boolean(),
     dryRun: z.boolean(),
   }),
-  /** The analysis failed the canary, and Argo Rollouts sent all of the traffic back to the stable version. */
+  /**
+   * The analysis failed the canary, and Argo Rollouts sent all of the traffic back to the stable version; or, with
+   * auto-rollback off, the analysis judged it bad, Argo Rollouts paused it for Martin, and he aborted it, which is a
+   * rollback all the same: the work item fails Release, and triage gets the analysis's verdict.
+   */
   'release.rolled-back': z.strictObject({
     release: releaseId,
     version: appVersion,
@@ -809,6 +813,11 @@ export const PAYLOADS = {
       .array(measure.extend({ series: series.optional(), failures: z.number().int().min(1).max(10_000).optional() }))
       .max(8),
     dryRun: z.boolean(),
+    /**
+     * Who rolled it back: the analysis, by itself, or Martin, aborting a canary the analysis judged bad and paused for
+     * him with auto-rollback off. A version 3 rollback was always the analysis's.
+     */
+    by: z.enum(['analysis', 'martin']),
   }),
   /**
    * Martin aborted the canary, and Argo Rollouts sent all of the traffic back to the stable version, with no analysis
@@ -1176,7 +1185,8 @@ export const PAYLOADS = {
    * the one he changed, with its value before and after. The line and the admin service read the latest one his roles
    * appended, and check it against policy as they read it: anything outside it is not in force, and policy's default
    * is. Nothing routes by the autonomy level or auto-merge until approval routing comes (Part C); the line acts on
-   * the switch for new work and on what it takes from its next pass.
+   * the switch for new work and on what it takes from its next pass. Auto-rollback reaches the canary's analysis as
+   * two series, the admin service's read of it and the line's (`release/analysis.ts`).
    */
   'controls.changed': z.strictObject({
     autonomy: z.enum(V.AUTONOMY),
@@ -1184,6 +1194,8 @@ export const PAYLOADS = {
     autoMerge: z.boolean(),
     /** None: no take set, so the line's own default (`LINE_TAKE`, `LINE_ONLY`) is in force. */
     take: take.nullable(),
+    /** Whether a canary the analysis judges bad rolls back by itself; off, it pauses for Martin. */
+    autoRollback: z.boolean(),
     change: z.discriminatedUnion('control', [
       z.strictObject({
         control: z.literal('autonomy'),
@@ -1193,6 +1205,7 @@ export const PAYLOADS = {
       z.strictObject({ control: z.literal('new-work'), before: z.boolean(), after: z.boolean() }),
       z.strictObject({ control: z.literal('auto-merge'), before: z.boolean(), after: z.boolean() }),
       z.strictObject({ control: z.literal('take'), before: take.nullable(), after: take }),
+      z.strictObject({ control: z.literal('auto-rollback'), before: z.boolean(), after: z.boolean() }),
     ]),
   }),
   /**

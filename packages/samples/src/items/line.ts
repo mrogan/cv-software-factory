@@ -61,6 +61,7 @@ export default new Item(null, '2026-10-05T00:00:00+01:00', 'line/releases')
     reason: FAILED,
     failed: [{ ...V099_LATENCY, failures: 2 }],
     dryRun: false,
+    by: 'analysis',
   })
   // Monday evening: a build of one of Martin's commits fails latency the same way. #1308 is still open, so triage
   // adds the rollback's signal to it rather than opening another ticket.
@@ -79,6 +80,7 @@ export default new Item(null, '2026-10-05T00:00:00+01:00', 'line/releases')
     reason: FAILED,
     failed: [{ ...V099_LATENCY, failures: 2 }],
     dryRun: false,
+    by: 'analysis',
   })
   // Monday night: a build of another of Martin's commits reaches its 25% step while Prometheus is out of reach. The
   // analysis cannot take its measures, ends in Error, and Argo Rollouts stops the canary: nothing failed, so it is no

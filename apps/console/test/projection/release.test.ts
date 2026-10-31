@@ -334,6 +334,7 @@ describe('a release’s steps', () => {
     reason: 'Metric "errors" assessed Failed',
     failed: [],
     dryRun: false,
+    by: 'analysis',
   };
   const twoSteps = [
     { weight: 25, pauseSeconds: 180, analysis: true },

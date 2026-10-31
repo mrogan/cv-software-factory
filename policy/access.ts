@@ -186,17 +186,21 @@ export const ACCESS = {
   'new-work.off': admin('Stop agents taking new work'),
   'auto-merge.on': admin('Turn on auto-merge of low-risk changes', true),
   'auto-merge.off': admin('Turn off auto-merge of low-risk changes'),
-  'auto-rollback.on': admin('Turn on auto-rollback of a failed canary'),
-  'auto-rollback.off': admin('Turn off auto-rollback of a failed canary', true),
+  'auto-rollback.on': admin('Turn on auto-rollback: a canary the analysis judges bad rolls back by itself'),
+  'auto-rollback.off': admin(
+    'Turn off auto-rollback: a canary whose errors or latency the analysis judges bad pauses for you to promote or abort, overriding a guardrail',
+    true,
+  ),
   'take.widen': admin('Let the line take more work items, or any rather than one', true),
   'take.narrow': admin('Let the line take fewer work items, or just one'),
   // The line's controls, within policy (`line.ts`). A change is one route, and is the one of the actions above that it
   // does, by the controls in force as it is taken, never the request's word: the admin service asks for the passkey
-  // again when that one needs it. Auto-rollback has no route: it stays on until Part C gives it a switch.
+  // again when that one needs it.
   'line.controls': {
     ...admin(
       "Change one of the line's controls: as `autonomy.loosen` or `autonomy.tighten`, `new-work.on` or `new-work.off`, " +
-        '`auto-merge.on` or `auto-merge.off`, `take.widen` or `take.narrow`, by what it changes, with the passkey again ' +
+        '`auto-merge.on` or `auto-merge.off`, `take.widen` or `take.narrow`, `auto-rollback.on` or `auto-rollback.off`, ' +
+        'by what it changes, with the passkey again ' +
         'when that one needs it',
     ),
     server: 'admin',

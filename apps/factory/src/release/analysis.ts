@@ -23,6 +23,25 @@
  * throughout. Each version is judged on its share of the visitors' requests and the traffic generator's, and the
  * queries compare shares and percentiles, not counts, since the split gives the two versions different numbers.
  *
+ * **Auto-rollback** (Martin's switch in Controls, `policy/line.ts`). On, as by default, a measure judged bad fails its
+ * run, and Argo Rollouts rolls the canary back. Off, errors and latency judged bad are inconclusive instead: each has a
+ * failure condition beside its success condition, and a measurement that meets neither is Inconclusive, which pauses
+ * the Rollout for a person (`release/watch.ts` reads it). The switch reaches the queries as two series, the admin
+ * service's and the line's read of Martin's latest `controls.changed` (`admin/auto-rollback.ts`,
+ * `line/auto-rollback.ts`), each held to its own pod by what the collector stamps (`provenance.ts`), so the
+ * internet-facing admin service cannot switch it off alone. Each such query answers its figure once when the switch is
+ * on, and the same figure twice, the second marked, only while there is exactly one fresh series from each pod and both
+ * read 0 (`autoRollbackOff`): two answers that fail the success condition are inconclusive, one is a failure. Anything
+ * else, a series missing, stale, doubled or reading 1, answers once, and a bad canary rolls back. Nothing here writes the
+ * Rollout. A canary with no figure to judge (none of its series reached Prometheus) is not judged bad but unmeasured,
+ * and still fails.
+ *
+ * The switch covers what the analysis judges of the canary against its baseline in Prometheus: errors and latency. It
+ * leaves alone what says the analysis could not judge: too few requests still fails a step, and an analysis error
+ * still aborts, as neither is a verdict on the canary. The journeys are a Job, which Argo Rollouts ends only Successful
+ * or Failed, so a step's run cannot wait for the Job and then judge its result with the switch: they still roll a
+ * canary back with the switch off (docs/COMPONENTS/PROGRESSIVE-DELIVERY.md says so).
+ *
  * The cluster-scoped templates live in this repository, deployed with the factory's images: nothing in the app's
  * repository can loosen them, and the journeys run on the same `factory-browser` the probes run, at the digest the
  * cluster pins (deploy/overlays/local/factory-image).
@@ -31,6 +50,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { stringify } from 'yaml';
 import { type Release, release } from '../../../../policy/release.ts';
+import { METRICS_FROM_THE_ADMIN_SERVICE, METRICS_FROM_THE_LINE } from '../provenance.ts';
 
 export const TEMPLATES_FILE = join(import.meta.dirname, '../../../../deploy/base/analysis/templates.yaml');
 
@@ -129,12 +149,75 @@ export function queries(r: Release) {
 
 const prometheus = (query: string) => ({ prometheus: { address: PROMETHEUS, query } });
 
-/** Errors and latency, the measures from Prometheus, each passing when there is nothing yet to judge. */
+/** The two series of auto-rollback, each from its own pod alone: 1 on, 0 off. */
+export const AUTO_ROLLBACK = {
+  admin: `admin_auto_rollback{${METRICS_FROM_THE_ADMIN_SERVICE}}`,
+  line: `line_auto_rollback{${METRICS_FROM_THE_LINE}}`,
+} as const;
+
+/**
+ * How long a pushed series' last sample is believed, as the alerts believe the workers' (`alerts/rules.ts`'s
+ * `PUSHED_FRESH`, which a test holds this to): OTLP leaves Prometheus no staleness marker, so a worker gone would be read
+ * for the five minutes of Prometheus's own lookback, which this shortens to one.
+ */
+export const SWITCH_FRESH = '1m';
+
+/**
+ * One element, while auto-rollback is off by both: exactly one fresh series from the admin service's pod and one from
+ * the line's, each reading 0. Empty otherwise: a series missing or stale, two from one pod, or either reading anything
+ * but 0.
+ */
+export function autoRollbackOff(): string {
+  const fresh = (series: string) => `last_over_time(${series}[${SWITCH_FRESH}])`;
+  const one = (series: string) => `(count(${fresh(series)}) == 1 and on () max(${fresh(series)}) == 0)`;
+  return `${one(AUTO_ROLLBACK.admin)}
+and on () ${one(AUTO_ROLLBACK.line)}`;
+}
+
+/** The label the second answer carries while auto-rollback is off, so the two are told apart. */
+export const OFF_LABEL = 'auto_rollback';
+
+/**
+ * A measure's query with the switch: its figure, and, only while auto-rollback is off by both series and the figure is
+ * finite, the same figure again under `OFF_LABEL`. Both are the one figure, so `result[0]` is it whichever comes first.
+ * An infinite figure, a version with nothing to compare (`queries`), is no verdict on the canary but that it could not
+ * be measured, so it answers once and fails, whatever the switch.
+ */
+export function switched(query: string): string {
+  return `(
+${query}
+)
+or
+(
+  label_replace(
+(
+${query}
+) < Inf
+  , "${OFF_LABEL}", "off", "", "")
+  and on ()
+${autoRollbackOff()}
+)`;
+}
+
+/**
+ * The conditions of a measure the switch covers, from what passes: nothing to judge, or a figure within its limit. Two
+ * answers that do not pass (auto-rollback off) meet neither, which Argo Rollouts calls Inconclusive; any other number of
+ * answers that do not pass fails. Argo Rollouts reads the failure condition first.
+ */
+export function conditions(passes: string) {
+  const successCondition = `len(result) == 0 || ${passes}`;
+  return { successCondition, failureCondition: `len(result) != 2 && !(${successCondition})` };
+}
+
+/**
+ * Errors and latency, the measures from Prometheus, each passing when there is nothing yet to judge, and inconclusive
+ * rather than failed on a bad figure while auto-rollback is off.
+ */
 function compared(r: Release) {
   const q = queries(r);
   return [
-    { name: 'errors', successCondition: `len(result) == 0 || result[0] <= ${r.errors.maxAbove}`, query: q.errors },
-    { name: 'latency', successCondition: 'len(result) == 0 || result[0] <= 0', query: q.latency },
+    { name: 'errors', ...conditions(`result[0] <= ${r.errors.maxAbove}`), query: switched(q.errors) },
+    { name: 'latency', ...conditions('result[0] <= 0'), query: switched(q.latency) },
   ];
 }
 
@@ -234,20 +317,29 @@ export function templatesFor(r: Release) {
       failureLimit: 0,
       provider: prometheus(q.requests),
     },
-    ...compared(r).map(({ name, successCondition, query }) => ({
+    // A bad figure with auto-rollback off is inconclusive at once, and pauses the canary at the step it reached.
+    ...compared(r).map(({ name, successCondition, failureCondition, query }) => ({
       name,
       successCondition,
+      failureCondition,
       failureLimit: 0,
+      inconclusiveLimit: 0,
       provider: prometheus(query),
     })),
     { name: 'journeys', failureLimit: 0, provider: { job: journeys(r) } },
   ]);
   const background = template(TEMPLATES.background, [
-    ...compared(r).map(({ name, successCondition, query }) => ({
+    // Paused on the same look that would have failed it: Argo Rollouts counts a run's inconclusive looks as it counts
+    // its failed ones, across the run. It counts the two apart, and has no limit on both together, so a run whose
+    // switch is flipped while it runs may see up to 2 × (failures − 1) bad looks (two, at policy’s two) before the next
+    // decides, Failed or Inconclusive by the switch then: one more than a run with the switch left alone.
+    ...compared(r).map(({ name, successCondition, failureCondition, query }) => ({
       name,
       interval: `${r.background.intervalMinutes}m`,
       successCondition,
+      failureCondition,
       failureLimit: r.background.failures - 1,
+      inconclusiveLimit: r.background.failures - 1,
       provider: prometheus(query),
     })),
     {

@@ -187,6 +187,12 @@ export const HOLD_CAUSES = [
    * again, for the next or for his retry.
    */
   'deploy',
+  /**
+   * With auto-rollback off, the canary's analysis judged it worse than its baseline and, rather than roll it back,
+   * Argo Rollouts paused it for Martin: it keeps its share of the traffic until he promotes it fully or aborts it, from
+   * the Canary panel's own controls. It takes no answer of the holds': a promotion, an abort or a rollback ends it.
+   */
+  'canary',
   /** Verification after the release could not settle the ticket by itself, and waits for Martin to say. */
   'verify',
   /** The work item has spent as much on models as one may: the gateway refuses its agents' calls. */
@@ -214,10 +220,10 @@ export type Autonomy = (typeof AUTONOMY)[number];
 
 /**
  * Martin's controls of the line, from the console's Controls (the admin service): the autonomy level, whether agents
- * take new work, whether low-risk changes merge by themselves, and what the line takes. Auto-rollback is not one until
- * Part C gives it a switch: a failing canary is always rolled back.
+ * take new work, whether low-risk changes merge by themselves, what the line takes, and whether a canary the analysis
+ * judges bad rolls back by itself or pauses for him.
  */
-export const LINE_CONTROLS = ['autonomy', 'new-work', 'auto-merge', 'take'] as const;
+export const LINE_CONTROLS = ['autonomy', 'new-work', 'auto-merge', 'take', 'auto-rollback'] as const;
 export type LineControl = (typeof LINE_CONTROLS)[number];
 
 /** What the line takes: every ticket, the next few from when Martin set it, or just one work item. */

@@ -90,6 +90,9 @@ export const ANSWERS: Record<HoldCause, Record<HoldAnswer, Resolution>> = {
   merge: { approved: 'wait', rejected: 'close', answered: 'return' },
   // A deploy is merged by Martin, not answered: a release that carries the change ends the hold by itself.
   deploy: { approved: 'wait', rejected: 'close', answered: 'wait' },
+  // A canary paused for Martin is answered from the Canary panel, by promoting it fully or aborting it: the release
+  // that ends ends the hold. No answer of the holds' does anything.
+  canary: { approved: 'wait', rejected: 'wait', answered: 'wait' },
   // At Verify, when no sense can tell or the signal persisted again: approving says the fix is verified, and answering
   // sends the work back to the planner with what he said.
   verify: { approved: 'verified', rejected: 'close', answered: 'replan' },

@@ -20,7 +20,13 @@
  * - `line-stopped`: every `line.stopped`, which tightens and so needs no passkey again, but which Martin is still told of;
  * - every change of the line's controls (`controls.changed`), as the access table's action it is, told from the
  *   stored change's before and after alone (`policy/line.ts`): `autonomy-loosened` and `autonomy-tightened`,
- *   `new-work-on` and `new-work-off`, `auto-merge-on` and `auto-merge-off`, `take-widened` and `take-narrowed`;
+ *   `new-work-on` and `new-work-off`, `auto-merge-on` and `auto-merge-off`, `take-widened` and `take-narrowed`,
+ *   `auto-rollback-off` (which overrides a guardrail, and pages) and `auto-rollback-on`. Auto-rollback is counted from
+ *   what the event puts in force too, as its two series read it (`auto-rollback.ts`): an event that turns it off or on
+ *   while its change names another control counts as that as well (`switchedAutoRollback`), so a role that can append
+ *   Martin's controls cannot turn it off under a change that only informs him. What it puts in force is followed, in
+ *   order, through the events the series follow alone (`latestControls`: his roles', of any version), so the tally's
+ *   "before" is the series' and a switch is neither missed nor counted twice;
  * - every move of a feature flag's stage (`flag.staged`), as the access table's action it is, told from the stored
  *   stages before and after alone (`policy/flag-moves.ts`): `flag-widened` for every widening (Off to Checks, past it,
  *   a larger share, and turning a flag back on for everyone), `flag-narrowed`, and `flag-off`;
@@ -38,13 +44,13 @@
 import { type BatchObservableResult, metrics } from '@opentelemetry/api';
 import { HOLD_CAUSES, type HoldCause, type ReleaseControl, upcast } from '@software-factory/events';
 import { PAYLOADS } from '@software-factory/events/schemas';
-import { openedAsImprovement } from '@software-factory/store';
+import { fromMartin, openedAsImprovement } from '@software-factory/store';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { GUARDRAIL_HOLDS } from '../../../../policy/access.ts';
 import { type FlagAction, flagAction } from '../../../../policy/flag-moves.ts';
 import type { Stage } from '../../../../policy/flags.ts';
-import { type ControlAction, type ControlChange, controlAction } from '../../../../policy/line.ts';
+import { type ControlAction, type ControlChange, controlAction, controlsInForce } from '../../../../policy/line.ts';
 import type { Logger } from '../log.ts';
 
 const meter = metrics.getMeter('factory-line');
@@ -67,6 +73,8 @@ export const SECURITY_KINDS = [
   'auto-merge-off',
   'take-widened',
   'take-narrowed',
+  'auto-rollback-off',
+  'auto-rollback-on',
   'flag-widened',
   'flag-narrowed',
   'flag-off',
@@ -117,6 +125,8 @@ export interface Stored {
   improvement?: boolean | null;
   /** A switch of alerts to the phone: whether they reach it now. */
   phone?: unknown;
+  /** A change of the line's controls: whether auto-rollback is on after it, as stored. */
+  autoRollback?: unknown;
 }
 
 /** The kind each move of a flag's stage counts as, by the access table's action it is. */
@@ -147,6 +157,8 @@ const CONTROL_KINDS: Record<ControlAction, SecurityKind> = {
   'auto-merge.off': 'auto-merge-off',
   'take.widen': 'take-widened',
   'take.narrow': 'take-narrowed',
+  'auto-rollback.off': 'auto-rollback-off',
+  'auto-rollback.on': 'auto-rollback-on',
 };
 
 /** A stored change, if it is one as the event's schema has it, so a malformed row is counted as nothing. */
@@ -163,6 +175,26 @@ function causeOf(row: { hold_version: number | null; hold_payload: Record<string
   if (row.hold_version === null || row.hold_payload === null) return null;
   const read = upcast({ type: 'hold.started', version: row.hold_version, payload: row.hold_payload });
   return read.ok ? String((read.event.payload as { cause?: unknown }).cause ?? '') : null;
+}
+
+/**
+ * Whether auto-rollback is on after a change of the line's controls, as the workers that report it read the event
+ * (`controlsInForce`): anything but a boolean is policy's default, on.
+ */
+export const autoRollbackAfter = (event: Stored): boolean =>
+  controlsInForce({ autoRollback: event.autoRollback }).autoRollback;
+
+/**
+ * The switch of auto-rollback a change of the line's controls makes that its change does not name, from whether it was
+ * on before (the controls in force after the change before it), or nothing: off from on is `auto-rollback-off`, on from
+ * off `auto-rollback-on`.
+ */
+export function switchedAutoRollback(before: boolean, event: Stored): SecurityKind | null {
+  const after = autoRollbackAfter(event);
+  if (after === before) return null;
+  const kind: SecurityKind = after ? 'auto-rollback-on' : 'auto-rollback-off';
+  const change = changeOf(event.change);
+  return change && CONTROL_KINDS[controlAction(change)] === kind ? null : kind;
 }
 
 /** What a stored event counts as: a security event of a kind, a hold of a cause, or nothing. */
@@ -211,12 +243,18 @@ export function countAs(event: Stored): { kind: SecurityKind } | { hold: HoldCau
 /** The counts so far, and the last event they have read. */
 export interface Tally {
   seq: string;
+  /**
+   * Whether auto-rollback was on after the last change of the line's controls read that the series follow (one of
+   * Martin's roles appended): policy's default before any.
+   */
+  autoRollback: boolean;
   kinds: Record<SecurityKind, number>;
   holds: Record<HoldCause, number>;
 }
 
 export const emptyTally = (): Tally => ({
   seq: '0',
+  autoRollback: controlsInForce().autoRollback,
   kinds: Object.fromEntries(SECURITY_KINDS.map((kind) => [kind, 0])) as Record<SecurityKind, number>,
   holds: Object.fromEntries(HOLD_CAUSES.map((cause) => [cause, 0])) as Record<HoldCause, number>,
 });
@@ -224,6 +262,7 @@ export const emptyTally = (): Tally => ({
 /**
  * The tally with every event stored after its last added, up to the last event stored now. One statement, so what it
  * counts and the last `seq` it says it read are of one snapshot; an answer's hold is read by its work item's index.
+ * Read in the order stored, as auto-rollback in force is followed from one change to the next.
  */
 export async function readOn(sql: Sql, tally: Tally): Promise<Tally> {
   const rows = await sql<
@@ -236,13 +275,16 @@ export async function readOn(sql: Sql, tally: Tally): Promise<Tally> {
       staged: unknown;
       improvement: boolean | null;
       phone: unknown;
+      auto_rollback: unknown;
+      in_force: boolean | null;
       hold_version: number | null;
       hold_payload: Record<string, unknown> | null;
     }[]
   >`
     with upto as (select max(seq) as last from events)
     select upto.last::text as last, e.type, e.payload->>'action' as action, e.payload->>'decision' as decision,
-           e.payload->'change' as change, e.payload->'phone' as phone,
+           e.payload->'change' as change, e.payload->'phone' as phone, e.payload->'autoRollback' as auto_rollback,
+           e.type = 'controls.changed' and ${fromMartin(sql, 'e')} as in_force,
            case when e.type = 'flag.staged' then jsonb_build_object('from', e.payload->'from', 'to', e.payload->'to')
            end as staged,
            case when e.type = 'hold.answered' then ${openedAsImprovement(sql, 'e.work_item')} end as improvement,
@@ -256,11 +298,17 @@ export async function readOn(sql: Sql, tally: Tally): Promise<Tally> {
       (select a.version, a.payload from events a
        where e.type = 'hold.answered' and a.work_item = e.work_item and a.type = 'hold.started' and a.seq < e.seq
        order by a.seq desc limit 1)
-    ) h on true`;
-  const next: Tally = { seq: rows[0]?.last ?? tally.seq, kinds: { ...tally.kinds }, holds: { ...tally.holds } };
+    ) h on true
+    order by e.seq`;
+  const next: Tally = {
+    seq: rows[0]?.last ?? tally.seq,
+    autoRollback: tally.autoRollback,
+    kinds: { ...tally.kinds },
+    holds: { ...tally.holds },
+  };
   for (const row of rows) {
     if (!row.type) continue;
-    const counted = countAs({
+    const stored: Stored = {
       type: row.type,
       action: row.action,
       decision: row.decision,
@@ -268,10 +316,17 @@ export async function readOn(sql: Sql, tally: Tally): Promise<Tally> {
       staged: row.staged,
       improvement: row.improvement,
       phone: row.phone,
+      autoRollback: row.auto_rollback,
       cause: causeOf(row),
-    });
+    };
+    const counted = countAs(stored);
     if (counted && 'kind' in counted) next.kinds[counted.kind] += 1;
     else if (counted) next.holds[counted.hold] += 1;
+    if (row.in_force) {
+      const switched = switchedAutoRollback(next.autoRollback, stored);
+      if (switched) next.kinds[switched] += 1;
+      next.autoRollback = autoRollbackAfter(stored);
+    }
   }
   return next;
 }

@@ -78,8 +78,10 @@ describe('the access table', () => {
     for (const [name, asks] of Object.entries(copies)) {
       expect(ACCESS[name as Name]?.stepUp, name).toBe(asks);
     }
-    // Every action of the line's controls the table names, but auto-rollback's, which has no control until Part C.
-    const named = Object.keys(ACCESS).filter((name) => /^(autonomy|new-work|auto-merge|take)\./.test(name));
+    // Every action of the line's controls the table names.
+    const named = Object.keys(ACCESS).filter((name) =>
+      /^(autonomy|new-work|auto-merge|auto-rollback|take)\./.test(name),
+    );
     expect(Object.keys(CONTROL_STEP_UP).sort()).toEqual(named.sort());
     // Every move of a flag's stage the table names, but the one route that is each of them.
     const moves = Object.keys(ACCESS).filter((name) => name.startsWith('flag.') && name !== 'flag.stage');

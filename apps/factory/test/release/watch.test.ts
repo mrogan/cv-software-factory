@@ -309,6 +309,7 @@ describe('a release, from the Rollout and its runs', () => {
           },
         ],
         dryRun: false,
+        by: 'analysis',
       },
     ]);
     expect(s.pass(aborted, [failedRun]).said).toEqual({});

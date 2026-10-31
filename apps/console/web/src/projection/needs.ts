@@ -129,6 +129,8 @@ function kickerOf(cause: HoldCause, stage: Stage, opener: string | undefined, im
       return 'Waiting for your merge';
     case 'deploy':
       return 'Waiting for your deploy';
+    case 'canary':
+      return 'A canary paused for you';
     case 'verify':
       return 'Verify asks you';
     case 'spend':

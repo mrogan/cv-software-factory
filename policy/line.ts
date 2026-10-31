@@ -1,6 +1,7 @@
 /**
  * Martin's controls of the line, within policy: the autonomy level, whether agents take new work, whether low-risk
- * changes merge by themselves, and what the line takes, as he chose them in the console (`controls.changed`). This is
+ * changes merge by themselves, what the line takes, and whether a canary the analysis judges bad rolls back by itself,
+ * as he chose them in the console (`controls.changed`). This is
  * the one check: the line and the admin service each turn the latest controls event into the controls in force with
  * `controlsInForce`, and the console's Controls is to as well, so all agree on what is in force.
  *
@@ -34,6 +35,11 @@ export interface Controls {
   autoMerge: boolean;
   /** None: no take set, and the line's own default is in force. */
   take: Take | null;
+  /**
+   * Whether a canary the analysis judges bad rolls back by itself. Off, the analysis calls the same verdict
+   * inconclusive, and Argo Rollouts pauses the canary for Martin to promote fully or abort (`release/analysis.ts`).
+   */
+  autoRollback: boolean;
 }
 
 /** The controls in force, and the fields the latest event gave that policy does not allow, or left out. */
@@ -43,16 +49,23 @@ export interface ControlsInForce extends Controls {
 
 /**
  * Before Martin sets any: Supervised (every change waits for him, as it does until approval routing comes, whatever
- * the level), agents taking new work, no auto-merge, and no take set.
+ * the level), agents taking new work, no auto-merge, no take set, and auto-rollback on.
  */
-export const DEFAULT_CONTROLS: Controls = { autonomy: 'supervised', newWork: true, autoMerge: false, take: null };
+export const DEFAULT_CONTROLS: Controls = {
+  autonomy: 'supervised',
+  newWork: true,
+  autoMerge: false,
+  take: null,
+  autoRollback: true,
+};
 
 /** One control changed, with its value before and after. */
 export type ControlChange =
   | { control: 'autonomy'; before: Autonomy; after: Autonomy }
   | { control: 'new-work'; before: boolean; after: boolean }
   | { control: 'auto-merge'; before: boolean; after: boolean }
-  | { control: 'take'; before: Take | null; after: Take };
+  | { control: 'take'; before: Take | null; after: Take }
+  | { control: 'auto-rollback'; before: boolean; after: boolean };
 
 /** The access table's action a change is. */
 export type ControlAction =
@@ -63,7 +76,9 @@ export type ControlAction =
   | 'auto-merge.on'
   | 'auto-merge.off'
   | 'take.widen'
-  | 'take.narrow';
+  | 'take.narrow'
+  | 'auto-rollback.on'
+  | 'auto-rollback.off';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -102,16 +117,17 @@ export function controlsInForce(chosen?: unknown): ControlsInForce {
     ? (chosen.autonomy as Autonomy)
     : DEFAULT_CONTROLS.autonomy;
   if (autonomy !== chosen.autonomy) outside.push('autonomy');
-  const flag = (field: 'newWork' | 'autoMerge') => {
+  const flag = (field: 'newWork' | 'autoMerge' | 'autoRollback') => {
     if (typeof chosen[field] === 'boolean') return chosen[field] as boolean;
     outside.push(field);
     return DEFAULT_CONTROLS[field];
   };
   const newWork = flag('newWork');
   const autoMerge = flag('autoMerge');
+  const autoRollback = flag('autoRollback');
   const take = chosen.take === null ? null : (takeOf(chosen.take) ?? null);
   if (chosen.take !== null && take === null) outside.push('take');
-  return { autonomy, newWork, autoMerge, take, outside };
+  return { autonomy, newWork, autoMerge, take, autoRollback, outside };
 }
 
 /** How loose an autonomy level is: Supervised the least, Lights-out the most. */
@@ -121,8 +137,8 @@ const looseness = (autonomy: Autonomy) => AUTONOMY.indexOf(autonomy);
 const breadth = (take: Take) => ({ 'just-one': 0, 'next-few': 1, every: 2 })[take.kind];
 
 /**
- * Which action a change is. A looser autonomy level, auto-merge turned on, and a wider take loosen, and need the
- * passkey again; their opposites tighten, and turning agents' new work off or on asks for nothing (starting the line
+ * Which action a change is. A looser autonomy level, auto-merge turned on, a wider take, and auto-rollback turned off
+ * loosen, and need the passkey again; their opposites tighten, and turning agents' new work off or on asks for nothing (starting the line
  * again is what asks). A take is wider when it takes more kinds of work (every ticket, then the next few, then just
  * one) or, the next few still, a larger number or a count started again. Only the next few counted from the same start,
  * with a smaller number, are narrower: policy cannot prove a restart admits no more, since it sees neither how many the
@@ -138,6 +154,9 @@ export function controlAction(change: ControlChange): ControlAction {
       return change.after ? 'new-work.on' : 'new-work.off';
     case 'auto-merge':
       return change.after ? 'auto-merge.on' : 'auto-merge.off';
+    // Off overrides a guardrail: the analysis's verdict no longer rolls a bad canary back by itself.
+    case 'auto-rollback':
+      return change.after ? 'auto-rollback.on' : 'auto-rollback.off';
     case 'take': {
       const { before, after } = change;
       if (before === null) return 'take.widen';

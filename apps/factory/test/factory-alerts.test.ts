@@ -636,7 +636,8 @@ describe('the alert that alerts do not reach the phone', () => {
 });
 
 describe('the alert that a change the admin service makes is named by no event', () => {
-  const rules = martinRules().filter((r) => r.alert === ADMIN_UNCOUNTED);
+  // The line's comparisons, by the action their series name; auto-rollback's is Prometheus's own, below.
+  const rules = martinRules().filter((r) => r.alert === ADMIN_UNCOUNTED && r.labels.action === undefined);
   const uncounted = (action: string) => line('line_admin_actions_uncounted', `action="${action}"`);
   const compared = (action: string) => line('line_admin_actions_compared', `action="${action}"`);
   const fires = (action: string, which: number) => {
@@ -746,6 +747,54 @@ describe('the alert that a change the admin service makes is named by no event',
                 exp_alerts: [fires('rollout', ADMIN_ACTIONS.length + ADMIN_ACTIONS.indexOf('rollout'))],
               },
             ],
+          },
+        ],
+        'martin',
+      ),
+    );
+  });
+});
+
+describe('the alert that the admin service’s word on auto-rollback differs from Martin’s switch', () => {
+  const rule = martinRules().find((r) => r.alert === ADMIN_UNCOUNTED && r.labels.action === 'auto-rollback');
+  const adminSays = (values: string) => ({ series: admin('admin_auto_rollback', 'pod="admin-1"'), values });
+  const lineSays = (values: string) => ({ series: line('line_auto_rollback', 'pod="line-1"'), values });
+  const fired = { exp_labels: rule?.labels, exp_annotations: rule?.annotations };
+
+  it(`pages once they have differed for ${ADMIN_UNCOUNTED_FOR}, either way, and not for a moment after a switch`, () => {
+    expect(rule?.labels).toEqual({ level: LEVELS.page, action: 'auto-rollback' });
+    expect(rule?.for).toBe(ADMIN_UNCOUNTED_FOR);
+    const differ = (a: string, l: string, at: string, firing: boolean): Case => ({
+      interval: '1m',
+      input_series: [adminSays(a), lineSays(l)],
+      alert_rule_test: [{ eval_time: at, alertname: ADMIN_UNCOUNTED, exp_alerts: firing ? [fired] : [] }],
+    });
+    expectPasses(
+      promtool(
+        [
+          // The admin service says off with no switch of Martin's recorded, and the reverse.
+          differ(each(0, 0, 0, 0, 0), each(1, 1, 1, 1, 1), '1m', false),
+          differ(each(0, 0, 0, 0, 0), each(1, 1, 1, 1, 1), '3m', true),
+          differ(each(1, 1, 1, 1, 1), each(0, 0, 0, 0, 0), '3m', true),
+          // A switch the two read a minute apart.
+          differ(each(1, 0, 0, 0, 0), each(1, 1, 0, 0, 0), '4m', false),
+          // Agreeing, on or off.
+          differ(each(0, 0, 0, 0, 0), each(0, 0, 0, 0, 0), '4m', false),
+          differ(each(1, 1, 1, 1, 1), each(1, 1, 1, 1, 1), '4m', false),
+          // Either missing: nothing to compare, and the analysis rolls a bad canary back.
+          {
+            interval: '1m',
+            input_series: [adminSays(each(0, 0, 0, 0, 0))],
+            alert_rule_test: [{ eval_time: '4m', alertname: ADMIN_UNCOUNTED, exp_alerts: [] }],
+          },
+          // Another worker cannot speak for the admin service.
+          {
+            interval: '1m',
+            input_series: [
+              { series: other('admin_auto_rollback', 'pod="triage-1"'), values: each(0, 0, 0, 0, 0) },
+              lineSays(each(1, 1, 1, 1, 1)),
+            ],
+            alert_rule_test: [{ eval_time: '4m', alertname: ADMIN_UNCOUNTED, exp_alerts: [] }],
           },
         ],
         'martin',

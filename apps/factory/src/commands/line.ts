@@ -303,6 +303,10 @@ async function serve(): Promise<number> {
   // service's both say off (line/phone.ts).
   const { observePhone } = await import('../line/phone.ts');
   const unobservePhone = observePhone(sql, profile, log);
+  // Whether auto-rollback is on, as the line reads it: the canary's analysis pauses a bad canary for Martin only while
+  // this and the admin service's both say off (line/auto-rollback.ts).
+  const { observeAutoRollback } = await import('../line/auto-rollback.ts');
+  const unobserveAutoRollback = observeAutoRollback(sql, log);
   const abort = new AbortController();
   const working = line.run(abort.signal);
   await new Promise<void>((resolve) => {
@@ -314,6 +318,7 @@ async function serve(): Promise<number> {
   unobserveAdminActions();
   unobserveLeases();
   unobservePhone();
+  unobserveAutoRollback();
   await Promise.all([new Promise((r) => api.close(r)), new Promise((r) => handback.close(r))]);
   await Promise.all([sql.end(), shutdownTelemetry()]);
   return 0;

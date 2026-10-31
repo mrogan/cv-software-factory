@@ -6,11 +6,13 @@
 import { metrics as api } from '@opentelemetry/api';
 import * as metrics from '@opentelemetry/sdk-metrics';
 import { HOLD_CAUSES, RELEASE_CONTROLS, VERSIONS } from '@software-factory/events';
+import { latestControls } from '@software-factory/store';
 import pino from 'pino';
 import type { Sql } from 'postgres';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, freshDatabase } from '../../../../packages/store/test/database.ts';
 import { ACCESS, GUARDRAIL_HOLDS } from '../../../../policy/access.ts';
+import { controlsInForce } from '../../../../policy/line.ts';
 
 const reader = new metrics.PeriodicExportingMetricReader({
   exporter: new metrics.InMemoryMetricExporter(metrics.AggregationTemporality.CUMULATIVE),
@@ -39,7 +41,13 @@ async function append(
   type: string,
   payload: object,
   workItem: string | null = null,
-  { version = VERSIONS[type as keyof typeof VERSIONS] ?? 1, sample = false } = {},
+  {
+    version = (VERSIONS[type as keyof typeof VERSIONS] as number | undefined) ?? 1,
+    sample = false,
+  }: {
+    version?: number;
+    sample?: boolean;
+  } = {},
 ): Promise<void> {
   await sql`
     insert into events (id, ts, work_item, type, version, actor, summary, payload, artifacts, public, sample)
@@ -95,11 +103,22 @@ describe('the count of Martin’s security events', () => {
     await append(operator, 'line.stopped', { reason: 'night' });
     await append(admin, 'line.stopped', { reason: 'from the console' });
     for (const action of RELEASE_CONTROLS) await append(admin, 'release.controlled', { action });
-    await append(admin, 'controls.changed', {
-      change: { control: 'autonomy', before: 'supervised', after: 'guarded' },
-    });
-    await append(admin, 'controls.changed', { change: { control: 'take', before: null, after: { kind: 'every' } } });
-    await append(admin, 'controls.changed', { change: { control: 'new-work', before: true, after: false } });
+    // Each change of the controls with what it puts in force, as the admin service stores it.
+    const controls = (autoRollback: boolean, change: object) => ({ autoRollback, change });
+    await append(
+      admin,
+      'controls.changed',
+      controls(true, { control: 'autonomy', before: 'supervised', after: 'guarded' }),
+    );
+    await append(
+      admin,
+      'controls.changed',
+      controls(true, { control: 'take', before: null, after: { kind: 'every' } }),
+    );
+    await append(admin, 'controls.changed', controls(true, { control: 'new-work', before: true, after: false }));
+    await append(admin, 'controls.changed', controls(false, { control: 'auto-rollback', before: true, after: false }));
+    await append(admin, 'controls.changed', controls(true, { control: 'auto-rollback', before: false, after: true }));
+    await append(admin, 'controls.changed', controls(false, { control: 'auto-rollback', before: true, after: false }));
     await append(admin, 'flag.staged', { from: { stage: 'off' }, to: { stage: 'checks' } });
     await append(admin, 'flag.staged', { from: { stage: 'checks' }, to: { stage: 'share', share: 50 } });
     await append(admin, 'flag.staged', { from: { stage: 'share', share: 50 }, to: { stage: 'preview' } });
@@ -129,6 +148,8 @@ describe('the count of Martin’s security events', () => {
       'auto-merge-off': 0,
       'take-widened': 1,
       'take-narrowed': 0,
+      'auto-rollback-off': 2,
+      'auto-rollback-on': 1,
       'flag-widened': 2,
       'flag-narrowed': 1,
       'flag-off': 1,
@@ -200,6 +221,85 @@ describe('the count of Martin’s security events', () => {
     expect(tally.holds).toMatchObject({ merge: 1, question: 1 });
   });
 
+  it('counts auto-rollback turned off or on by what an event puts in force, whatever control its change names', async () => {
+    const { admin } = database;
+    const controls = (autoRollback: boolean, change: object) => ({
+      autonomy: 'supervised',
+      newWork: true,
+      autoMerge: false,
+      take: null,
+      autoRollback,
+      change,
+    });
+    // Off under a change that only informs him: it still pages as auto-rollback off.
+    await append(
+      admin,
+      'controls.changed',
+      controls(false, { control: 'autonomy', before: 'guarded', after: 'supervised' }),
+    );
+    // Still off: nothing more of auto-rollback.
+    await append(admin, 'controls.changed', controls(false, { control: 'new-work', before: true, after: false }));
+    // Its own switch on, counted once.
+    await append(admin, 'controls.changed', controls(true, { control: 'auto-rollback', before: false, after: true }));
+    // On again from off under another change.
+    await append(admin, 'controls.changed', controls(false, { control: 'auto-rollback', before: true, after: false }));
+    await append(admin, 'controls.changed', controls(true, { control: 'new-work', before: false, after: true }));
+    const tally = await readOn(database.as.line, emptyTally());
+    expect(tally.kinds).toMatchObject({
+      'autonomy-tightened': 1,
+      'new-work-off': 1,
+      'new-work-on': 1,
+      'auto-rollback-off': 2,
+      'auto-rollback-on': 2,
+    });
+    expect(tally.autoRollback).toBe(true);
+    // A reader that starts afresh agrees.
+    expect(await readOn(database.as.line, emptyTally())).toEqual(tally);
+  });
+
+  it('follows auto-rollback in force through the events its series follow, so its before is theirs', async () => {
+    const { admin, owner } = database;
+    const controls = (autoRollback: boolean, change: object) => ({
+      autonomy: 'supervised',
+      newWork: true,
+      autoMerge: false,
+      take: null,
+      autoRollback,
+      change,
+    });
+    /** Whether the series say auto-rollback is on now: Martin's latest controls, through policy. */
+    const inForce = async () => controlsInForce(await latestControls(database.as.line)).autoRollback;
+    // Off in a change none of Martin's roles appended: counted by its change, as every stored change is, but not in
+    // force, as the series do not read it.
+    await append(
+      owner,
+      'controls.changed',
+      controls(false, { control: 'take', before: null, after: { kind: 'every' } }),
+    );
+    let tally = await readOn(database.as.line, emptyTally());
+    expect(await inForce()).toBe(true);
+    expect(tally).toMatchObject({ autoRollback: true, kinds: { 'take-widened': 1, 'auto-rollback-off': 0 } });
+    // Martin's own off, under a change that only informs him, is the switch the series see, and pages.
+    await append(
+      admin,
+      'controls.changed',
+      controls(false, { control: 'autonomy', before: 'guarded', after: 'supervised' }),
+    );
+    // On again under a version newer than this code knows, which the series read as it stands.
+    await append(
+      admin,
+      'controls.changed',
+      { ...controls(true, { control: 'new-work', before: true, after: false }), newer: true },
+      null,
+      { version: VERSIONS['controls.changed'] + 1 },
+    );
+    tally = await readOn(database.as.line, tally);
+    expect(await inForce()).toBe(true);
+    expect(tally).toMatchObject({ autoRollback: true, kinds: { 'auto-rollback-off': 1, 'auto-rollback-on': 1 } });
+    // Read all at once, in order, it is the same.
+    expect(await readOn(database.as.line, emptyTally())).toEqual(tally);
+  });
+
   it('counts nothing in a store of samples, which never happened', async () => {
     await append(database.operator, 'admin.signed-in', {}, null, { sample: true });
     await append(database.operator, 'hold.started', { cause: 'merge' }, 'WI-7', { sample: true });
@@ -266,8 +366,7 @@ describe('what counts as a security event', () => {
   });
 
   it('counts every action that needs the passkey again, or names the event it waits for', () => {
-    // Each action the access table marks, by the kind its event is counted as. Auto-rollback has no switch, and so no
-    // event, until Part C gives it one: it joins the count then, and this test fails until it does.
+    // Each action the access table marks, by the kind its event is counted as.
     const counted: Record<string, string> = {
       'passkey.revoke': 'passkey-revoked',
       'hold.approve-guardrail': 'guardrail-approved',
@@ -278,7 +377,7 @@ describe('what counts as a security event', () => {
       'caps.raise': 'setting-changed',
       'autonomy.loosen': 'autonomy-loosened',
       'auto-merge.on': 'auto-merge-on',
-      'auto-rollback.off': 'no event yet',
+      'auto-rollback.off': 'auto-rollback-off',
       'take.widen': 'take-widened',
       'flag.widen': 'flag-widened',
       'flag.back-on': 'flag-widened',
@@ -292,7 +391,7 @@ describe('what counts as a security event', () => {
     expect(Object.keys(counted).sort()).toEqual(marked.sort());
     // Giving the passkey again is not counted itself: each action it allows is.
     expect(countAs({ type: 'admin.stepped-up' })).toBeNull();
-    for (const kind of Object.values(counted).filter((kind) => kind !== 'no event yet')) {
+    for (const kind of Object.values(counted)) {
       expect(SECURITY_KINDS).toContain(kind);
     }
   });
@@ -337,7 +436,8 @@ describe('what counts as a security event', () => {
     expect(changed({ control: 'take', before: one, after: { kind: 'every' } })).toEqual({ kind: 'take-widened' });
     expect(changed({ control: 'take', before: { kind: 'every' }, after: one })).toEqual({ kind: 'take-narrowed' });
     expect(changed({ control: 'take', before: null, after: one })).toEqual({ kind: 'take-widened' });
-    expect(changed({ control: 'auto-rollback', before: true, after: false })).toBeNull();
+    expect(changed({ control: 'auto-rollback', before: true, after: false })).toEqual({ kind: 'auto-rollback-off' });
+    expect(changed({ control: 'auto-rollback', before: false, after: true })).toEqual({ kind: 'auto-rollback-on' });
     expect(countAs({ type: 'controls.changed' })).toBeNull();
     // A malformed change is counted as nothing, and stops no count.
     expect(changed({ control: 'take', before: one, after: null })).toBeNull();

@@ -46,9 +46,12 @@ const SIGNAL = 'insert (id, sense, fingerprint, signal)';
 const READ = 'true';
 /**
  * Every worker appends any event but his commands, and opens any work item but an improvement, which only his roles
- * open (0035_improvement-requests.sql).
+ * open (0035_improvement-requests.sql); and only the line appends its record of what a release did
+ * (0039_release-events-the-lines.sql).
  */
-const NOT_HIS = '(NOT admin_event(type)) AND (NOT opens_improvement(type, payload))';
+const NOT_HIS =
+  '(NOT admin_event(type)) AND (NOT opens_improvement(type, payload)) AND ' +
+  "((NOT line_only_event(type)) OR (CURRENT_USER = 'factory_line'::name))";
 
 export const STORE_GRANTS = {
   factory_worker: {
@@ -170,10 +173,11 @@ export const STORE_GRANTS = {
   factory_operator: {
     for:
       'Martin from the command line: `make stop-the-line`, `make start-the-line` and `make samples`. It appends any ' +
-      'event, his commands among them; no pod holds its password.',
+      "event, his commands among them, but the line's record of a release, which only as a sample " +
+      '(0039_release-events-the-lines.sql); no pod holds its password.',
     martin: true,
     on: { events: ['select', 'insert'], store: ['select', 'insert'] },
-    rows: { events: { select: READ, insert: 'true' } },
+    rows: { events: { select: READ, insert: '(NOT line_only_event(type)) OR sample' } },
   },
   factory_enrol: {
     for:

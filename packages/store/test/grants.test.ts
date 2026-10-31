@@ -11,6 +11,7 @@ import {
   EVENT_TYPES,
   type EventType,
   type InboxSignal,
+  LINE_ONLY_TYPES,
   type NewEvent,
   VERSIONS,
 } from '@software-factory/events';
@@ -381,6 +382,7 @@ const PAYLOADS: Partial<Record<EventType, object>> = {
     newWork: true,
     autoMerge: false,
     take: null,
+    autoRollback: true,
     change: { control: 'autonomy', before: 'supervised', after: 'guarded' },
   },
   'alerts.switched': { phone: false },
@@ -486,6 +488,54 @@ describe("Martin's commands", () => {
     await expect(db.as.line`set role factory_admin`).rejects.toThrow('permission denied');
     // The console's server does not see who appended an event.
     await expect(db.reader`select appended_by from events`).rejects.toThrow('permission denied');
+  });
+});
+
+describe("the line's record of a release", () => {
+  /** An event of a type, inserted as it stands, real or a sample, as any client could try. */
+  const insert = (sql: Sql, type: string, sample: boolean) => sql`
+    insert into events (id, ts, work_item, type, version, actor, summary, payload, artifacts, public, sample)
+    values (${crypto.randomUUID()}, now(), null, ${type}, 1, 'rollouts', 'A release', '{}', '[]', '{}', ${sample})`;
+
+  it('is the same types to the store as to the factory', async () => {
+    const rows = await db.owner<{ type: string }[]>`
+      select type from unnest(${[...EVENT_TYPES, 'not.a-release']}::text[]) as type where line_only_event(type)`;
+    expect(rows.map((r) => r.type).sort()).toEqual([...LINE_ONLY_TYPES].sort());
+  });
+
+  it('is appended by the line alone, and by no other role, in a real store', async () => {
+    const real = await freshDatabase('line_only');
+    try {
+      for (const type of LINE_ONLY_TYPES) {
+        await insert(real.as.line, type, false);
+        const others: [string, Sql][] = [
+          ...Object.entries(real.as).filter(([name]) => name !== 'line'),
+          ['admin', real.admin],
+          ['operator', real.operator],
+          ['enrol', real.enrol],
+          ['scoreboard', real.scoreboard],
+          ['console', real.reader],
+        ];
+        for (const [name, sql] of others) {
+          await expect(insert(sql, type, false), `${type} from ${name}`).rejects.toThrow(
+            /row-level security|permission denied|the scoreboard appends its own figures/,
+          );
+        }
+      }
+      const appended = await real.owner<{ type: string; appended_by: string }[]>`
+        select type, appended_by from events order by seq`;
+      expect(appended).toEqual(LINE_ONLY_TYPES.map((type) => ({ type, appended_by: 'factory_line' })));
+      // A release's start is the line's to record too, but not held to it: nothing trusts it alone.
+      await insert(real.as.triage, 'release.started', false);
+    } finally {
+      await real.end();
+    }
+  });
+
+  it("is appended as a sample by Martin's command line too, for `make samples`", async () => {
+    await insert(db.operator, 'release.rolled-back', true);
+    await insert(db.as.line, 'release.rolled-back', true);
+    await expect(insert(db.as.triage, 'release.rolled-back', true)).rejects.toThrow('row-level security');
   });
 });
 

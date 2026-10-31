@@ -1149,6 +1149,7 @@ describe('the line', () => {
           newWork: true,
           autoMerge: false,
           take: null,
+          autoRollback: true,
           change: { control: 'new-work', before: false, after: true },
           ...set,
         },
