@@ -206,6 +206,7 @@ describe('the probes worker’s verification endpoint, and the line’s client',
     halt.abort(new Error('the line halts'));
     await expect(asking).rejects.toThrow('the line halts');
     expect(Date.now() - started).toBeLessThan(1_000);
+    expect(getEventListeners(halt.signal, 'abort')).toHaveLength(0);
   });
 
   it('refuses a body that is not a verification, and says when the check could not run', async () => {
