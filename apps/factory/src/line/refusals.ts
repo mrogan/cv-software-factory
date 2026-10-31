@@ -338,7 +338,8 @@ export class AdmissionReader {
         seen.set(event.metadata.uid, times);
         continue;
       }
-      const at = lastOf(event);
+      // Never later than now: an Event dated ahead would otherwise set where a restart starts, and hide what came before.
+      const at = new Date(Math.min(lastOf(event).getTime(), Date.now()));
       // Recorded before it started: before the last it recorded, or in that second and recorded then.
       const recorded =
         at < since.at || (at.getTime() === since.at.getTime() && since.actions.has(cutTo(denial.action, 200)));

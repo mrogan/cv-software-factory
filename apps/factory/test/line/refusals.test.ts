@@ -312,6 +312,16 @@ describe('the admission reader', () => {
     expect(denied).toHaveLength(MOST_AT_ONCE * 2 + 5);
   });
 
+  it('records an Event dated ahead of now as now, so it cannot set where a restart starts', async () => {
+    const { lists, denied, reader } = cluster();
+    lists.set('default', [blocked({ eventTime: '2999-01-01T00:00:00Z' })]);
+    const before = Date.now();
+    await reader.look();
+    expect(denied).toHaveLength(1);
+    expect(denied[0]?.at.getTime()).toBeGreaterThanOrEqual(before);
+    expect(denied[0]?.at.getTime()).toBeLessThanOrEqual(Date.now());
+  });
+
   it('keeps what it saw in a namespace it could not list, so its Events are not taken as new when it can', async () => {
     const { lists, denied, reader } = cluster();
     lists.set('runners', [failedCreate()]);
