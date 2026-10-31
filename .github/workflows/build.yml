@@ -88,7 +88,7 @@ jobs:
   # Laptops are arm64; cloud nodes are amd64. Each platform's layers are cached apart, and only here: check.yml's
   # builds read them and write none, so the repository's 10 GB of cache holds main's.
   console:
-    name: build the console (${{ matrix.arch }})
+    name: console
     needs: changes
     if: needs.changes.outputs.console == 'true'
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
@@ -140,7 +140,7 @@ jobs:
 
   # The factory's three images, each for each platform, all from one commit: the runners' image moves with the factory's.
   factory:
-    name: build ${{ matrix.image }} (${{ matrix.arch }})
+    name: factory
     needs: changes
     if: needs.changes.outputs.factory == 'true'
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
@@ -209,7 +209,7 @@ jobs:
   # build of its group finished (scripts/image-index.sh). A job for each group, so that one failing cannot keep the
   # other's digests from the signing.
   push-console:
-    name: push the console
+    name: push console
     needs: console
     if: needs.console.result == 'success'
     runs-on: ubuntu-24.04
@@ -238,7 +238,7 @@ jobs:
         run: scripts/image-index.sh console
 
   push-factory:
-    name: push the factory's images
+    name: push factory
     needs: factory
     if: needs.factory.result == 'success'
     runs-on: ubuntu-24.04
@@ -273,7 +273,7 @@ jobs:
   # one for each image, side by side. If one fails, its image is in GHCR unsigned, and the deploy watch will not propose
   # it until it is run again.
   sign:
-    name: sign and attest ${{ matrix.image }}
+    name: sign
     needs: [push-console, push-factory]
     if: ${{ !cancelled() && (needs.push-console.result == 'success' || needs.push-factory.result == 'success') }}
     runs-on: ubuntu-24.04
@@ -284,6 +284,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        image: [console, factory, factory-browser, factory-runner]
         include:
           - image: console
             push: push-console
