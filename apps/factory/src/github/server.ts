@@ -308,10 +308,9 @@ export interface WorkerServerOptions {
 
 /** In a few words, what an action asked, for its refusal: the action, and the branch or number it named. */
 function asked(name: Name, repo: string, args: Record<string, unknown>): string {
-  const pullRequest = args.pullRequest as { number?: unknown } | undefined;
-  const number = typeof args.number === 'number' ? args.number : pullRequest?.number;
+  const number = numberOf(args);
   const branch = [args.branch, args.head].find((b) => typeof b === 'string');
-  const on = [typeof number === 'number' ? `#${number}` : undefined, branch && `branch ${branch}`].filter(Boolean);
+  const on = [number !== null ? `#${number}` : undefined, branch && `branch ${branch}`].filter(Boolean);
   return `${name}${on.length ? ` ${on.join(' ')}` : ''} in ${repo}`;
 }
 

@@ -27,6 +27,7 @@
  * recorded once while it runs; when it starts, it takes only what came after the last admission refusal it recorded.
  */
 import type { KeyObject } from 'node:crypto';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { AGENTS, cutTo, type PayloadOf } from '@software-factory/events';
 import type { EventWriter } from '@software-factory/store';
 import type { Sql } from 'postgres';
@@ -339,6 +340,11 @@ export class AdmissionReader {
               ? times
               : 1;
       const at = lastOf(event);
+      if (fresh > MOST_AT_ONCE)
+        this.#o.log.warn(
+          { uid: event.metadata.uid, tries: fresh, recorded: MOST_AT_ONCE },
+          'recorded only some of a denial’s tries',
+        );
       for (let i = 0; i < Math.min(fresh, MOST_AT_ONCE); i++) this.#o.refusals.denied({ ...denial, at });
     }
     // An Event no longer listed has gone, and one whose namespace failed to list is kept until it lists again.
@@ -354,14 +360,8 @@ export class AdmissionReader {
       } catch (error) {
         this.#o.log.warn({ err: error }, 'could not read admission denials');
       }
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, everyMs);
-        const stop = () => {
-          clearTimeout(timer);
-          resolve();
-        };
-        signal.addEventListener('abort', stop, { once: true });
-      });
+      // Rejects when aborted, and leaves no listener behind on the signal when it is not.
+      await sleep(everyMs, undefined, { signal }).catch(() => undefined);
     }
   }
 }

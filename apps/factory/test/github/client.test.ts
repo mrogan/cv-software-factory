@@ -171,8 +171,10 @@ describe('the client', () => {
         }),
       },
     ]);
+    // FORBIDDEN is REST's 403, so it carries that status: GitHub refusing the token, which the worker signs.
     await expect(github.graphql(REPO, 'mutation { x }', {}, z.unknown())).rejects.toMatchObject({
       kind: 'refused',
+      status: 403,
       message: 'Resource not accessible by integration',
     });
   });

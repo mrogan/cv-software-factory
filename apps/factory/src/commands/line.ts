@@ -336,13 +336,14 @@ async function serve(): Promise<number> {
   });
   abort.abort();
   await Promise.all([working, admission]);
-  await refusals.stop();
   unobserveSecurity();
   unobserveAdminActions();
   unobserveLeases();
   unobservePhone();
   unobserveAutoRollback();
   await Promise.all([new Promise((r) => api.close(r)), new Promise((r) => handback.close(r))]);
+  // Once nothing more can be relayed: what is still folded is appended now.
+  await refusals.stop();
   await Promise.all([sql.end(), shutdownTelemetry()]);
   return 0;
 }
