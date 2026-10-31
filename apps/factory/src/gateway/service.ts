@@ -21,6 +21,7 @@ import { costOf } from './prices.ts';
 import { ProviderCaps } from './provider-caps.ts';
 import { Anthropic, LocalModels, type MessagesProvider, type ProviderName } from './providers.ts';
 import { startPruning } from './pruning.ts';
+import { Refusals } from './refusals.ts';
 import { createGatewayServer } from './server.ts';
 import { Spend } from './spend.ts';
 import { PROVIDER as TYPESAFE, TypeSafe } from './typesafe.ts';
@@ -44,6 +45,8 @@ export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv
   const sql = connect(env.DATABASE_URL, { max: 4 });
   // The line events the gateway appends have no artifacts, so the store it is given is never read.
   const events = new EventWriter(sql, { kind: 'real', artifacts: new DiskArtifacts(tmpdir()) });
+  // Each refusal of a guardrail, its repeats folded.
+  const refusals = new Refusals({ events, log });
   // Martin's settings within policy: the caps in force at each check, and each job's model and effort.
   const settings = new SettingsReader(sql, config.profile);
   const spend = new Spend({
@@ -63,6 +66,7 @@ export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv
     mode: config.mode,
     typesafe,
     log,
+    refusals,
   });
   // Agents' providers: Anthropic with the key, and the profile's local model, which needs none.
   const providers: Partial<Record<ProviderName, MessagesProvider>> = {};
@@ -106,6 +110,7 @@ export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv
     settings,
     providers,
     log,
+    refusals,
   });
   // Every count from 0: each agent's calls on the route the profile gives it, and triage's judgements.
   zeroCounts(routes(config.profile, config.allLocal), [{ agent: 'triage', provider: TYPESAFE, model: TRIAGE_MODEL }]);
@@ -114,15 +119,19 @@ export async function startGateway(config: GatewayConfig, env: NodeJS.ProcessEnv
   spend.start();
   await caps.resume();
   caps.start();
+  refusals.start();
   // Only in `record`, where nothing is replayed from the folder, but Jev's calls with no TypeSafe key.
   const pruner =
     config.mode === 'record' && config.cassettesDir
       ? startPruning({ sql, dir: config.cassettesDir, agentsOnly: gateway.mode !== 'record' }, log)
       : undefined;
 
-  /** Stops the ledger, the caps and the pruner, each whether or not another fails to, then lets go of the store. */
+  /**
+   * Stops the ledger, the caps and the pruner, and records the refusals still folding, each whether or not another
+   * fails to, then lets go of the store.
+   */
   const release = async () => {
-    const stopped = await Promise.allSettled([spend.stop(), caps.stop(), pruner?.stop()]);
+    const stopped = await Promise.allSettled([spend.stop(), caps.stop(), pruner?.stop(), refusals.stop()]);
     await sql.end();
     const failed = stopped.find((result) => result.status === 'rejected');
     if (failed) throw failed.reason;

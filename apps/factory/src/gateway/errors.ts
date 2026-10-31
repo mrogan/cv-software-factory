@@ -40,6 +40,9 @@ export class BadRequest extends Error {
   }
 }
 
+/** A model the gateway's policy does not allow: an alias rather than a pinned version, or one it has no price for. */
+export class ModelRefused extends BadRequest {}
+
 /** A spend cap has been reached. Nothing was sent to the provider. */
 export class SpendCapped extends Error {
   readonly cap: 'day' | 'month' | 'work-item';

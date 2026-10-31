@@ -10,6 +10,7 @@ import { BadRequest, CassetteMissing, ProviderError, SpendCapped } from '../../s
 import { Gateway, type Mode } from '../../src/gateway/gateway.ts';
 import { ProviderCaps } from '../../src/gateway/provider-caps.ts';
 import { ProviderRefusal } from '../../src/gateway/providers.ts';
+import { Refusals } from '../../src/gateway/refusals.ts';
 import { Spend } from '../../src/gateway/spend.ts';
 import { PROVIDER, TypeSafe, request as typesafeRequest } from '../../src/gateway/typesafe.ts';
 import { capturingLog, type FakeTypeSafe, fakeTypeSafe, QUESTIONS, request, SECRET } from './helpers.ts';
@@ -55,6 +56,7 @@ async function harness({ mode = 'record', key = true, policy = POLICY, clock, re
     sleep: async () => {},
     random: () => 0,
   });
+  const refusals = new Refusals({ events, log: captured.log, clock: time });
   const gateway = new Gateway({
     sql: database.as.gateway,
     spend: ledger,
@@ -63,6 +65,7 @@ async function harness({ mode = 'record', key = true, policy = POLICY, clock, re
     typesafe: key ? typesafe : undefined,
     log: captured.log,
     clock: time,
+    refusals,
   });
   const rows = () =>
     database.owner<{ outcome: string; cost_usd: string; work_item: string | null; cassette: string | null }[]>`
@@ -72,7 +75,27 @@ async function harness({ mode = 'record', key = true, policy = POLICY, clock, re
       await database.owner<{ type: string; payload: Record<string, unknown> }[]>`
         select type, payload from events where type like 'spend.%' order by seq`
     ).map((event) => ({ type: event.type, ...event.payload }));
-  return { database, now, captured, dir, events, ledger, spend, gateway, rows, lineEvents, typesafe };
+  /** The refusals the gateway recorded, once it has, with the role that appended each. */
+  const refused = async () => {
+    await refusals.settled();
+    return database.owner<{ work_item: string | null; appended_by: string; payload: Record<string, unknown> }[]>`
+      select work_item, appended_by, payload from events where type = 'action.refused' order by seq`;
+  };
+  return {
+    database,
+    now,
+    captured,
+    dir,
+    events,
+    ledger,
+    spend,
+    gateway,
+    rows,
+    lineEvents,
+    typesafe,
+    refusals,
+    refused,
+  };
 }
 
 beforeEach(() => {
@@ -239,6 +262,44 @@ describe('the gateway', () => {
     expect(fake.requests).toHaveLength(0);
     // The last had no agent to name, so it left no row; the others did.
     expect((await h.rows()).map((row) => row.outcome)).toEqual(['refused', 'refused', 'refused']);
+    // The model policy refused the first two, as the gateway's own refusals, on no work item; the others asked for
+    // nothing the gateway could read. The second is the first's repeat, held until its minute is up or the gateway
+    // stops.
+    await h.refusals.stop();
+    const policy = { mechanism: 'gateway', action: 'A judgement for the triage agent', guardrails: [6] };
+    expect(await h.refused()).toEqual([
+      {
+        work_item: null,
+        appended_by: 'factory_gateway',
+        payload: {
+          ...policy,
+          output: 'Model jev-latest is not pinned. Name a version such as jev-1.13.0, never an alias.',
+        },
+      },
+      {
+        work_item: null,
+        appended_by: 'factory_gateway',
+        payload: {
+          ...policy,
+          output: 'Model jev-9.9.9 has no price in the gateway, so its spend could not be counted.',
+        },
+      },
+    ]);
+    await h.database.end();
+  });
+
+  it('folds an agent’s refused judgements into one, whatever question set or work item each names', async () => {
+    const h = await harness();
+    for (const [questionSet, workItem] of [
+      ['triage/v1', null],
+      ['triage/v2', '1000'],
+      ['anything/v9', '1001'],
+    ] as const) {
+      await failure(h.gateway.judge({ ...request({ model: 'jev-latest', workItem }), questionSet } as never));
+    }
+    await h.refusals.stop();
+    // A caller needs no token to ask for a judgement: what it varies opens no fold of its own.
+    expect((await h.refused()).map((row) => row.payload.count ?? 1)).toEqual([1, 2]);
     await h.database.end();
   });
 
@@ -314,6 +375,19 @@ describe('spend caps', () => {
     expect(await h.lineEvents()).toEqual([
       { type: 'spend.capped', cap: 'day', limitUsd: 0.04, spentUsd: 0.042, resets: '2026-10-04T00:00:00.000Z' },
     ]);
+    // The first refusal at once; its repeat waits for its minute to fold.
+    expect(await h.refused()).toEqual([
+      {
+        work_item: null,
+        appended_by: 'factory_gateway',
+        payload: {
+          mechanism: 'gateway',
+          action: 'A judgement for the triage agent',
+          output: 'The day spend cap of $0.04 has been reached ($0.04 spent); it resets at 2026-10-04T00:00:00.000Z.',
+          guardrails: [7],
+        },
+      },
+    ]);
     expect((await h.rows()).map((row) => row.outcome)).toEqual(['answered', 'refused', 'refused']);
 
     // Still the same day: nothing to clear.
@@ -384,6 +458,10 @@ describe('spend caps', () => {
     const error = await failure(h.gateway.judge(request({ workItem: '1000' })));
     expect(error).toBeInstanceOf(SpendCapped);
     expect(error).toMatchObject({ cap: 'work-item', limitUsd: 0.04, resets: null });
+    // On no work item, since no job token names one: the work item is only the request's word.
+    expect((await h.refused()).map((row) => [row.work_item, row.payload.action, row.payload.guardrails])).toEqual([
+      [null, 'A judgement for the triage agent', [7]],
+    ]);
     expect((await h.gateway.judge(request({ workItem: '1001' }))).source).toBe('provider');
     expect((await h.gateway.judge(request({ workItem: null }))).source).toBe('provider');
     expect(await h.lineEvents()).toEqual([]);

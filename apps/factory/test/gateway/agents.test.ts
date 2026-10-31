@@ -16,6 +16,7 @@ import * as instruments from '../../src/gateway/metrics.ts';
 import { costOf } from '../../src/gateway/prices.ts';
 import { ProviderCaps } from '../../src/gateway/provider-caps.ts';
 import { Anthropic, capOf, LocalModels, type ProviderName, systemInPlace } from '../../src/gateway/providers.ts';
+import { Refusals } from '../../src/gateway/refusals.ts';
 import { createGatewayServer } from '../../src/gateway/server.ts';
 import { Spend } from '../../src/gateway/spend.ts';
 import { SettingsReader } from '../../src/settings.ts';
@@ -162,6 +163,7 @@ async function start({
     log: captured.log,
     probe: async (name) => (await providers[name]?.send('/v1/messages', '{}', {}))?.ok ?? false,
   });
+  const refusals = new Refusals({ events, log: captured.log });
   const agents = new AgentCalls({
     sql,
     spend,
@@ -173,6 +175,7 @@ async function start({
     ...(settings && { settings }),
     providers,
     log: captured.log,
+    refusals,
   });
   const gateway = new Gateway({
     sql,
@@ -184,8 +187,26 @@ async function start({
   server = createGatewayServer({ gateway, agents, spend, log: captured.log });
   url = (await listenLocal(server)).url;
   const token = await issueJobToken(database.as.line, { job: 'coder-1001-1', workItem: '1001', agent: 'coder' });
-  return { sql, token, events };
+  return { sql, token, events, refusals };
 }
+
+/** Work item 1001 opened, as triage opens a ticket's, so the gateway's refusals have it to go on. */
+const opened = (): NewEvent => ({
+  id: crypto.randomUUID(),
+  ts: new Date().toISOString(),
+  work_item: '1001',
+  type: 'work-item.opened',
+  version: 2,
+  actor: 'triage',
+  summary: 'Work item opened',
+  payload: { kind: 'defect-fix', title: 'Server errors', sample: false },
+  artifacts: [],
+});
+
+/** The refusals in the store, with the role that appended each. */
+const refusalsIn = (sql: Database['owner']) =>
+  sql<{ work_item: string | null; appended_by: string; payload: Record<string, unknown> }[]>`
+    select work_item, appended_by, payload from events where type = 'action.refused' order by seq`;
 
 /** A call as the Agent SDK makes one: the token where the key would be, and the API's version and betas. */
 const call = (token: string, body: Record<string, unknown>, path = '/v1/messages') =>
@@ -339,7 +360,10 @@ describe('agents through the gateway', () => {
 
   it('treats spent credit as a cap: it says so once, waits, and clears when the provider answers', async () => {
     provider.requests.length = 0;
-    const { sql, token } = await start();
+    const { sql, token, refusals } = await start();
+    await new EventWriter(database.as.triage, { kind: 'real', artifacts: new DiskArtifacts(cassettesDir) }).append(
+      opened(),
+    );
     provider.script({
       status: 400,
       body: {
@@ -375,16 +399,34 @@ describe('agents through the gateway', () => {
       },
       { type: 'spend.cleared', version: 2, payload: { cap: 'provider', provider: 'anthropic' } },
     ]);
+    // The provider's own refusal and the one the gateway held after it are the same cap's, in the provider's words.
+    await refusals.stop();
+    const capped = {
+      mechanism: 'gateway',
+      action: 'A model call by the coder agent, while anthropic is at its credit cap',
+      output: 'anthropic refuses calls for now (credit): Your credit balance is too low to access the Anthropic API.',
+      guardrails: [7],
+    };
+    // One repeat in its minute is appended as itself.
+    const recorded = { work_item: '1001', appended_by: 'factory_gateway', payload: capped };
+    expect(await refusalsIn(database.owner)).toEqual([recorded, recorded]);
   });
 
   it('sends every agent to the local model when asked, and caps it when nothing is listening', async () => {
-    const { sql, token } = await start({ allLocal: true, local: 'http://127.0.0.1:9' });
+    const { sql, token, refusals } = await start({ allLocal: true, local: 'http://127.0.0.1:9' });
+    await new EventWriter(database.as.triage, { kind: 'real', artifacts: new DiskArtifacts(cassettesDir) }).append(
+      opened(),
+    );
     const refused = await call(token, agentRequest());
     expect(refused.status).toBe(429);
     const [capped] = await sql`select payload from events where type = 'spend.capped'`;
     expect(capped?.payload).toMatchObject({ cap: 'provider', provider: 'local', reason: 'unreachable' });
     const [row] = await sql`select provider, model, outcome from model_calls`;
     expect(row).toEqual({ provider: 'local', model: 'qwen/qwen3.8-27b', outcome: 'failed' });
+    // Held for an outage, not a cap: the next call is refused, and no guardrail is recorded as refusing it.
+    expect((await call(token, agentRequest())).status).toBe(429);
+    await refusals.stop();
+    expect(await refusalsIn(database.owner)).toEqual([]);
   });
 
   it('sends the local model no effort, whatever the runner asked for, and keys its cassette without one', async () => {
@@ -487,6 +529,79 @@ describe('agents through the gateway', () => {
     const capped = await call(token, { ...more, messages: [{ role: 'user', content: 'Again.' }] });
     expect(capped.status).toBe(429);
     expect(await capped.json()).toMatchObject({ error: { message: expect.stringMatching(/day/) } });
+  });
+
+  it('records each refusal of a guardrail on the job’s work item, in its own words, as the gateway’s role', async () => {
+    const { token, refusals } = await start({ policy: { dayUsd: 20, monthUsd: null, workItemUsd: 0.001 } });
+    await new EventWriter(database.as.triage, { kind: 'real', artifacts: new DiskArtifacts(cassettesDir) }).append(
+      opened(),
+    );
+    // The work item's cap, once its first call has spent past it.
+    await (await call(token, agentRequest())).text();
+    const capped = await call(token, { ...agentRequest(), messages: [{ role: 'user', content: 'More.' }] });
+    const cap = ((await capped.json()) as { error: { message: string } }).error.message;
+    // An agent that calls no model through this API.
+    const jev = await issueJobToken(database.as.line, { job: 'triage-1001-1', workItem: '1001', agent: 'triage' });
+    const policy = ((await (await call(jev, agentRequest())).json()) as { error: { message: string } }).error.message;
+    await refusals.settled();
+    expect(await refusalsIn(database.owner)).toEqual([
+      {
+        work_item: '1001',
+        appended_by: 'factory_gateway',
+        payload: {
+          mechanism: 'gateway',
+          action: 'A model call by the coder agent, at the work-item spend cap',
+          output: cap,
+          guardrails: [7],
+        },
+      },
+      {
+        work_item: '1001',
+        appended_by: 'factory_gateway',
+        payload: { mechanism: 'gateway', action: 'A model call by the triage agent', output: policy, guardrails: [6] },
+      },
+    ]);
+    expect(cap).toMatch(/work-item spend cap/);
+    expect(policy).toBe('The triage agent does not call models through this API.');
+  });
+
+  it('folds a loop of refused calls into one event a minute, and records none for a guess or a request it cannot read', async () => {
+    const { token, refusals } = await start();
+    await new EventWriter(database.as.triage, { kind: 'real', artifacts: new DiskArtifacts(cassettesDir) }).append(
+      opened(),
+    );
+    await new EventWriter(database.admin, { kind: 'real', artifacts: new DiskArtifacts(cassettesDir) }).append(stop());
+    for (const _ of [1, 2, 3, 4]) expect((await call(token, agentRequest())).status).toBe(403);
+    // A token that is no job's, and a count of tokens, refuse no model call.
+    expect((await call('sk-ant-guess', agentRequest())).status).toBe(401);
+    expect((await call(token, agentRequest(), '/v1/messages/count_tokens')).status).toBe(403);
+    await refusals.stop();
+    const stopped = {
+      mechanism: 'gateway',
+      action: 'A model call by the coder agent',
+      output: 'The line is stopped: agents take no new calls until it starts again.',
+      guardrails: [9],
+    };
+    expect(await refusalsIn(database.owner)).toEqual([
+      { work_item: '1001', appended_by: 'factory_gateway', payload: stopped },
+      {
+        work_item: '1001',
+        appended_by: 'factory_gateway',
+        payload: { ...stopped, count: 3, lastAt: expect.any(String) },
+      },
+    ]);
+  });
+
+  it('answers a refused call as it would have when the store will not take its refusal', async () => {
+    // Work item 1001 was never opened, so the store refuses an event on it.
+    const { token, refusals } = await start();
+    await new EventWriter(database.admin, { kind: 'real', artifacts: new DiskArtifacts(cassettesDir) }).append(stop());
+    const response = await call(token, agentRequest());
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: { message: expect.stringMatching(/line is stopped/) } });
+    await refusals.settled();
+    expect(await refusalsIn(database.owner)).toEqual([]);
+    expect(captured.text()).toMatch(/could not record the gateway’s refusal/);
   });
 
   it('replays only, without a cassette, as an error the SDK does not retry', async () => {

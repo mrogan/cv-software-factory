@@ -19,6 +19,7 @@ import {
   type SymptomClass,
   VERSIONS,
 } from '@software-factory/events';
+import { guardrailsFor } from '../../../policy/refusals.ts';
 import { BURST, REPORT_TEXT, SYMPTOMS } from '../../../policy/triage.ts';
 import type { Fingerprint, Judgement, ReportDecision } from './reports.ts';
 import { privatePath, shortPath } from './scrub.ts';
@@ -49,24 +50,31 @@ export const healthy = (environment: Environment | undefined) =>
 class Writer {
   readonly events: NewEvent[] = [];
   readonly #id: () => string;
+  readonly #signalId: string;
   readonly #item: string;
   readonly #ts: string;
 
   constructor(signalId: string, workItem: string, now: Date) {
     this.#id = idsFor(signalId);
+    this.#signalId = signalId;
     this.#item = workItem;
     this.#ts = now.toISOString();
   }
 
+  /**
+   * Adds an event, with the next id from the signal, or with one from the signal and `named`, for an event added after
+   * the others' ids were set: the events around it keep theirs, so a retried append stores nothing twice.
+   */
   add<K extends EventType>(
     type: K,
     actor: NewEvent<K>['actor'],
     summary: string,
     payload: PayloadOf<K>,
     artifacts: NewEvent<K>['artifacts'] = [],
+    named?: string,
   ): this {
     this.events.push({
-      id: this.#id(),
+      id: named ? uuidFrom(`triage:${this.#signalId}:${named}`) : this.#id(),
       ts: this.#ts,
       work_item: this.#item,
       type,
@@ -348,6 +356,39 @@ const lower = (name: string) => `${name.charAt(0).toLowerCase()}${name.slice(1)}
 const QUARANTINED = 'The report holds instructions aimed at the system, so nothing acts on it';
 
 /**
+ * Jev's typed answers, verbatim with their probabilities, as a quarantine's refusal records them: one line an answer,
+ * of each request to Jev, without the question, which is the factory's own.
+ */
+export function typedAnswers(judgements: readonly Judgement[]): string {
+  return judgements
+    .flatMap((judgement) => [
+      `${judgement.questionSet}, ${judgement.model}:`,
+      ...judgement.answers.map(({ question: _, ...answer }) => JSON.stringify(answer)),
+    ])
+    .join('\n');
+}
+
+/**
+ * Triage's typed judgement refusing a report or a planner's finding (`action.refused`, guardrail 8): routing code
+ * quarantined it on Jev's answers, so nothing acts on it. Before its work item closes, which takes no more events.
+ */
+function refused(writer: Writer, decision: ReportDecision, action: string, summary: string): void {
+  writer.add(
+    'action.refused',
+    'triage',
+    summary,
+    {
+      mechanism: 'typed-judgement',
+      action,
+      output: cutTo(typedAnswers(decision.judgements), 4000),
+      guardrails: guardrailsFor('typed-judgement', 'quarantined'),
+    },
+    [],
+    'refused',
+  );
+}
+
+/**
  * The events a judged signal starts with, a report or a planner's finding: its work item opened (unless it joins an
  * open one), the signal with the page it names and its words scrubbed, and the factory's screenshot of that page, then
  * each request to Jev. Its page is given for the rest of its events, as a reader sees it.
@@ -400,6 +441,12 @@ export function reportEvents(
 
   switch (routed.route) {
     case 'quarantine':
+      refused(
+        writer,
+        decision,
+        `Act on a visitor’s report from ${page}`,
+        'Typed judgement refused the report: Jev read instructions aimed at the system in it',
+      );
       writer.add('work-item.closed', 'triage', 'Quarantined: the report gives orders to the system', {
         outcome: 'quarantined',
         reason: QUARANTINED,
@@ -479,6 +526,12 @@ export function findingEvents(
 
   switch (routed.route) {
     case 'quarantine':
+      refused(
+        writer,
+        decision,
+        `Act on the planner’s finding on ${page}, while planning ${ticket}`,
+        'Typed judgement refused the planner’s finding: Jev read instructions aimed at the system in it',
+      );
       writer.add('work-item.closed', 'triage', 'Quarantined: the finding gives orders to the system', {
         outcome: 'quarantined',
         reason: 'The finding holds instructions aimed at the system, so nothing acts on it',
