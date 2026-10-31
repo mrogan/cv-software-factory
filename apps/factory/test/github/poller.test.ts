@@ -1,5 +1,6 @@
+import { getEventListeners } from 'node:events';
 import { describe, expect, it } from 'vitest';
-import { checkRunsWatch, imagesWatch, mergesWatch, Poller } from '../../src/github/poller.ts';
+import { abortableSleep, checkRunsWatch, imagesWatch, mergesWatch, Poller } from '../../src/github/poller.ts';
 import { Registry } from '../../src/github/registry.ts';
 import { client, quiet, REPO, SHA } from './fake.ts';
 
@@ -157,6 +158,19 @@ describe('the poller', () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
     await poller.stop();
     expect(ticks).toBe(1);
+  });
+
+  it('leaves no listener on its signal after a wait, and wakes a wait at once when stopped', async () => {
+    const stopping = new AbortController();
+    for (let i = 0; i < 20; i += 1) await abortableSleep(1, stopping.signal);
+    expect(getEventListeners(stopping.signal, 'abort')).toHaveLength(0);
+
+    const started = Date.now();
+    const waiting = abortableSleep(3_600_000, stopping.signal);
+    stopping.abort();
+    await waiting;
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(getEventListeners(stopping.signal, 'abort')).toHaveLength(0);
   });
 });
 
