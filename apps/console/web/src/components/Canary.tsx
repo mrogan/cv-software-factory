@@ -456,7 +456,8 @@ function Measures({
   until?: number | undefined;
   clock?: Clock;
 }) {
-  const live = measuring(r);
+  // A step that judged the canary bad is the story: its own figures, not the latest look's.
+  const live = measuring(r) && !(r.judgedBad && m && m.at === r.judgedBad.at);
   const trend = r.looks.length > 0;
   const next = useRef<HTMLSpanElement>(null);
   const { nextLook } = r;

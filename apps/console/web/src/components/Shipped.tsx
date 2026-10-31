@@ -211,7 +211,9 @@ function Ending({ r }: { r: Release }) {
                 ? `Aborted by Martin at ${end.weight}% at ${clockSeconds(end.at)}. ${shortVersion(r.previous)}, the version before, takes all the traffic, and the release stays aborted until he retries it or a new deploy starts another.`
                 : end.kind === 'errored'
                   ? `Stopped by an analysis error at ${end.weight}% at ${clockSeconds(end.at)}: the analysis could not judge the canary, so nothing failed and it is no signal. ${shortVersion(r.previous)}, the version before, takes all the traffic, and the release stays stopped until Martin retries it or a new deploy starts another.`
-                  : `Rolled back at ${end.weight}% at ${clockSeconds(end.at)}. ${100 - end.weight}% of the traffic never saw it.`}
+                  : end.by === 'martin'
+                    ? `Rolled back at ${end.weight}% at ${clockSeconds(end.at)}: Martin aborted it after the analysis judged it bad, which counts as a rollback. ${100 - end.weight}% of the traffic never saw it.`
+                    : `Rolled back at ${end.weight}% at ${clockSeconds(end.at)}. ${100 - end.weight}% of the traffic never saw it.`}
         {r.dryRun &&
           ' The dry run answers for it: its merge was never made, so nothing shipped and nothing was measured.'}
       </p>
