@@ -204,6 +204,20 @@ describe('a rollback’s signals', () => {
       ending('release.rolled-back', { by: 'martin', abortedAt: '2026-10-11T09:20:00Z' }),
     ]);
     expect(failedMeasures(observe(aborted, [judged]), later)).toEqual([]);
+    // Retried at once after Martin's rollback, a run of the retry that ended in the same second, which Argo Rollouts
+    // keeps the abort to, is the retry's: stopped with the line, it sends nothing.
+    const quick = recordedFrom([
+      startedRow,
+      ending('release.rolled-back', { by: 'martin', ...at }),
+      { ...startedRow, ts: '2026-10-11T09:04:01Z' },
+      ending('release.aborted', { by: 'stop', abortedAt: '2026-10-11T09:06:00Z' }),
+    ]);
+    const ofRetry = { ...judged, metadata: { ...judged.metadata, uid: 'the-retry', creationTimestamp: at.abortedAt } };
+    ofRetry.status = { ...judged.status, completedAt: at.abortedAt };
+    expect(failedMeasures(observe(aborted, [ofRetry]), quick)).toEqual([]);
+    // A run of the attempt he rolled back, made before his abort, is his, though it ended in the abort's second.
+    const ofHis = { ...judged, status: { ...judged.status, completedAt: at.abortedAt } };
+    expect(failedMeasures(observe(aborted, [ofHis]), quick)).toHaveLength(1);
   });
 
   it('are named by the run and the measure, so sending one again is the same signal, whatever was read', () => {

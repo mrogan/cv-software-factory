@@ -2315,6 +2315,80 @@ describe('Needs you', () => {
     }
   });
 
+  it('holds a canary’s hold to the release in flight that carries the change, as the line does', async () => {
+    const { browser } = await signedIn();
+    const release = (name: string) => ({
+      release: name,
+      version: 'v0.9.5',
+      previous: 'v0.9.4',
+      watched: true,
+      dryRun: false,
+    });
+    const started = (workItem: string, name: string) =>
+      event(workItem, 'release.started', 'rollouts', {
+        ...release(name),
+        image: { digest: `sha256:${'a'.repeat(64)}`, signed: true, admitted: true },
+        steps: null,
+      });
+    const canary = (workItem: string, name: string) =>
+      event(workItem, 'hold.started', 'rollouts', {
+        stage: 'release',
+        kind: 'held',
+        cause: 'canary',
+        reason: 'The analysis judged the canary bad',
+        release: name,
+      });
+    const rolledBack = (workItem: string, name: string) =>
+      event(workItem, 'release.rolled-back', 'martin', {
+        release: name,
+        version: 'v0.9.5',
+        dryRun: false,
+        restored: 'v0.9.4',
+        weight: 50,
+        reason: 'Judged bad',
+        failed: [],
+        by: 'martin',
+      });
+    /** A merged change whose release `first` started, and these events after it, ending with the hold named. */
+    const after = async (events: (workItem: string) => NewEvent[]) => {
+      const { workItem } = await held('failures');
+      const merge = event(workItem, 'pull-request.merged', 'martin', {
+        number: 8,
+        commit: 'c'.repeat(40),
+        by: 'martin',
+      });
+      const rest = events(workItem);
+      await append(db.as.line, [merge, started(workItem, 'first-1'), ...rest]);
+      return { workItem, hold: rest.findLast((e) => e.type === 'hold.started')?.id as string };
+    };
+    // Still held: the end of a release other than the one it holds, promoted or rolled back, ends nothing.
+    for (const end of [
+      (w: string) => event(w, 'release.promoted', 'rollouts', release('other-2')),
+      (w: string) => rolledBack(w, 'other-2'),
+    ]) {
+      const { workItem, hold } = await after((w) => [canary(w, 'first-1'), end(w)]);
+      expect(await browser.post(`/admin/holds/${workItem}/reject`, { hold })).toMatchObject({
+        status: 422,
+        body: { refused: 'answer' },
+      });
+      expect(await lineHold(workItem)).toMatchObject({ cause: 'canary' });
+    }
+    // Ended, or never held: a newer release started; a hold of a release not in flight, or of one promoted already.
+    for (const events of [
+      (w: string) => [canary(w, 'first-1'), started(w, 'second-2')],
+      (w: string) => [canary(w, 'other-2')],
+      (w: string) => [event(w, 'release.promoted', 'rollouts', release('first-1')), canary(w, 'first-1')],
+      (w: string) => [rolledBack(w, 'first-1'), canary(w, 'first-1')],
+    ]) {
+      const { workItem, hold } = await after(events);
+      expect(await browser.post(`/admin/holds/${workItem}/reject`, { hold })).toMatchObject({
+        status: 409,
+        body: { refused: 'hold', message: expect.stringContaining('has no hold waiting now') },
+      });
+      expect(await lineHold(workItem)).toBeUndefined();
+    }
+  });
+
   it('asks for the passkey again to approve a guardrail’s hold, decided by the stored cause, and for nothing else', async () => {
     const { browser, passkey } = await signedIn();
     await db.owner`update sessions set stepped_up_at = null where id_sha256 = ${sessionOf(browser)}`;

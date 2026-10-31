@@ -1,10 +1,11 @@
 /**
  * What the line has recorded of the app's releases, read back from their events, and how it names them: on their own,
- * with nothing but the events package to import, so the admin service reads a release as the line does without the
- * watch's reads and their settings. The line and the admin service read the records from the store with the same
+ * with nothing but the events and store packages to import, so the admin service reads a release as the line does
+ * without the watch's reads and their settings. The line and the admin service read the records from the store with the same
  * queries (`releaseRecords`, `lastPromoted`).
  */
 import { measurementOf, type PayloadOf, type RawEvent, RELEASE_TYPES, upcast } from '@software-factory/events';
+import { LINE_ROLE } from '@software-factory/store';
 import type { Sql } from 'postgres';
 
 type Started = PayloadOf<'release.started'>;
@@ -47,6 +48,8 @@ export interface AttemptEnd {
   /** Who rolled it back, for a rollback. */
   by?: PayloadOf<'release.rolled-back'>['by'];
   at: string;
+  /** Whether the release started again after it: a run made from then on is the retry's, not this attempt's. */
+  retried?: boolean;
 }
 
 /** Adds a look's measurements to what a record has recorded. */
@@ -70,6 +73,8 @@ export function recordedFrom(
     recorded.set(name, targets);
     const record = targets.get(target);
     if (type === 'release.started') {
+      const last = record?.ends?.at(-1);
+      if (last) last.retried = true;
       targets.set(target, {
         started: payload as Started,
         startedAt: ts,
@@ -111,9 +116,6 @@ export function recordedFrom(
   }
   return recorded;
 }
-
-/** The line's role in the store: only the holds it appended of a canary paused for Martin are its record of one. */
-const LINE_ROLE = 'factory_line';
 
 /** The annotation Argo Rollouts keeps its revision in, on the Rollout and on each run it makes. */
 export const REVISION = 'rollout.argoproj.io/revision';
