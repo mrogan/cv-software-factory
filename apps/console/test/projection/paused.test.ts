@@ -7,6 +7,7 @@
 import type { PayloadOf, PublicEvent } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import { project, projectSheet } from '../../web/src/projection/index.ts';
+import { foldItem } from '../../web/src/projection/items.ts';
 import {
   BACKGROUND,
   canaryView,
@@ -245,5 +246,67 @@ describe('a canary paused for Martin, in Needs you', () => {
       },
     ] as PublicEvent[];
     expect(project(ended, one.at(9)).needs.canary).toBeUndefined();
+  });
+});
+
+describe('a canary’s hold on a work item', () => {
+  const hold = { stage: 'release', kind: 'held', cause: 'canary', reason: 'Paused for Martin', release: 'r1' } as const;
+  const held = () =>
+    work('1').open().add(1, 'release.started', 'rollouts', started).add(4, 'hold.started', 'rollouts', hold);
+  const AT = new Date(work('1').at(9)).toISOString();
+  const ends: { [K in 'promoted' | 'rolled-back' | 'aborted' | 'errored']: PayloadOf<`release.${K}`> } = {
+    promoted: { release: 'r1', version: 'v1.0.1', previous: 'v1.0.0', watched: true, dryRun: false },
+    'rolled-back': {
+      release: 'r1',
+      version: 'v1.0.1',
+      restored: 'v1.0.0',
+      weight: 25,
+      reason: SAID,
+      failed: [{ ...judged, failures: 1 }],
+      dryRun: false,
+      by: 'analysis',
+    },
+    aborted: { release: 'r1', version: 'v1.0.1', restored: 'v1.0.0', abortedAt: AT, by: 'stop' },
+    errored: {
+      release: 'r1',
+      version: 'v1.0.1',
+      restored: 'v1.0.0',
+      weight: 25,
+      reason: 'Could not judge',
+      errored: [],
+      abortedAt: AT,
+    },
+  };
+
+  it('waits on Martin while its release is in flight, whatever an answer of the holds’ says', () => {
+    const item = foldItem(
+      held().add(5, 'hold.answered', 'martin', { hold: '00000000-0000-4000-8000-000000000000', decision: 'approved' })
+        .events,
+    );
+    expect(item).toMatchObject({ hold: { cause: 'canary' }, outcome: 'held' });
+  });
+
+  const ended = {
+    promoted: () => held().add(9, 'release.promoted', 'rollouts', ends.promoted),
+    'rolled-back': () => held().add(9, 'release.rolled-back', 'rollouts', ends['rolled-back']),
+    aborted: () => held().add(9, 'release.aborted', 'factory', ends.aborted),
+    errored: () => held().add(9, 'release.errored', 'rollouts', ends.errored),
+  };
+  for (const [end, events] of Object.entries(ended)) {
+    it(`ends when its release is ${end}, as the line reads it`, () => {
+      const item = foldItem(events().events);
+      expect(item?.hold).toBeUndefined();
+      expect(item?.outcome).not.toBe('held');
+    });
+  }
+
+  it('holds nothing for a release that has ended or is not the one in flight', () => {
+    const after = work('1')
+      .open()
+      .add(1, 'release.started', 'rollouts', started)
+      .add(3, 'release.promoted', 'rollouts', ends.promoted)
+      .add(4, 'hold.started', 'rollouts', hold)
+      .add(5, 'hold.started', 'rollouts', { ...hold, release: 'r0' });
+    expect(foldItem(after.events)?.hold).toBeUndefined();
   });
 });

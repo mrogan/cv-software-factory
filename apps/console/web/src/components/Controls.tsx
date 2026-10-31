@@ -413,7 +413,12 @@ function SwitchesGroup({ controls, viewer, changer }: { controls: ControlsView; 
                   }
                 : {
                     title: 'Turn on auto-rollback',
-                    what: <b>Auto-rollback: on. A canary the analysis judges bad rolls back by itself.</b>,
+                    what: (
+                      <>
+                        <b>Auto-rollback: on. A canary the analysis judges bad rolls back by itself.</b> One already
+                        paused for you stays paused until you promote or abort it.
+                      </>
+                    ),
                     why: 'The admin service asks for it',
                   },
             )

@@ -1,6 +1,6 @@
 /**
  * The Canary panel: the release in flight against the version it would replace, for everyone, full width under the
- * line. It is always there; idle, it is one line. Under the steps and the measures are Martin's controls: buttons for
+ * line. It is always there; before the first release, it is one line. Under the steps and the measures are Martin's controls: buttons for
  * him, and for a visitor the same controls as labels beside what each does.
  */
 import type { ReleaseControl } from '@software-factory/events';
@@ -817,7 +817,7 @@ function flying(r: Release, switched: Switched, t: number): string {
   if (judgedBad) {
     const [you, yours] = viewer === 'martin' ? ['you', 'you promote or abort'] : ['Martin', 'he promotes or aborts'];
     const bad = judgedWords(judgedBad);
-    return `The analysis judged the canary bad at ${clockSeconds(judgedBad.at)}${bad ? `: ${bad}` : ''}. Auto-rollback was off, so that is inconclusive rather than failed, and Argo Rollouts has paused it for ${you}. It keeps ${r.weight}% of the traffic until ${yours} it. Stop the line still aborts it.`;
+    return `The analysis judged the canary bad at ${clockSeconds(judgedBad.at)}${bad ? `: ${bad}` : ''}. Auto-rollback was off, so that is inconclusive rather than failed, and Argo Rollouts has paused it for ${you}. It keeps ${r.weight}% of the traffic until ${yours} it, even with auto-rollback switched on again. Stop the line still aborts it.`;
   }
   if (r.paused)
     return `Martin paused the canary at ${clockSeconds(r.paused.at)}. It keeps ${r.weight}% of the traffic until he resumes it, promotes it or aborts it.`;

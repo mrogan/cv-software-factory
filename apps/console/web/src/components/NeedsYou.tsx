@@ -337,8 +337,8 @@ function CanaryCard({ need, admin, onOpen }: { need: CanaryNeed; admin: Admin } 
       {need.said.length > 0 && <p className="words">{need.said.join('\n')}</p>}
       <p className="ev">
         The analysis judged {shortVersion(release.version)} bad{need.bad && `: ${need.bad}`}. Auto-rollback was off when
-        it was judged, so it waits for {martin ? 'you' : 'Martin'} instead of rolling back. Stop the line still aborts
-        it.
+        it was judged, so it waits for {martin ? 'you' : 'Martin'} instead of rolling back, even with auto-rollback
+        switched on again. Stop the line still aborts it.
       </p>
       <CanaryAnswers r={release} admin={admin} />
       <Foot workItem={need.workItem} onOpen={onOpen} martin={martin} />

@@ -1,7 +1,7 @@
 /**
  * A canary paused for Martin, end to end: with auto-rollback off, the analysis judged the samples' release in flight
  * (v0.9.13 at 50%) bad at its step, as the line records it, and the Rollout stand-in is paused on it
- * (`InconclusiveAnalysis`), against the real admin service on a throwaway store, on one origin behind a proxy standing
+ * (`InconclusiveAnalysisRun`), against the real admin service on a throwaway store, on one origin behind a proxy standing
  * in for Traefik (`admin.ts`), with a virtual passkey. The panel says so and offers only Promote fully and Abort; Needs
  * you has the one card for it, whose Abort is the panel's, behind the dialog that says it counts as a rollback. A
  * visitor reads the same, read only. Snapshots are `visual.spec.ts`'s. Needs Postgres: TEST_DATABASE_URL, or Docker.
@@ -31,7 +31,7 @@ test.beforeAll(async () => {
   // Argo Rollouts paused it on the step's run, which ended Inconclusive.
   Object.assign(rollout.object.status as object, {
     controllerPause: true,
-    pauseConditions: [{ reason: 'InconclusiveAnalysis', startTime: new Date().toISOString() }],
+    pauseConditions: [{ reason: 'InconclusiveAnalysisRun', startTime: new Date().toISOString() }],
   });
   const event = (type: 'release.started' | 'canary.stepped', payload: unknown) => ({
     id: randomUUID(),
