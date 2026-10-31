@@ -658,6 +658,13 @@ describe('a refusal', () => {
       await expect(refuse(real.as.gateway, 'gateway', false, { version: 2, guardrails: null })).rejects.toThrow(
         'row-level security',
       );
+      // Nor any guardrails, in its payload and its public view alike.
+      for (const guardrails of [[11], [1], 'any']) {
+        await expect(
+          refuse(line, 'scope-fence', false, { version: 2, guardrails }),
+          `version 2 ${JSON.stringify(guardrails)}`,
+        ).rejects.toThrow('row-level security');
+      }
       await refuse(line, 'scope-fence', false, { version: 2, guardrails: null });
       await refuse(line, 'admission-control', false, { guardrails: [4] });
       await refuse(real.as.gateway, 'gateway', false, { guardrails: [9] });
