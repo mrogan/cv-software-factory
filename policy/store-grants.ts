@@ -49,7 +49,7 @@ const READ = 'true';
  * open (0035_improvement-requests.sql); and only the line appends its record of what a release did
  * (0039_release-events-the-lines.sql). Every role, his included, appends a refusal only by a mechanism
  * `policy/refusals.ts` lets it speak for, under its guardrails, by restrictive policies beside these
- * (0040_refusals-by-mechanism.sql, 0041_refusals-as-they-read.sql).
+ * (0040_refusals-by-mechanism.sql, 0041_refusals-as-they-read.sql, 0042_refusals-before-guardrails.sql).
  */
 const NOT_HIS =
   '(NOT admin_event(type)) AND (NOT opens_improvement(type, payload)) AND ' +
