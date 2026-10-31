@@ -707,8 +707,10 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
     if (!r.planned) release.steps = measuredSteps(r);
     const end = endOf(r);
     const judged = end || r.dryRun ? undefined : judgedBadOf(r);
-    // Paused for Martin, it waits where it is: no step's pause runs out, and no look is due.
-    const place = { ...position(r, end?.at ?? t), ...(judged && { until: undefined, since: undefined }) };
+    // Paused for Martin, it waits where it is: no step's pause runs out, and no look is due. Argo Rollouts paused it
+    // when it was judged, so it stands where it was then, or where Martin has promoted it to since.
+    const asOf = judged ? Math.max(judged.at, ...r.promotions.filter((p) => p.at <= t).map((p) => p.at)) : t;
+    const place = { ...position(r, end?.at ?? asOf), ...(judged && { until: undefined, since: undefined }) };
     const ticket = tickets.get(r.id);
     if (end?.kind === 'rolled-back' && ticket) end.ticket = { ...carried(ticket.number), how: ticket.how };
     release.looks = [...r.looks].sort((a, b) => a.at - b.at);

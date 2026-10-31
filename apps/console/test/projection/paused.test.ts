@@ -157,6 +157,26 @@ describe('a canary paused for Martin', () => {
     expect(r && lookVerdict(r, 'errors')).toEqual({ words: '', kind: 'inconclusive', ruled: true });
   });
 
+  it('stays at the step it was judged at by the background analysis, past that step’s pause', () => {
+    // A step that only waits, so its pause would run out and move the canary on, were it not paused for Martin.
+    const waits = {
+      ...started,
+      steps: [
+        { weight: 25, pauseSeconds: 180, analysis: false },
+        { weight: 50, pauseSeconds: 180, analysis: true },
+      ],
+    };
+    const at = (m: number) => work('1').at(m);
+    const one = work('1')
+      .open()
+      .add(1, 'release.started', 'rollouts', waits)
+      .add(2, 'canary.measuring', 'rollouts', look(2, 'inconclusive', at))
+      .add(3, 'canary.measuring', 'rollouts', look(3, 'inconclusive', at));
+    const [r] = releases(one.events, [], one.at(30));
+    expect(r?.judgedBad).toMatchObject({ at: one.at(3), weight: 25 });
+    expect(r).toMatchObject({ step: 0, weight: 25, until: undefined, since: undefined });
+  });
+
   it('waits for nobody once a step is measured after the verdict: the canary went on past it', () => {
     const one = work('1')
       .open()
