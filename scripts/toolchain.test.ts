@@ -127,7 +127,8 @@ describe('every use of mise in CI', () => {
     const sets = (text: string) => [...text.matchAll(/^ +install_args: (.+)$/gm)].map(([, tools = '']) => tools);
     const check = new Set(sets(read('.github/workflows/check.yml')));
     const cache = read('.github/workflows/toolchain-cache.yml');
-    const warmed = [...cache.matchAll(/^ +tools: (.+)$/gm)].map(([, tools = '']) => tools);
+    // Each set as the matrix's include gives it, beside the job it is named for.
+    const warmed = [...cache.matchAll(/^ +- job: \w+\n +tools: (.+)$/gm)].map(([, tools = '']) => tools);
     expect(check.size).toBeGreaterThan(0);
     expect(warmed.sort()).toEqual([...check].sort());
     // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, as the workflow writes it.
