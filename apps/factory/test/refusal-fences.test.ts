@@ -1,5 +1,7 @@
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 import { GUARDED_NAMESPACES, KYVERNO_EVENTS } from '../src/line/refusals.ts';
 import { DEPLOY, manifests as deployManifests } from './deploy.ts';
 
@@ -116,7 +118,22 @@ describe('the line’s read of admission control’s denials', () => {
   });
 
   it('is brought in with the line, by the profile that pins its image', async () => {
-    const component = await readFile(`${DEPLOY}overlays/local/factory-image/kustomization.yaml`, 'utf-8');
-    expect(component).toContain('- ../../../base/line-reads-admission');
+    // Every kustomization that brings the Roles in, read for its images: only the one that pins the line's. Found by
+    // what it holds, not by its path, which only the files a deploy changes name (scripts/deploy-files.test.ts).
+    const kustomizations = (await readdir(DEPLOY, { recursive: true })).filter((file) =>
+      file.endsWith('kustomization.yaml'),
+    );
+    const bringing: string[] = [];
+    for (const file of kustomizations) {
+      const { resources = [] } = parse(await readFile(join(DEPLOY, file), 'utf-8')) as { resources?: string[] };
+      if (resources.some((resource) => resource.endsWith('base/line-reads-admission'))) bringing.push(file);
+    }
+    expect(bringing).toHaveLength(1);
+    const component = parse(await readFile(join(DEPLOY, bringing[0] ?? ''), 'utf-8')) as {
+      resources?: string[];
+      images?: { name: string }[];
+    };
+    expect(component.resources).toEqual(expect.arrayContaining(['../../../base/factory']));
+    expect(component.images?.map(({ name }) => name)).toContain('factory');
   });
 });
