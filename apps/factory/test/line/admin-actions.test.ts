@@ -323,15 +323,19 @@ describe('the comparison, as the SDK collects it', () => {
         });
       },
     };
+    // The test ends the flags' time itself, so no clock decides: at once while the read is held, then never. The
+    // sessions, read from the store, are given all the time they take.
+    let deadline = AbortSignal.abort();
     const stop = observeAdminActions(
       { sql: database.as.line, kube: slow, flags: FLAGS, rollout: null },
       pino({ level: 'silent' }),
-      50,
+      (action) => (action === 'flags' ? deadline : new AbortController().signal),
     );
     try {
       expect((await collected()).flags).toEqual({ compared: 0 });
       expect((await collected()).flags).toEqual({ compared: 0 });
       expect(reads).toBe(1);
+      deadline = new AbortController().signal;
       answer?.();
       expect((await collected()).flags).toEqual({ uncounted: 0, compared: 1 });
       expect(reads).toBe(1);
@@ -369,7 +373,7 @@ describe('the comparison, as the SDK collects it', () => {
     const stop = observeAdminActions(
       { sql: database.as.line, kube: slow, flags: FLAGS, rollout: null },
       pino({ level: 'silent' }),
-      50,
+      (action) => (action === 'flags' ? AbortSignal.abort() : new AbortController().signal),
     );
     try {
       expect(await collected()).toEqual({ flags: { compared: 0 }, sessions: { uncounted: 0, compared: 1 } });
