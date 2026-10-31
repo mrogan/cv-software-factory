@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { guardrailsFor } from '../../../policy/refusals.ts';
 import {
   ANSWERS,
   answersTo,
@@ -20,7 +21,7 @@ import { PAYLOADS, validate, validateSignal } from '../src/schemas.ts';
 import type { NewEvent, PublicEvent } from '../src/types.ts';
 import { type Catalogue, upcast } from '../src/upcast.ts';
 import { ADMIN_TYPES, EVENT_TYPES, VERSIONS } from '../src/versions.ts';
-import { HOLD_CAUSES } from '../src/vocabulary.ts';
+import { HOLD_CAUSES, REFUSAL_MECHANISMS } from '../src/vocabulary.ts';
 import { gate, judgement, opened, REPORT_TEXT, signal, VISITOR_KEY } from './fixtures.ts';
 
 /** An event read back, as one about to be appended again: what it reads as must be valid now. */
@@ -866,19 +867,97 @@ describe('upcasting the real catalogue', () => {
     );
   });
 
-  it('reads version 1 of action.refused as it was, and takes the scope fence at version 2', () => {
+  it('reads version 1 of action.refused as it was, with the guardrail its mechanism shows', () => {
     const v1 = { mechanism: 'ruleset', action: 'Push to main', output: 'Protected branch update failed.' };
     expect(upcast({ type: 'action.refused', version: 1, payload: v1 })).toMatchObject({
-      event: { version: 2, payload: v1 },
+      event: { version: 3, payload: { ...v1, guardrails: [1] } },
     });
+  });
+
+  it('reads version 2 of action.refused with the guardrails policy/refusals.ts gives its mechanism', () => {
     const fenced = {
       mechanism: 'scope-fence',
       action: 'Push the coder’s patch',
       output: 'refused src/server.ts +1 −1',
       files: [{ path: 'src/server.ts', added: 1, removed: 1, allowed: false }],
     };
-    expect(validate({ ...opened, type: 'action.refused', version: 2, actor: 'factory', payload: fenced })).toEqual({
-      ok: true,
+    const read = (payload: Record<string, unknown>) => {
+      const result = upcast({ type: 'action.refused', version: 2, payload });
+      if (!result.ok) throw new Error('not read');
+      expect(validate(asNew(result.event)), String(payload.mechanism)).toEqual({ ok: true });
+      return (result.event.payload as { guardrails: number[] }).guardrails;
+    };
+    expect(read(fenced)).toEqual([11]);
+    const refused = { action: 'An action', output: 'Refused.' };
+    expect(read({ ...refused, mechanism: 'token-permission' })).toEqual(guardrailsFor('token-permission', 'forbidden'));
+    expect(read({ ...refused, mechanism: 'ruleset' })).toEqual(guardrailsFor('ruleset', 'repository'));
+    expect(read({ ...refused, mechanism: 'egress-policy' })).toEqual(guardrailsFor('egress-policy', 'egress'));
+    expect(read({ ...refused, mechanism: 'scope-fence' })).toEqual(guardrailsFor('scope-fence', 'outside'));
+    // Admission control said which of its two it showed only in its own words.
+    const image = 'admission webhook denied the request: failed to verify image ghcr.io/x@sha256:00';
+    expect(read({ ...refused, mechanism: 'admission-control', output: image })).toEqual(
+      guardrailsFor('admission-control', 'image'),
+    );
+    const rollout = 'ValidatingAdmissionPolicy rollout-controls denied request: only the line may step the Rollout';
+    expect(read({ ...refused, mechanism: 'admission-control', output: rollout })).toEqual(
+      guardrailsFor('admission-control', 'production'),
+    );
+  });
+
+  describe('action.refused at version 3', () => {
+    const refusal = (payload: Record<string, unknown>) =>
+      validate({
+        ...opened,
+        type: 'action.refused',
+        version: 3,
+        actor: 'factory',
+        payload: {
+          mechanism: 'gateway',
+          action: 'Call a model',
+          output: 'The cap is reached.',
+          guardrails: [7],
+          ...payload,
+        },
+      } as NewEvent);
+
+    it('takes every mechanism, and names the guardrails it shows, each once, of spec 6’s eleven', () => {
+      for (const mechanism of REFUSAL_MECHANISMS) expect(refusal({ mechanism }), mechanism).toEqual({ ok: true });
+      expect(refusal({ guardrails: [6, 7] })).toEqual({ ok: true });
+      for (const guardrails of [undefined, [], [0], [12], [7, 7], [1.5]]) {
+        expect(refusal({ guardrails }).ok, JSON.stringify(guardrails)).toBe(false);
+      }
+      expect(refusal({ mechanism: 'firewall' }).ok).toBe(false);
+    });
+
+    it('folds repeats with how many and when the last was, and only then', () => {
+      expect(refusal({ count: 4, lastAt: '2026-10-31T12:00:59.000Z' })).toEqual({ ok: true });
+      expect(refusal({ count: 1 })).toEqual({ ok: true });
+      expect(refusal({ count: 4 }).ok).toBe(false);
+      expect(refusal({ lastAt: '2026-10-31T12:00:59.000Z' }).ok).toBe(false);
+      expect(refusal({ count: 0 }).ok).toBe(false);
+    });
+
+    it('relays a refusal with its record and the signature over it, together', () => {
+      const record = 'a'.repeat(64);
+      const signature = `${'A'.repeat(86)}==`;
+      expect(refusal({ mechanism: 'github-guard', guardrails: [1], record, signature })).toEqual({ ok: true });
+      expect(refusal({ record }).ok).toBe(false);
+      expect(refusal({ signature }).ok).toBe(false);
+      expect(refusal({ record, signature: 'not a signature' }).ok).toBe(false);
+    });
+
+    it('names what was refused when it is no work item’s, and keeps the output to 4000 characters', () => {
+      const subject = {
+        namespace: 'factory',
+        kind: 'Pod',
+        name: 'unsigned',
+        uid: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+      };
+      expect(refusal({ mechanism: 'admission-control', guardrails: [3], subject })).toEqual({ ok: true });
+      expect(refusal({ subject: { kind: 'Namespace', name: 'website' } })).toEqual({ ok: true });
+      expect(refusal({ subject: { name: 'unsigned' } }).ok).toBe(false);
+      expect(refusal({ output: 'x'.repeat(4000) })).toEqual({ ok: true });
+      expect(refusal({ output: 'x'.repeat(4001) }).ok).toBe(false);
     });
   });
 
@@ -1263,6 +1342,17 @@ describe('the event-log format', () => {
     expect(text.startsWith('{"id":')).toBe(true);
     expect(parseLog(text)).toEqual(events);
     expect(text).not.toContain(REPORT_TEXT);
+  });
+
+  it('writes the role that appended an event last, where it is known', () => {
+    const [first, second] = [opened, signal].map(
+      (event, i) => ({ ...event, ...viewOf(event), seq: i + 1 }) as PublicEvent,
+    ) as [PublicEvent, PublicEvent];
+    const text = formatLog([{ ...first, appended_by: 'factory_triage' }, second]);
+    const [line, other] = text.split('\n');
+    expect(line?.endsWith('"appended_by":"factory_triage"}')).toBe(true);
+    expect(other).not.toContain('appended_by');
+    expect(parseLog(text)[0]).toMatchObject({ appended_by: 'factory_triage' });
   });
 
   it('names the line that is not JSON', () => {

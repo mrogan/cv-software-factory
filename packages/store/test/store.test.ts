@@ -111,6 +111,7 @@ describe('migrations', () => {
       { version: 37, name: 'alerts-switched' },
       { version: 38, name: 'line-reads-sign-ins' },
       { version: 39, name: 'release-events-the-lines' },
+      { version: 40, name: 'refusals-by-mechanism' },
     ]);
   });
 });
@@ -124,6 +125,11 @@ describe('appending', () => {
 
     const read = await readPublic(reader, (stored[0]?.seq ?? 1) - 1);
     expect(read.map(({ event }) => event.type)).toEqual(['work-item.opened', 'signal.received']);
+    // With the role that appended each, which the console counts a refusal by.
+    expect(read.map(({ event }) => (event as { appended_by?: string }).appended_by)).toEqual([
+      'factory_triage',
+      'factory_triage',
+    ]);
     expect(JSON.stringify(read)).not.toContain('ten past four');
     expect(JSON.stringify(read)).not.toContain('amber-otter');
   });

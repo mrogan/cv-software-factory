@@ -55,7 +55,15 @@ export type StoredEvent<K extends EventType = EventType> = K extends EventType
 
 /** An event as anyone but Martin may see it: its public view in the envelope's place. Event-log files hold these. */
 export type PublicEvent<K extends EventType = EventType> = K extends EventType
-  ? Envelope<K> & { payload: PayloadOf<K> }
+  ? Envelope<K> & {
+      payload: PayloadOf<K>;
+      /**
+       * The store's role that appended it (`factory_line`, `factory_admin` and the like), which the store sets and no
+       * client may: a reader that trusts one kind of event only from one role checks it here. None from a store before
+       * it recorded one (0023_martins-commands.sql), or from a log that never said.
+       */
+      appended_by?: string;
+    }
   : never;
 
 /** An event before the store has seen it. */

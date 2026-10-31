@@ -17,6 +17,21 @@ export interface Catalogue {
   upcasters: Record<string, Record<number, Upcaster>>;
 }
 
+/** The guardrails a version 2 refusal shows, from its mechanism: the only ones version 2 knew. */
+function guardrailsOf({ mechanism, output }: Record<string, unknown>): number[] {
+  switch (mechanism) {
+    case 'scope-fence':
+      return [11];
+    case 'egress-policy':
+      return [5];
+    case 'admission-control':
+      return /\bimages?\b/i.test(String(output)) ? [3] : [4];
+    // A token's permission and the ruleset both guard the repository (guardrail 1).
+    default:
+      return [1];
+  }
+}
+
 export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
   // Version 1 recorded each call, with its cassette; version 2 records an agent's step, with how many calls it made.
   'model.called': { 1: ({ cassette: _, ...payload }) => ({ ...payload, calls: 1 }) },
@@ -159,7 +174,13 @@ export const UPCASTERS: Partial<Record<EventType, Record<number, Upcaster>>> = {
   // Version 3 adds the suggestions an approving review sends back; a version 2 return sent none.
   'work.returned': { 1: (payload) => payload, 2: (payload) => payload },
   // Version 2 adds the line's scope fence to the mechanisms; a version 1 refusal reads as it was.
-  'action.refused': { 1: (payload) => payload },
+  // Version 3 adds the guardrails a refusal shows, which a version 2 refusal never named: it reads as showing the one
+  // `policy/refusals.ts` gives its mechanism. Admission control shows guardrail 3 for an image and 4 for anything
+  // else, and a version 2 refusal said which only in its output, so one that names an image reads as 3.
+  'action.refused': {
+    1: (payload) => payload,
+    2: (payload) => ({ ...payload, guardrails: guardrailsOf(payload) }),
+  },
   // Version 1 counted a review's comments; version 2 carries each finding. What a version 1 comment said was never
   // recorded, so a version 1 review reads as one with no findings.
   // Version 3 lets a finding cite the ticket; a version 2 review cited none.

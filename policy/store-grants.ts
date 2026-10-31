@@ -47,7 +47,8 @@ const READ = 'true';
 /**
  * Every worker appends any event but his commands, and opens any work item but an improvement, which only his roles
  * open (0035_improvement-requests.sql); and only the line appends its record of what a release did
- * (0039_release-events-the-lines.sql).
+ * (0039_release-events-the-lines.sql). Every role, his included, appends a refusal only by a mechanism
+ * `policy/refusals.ts` lets it speak for, by a restrictive policy beside these (0040_refusals-by-mechanism.sql).
  */
 const NOT_HIS =
   '(NOT admin_event(type)) AND (NOT opens_improvement(type, payload)) AND ' +
@@ -194,9 +195,11 @@ export const STORE_GRANTS = {
     rows: { events: { select: "type = 'passkey.revoked'", insert: "type = 'passkey.revoked'" } },
   },
   console_reader: {
-    for: "The console's server: public views of events, and the store's kind.",
+    for:
+      "The console's server: public views of events, with the role that appended each (0040_refusals-by-mechanism.sql), " +
+      "and the store's kind.",
     on: {
-      events: ['select (seq, id, ts, work_item, type, version, actor, public, appended_at)'],
+      events: ['select (seq, id, ts, work_item, type, version, actor, public, appended_at, appended_by)'],
       store: ['select'],
     },
     rows: {

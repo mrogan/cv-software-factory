@@ -205,6 +205,7 @@ describe('Needs you', () => {
       .open()
       .add(5, 'action.refused', 'factory', {
         mechanism: 'scope-fence',
+        guardrails: [11],
         action: 'Push the coder’s round 1 to a new pull request',
         output: 'scope: src/pages/\nrefused src/server.ts +1 −1',
       })
@@ -276,6 +277,7 @@ describe('Needs you', () => {
       .open()
       .add(5, 'action.refused', 'factory', {
         mechanism: 'scope-fence',
+        guardrails: [11],
         action: 'Push the coder’s round 1 to a new pull request',
         output: 'scope: src/pages/\nrefused src/server.ts +1 −1',
       })

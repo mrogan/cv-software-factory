@@ -1018,19 +1018,62 @@ export const PAYLOADS = {
   }),
   /**
    * A mechanism stopped an action: the platform's (a token's permissions, a ruleset, the egress policy, admission
-   * control) or the line's own scope fence, which refuses a coder's patch that changes a file outside its spec's scope.
+   * control), the coder's scope fence, the GitHub worker's own guard, the review check, the gateway, or triage
+   * quarantining a report. Each is appended only by the roles `policy/refusals.ts` names for its mechanism, which row
+   * security holds it to (0040_refusals-by-mechanism.sql).
    */
-  'action.refused': z.strictObject({
-    mechanism: z.enum(['token-permission', 'ruleset', 'egress-policy', 'admission-control', 'scope-fence']),
-    action: text(200),
-    /** The mechanism's own refusal, verbatim. */
-    output: z.string().min(1).max(4000),
-    /** The scope fence's verdict on each file the patch changed, which its output prints. */
-    files: z
-      .array(z.strictObject({ path: text(PATH_CHARS), added: count, removed: count, allowed: z.boolean() }))
-      .max(200)
-      .optional(),
-  }),
+  'action.refused': z
+    .strictObject({
+      mechanism: z.enum(V.REFUSAL_MECHANISMS),
+      action: text(200),
+      /** The mechanism's own refusal, verbatim. */
+      output: z.string().min(1).max(4000),
+      /**
+       * Which of spec 6's guardrails the refusal shows, as the appender, which knows why it was refused, says: the
+       * Guardrails panel counts it under these and no others.
+       */
+      guardrails: z
+        .array(z.number().int().min(1).max(V.GUARDRAIL_COUNT))
+        .min(1)
+        .max(V.GUARDRAIL_COUNT)
+        .refine((guardrails) => new Set(guardrails).size === guardrails.length, 'each guardrail once'),
+      /**
+       * How many refusals this one event stands for: repeats of one refusal (its mechanism, work item and action) within
+       * a minute are folded into one, so a loop cannot flood the store. None is one.
+       */
+      count: z.number().int().min(1).optional(),
+      /** When the last of the refusals it stands for was, when it stands for more than one. */
+      lastAt: timestamp.optional(),
+      /** A relayed refusal: the artifact record the mechanism kept of it, by hash. */
+      record: sha256.optional(),
+      /** A relayed refusal: the mechanism's signature over its record (Ed25519, in base64), which a reader verifies. */
+      signature: z
+        .string()
+        .regex(/^[A-Za-z0-9+/]{86}==$/, 'an Ed25519 signature, in base64')
+        .optional(),
+      /** What was refused, when it is no work item's: an object in the cluster, say. */
+      subject: z
+        .strictObject({
+          namespace: text(63).optional(),
+          kind: text(63),
+          name: text(253),
+          uid: z.uuid().optional(),
+        })
+        .optional(),
+      /** The scope fence's verdict on each file the patch changed, which its output prints. */
+      files: z
+        .array(z.strictObject({ path: text(PATH_CHARS), added: count, removed: count, allowed: z.boolean() }))
+        .max(200)
+        .optional(),
+    })
+    .refine((refusal) => (refusal.lastAt === undefined) === ((refusal.count ?? 1) === 1), {
+      message: 'a refusal that stands for more than one says when the last was, and only then',
+      path: ['lastAt'],
+    })
+    .refine((refusal) => (refusal.record === undefined) === (refusal.signature === undefined), {
+      message: 'a relayed refusal names its record and the signature over it together',
+      path: ['signature'],
+    }),
   /** One agent's step: every call it made, summed. The gateway's `model_calls` table keeps each call. */
   'model.called': z.strictObject({
     agent: z.enum(V.AGENTS),

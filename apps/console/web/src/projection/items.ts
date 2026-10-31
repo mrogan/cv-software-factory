@@ -160,6 +160,18 @@ export interface ItemState {
   releaseStopped: boolean;
 }
 
+const REFUSED_AT: Record<PayloadOf<'action.refused'>['mechanism'], Stage | null> = {
+  'scope-fence': 'build',
+  'github-guard': 'build',
+  'token-permission': 'build',
+  'egress-policy': 'build',
+  ruleset: 'build',
+  'review-gate': 'gates',
+  'admission-control': 'release',
+  'typed-judgement': 'triage',
+  gateway: null,
+};
+
 /** The stage an event moves its item to, if any. */
 export function stageOf(event: PublicEvent): Stage | null {
   switch (event.type) {
@@ -203,8 +215,10 @@ export function stageOf(event: PublicEvent): Stage | null {
       return event.payload.to;
     case 'hold.started':
       return event.payload.stage;
+    // Where each mechanism stands on the line. The gateway refuses a call from whichever stage its work item is at, so
+    // its refusal leaves the item there.
     case 'action.refused':
-      return event.payload.mechanism === 'admission-control' ? 'release' : 'build';
+      return REFUSED_AT[event.payload.mechanism];
     case 'model.called':
       return {
         planner: 'plan',

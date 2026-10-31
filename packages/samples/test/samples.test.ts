@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { AGENTS, KINDS, type PublicEvent } from '@software-factory/events';
+import { ADMIN_TYPES, AGENTS, KINDS, type PublicEvent } from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
+import { mayAppend } from '../../../policy/refusals.ts';
+import { MARTINS_ROLES, STORE_GRANTS } from '../../../policy/store-grants.ts';
 import { LOG } from '../src/captures.ts';
 import { publicSamples } from '../src/export.ts';
 import { sampleEvents } from '../src/index.ts';
@@ -155,6 +157,27 @@ describe('the samples', () => {
     // Verified moves both ways: a reopened ticket stops counting until it is verified again.
     expect(keyed.map((score) => score.verified)).toEqual([0, 1, 2, 3, 4, 4, 5, 6, 6, 5, 5]);
     expect(keyed.every((score, i) => i === 0 || score.found >= (keyed[i - 1]?.found ?? 0))).toBe(true);
+  });
+
+  it('carry the role that would append each, as the store would let it', () => {
+    const roles = new Set(Object.keys(STORE_GRANTS));
+    for (const event of published) {
+      if (event.type === 'defect.injected') {
+        expect(event.appended_by).toBeUndefined();
+        continue;
+      }
+      expect(roles.has(event.appended_by ?? ''), `${event.work_item} ${event.type}`).toBe(true);
+      if (ADMIN_TYPES.includes(event.type)) expect(MARTINS_ROLES).toContain(event.appended_by);
+      if (event.type === 'action.refused') {
+        expect(mayAppend(event.payload.mechanism, event.appended_by ?? ''), event.payload.mechanism).toBe(true);
+      }
+    }
+    expect(of('action.refused').map((event) => event.appended_by)).toEqual([
+      'factory_line',
+      'factory_line',
+      'factory_line',
+    ]);
+    expect(new Set(of('signal.received').map((event) => event.appended_by))).toEqual(new Set(['factory_triage']));
   });
 
   it('publish nothing a visitor may not see: no keys, no report text', () => {

@@ -680,6 +680,7 @@ describe('a hold’s picture, by its cause', () => {
   const refused = (path: string) =>
     ({
       mechanism: 'scope-fence',
+      guardrails: [11],
       action: 'Push the coder’s round 1',
       output: `scope: src/search.ts, test/\nrefused ${path} +1 −1`,
       files: [{ path, added: 1, removed: 1, allowed: false }],

@@ -5,7 +5,7 @@
  *     node packages/samples/src/export.ts --check    # fail if it is out of date (make check, CI)
  *
  * Every event is validated as the store would validate it, and written as its public view, so the log holds
- * nothing a visitor may not see: no report text, no visitor's key.
+ * nothing a visitor may not see: no report text, no visitor's key. Each carries the role that would append it.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -15,6 +15,7 @@ import { publicView } from '@software-factory/events/public';
 import { validate } from '@software-factory/events/schemas';
 import { ARTIFACTS, LOG } from './captures.ts';
 import { sampleEvents } from './index.ts';
+import { appenderOf } from './roles.ts';
 
 export function publicSamples(): PublicEvent[] {
   const events = sampleEvents();
@@ -24,7 +25,15 @@ export function publicSamples(): PublicEvent[] {
     return [...(result.ok ? [] : result.problems), ...missing].map((p) => `#${event.work_item} ${event.type}: ${p}`);
   });
   if (problems.length) throw new Error(`The samples are not valid:\n  ${problems.join('\n  ')}`);
-  return events.map((event, i) => ({ ...event, ...publicView(event.type, event), seq: i + 1 }) as PublicEvent);
+  return events.map((event, i) => {
+    const appendedBy = appenderOf(event);
+    return {
+      ...event,
+      ...publicView(event.type, event),
+      seq: i + 1,
+      ...(appendedBy && { appended_by: appendedBy }),
+    } as PublicEvent;
+  });
 }
 
 if (import.meta.main) {

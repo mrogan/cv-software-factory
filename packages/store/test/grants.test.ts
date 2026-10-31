@@ -13,11 +13,13 @@ import {
   type InboxSignal,
   LINE_ONLY_TYPES,
   type NewEvent,
+  REFUSAL_MECHANISMS,
   VERSIONS,
 } from '@software-factory/events';
 import type { Sql } from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ENROLMENT_CODE, PASSKEYS, SESSION } from '../../../policy/access.ts';
+import { mayAppend, REFUSAL_ROWS, REFUSALS } from '../../../policy/refusals.ts';
 import { MARTINS_ROLES, STORE_GRANTS } from '../../../policy/store-grants.ts';
 import { DiskArtifacts } from '../src/artifacts.ts';
 import { EventWriter } from '../src/events.ts';
@@ -97,7 +99,7 @@ describe('the grants', () => {
       { table: string; command: string; roles: string[]; using: string; check: string }[]
     >`
       select tablename as table, lower(cmd) as command, roles::text[] as roles, qual as using, with_check as check
-      from pg_policies where schemaname = 'public'`;
+      from pg_policies where schemaname = 'public' and permissive = 'PERMISSIVE'`;
     // As Postgres prints a condition, and as the table writes it: no casts to text, `in` for `= any (array[...])` and
     // `not in` for `<> all (array[...])`.
     const condition = (printed: string | null) =>
@@ -486,8 +488,10 @@ describe("Martin's commands", () => {
     await expect(insert(db.owner, 'factory_admin')).rejects.toThrow('records the role that appends an event');
     // Nor may a worker take one of Martin's roles.
     await expect(db.as.line`set role factory_admin`).rejects.toThrow('permission denied');
-    // The console's server does not see who appended an event.
-    await expect(db.reader`select appended_by from events`).rejects.toThrow('permission denied');
+    // The console's server sees who appended an event, a role's name, so it can count a refusal by who recorded it.
+    const read = await db.reader<{ appended_by: string }[]>`
+      select appended_by from events where seq in ${db.reader([mine?.seq ?? 0, answer?.seq ?? 0])} order by seq`;
+    expect(read.map((row) => row.appended_by)).toEqual(['factory_line', 'factory_admin']);
   });
 });
 
@@ -536,6 +540,92 @@ describe("the line's record of a release", () => {
     await insert(db.operator, 'release.rolled-back', true);
     await insert(db.as.line, 'release.rolled-back', true);
     await expect(insert(db.as.triage, 'release.rolled-back', true)).rejects.toThrow('row-level security');
+  });
+});
+
+describe('a refusal', () => {
+  /** A refusal by a mechanism, inserted as it stands, real or a sample, as any client could try. */
+  const refuse = (sql: Sql, mechanism: string, sample: boolean) => sql`
+    insert into events (id, ts, work_item, type, version, actor, summary, payload, artifacts, public, sample)
+    values (${crypto.randomUUID()}, now(), '3300', 'action.refused', 3, 'factory', 'Refused',
+            ${sql.json({ mechanism, action: 'An action', output: 'Refused.', guardrails: [1] })}, '[]', '{}',
+            ${sample})`;
+
+  it('is held to its mechanism’s roles by the table in policy/refusals.ts, mechanism by mechanism', async () => {
+    const mechanisms = [...REFUSAL_MECHANISMS, 'not-a-mechanism'];
+    const rows = await db.owner<{ mechanism: string; roles: string[] }[]>`
+      select mechanism, refusal_appenders(mechanism) as roles from unnest(${mechanisms}::text[]) as mechanism`;
+    expect(Object.fromEntries(rows.map((row) => [row.mechanism, [...row.roles].sort()]))).toEqual({
+      ...Object.fromEntries(
+        Object.entries(REFUSALS).map(([mechanism, rule]) => [mechanism, [...rule.appendedBy].sort()]),
+      ),
+      'not-a-mechanism': [],
+    });
+  });
+
+  it('is held by the one restrictive policy on the store, for every role', async () => {
+    const restrictive = await db.owner<{ table: string; command: string; roles: string[]; check: string }[]>`
+      select tablename as table, lower(cmd) as command, roles::text[] as roles, with_check as check
+      from pg_policies where schemaname = 'public' and permissive = 'RESTRICTIVE'`;
+    // As the table writes it: no casts to text, and no parentheses round the whole.
+    const check = (printed: string) => printed.replaceAll('::text', '').replace(/^\((.*)\)$/, '$1');
+    expect(restrictive.map((policy) => ({ ...policy, check: check(policy.check) }))).toEqual([
+      { table: 'events', command: 'insert', roles: ['public'], check: REFUSAL_ROWS },
+    ]);
+  });
+
+  it('is appended by its mechanism’s roles alone, Martin’s and the console’s refused, in a real store', async () => {
+    const real = await freshDatabase('refusals');
+    try {
+      const roles: [string, Sql][] = [
+        ...Object.entries(real.as).map(([name, sql]): [string, Sql] => [`factory_${name}`, sql]),
+        ['factory_admin', real.admin],
+        ['factory_operator', real.operator],
+        ['factory_enrol', real.enrol],
+        ['scoreboard_writer', real.scoreboard],
+        ['console_reader', real.reader],
+      ];
+      const appended: string[] = [];
+      for (const mechanism of [...REFUSAL_MECHANISMS, 'not-a-mechanism']) {
+        for (const [role, sql] of roles) {
+          const allowed = REFUSAL_MECHANISMS.some((m) => m === mechanism && mayAppend(m, role));
+          if (allowed) {
+            await refuse(sql, mechanism, false);
+            appended.push(`${mechanism} ${role}`);
+          } else {
+            await expect(refuse(sql, mechanism, false), `${mechanism} from ${role}`).rejects.toThrow(
+              /row-level security|permission denied|the scoreboard appends its own figures/,
+            );
+          }
+        }
+      }
+      const stored = await real.owner<{ mechanism: string; appended_by: string }[]>`
+        select payload->>'mechanism' as mechanism, appended_by from events order by seq`;
+      expect(stored.map((row) => `${row.mechanism} ${row.appended_by}`)).toEqual(appended);
+      expect(appended).toEqual([
+        'token-permission factory_line',
+        'admission-control factory_line',
+        'scope-fence factory_line',
+        'github-guard factory_line',
+        'review-gate factory_line',
+        'gateway factory_gateway',
+        'typed-judgement factory_triage',
+      ]);
+      // Any other event is as it was: a worker appends it whatever its payload names.
+      await real.as.probes`
+        insert into events (id, ts, work_item, type, version, actor, summary, payload, artifacts, public, sample)
+        values (${crypto.randomUUID()}, now(), '3300', 'work-item.summarised', 1, 'planner', 'A summary',
+                ${real.as.probes.json({ mechanism: 'gateway' })}, '[]', '{}', false)`;
+    } finally {
+      await real.end();
+    }
+  });
+
+  it("is appended as a sample by Martin's command line too, for `make samples`, and by no other role for another", async () => {
+    await refuse(db.operator, 'admission-control', true);
+    await refuse(db.as.line, 'scope-fence', true);
+    await expect(refuse(db.as.triage, 'scope-fence', true)).rejects.toThrow('row-level security');
+    await expect(refuse(db.admin, 'scope-fence', true)).rejects.toThrow('row-level security');
   });
 });
 

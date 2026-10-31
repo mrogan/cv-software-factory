@@ -17,14 +17,15 @@ export interface Selection {
   except?: string[] | undefined;
 }
 
-/** A log's events, upcast, in order, without the seqs the store will give them afresh. */
+/** A log's events, upcast, in order, without the seqs and roles the store will give them afresh. */
 export function readLog(dir: string, { only, except }: Selection = {}): NewEvent[] {
   return readLogEvents(dir)
     .map((raw: RawEvent) => {
       const result = upcast(raw);
       if (!result.ok)
         throw new Error(`${dir} holds an event this factory does not understand: ${raw.type} v${raw.version}`);
-      const { seq: _seq, ...event } = result.event;
+      // The store gives each a seq afresh, and records the role that appends it, whoever appended it before.
+      const { seq: _seq, appended_by: _appendedBy, ...event } = result.event;
       return event as NewEvent;
     })
     .filter(({ work_item: item }) => {
