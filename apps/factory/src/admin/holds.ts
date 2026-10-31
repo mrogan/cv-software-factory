@@ -84,7 +84,7 @@ async function openHold(tx: TransactionSql, workItem: string): Promise<Holds> {
     where e.work_item = ${workItem} and ${fromMartin(tx, 'e')}
       and (e.type <> 'spec.written' or e.appended_by is null or e.appended_by = ${LINE_ROLE})
       and e.type in ('hold.started', 'hold.answered', 'gates.started', 'gates.finished', 'pull-request.merged', 'work.returned',
-                     'release.started', 'release.rolled-back', 'release.aborted', 'release.errored',
+                     'release.started', 'release.promoted', 'release.rolled-back', 'release.aborted', 'release.errored',
                      'work-item.closed', 'work-item.reopened', 'spec.written')
     order by e.seq`;
   let open: OpenHold | undefined;
@@ -143,10 +143,15 @@ async function openHold(tx: TransactionSql, workItem: string): Promise<Holds> {
         release = { name: event.payload.release, ended: false };
         if (open?.cause === 'deploy') open = undefined;
         break;
+      // A release's end ends a hold of its canary paused for Martin, as the line's fold does.
+      case 'release.promoted':
+        if (open?.cause === 'canary') open = undefined;
+        break;
       case 'release.rolled-back':
       case 'release.aborted':
       case 'release.errored':
         if (release?.name === event.payload.release) release = { ...release, ended: true };
+        if (open?.cause === 'canary') open = undefined;
         break;
       case 'work-item.closed':
         open = undefined;

@@ -51,7 +51,7 @@ describe('the canary, as the controls see it', () => {
   });
 
   it('is judged bad while the controller holds it paused on an Inconclusive run, and not once it is aborted', () => {
-    const held = { current: CANARY, stable: STABLE, stepIndex: 5, weight: 50, pausedFor: 'InconclusiveAnalysis' };
+    const held = { current: CANARY, stable: STABLE, stepIndex: 5, weight: 50, pausedFor: 'InconclusiveAnalysisRun' };
     expect(read(held)).toMatchObject({ inFlight: true, judgedBad: true, paused: false, weight: 50 });
     // Paused by a step's own pause, the controller names another reason.
     expect(read({ ...held, pausedFor: 'CanaryPauseStep' })?.judgedBad).toBe(false);

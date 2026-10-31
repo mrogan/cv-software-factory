@@ -25,9 +25,10 @@
  * - **It rolls back** when the Rollout is aborted and an AnalysisRun of the release has failed. Only a run whose phase
  *   is Failed fails a release.
  * - **It pauses for Martin** with auto-rollback off, when a run of the release judged it bad: Argo Rollouts calls a bad
- *   figure Inconclusive then, ends the run so, and pauses the Rollout (`pauseConditions`, `InconclusiveAnalysis`).
- *   Once the Rollout says so and that run is the attempt's last to end, each work item the release carries is held for
- *   him (`hold.started`, cause `canary`), once in the attempt; its end, whatever it is, ends the hold (`line/machine.ts`).
+ *   figure Inconclusive then, ends the run so, and pauses the Rollout (`pauseConditions`, `InconclusiveAnalysisRun`).
+ *   Once the Rollout says so, and no run of the attempt was made since that one ended, each work item it carries is
+ *   held for him (`hold.started`, cause `canary`), once in the attempt; its end, whatever it is, ends the hold
+ *   (`line/machine.ts`).
  *   His abort of it then is a rollback all the same (`release.rolled-back`, `by: martin`), with what the analysis judged
  *   bad as what condemned it; Stop the line's stays an abort.
  * - **It errs** when the Rollout is aborted, no run of the release has failed, and one ended in Error in the minute
@@ -129,22 +130,27 @@ const errorsOf = (o: Observed, release: string) => {
 
 /**
  * What the analysis judged bad in an attempt of a release, with auto-rollback off: its runs that ended Inconclusive on
- * a measure, when the last run of the attempt to end did. Argo Rollouts calls a measure Inconclusive when its figure
- * meets neither its success nor its failure condition, which the templates make so of a bad figure only while
- * auto-rollback is off (`release/analysis.ts`), and pauses the canary for a person. A run an abort or a promotion terminated is
- * none: it judged nothing. Undefined when the last run did not end so.
+ * a measure, while the canary has not gone on past the latest of them. Argo Rollouts calls a measure Inconclusive when
+ * its figure meets neither its success nor its failure condition, which the templates make so of a bad figure only
+ * while auto-rollback is off (`release/analysis.ts`), and pauses the canary for a person. A run an abort or a promotion
+ * terminated is none: it judged nothing. A run that passes after the verdict, such as a step's still measuring when the
+ * background analysis paused the canary, takes nothing from it; a run made after it does, since the canary went on to
+ * be measured again (resumed past it by hand). Undefined when the attempt has no such verdict.
  */
 export function judgedBadOf(
   o: Observed,
   release: string,
   inAttempt: (run: AnalysisRun) => boolean,
 ): { last: AnalysisRun; runs: AnalysisRun[] } | undefined {
-  const ran = o.runs
-    .filter((run) => isOf(run, release) && ENDED.has(run.status.phase ?? '') && !run.spec.terminate && inAttempt(run))
+  const ofAttempt = o.runs.filter((run) => isOf(run, release) && inAttempt(run));
+  const judged = ofAttempt
+    .filter((run) => !run.spec.terminate && inconclusiveOn(run))
     .sort((a, b) => Date.parse(a.status.completedAt ?? '') - Date.parse(b.status.completedAt ?? ''));
-  const last = ran.at(-1);
-  if (!last || !inconclusiveOn(last)) return undefined;
-  return { last, runs: ran.filter(inconclusiveOn) };
+  const last = judged.at(-1);
+  if (!last) return undefined;
+  const verdict = Date.parse(last.status.completedAt ?? '');
+  if (ofAttempt.some((run) => Date.parse(run.metadata.creationTimestamp) > verdict)) return undefined;
+  return { last, runs: judged };
 }
 
 /** Whether a run ended Inconclusive on one of its measures. */
@@ -635,11 +641,12 @@ function forTarget(
   } else if (o.aborted && o.abortedAt && names.current === name) {
     // Recorded once Argo Rollouts has acted on the abort, and the line has said who made it. Martin's abort of a
     // canary the analysis judged bad, which with auto-rollback off paused it for him, is a rollback all the same; the
-    // line reads the series of what it judged bad before it knows whose the abort was. Stop the line's is an abort.
+    // line reads the series of what it judged bad before it knows whose the abort was, and not once it knows Stop the
+    // line made it, which is an abort.
     aborted = true;
     const by = facts.abortedBy;
     const judged = judgedBadOf(o, name, inAttempt);
-    if (judged) failures = judged.runs;
+    if (judged && by !== 'stop') failures = judged.runs;
     if (by === 'martin' && judged) {
       const weight = endedAt(o, name, judged.last, attempt());
       const failed = judged.runs.flatMap((run) => condemned(run, 'inconclusive', facts)).slice(0, 8);
@@ -680,7 +687,8 @@ function forTarget(
 
 /**
  * The hold of a work item a canary paused for Martin carries: what the analysis judged bad, by how much, in its words.
- * His controls are the Canary panel's, promoting it fully or aborting it, and an abort is a rollback.
+ * His controls are the Canary panel's, promoting it fully or aborting it, and an abort is a rollback. Its run has ended,
+ * so switching auto-rollback on again judges nothing anew: the canary stays paused for him, and the reason says so.
  */
 function canaryHold(
   o: Observed,
@@ -693,11 +701,13 @@ function canaryHold(
   const bad = measuresOf(judged.last)
     .filter((m) => m.phase === 'inconclusive')
     .map((m) => (m.value !== null && m.limit !== null ? `${m.name} ${m.value} against at most ${m.limit}` : m.name));
-  const said = words(judged.last.status.message, 120);
-  const reason = cutTo(
-    `With auto-rollback off, the analysis judged the canary of ${short(started.version)} bad at ${weight}% (${bad.join(', ')})${said ? `: ${said}` : ''}. It keeps its share of the traffic until Martin promotes it fully or aborts it, which rolls it back`,
-    300,
-  );
+  // The analysis's words take the room left, so the reason always ends saying the canary is Martin's to settle, and
+  // that auto-rollback, switched on again, does not take it from him: the run that judged it has ended.
+  const judgedBad = `The analysis judged the canary of ${short(started.version)} bad at ${weight}% (${bad.join(', ')})`;
+  const his = `. It keeps its share of the traffic until Martin promotes it fully or aborts it (a rollback), whatever the switch says now`;
+  const room = Math.min(120, 300 - judgedBad.length - his.length - 2);
+  const said = room >= 20 ? words(judged.last.status.message, room) : undefined;
+  const reason = cutTo(`${judgedBad}${said ? `: ${said}` : ''}${his}`, 300);
   return {
     type: 'hold.started',
     actor: 'rollouts',

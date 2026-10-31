@@ -471,6 +471,9 @@ export function fold(events: readonly LineEvent[]): WorkItemState {
         answers += 1;
         if (!state.hold) break;
         const { cause, stage } = state.hold;
+        // A canary's hold is answered on the Canary panel, and ends with its release; an answer of the holds', which
+        // the admin service refuses, would leave the canary paused with nothing on the line saying so.
+        if (cause === 'canary') break;
         const resolution = ANSWERS[cause][event.payload.decision];
         // His words on a work item a visitor's report opened stay his: no agent reads them, as none reads a report,
         // since what an agent writes is public and a paraphrase of a report would pass any redactor. His answer still

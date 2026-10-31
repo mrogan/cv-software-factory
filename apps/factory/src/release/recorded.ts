@@ -97,9 +97,9 @@ export function recordedFrom(
     if (type === 'release.rolled-back') {
       const { abortedAt, by } = payload as PayloadOf<'release.rolled-back'>;
       record.ended = 'rolled-back';
-      // A version 3 rollback did not say when Argo Rollouts acted on its abort.
-      if (abortedAt) record.abortedAt = abortedAt;
-      else delete record.abortedAt;
+      // A version 3 rollback did not say when Argo Rollouts acted on its abort: the line recorded it after, so a
+      // retry's runs, which end after Martin saw it and retried it, end after its record too.
+      record.abortedAt = abortedAt ?? ts;
       endWith({ how: 'rolled-back', by, at: abortedAt ?? ts });
     }
     if (type === 'release.aborted' || type === 'release.errored') {

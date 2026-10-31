@@ -20,7 +20,7 @@
  *   stopped, which starts no canary.
  *
  * **Paused for Martin** (auto-rollback off, the analysis judged the canary bad, `pauseConditions` naming
- * `InconclusiveAnalysis`): only Promote fully, past the analysis's verdict, and Abort, which the line records as a
+ * `InconclusiveAnalysisRun`): only Promote fully, past the analysis's verdict, and Abort, which the line records as a
  * rollback (`release/watch.ts`). Promote to the next step, Pause and Resume are refused: each would give the canary
  * past the verdict a step at a time, or leave it where it is.
  *
@@ -111,7 +111,7 @@ export interface Canary {
   promotingFully: boolean;
   /**
    * Whether the analysis judged it bad and Argo Rollouts paused it for Martin, with auto-rollback off: a run of it
-   * ended Inconclusive (`InconclusiveAnalysis`).
+   * ended Inconclusive (`InconclusiveAnalysisRun`).
    */
   judgedBad: boolean;
   /** The canary's share of the traffic now. */

@@ -824,6 +824,8 @@ describe('after the merge', () => {
     const held = [...inFlight, canary()];
     expect(decide(held, facts)).toEqual({ stage: 'held', next: { do: 'wait', for: 'martin' } });
     expect(fold(held).hold).toMatchObject({ cause: 'canary', release: RELEASE });
+    // An answer of the holds' settles nothing: the canary is still paused, and Martin's to settle on the Canary panel.
+    expect(fold([...held, answer('approved')]).hold).toMatchObject({ cause: 'canary' });
     // Promoted fully past the analysis's verdict: on to Verify.
     expect(decide([...held, promoted()], facts)).toMatchObject({ stage: 'verify', next: { do: 'verify' } });
     // Aborted by Martin, it rolled back by him: it fails Release, and waits for the next deploy or his retry.
