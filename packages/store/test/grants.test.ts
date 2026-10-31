@@ -646,7 +646,7 @@ describe('a refusal', () => {
         'row-level security',
       );
       // Guardrails its mechanism does not show, none, or not a list of them.
-      for (const guardrails of [[3], [11, 1], [], 11, ['11'], null]) {
+      for (const guardrails of [[3], [11, 1], [11, 11], [], 11, ['11'], null]) {
         await expect(refuse(line, 'scope-fence', false, { guardrails }), JSON.stringify(guardrails)).rejects.toThrow(
           'row-level security',
         );

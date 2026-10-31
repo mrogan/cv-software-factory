@@ -96,13 +96,15 @@ export const REFUSAL_ROWS =
 /**
  * The restrictive insert policy beside it that holds a refusal to what the console reads of it
  * (`0041_refusals-as-they-read.sql`): its public view names its mechanism and guardrails, and it names only guardrails
- * its mechanism shows here, or, from before version 3, none and a mechanism version 2 knew.
+ * its mechanism shows here, each once, or, from before version 3, none and a mechanism version 2 knew.
  */
 export const REFUSAL_READS =
   "(type <> 'action.refused') OR ((((public -> 'payload') -> 'mechanism') = (payload -> 'mechanism')) AND " +
   "(NOT (((public -> 'payload') -> 'guardrails') IS DISTINCT FROM (payload -> 'guardrails'))) AND CASE " +
   "WHEN (version >= 3) THEN ((jsonb_typeof((payload -> 'guardrails')) = 'array') AND " +
   "((payload -> 'guardrails') <> '[]'::jsonb) AND " +
-  "((payload -> 'guardrails') <@ refusal_guardrails((payload ->> 'mechanism')))) " +
+  "((payload -> 'guardrails') <@ refusal_guardrails((payload ->> 'mechanism'))) AND " +
+  "(jsonb_array_length((payload -> 'guardrails')) = ( SELECT count(DISTINCT guardrail.value) AS count " +
+  "FROM jsonb_array_elements((events.payload -> 'guardrails')) guardrail(value)))) " +
   "ELSE ((payload ->> 'mechanism') = ANY (ARRAY['token-permission', 'ruleset', 'egress-policy', " +
   "'admission-control', 'scope-fence'])) END)";
