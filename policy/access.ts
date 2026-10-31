@@ -188,7 +188,7 @@ export const ACCESS = {
   'auto-merge.off': admin('Turn off auto-merge of low-risk changes'),
   'auto-rollback.on': admin('Turn on auto-rollback: a canary the analysis judges bad rolls back by itself'),
   'auto-rollback.off': admin(
-    'Turn off auto-rollback: a canary the analysis judges bad pauses for you to promote or abort, overriding a guardrail',
+    'Turn off auto-rollback: a canary whose errors or latency the analysis judges bad pauses for you to promote or abort, overriding a guardrail',
     true,
   ),
   'take.widen': admin('Let the line take more work items, or any rather than one', true),
