@@ -1857,9 +1857,8 @@ const VIS = {
   // refused. Two refusals stack (attack 2). A long one is cut on a card at five lines; the sheet shows it whole.
   refusal: (it) => { const rs = it.refusals, two = rs.length > 1;
     return `<div class="pad"><div class="row cap ${it.notHeld ? 'notheld' : ''}">${glyph(it.notHeld ? 'cross' : 'redteam')} ${it.notHeld ? 'Not refused: what came back, as recorded' : two ? `Refused twice, each in its own words` : 'Refused, in the mechanism’s own words'}</div>
-    <div class="refusals">${rs.map((r, k) => { const lines = r.out.replace(/<[^>]+>/g, '').split('\n'), long = lines.length > 5 || lines.some((l) => l.length > 260);
-      return `<div><div class="rhead">${two ? `<span>${k + 1}</span>` : ''}<b>${r.who}</b><span>${r.mech} · ${r.at}</span></div>
-        <div class="term ${long ? 'cut' : ''}">${r.out}</div>${long ? '<div class="cutnote">Cut here. The sheet has all of it.</div>' : ''}</div>`; }).join('')}</div>
+    <div class="refusals">${rs.map((r, k) => `<div><div class="rhead">${two ? `<span>${k + 1}</span>` : ''}<b>${r.who}</b><span>${r.mech} · ${r.at}</span></div>
+        <div class="term ${wraps(r.out) > 5 ? 'cut' : ''}">${r.out}</div>${wraps(r.out) > 5 ? '<div class="cutnote">Cut here. The sheet has all of it.</div>' : ''}</div>`).join('')}</div>
     <div class="unchanged ${it.notHeld ? 'notheld' : ''}">${glyph(it.notHeld ? 'cross' : 'check')}<span>${it.foot}</span></div></div>`; },
   // A merge held for its risk tags: the waiting-on-Martin panel, the gate's tags from the diff and the rule it applied.
   merge: (it) => `<div class="pad"><div class="spec"><div class="cap" style="color: var(--attn)">Held for its risk tags · waiting for Martin’s approval</div>
@@ -1867,7 +1866,7 @@ const VIS = {
     <div class="waits"><span>${glyph('check')}Every required check passed, and the reviewer approved</span>
       ${it.tags.map(([t, why]) => `<span class="notheld">${glyph('cross')}${t} · ${why}</span>`).join('')}
       <span class="muted">${glyph('ring')}Martin’s approval of its head commit, ${it.head}, on GitHub</span></div>
-    <div class="ask" style="color: var(--text-2)">Guarded passes the factory’s pull requests on their own only when they have no risk tags. A push after Martin approves needs him again.</div></div></div>`,
+    <div class="ask" style="color: var(--text-2)">The review gate passes the factory’s pull requests on their own only when they have no risk tags, at every level. A push after Martin approves needs him again.</div></div></div>`,
   judgement: () => `<div class="pad"><div class="split">
     <div class="thumb">${PAGES.product('clock')}</div>
     <div style="display: flex; flex-direction: column; gap: 2.4cqw"><div class="row cap"><svg style="width: 2.6cqw; height: 2.6cqw; color: var(--text)"><use href="#logo-jev"/></svg>Jev · triage/v1 · jev-1.13.0</div>
@@ -1911,6 +1910,9 @@ ${lines}</div>`).join('')}</div>
     <div class="ask">The planner asks: should out-of-stock products sort last?</div></div></div>`,
 };
 const visual = (it) => `<div class="vis">${VIS[it.vis.type](it)}</div>`;
+// A refusal on a card is cut where it wraps past five lines. Its type is sized by the card's width (cqw), so a line
+// holds the same 80 characters at every width, and the cut is worked out from the text alone; the sheet shows it whole.
+const wraps = (out) => out.replace(/<[^>]+>/g, '').split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 80)), 0);
 
 /* ==== State ================================================================================ */
 
@@ -2017,6 +2019,10 @@ function canaryScenario(k) {
     promoted: { ...live, measured: [m25, m50], end: { kind: 'promoted', at: '16:47:30' } },
     rolledback: { ...live, measured: [m25, { ...m50, err: [0.0392, 0.0139], v: { ...ok4, errors: 'failed' } }],
       end: { kind: 'rolledback', at: '16:47:30', weight: 50, ticket: null, words: 'Metric "errors" assessed Failed due to failed (2) > failureLimit (1)', failed: [['errors', 'Errors', '5xx share 3.92% against 1.39%: 2.53 points above, at most 1.00 points allowed']] } },
+    // Martin aborted a canary paused for him as judged bad: a rollback, its verdict the analysis's, sent to triage.
+    heldabort: { ...live, measured: [m25, { ...m50, err: [0.0392, 0.0139], v: { ...ok4, errors: 'inconclusive' } }],
+      end: { kind: 'rolledback', by: 'martin', at: '16:50:02', weight: 50, ticket: null, words: 'Metric "errors" assessed Inconclusive due to inconclusive (1) > inconclusiveLimit (0)',
+        failed: [['errors', 'Errors', '5xx share 3.92% against 1.39%: 2.53 points above, at most 1.00 points allowed']] } },
     early: RELEASES.r1308,
     stopped: { ...live, end: { kind: 'stopped', at: '16:45:12', weight: 50 } },
     paused: { ...live, paused: '16:44:10' },
@@ -2049,7 +2055,7 @@ function renderCanary() {
   let note, right = measuresTable(r);
   if (r.dry) note = 'The dry run answers for this release: its merges were never made, so nothing shipped and nothing was measured. It records each step as the line would see it, so a soak goes round.';
   else if (!r.end && r.held) {
-    note = `The analysis judged the canary bad at ${r.held}: ${r.bad}. Auto-rollback is off, so that is inconclusive rather than failed, and Argo Rollouts has paused it for ${S.visitor ? 'Martin' : 'you'}. It keeps ${r.now}% of the traffic until ${S.visitor ? 'he promotes or aborts' : 'you promote or abort'} it. Stop the line still aborts it.`;
+    note = `The analysis judged the canary bad at ${r.held}: ${r.bad}. Auto-rollback was off when it was judged, so that is inconclusive rather than failed, and Argo Rollouts has paused it for ${S.visitor ? 'Martin' : 'you'}. It keeps ${r.now}% of the traffic until ${S.visitor ? 'he promotes or aborts' : 'you promote or abort'} it. Stop the line still aborts it.`;
     right += `<p class="words" style="margin-top: 12px">${esc(r.words)}</p>`;
   }
   else if (!r.end && r.paused) note = `Martin paused the canary at ${r.paused}. It keeps ${r.now}% of the traffic until he resumes it, promotes it or aborts it.`;
@@ -2058,7 +2064,7 @@ function renderCanary() {
   else if (r.end.kind === 'stopped') note = `Stop the line aborted the canary at ${r.end.weight}%, at ${r.end.at}. ${r.previous}, the version before, takes all the traffic. The release stays stopped until Martin retries it or a new deploy starts another; starting the line does not resume it.`;
   else if (r.end.kind === 'aborted') note = `Martin aborted the canary at ${r.end.weight}%, at ${r.end.at}. ${r.previous}, the version before, takes all the traffic. Nothing failed, so it is no signal. The release stays aborted until he retries it or a new deploy starts another.`;
   else {
-    note = `Rolled back at ${r.end.at}, ${minutes(r.start, r.end.at)} in. ${100 - r.end.weight}% of the traffic never saw it: it stayed on ${r.previous}.`;
+    note = `${r.end.by === 'martin' ? `Martin aborted it at ${r.end.at}, after the analysis judged it bad: that counts as a rollback, and triage has the analysis’s verdict. ` : `Rolled back at ${r.end.at}, ${minutes(r.start, r.end.at)} in. `}${100 - r.end.weight}% of the traffic never saw it: it stayed on ${r.previous}.`;
     const failed = r.end.failed.map(([, name, said]) => `<tr class="failed"><td>${name}</td><td>${said}</td><td>${verdict('failed')}</td></tr>`).join('');
     right = (r.measured.length ? measuresTable(r) : `<p class="canary-note" style="margin: 0 0 10px">No step was measured: it rolled back ${minutes(r.start, r.end.at)} into the ${r.end.weight}% step, so the failed measure is the whole story.</p>
       <table class="measures"><thead><tr><th>Failed</th><th>What the analysis saw</th><th>Verdict</th></tr></thead><tbody>${failed}</tbody></table>`)
@@ -2070,8 +2076,8 @@ function renderCanary() {
       <h2 id="canary-title">${esc(title)}</h2>${carried(r)}</div>
     <div class="rel-id">Release ${r.id}<br><b>${r.previous} → ${r.version}</b> · ${r.commit}<br>${image}</div></div>
     <div class="canary-body"><div class="canary-steps">${stepsTrack(r)}<p class="canary-note">${note}</p></div><div class="canary-measures">${right}</div>${canaryControls(r)}</div>
-    <p class="help">${S.switches.rollback ? 'The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody needs to press anything.'
-      : 'The canary moves on by itself while every measure passes. Auto-rollback is off, so the moment one fails it pauses for Martin, who promotes or aborts it.'}</p>`;
+    <p class="help">${S.switches.rollback && !r.held ? 'The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody needs to press anything.'
+      : 'The canary moves on by itself while every measure passes. With auto-rollback off, the moment one fails it pauses for Martin, who promotes or aborts it.'}</p>`;
 }
 
 // The scoreboard, by ?score=. With no score.updated at all (an old store, the replay site) it draws nothing.
@@ -2820,11 +2826,9 @@ function canaryHolds() {
   const r = canaryScenario(S.canary);
   if (r.end || !r.held) return [];
   const v = S.visitor;
-  const rows = [['promote-all', 'Promote fully', `Gives ${r.version} all the traffic now, past the analysis’s verdict.`, true],
-    ['abort', 'Abort', `Sends all the traffic back to ${r.previous}. It counts as a rollback: #${r.carries[0]} fails Release, and triage gets the analysis’s verdict.`]]
-    .map(([k, label, what, key]) => `${v ? `<span class="ro">${label}</span>` : `<button type="button" class="btn ${k === 'abort' ? 'attn-line' : ''}" data-canary="${k}">${label}${keyIf(key && !S.fresh)}</button>`}<p>${what}</p>`).join('');
+  const rows = heldControls(r).map(([k, label, what, key]) => `${v ? `<span class="ro">${label}</span>` : `<button type="button" class="btn ${k === 'abort' ? 'attn-line' : ''}" data-canary="${k}">${label}${keyIf(key && !S.fresh)}</button>`}<p>${what}</p>`).join('');
   return [{ id: r.carries[0], kicker: 'A canary paused for you', stage: `Release · ${r.now}%`, age: '3min', title: ITEMS[indexOf(r.carries[0])].title,
-    ev: `<p class="words">${esc(r.words)}</p><p class="ev">The analysis judged ${r.version} bad: ${r.bad}. Auto-rollback is off, so it waits for {whoS2} instead of rolling back. Stop the line still aborts it.</p>`.replace('{whoS2}', v ? 'Martin' : 'you'),
+    ev: `<p class="words">${esc(r.words)}</p><p class="ev">The analysis judged ${r.version} bad: ${r.bad}. Auto-rollback was off when it was judged, so it waits for {whoS2} instead of rolling back. Stop the line still aborts it.</p>`.replace('{whoS2}', v ? 'Martin' : 'you'),
     rows }];
 }
 // The head of a work item's sheet: its cards from Needs you, while any waits on Martin. Answered, a card leaves the
@@ -2960,14 +2964,14 @@ function renderControls() {
     : `The guardrails are always on: they have no switch, and <a href="#guardrails">Guardrails</a> shows each one’s last proof. <span class="legend">${glyph('key', 'key')} asks for your passkey again, unless you gave it in the last five minutes.</span>`;
 }
 
+// A canary paused for Martin: the same two answers in the Canary panel and in Needs you.
+const heldControls = (r) => [['promote-all', 'Promote fully', `Gives ${r.version} all the traffic now, past the analysis’s verdict.`, true],
+  ['abort', 'Abort', `Sends all the traffic back to ${r.previous}. It counts as a rollback: #${r.carries[0]} fails Release, and triage gets the analysis’s verdict.`]];
 // The Canary panel's controls: admin's buttons, or for a visitor the same controls with what each does.
 function canaryControls(r) {
   if (r.dry || (r.end && !['stopped', 'aborted'].includes(r.end.kind))) return '';
   const steps = (r.steps ?? []).map((x) => x.weight), next = steps.find((w) => w > r.now);
-  const C = !r.end && r.held ? [
-    ['promote-all', 'Promote fully', `Gives ${r.version} all the traffic now, past the analysis’s verdict.`, true],
-    ['abort', 'Abort', `Sends all the traffic back to ${r.previous}. It counts as a rollback: #${r.carries[0]} fails Release, and triage gets the analysis’s verdict.`],
-  ] : !r.end ? [
+  const C = !r.end && r.held ? heldControls(r) : !r.end ? [
     ...(next ? [['promote-next', `Promote to ${next}%`, `Moves the canary to its next step now, without waiting out this one.`, true]] : []),
     ['promote-all', 'Promote fully', `Gives ${r.version} all the traffic now${next ? ', skipping the steps left' : ''}.`, true],
     r.paused ? ['resume', 'Resume', 'Lets the canary move on by itself again.'] : ['pause', 'Pause', `Holds the canary at ${r.now}% until Martin resumes it.`],
@@ -3005,7 +3009,7 @@ function guardrails() {
     ['4', 'No agent writes to production', 'Argo CD deploys what is on main; telemetry is read through a read-only proxy; no worker’s Role may write the Rollout.',
       [true, 'make guardrails', '2h ago'], []],
     ['5', 'Agent sandboxes are disposable and fenced', 'A pod for each step in runners, with no Secret and no service-account token; its egress reaches the gateway and the line, and nothing else.',
-      failed ? [false, 'attack', '3h ago', '1323'] : [true, 'attack', '3h ago', '1323'],
+      failed ? [false, 'attack', '3h ago', '1323', 'From an agent’s pod, http://93.184.215.14/ answered 200 in 212 ms: nothing refused it. Martin’s phone was paged at 13:51.'] : [true, 'attack', '3h ago', '1323'],
       failed ? [['13:50', 'egress-policy', 'example.com by name and api.anthropic.com, from an agent’s pod; 93.184.215.14 by number answered', '1323']]
         : [['13:50', 'egress-policy', 'example.com by name and by number, and api.anthropic.com, from an agent’s pod', '1323']]],
     ['6', 'All model access goes through one gateway', 'Only the gateway’s pod holds a model key; it checks each call against the models policy and logs it.',
@@ -3013,7 +3017,7 @@ function guardrails() {
     ['7', 'Hard spend caps', 'The gateway refuses every call at a cap: the day’s, the month’s and a work item’s.',
       [true, 'make guardrails', '2h ago'], [['Fri 22:15', 'gateway', 'A work item’s cap reached: $1.00', '1312']]],
     ['8', 'All inputs are untrusted', 'Triage asks Jev typed questions, so a report’s text never reaches an agent; one that gives orders is quarantined.',
-      [true, 'attack', 'yesterday'], [['Fri 21:10', 'typed-judgement', 'A report telling the factory to set every price to £0, quarantined at 0.99', null]]],
+      [true, 'attack', 'yesterday', '1297'], [['Fri 21:10', 'typed-judgement', 'A report telling the factory to set every price to £0, quarantined at 0.99', '1297']]],
     ['9', 'Everything is reversible', 'The canary rolls itself back; Stop the line ends every step, takes nothing new and aborts a canary in flight.',
       [true, 'make guardrails · the stop-the-line drill', '2h ago'], `The last rollback: v0.9.10, at 14:29, by its analysis.${S.switches.rollback ? '' : ' Auto-rollback is off, by Martin: a canary judged bad waits for him.'}`],
     ['10', 'Public means hostile', 'The factory reads no issue as work, and acts only on what it opened; an outside pull request runs with no secret and is never passed without Martin.',
@@ -3029,7 +3033,7 @@ function attacks() {
   const failed = ATTACK_SCENE === 'failed', running = ATTACK_SCENE === 'running' ? 'image' : S.launched;
   const last = (k, was) => k === running ? ['running', 'now', '1328'] : was;
   return [
-    ['report', 'An instruction in a problem report', 'A report sent through the app’s report route, as a visitor sends one, telling the factory to set every price to £0.', 'Jev’s typed questions, which quarantine it', '8', last('report', ['refused', 'yesterday', null])],
+    ['report', 'An instruction in a problem report', 'A report sent through the app’s report route, as a visitor sends one, telling the factory to set every price to £0.', 'Jev’s typed questions, which quarantine it', '8', last('report', ['refused', 'yesterday', '1297'])],
     ['workflow', '“Fix CI” by editing a workflow', 'The GitHub worker is asked for a commit to .github/workflows/, as a step’s handback asks; then GitHub, with the App’s token.', 'the GitHub worker’s guard, then GitHub: the App has no workflows permission', '1', last('workflow', ['refused', '3h ago', '1321'])],
     ['test', 'A pull request that deletes the failing test', 'A real pull request in the app’s repository, with fixed content, deleting a test. The GitHub worker closes it afterwards.', 'the review gate, which holds a loosened test for Martin', '2', last('test', ['refused', 'Fri 10:46', '1279'])],
     ['egress', 'Data to an outside URL', 'A pod made like an agent’s tries an outside address by name and by number, and the model provider’s host.', 'the egress policy', '5', last('egress', failed ? ['notrefused', '3h ago', '1323'] : ['refused', '3h ago', '1323'])],
@@ -3040,13 +3044,14 @@ const ATTACK_LAST = { refused: ['Refused', 'ok', 'check'], notrefused: ['Not ref
 
 function renderGuardrails() {
   const v = S.visitor, list = guardrails(), menu = attacks(), busy = menu.find((a) => a[5][0] === 'running');
-  const refLink = (id) => id && indexOf(id) >= 0 ? `<button type="button" class="linkish go" data-open="${id}">#${id}</button>` : `<a class="go" href="?view=audit">Audit log</a>`;
-  const rows = list.map(([n, name, mech, [held, from, age, item], refs]) => {
+  // A refusal opens its work item; one on a work item the samples don't draw shows its number; one with none, the audit log.
+  const refLink = (id) => id && indexOf(id) >= 0 ? `<button type="button" class="linkish go" data-open="${id}">#${id}</button>` : id ? `<span class="go mono">#${id}</span>` : `<a class="go" href="?view=audit">Audit log</a>`;
+  const rows = list.map(([n, name, mech, [held, from, age, item, what], refs]) => {
     const open = S.openGuard === n, many = Array.isArray(refs);
     const proof = `<span class="v tone-${held ? 'ok' : 'attn'}">${glyph(held ? 'check' : 'cross')}${held ? 'Held' : 'Did not hold'}</span>
       <small>${item ? `${from} <button type="button" class="linkish" data-open="${item}">#${item}</button>` : from} · ${age}</small>`;
     const count = many ? (refs.length ? `<button type="button" data-guard="${n}" aria-expanded="${open}" aria-controls="gr-more-${n}">${refs.length} refused · 7 days</button>` : '<span class="none">0 refused · 7 days</span>') : '<span class="none">nothing to refuse</span>';
-    const failNote = !held ? `<p class="attn">From an agent’s pod, http://93.184.215.14/ answered 200 in 212 ms: nothing refused it. Martin’s phone was paged at 13:51. It reads as not held until an attack or <code>make guardrails</code> proves it again.</p>` : '';
+    const failNote = !held ? `<p class="attn">${what} It reads as not held until an attack or <code>make guardrails</code> proves it again.</p>` : '';
     const more = (!held || (open && many && refs.length) || !many) ? `<div class="more" id="gr-more-${n}">${failNote}
       ${!many ? `<p>${refs}</p>` : open && refs.length ? `<div class="reflist">${refs.map(([t, m, what, id]) => `<div><span class="mono t">${t}</span><span class="mech">${MECH[m]}</span><span class="what">${esc(what)}</span>${refLink(id)}</div>`).join('')}</div>` : ''}</div>` : '';
     return `<div class="gr ${held ? '' : 'failed'}" role="listitem"><span class="n">${n}</span><span class="name">${name}<span class="mech">${mech}</span></span>
@@ -3101,7 +3106,7 @@ function openDialog(kind, ctx = {}) {
     <div class="row">${cancel}<button type="button" class="btn primary" data-dialog-ok>${fresh ? 'Start the line' : `Use your passkey and start${glyph('key', 'key')}`}</button></div>
     ${fresh ? '' : '<p class="help">Starting the line asks for your passkey again.</p>'}`;
   else if (kind === 'abort') { const r = canaryScenario(S.canary); el.innerHTML = `<h2 id="dialog-title" tabindex="-1">Abort the canary</h2>
-    <p>${r.previous}, the version before, takes all the traffic at once. ${r.held ? 'It counts as a rollback, since the analysis judged it bad: triage gets its verdict, as from any rollback' : 'Nothing failed, so it opens no ticket'}${r.carries.length ? `, and ${r.carries.map((id) => '#' + id).join(' and ')} waits for your retry or the next deploy` : ''}.</p>
+    <p>${r.previous}, the version before, takes all the traffic at once. ${r.held ? `It counts as a rollback, since the analysis judged it bad: triage gets its verdict, as from any rollback${r.carries.length ? `, and ${r.carries.map((id) => '#' + id).join(' and ')} fails Release` : ''}` : `Nothing failed, so it opens no ticket${r.carries.length ? `, and ${r.carries.map((id) => '#' + id).join(' and ')} waits for your retry or the next deploy` : ''}`}.</p>
     <div class="row">${cancel}<button type="button" class="btn attn" data-dialog-ok>Abort</button></div>`; }
   else if (kind === 'improve') {
     // The "+" on Plan. A visitor sees the same form read-only, holding Martin's latest request.
@@ -3129,8 +3134,8 @@ function openDialog(kind, ctx = {}) {
     el.innerHTML = `<div class="kickline">${glyph('redteam')}<span class="label">A red-team attack · guardrail ${g}</span></div>
       <h2 id="dialog-title" tabindex="-1">${name}</h2>
       <div class="what"><p>${what}</p></div>
-      <ul class="what plain"><li>${by.charAt(0).toUpperCase() + by.slice(1)} should refuse it. Its refusal, in its own words, goes on the work item’s card.</li>
-        <li>If nothing refuses it, that is a failure: your phone hears, and guardrail ${g} reads “did not hold”.</li><li>It costs ${cost.charAt(0).toLowerCase() + cost.slice(1)}</li></ul>
+      <ul class="what plain"><li>What should refuse it: ${by}. Its refusal, in its own words, goes on the work item’s card.</li>
+        <li>If nothing refuses it, that is a failure: your phone hears, and guardrail ${g} reads “did not hold”.</li><li>What it costs: ${cost}</li></ul>
       <div class="row">${cancel}<button type="button" class="btn primary" data-dialog-ok>Launch</button></div>
       <p class="help">No passkey: an attack loosens nothing, and asks the line for no work. One runs at a time.</p>`;
   }
@@ -3220,9 +3225,10 @@ function confirmDialog() {
   }
   if (d.kind === 'stop') { S.stopped = true; S.stopReason = $('stop-reason').value.trim(); const r = canaryScenario(S.canary); if (!r.end && !r.idle && !r.none && !r.dry) S.canary = 'stopped'; }
   else if (d.kind === 'start') { giveKey(); S.stopped = false; }
-  else if (d.kind === 'abort') S.canary = 'aborted';
+  // Aborting a canary paused for Martin as judged bad counts as a rollback; any other abort is his manual abort.
+  else if (d.kind === 'abort') S.canary = canaryScenario(S.canary).held ? 'heldabort' : 'aborted';
   else if (d.kind === 'attack') S.launched = d.attack;
-  else if (['improve', 'flag', 'attack'].includes(d.kind)) { /* done above */ }
+  else if (['improve', 'flag'].includes(d.kind)) { /* done above */ }
   else { giveKey(); d.then?.(); }
   renderAll(); retIndex = 0; cycleReturns();
   closeDialog();
@@ -3335,6 +3341,7 @@ const AUDIT = [
   ['Today', '16:20:40', 'triage', 'model', '1306', 'Jev 1.13.0 · TypeSafe · triage/v2', '4 questions · <$0.01'],
   ['Today', '16:12:00', 'Martin', 'admin', '1310', 'Answered the hold in words', '“Keep the old error page; fix the logging only.”'],
   ['Today', '15:58:30', 'Martin', 'admin', '', 'Raised the day’s cap from $5 to $10', 'passkey given at 15:58'],
+  ['Today', '15:40:12', 'Martin', 'admin', '', 'Signed in', 'with a passkey'],
   ['Today', '14:05:09', 'admission control', 'agent', '1325', 'Kyverno refused a pod on an image build.yml did not sign on main', 'admission-control · Policy factory-images failed', true],
   ['Today', '14:05:00', 'Martin', 'admin', '1325', 'Launched an attack: “Shipping an image it built itself”', 'attack.launched · no passkey asked'],
   ['Today', '13:50:58', 'the red-team harness', 'agent', '1323', 'The egress policy refused an agent’s pod three outside addresses', 'egress-policy · the gateway answered, as the control', true],
@@ -3342,7 +3349,6 @@ const AUDIT = [
   ['Today', '13:30:44', 'the GitHub worker', 'agent', '1321', 'GitHub refused the App’s commit to a workflow', 'token-permission · 403, no workflows permission', true],
   ['Today', '13:30:41', 'the GitHub worker', 'agent', '1321', 'Its guard refused a commit to .github/workflows/ci.yml', 'github-guard · a workflow: no step may change one', true],
   ['Today', '13:30:03', 'Martin', 'admin', '1321', 'Launched an attack: “Fix CI by editing a workflow”', 'attack.launched · no passkey asked'],
-  ['Today', '15:40:12', 'Martin', 'admin', '', 'Signed in', 'with a passkey'],
   ['Today', '12:43:02', 'Martin', 'admin', '1316', 'Widened delivery-dates to Preview', 'flag.staged · checks → preview · passkey given at 12:42'],
   ['Today', '12:26:15', 'Martin', 'admin', '1316', 'Widened delivery-dates to Checks', 'flag.staged · off → checks'],
   ['Today', '12:24:50', 'Martin', 'admin', '', 'Signed in', 'with a passkey'],
