@@ -15,6 +15,7 @@
  * audit log, whole and narrowed to a visitor's report; and the privacy page. Part B's flags from the samples, with the
  * admin service's check of the app stood in for: Controls' Flags, each confirmation, a flag's card, and the sheet, its
  * card and slider for Martin; a held work item's sheet, its card at its head; and the "+" on Plan, for Martin and a visitor, an improvement's spec in Needs you and its sheet's request.
+ * Part C's canary paused for Martin, with auto-rollback off: the Canary panel, its card in Needs you, and the switch.
  */
 import type { Page } from '@playwright/test';
 import { STAGES as KINDS } from '@software-factory/events';
@@ -23,6 +24,7 @@ import {
   adminService,
   CANARY,
   consoleUrl,
+  END,
   emptyStore,
   expect,
   fixtureUrl,
@@ -627,6 +629,109 @@ for (const [width, viewport] of Object.entries(WIDTHS)) {
       await ready(page);
       await page.locator('article.needs h2', { hasText: 'Needs you' }).waitFor();
       await expect(page.locator('article.needs')).toHaveScreenshot(`m07-needs-empty-${width}.png`);
+    });
+  });
+}
+
+/**
+ * Part C: a canary paused for Martin. He switched auto-rollback off, and the analysis judged the samples' release in
+ * flight bad at its 50% step: the line records the step, inconclusive, and holds #1314, which it carries.
+ */
+const PAUSED_AT = new Date(END - 10_000).toISOString();
+const PAUSED = [
+  {
+    id: '00000000-0000-4000-8000-000000000911',
+    seq: 911,
+    ts: new Date(END - 30 * 60_000).toISOString(),
+    work_item: null,
+    type: 'controls.changed',
+    version: 2,
+    actor: 'martin',
+    summary: 'Martin turned auto-rollback off',
+    payload: {
+      autonomy: 'guarded',
+      newWork: true,
+      autoMerge: false,
+      take: { kind: 'next-few', count: 5, since: '2026-10-06T12:00:00.000Z' },
+      autoRollback: false,
+      change: { control: 'auto-rollback', before: true, after: false },
+    },
+    artifacts: [],
+  },
+  {
+    id: '00000000-0000-4000-8000-000000000912',
+    seq: 912,
+    ts: PAUSED_AT,
+    work_item: '1314',
+    type: 'canary.stepped',
+    version: 2,
+    actor: 'rollouts',
+    summary: 'Canary at 50%: the analysis was inconclusive',
+    payload: {
+      release: 'v8q7chmx72-913',
+      version: 'v0.9.13',
+      weight: 50,
+      analysis: {
+        phase: 'inconclusive',
+        requests: 846,
+        measures: [
+          { name: 'enough-requests', phase: 'successful', value: 846, limit: 100 },
+          {
+            name: 'errors',
+            phase: 'inconclusive',
+            value: 0.0253,
+            limit: 0.01,
+            message: 'Metric "errors" assessed Inconclusive due to inconclusive (1) > inconclusiveLimit (0)',
+          },
+          { name: 'latency', phase: 'successful', value: -0.088, limit: 0 },
+          { name: 'journeys', phase: 'successful', value: null, limit: null },
+        ],
+      },
+      figures: {
+        canary: { requests: 846, errorRate: 0.0392, p99Ms: 42, journeys: [24, 24] },
+        baseline: { requests: 902, errorRate: 0.0139, p99Ms: 39, journeys: [24, 24] },
+      },
+      dryRun: false,
+    },
+    artifacts: [],
+  },
+  {
+    id: '00000000-0000-4000-8000-000000000913',
+    seq: 913,
+    ts: PAUSED_AT,
+    work_item: '1314',
+    type: 'hold.started',
+    version: 10,
+    actor: 'rollouts',
+    summary: 'Canary paused for Martin at 50%: the analysis judged it bad',
+    payload: {
+      stage: 'release',
+      kind: 'held',
+      cause: 'canary',
+      reason:
+        'With auto-rollback off, the analysis judged the canary of v0.9.13 bad at 50% (errors 0.0253 against at most 0.01). It keeps its share of the traffic until Martin promotes it fully or aborts it, which rolls it back',
+      release: 'v8q7chmx72-913',
+    },
+    artifacts: [],
+  },
+];
+
+for (const [width, viewport] of Object.entries(WIDTHS)) {
+  test.describe(`${width}, a canary paused for Martin`, () => {
+    test.use({ viewport });
+
+    test('the Canary panel, its card in Needs you, and the switch off in Controls', async ({ page }) => {
+      await adminService(page, 'martin', PAUSED);
+      await page.goto(consoleUrl());
+      await ready(page);
+      const card = page.locator('.need').filter({ hasText: 'A canary paused for you' });
+      await card.getByRole('button', { name: /^Promote fully/ }).waitFor();
+      await page.evaluate(() => document.fonts.ready);
+      await expect(page.locator('section.canary')).toHaveScreenshot(`m07-canary-paused-${width}.png`);
+      await expect(card).toHaveScreenshot(`m07-canary-paused-card-${width}.png`);
+      await expect(page.locator('article.controls .ctl-group').filter({ hasText: 'Switches' })).toHaveScreenshot(
+        `m07-switches-rollback-off-${width}.png`,
+      );
     });
   });
 }

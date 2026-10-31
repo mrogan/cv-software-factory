@@ -24,7 +24,10 @@ import {
   controlsOf,
   endedWords,
   failedLooks,
+  failsRelease,
   JUDGED,
+  judgedSaid,
+  judgedWords,
   lookOf,
   lookVerdict,
   MEASURES,
@@ -47,13 +50,15 @@ export type Tone = 'signal' | 'ok' | 'attn' | 'faint';
 type Phase = Measured['stepped']['analysis']['phase'];
 
 /** A measure's verdict, from the analysis's own phases: in flight is ink, only a pass is green, a failure is warm. */
-export const VERDICT: Record<Phase | 'dry' | 'none', [word: string, tone: Tone, glyph: GlyphName]> = {
+export const VERDICT: Record<Phase | 'judged' | 'dry' | 'none', [word: string, tone: Tone, glyph: GlyphName]> = {
   successful: ['passed', 'ok', 'check'],
   failed: ['failed', 'attn', 'cross'],
   running: ['measuring', 'signal', 'ring'],
   pending: ['waiting', 'faint', 'dash'],
   error: ['could not measure', 'faint', 'dash'],
   inconclusive: ['inconclusive · waits for Martin', 'attn', 'ring'],
+  // A measure the analysis judged bad in a canary Martin then aborted: a rollback all the same.
+  judged: ['judged bad', 'attn', 'cross'],
   dry: ['recorded', 'faint', 'dash'],
   none: ['not measured', 'faint', 'dash'],
 };
@@ -92,6 +97,8 @@ export function Verdict({
 export function standing(r: Release): [word: string, tone: Tone, dot: string] {
   const { end, weight } = r;
   if (!end) {
+    // Judged bad with auto-rollback off, Argo Rollouts holds it for Martin: warm, ringed.
+    if (r.judgedBad) return [`Paused for Martin at ${weight}% · judged bad`, 'attn', 'ring'];
     // Martin's pause holds it: still, not blinking, until he resumes, promotes or aborts it.
     if (r.paused && !r.dryRun) return [`Paused by Martin at ${weight}%`, 'signal', ''];
     const word = weight ? `Canary · ${weight}%` : 'Canary · starting';
@@ -138,7 +145,9 @@ function Steps({ r, tone }: { r: Release; tone: Tone }) {
           else if (m || (end?.kind === 'promoted' && weight === 100)) {
             const [word, tone, mark] = VERDICT[r.dryRun ? 'dry' : m ? stepPhase(m) : 'successful'];
             [cls, t, glyph, how] = ['done', tone, mark, word];
-          } else if (!end && index === r.step) [cls, how] = ['now', analysis ? 'measuring now' : 'here now'];
+          } else if (!end && index === r.step && r.judgedBad)
+            [cls, t, glyph, how] = ['done', 'attn', 'ring', 'judged bad here, waiting for Martin'];
+          else if (!end && index === r.step) [cls, how] = ['now', analysis ? 'measuring now' : 'here now'];
           else if (index < r.step) [cls, how] = ['done', analysis ? 'passed' : 'not judged'];
           const held =
             weight === 100
@@ -191,7 +200,7 @@ export function phaseOf(r: Release, m: Measured, name: string): keyof typeof VER
   const { analysis } = m.stepped;
   if (r.dryRun) return 'dry';
   if (r.end?.kind === 'rolled-back' && r.end.weight === m.weight && r.end.failed.some((f) => f.name === name))
-    return 'failed';
+    return r.end.by === 'martin' ? 'judged' : 'failed';
   return analysis.measures.find((x) => x.name === name)?.phase ?? (analysis.measures.length ? 'none' : analysis.phase);
 }
 
@@ -455,10 +464,13 @@ function Measures({
     if (nextLook !== undefined) rewrite(next.current, nextWords(nextLook - now));
   });
   const failedOf = (name: string) => (r.end?.kind === 'rolled-back' ? r.end.failed.filter((f) => f.name === name) : []);
+  const { judgedBad } = r;
   return (
     <table className={`measures ${trend ? 'trended' : ''}`}>
       <caption className="label">
-        {live ? (
+        {judgedBad ? (
+          `At the ${judgedBad.weight}% step · judged bad ${clockSeconds(judgedBad.at)}`
+        ) : live ? (
           <>
             At the {r.weight}% step · {r.until === undefined ? 'measuring' : `measuring until ${clockSeconds(r.until)}`}
             {nextLook !== undefined && (
@@ -526,13 +538,14 @@ function Measures({
             ? [figureOf(r, m, name, 'canary'), figureOf(r, m, name, 'baseline')]
             : ['—', '—'];
           // How far over its limit the rollback's look of it went, where one run failed it and said by how much.
-          const [f, ...more] = phase === 'failed' ? failedOf(name) : [];
+          const condemned = phase === 'failed' || phase === 'judged';
+          const [f, ...more] = condemned ? failedOf(name) : [];
           const over =
             f && !more.length && JUDGED.has(name) && f.value !== null && f.limit !== null
               ? `${room(name, f.value, f.limit)} over`
               : undefined;
           return (
-            <tr key={name} className={phase === 'failed' ? 'failed' : ''}>
+            <tr key={name} className={condemned || phase === 'inconclusive' ? 'failed' : ''}>
               <td>
                 {label}
                 <small className="rule">{rule}</small>
@@ -544,7 +557,7 @@ function Measures({
               <td className="mono base">{baseline}</td>
               {trend && <Trend r={r} name={name} />}
               <td>
-                <Verdict phase={phase} looks={phase === 'failed' ? failedLooks(r.end, name) : undefined} over={over} />
+                <Verdict phase={phase} looks={condemned ? failedLooks(r.end, name) : undefined} over={over} />
                 {phase === 'error' && measure?.message && <small>{measure.message}</small>}
               </td>
             </tr>
@@ -664,7 +677,7 @@ function Rollback({ r, onOpen }: { r: Release; onOpen: (item: string) => void })
                     </td>
                     <td>{sawOf(f, end.reason)}</td>
                     <td>
-                      <Verdict phase="failed" looks={f.failures} />
+                      <Verdict phase={end.by === 'martin' ? 'judged' : 'failed'} looks={f.failures} />
                     </td>
                   </tr>
                 );
@@ -737,26 +750,33 @@ function Item({ item, titled, onOpen }: { item: Carried; titled: boolean; onOpen
   );
 }
 
+/** Who reads the panel: Martin, signed in, or anyone else, who reads of him. */
+type Viewer = 'martin' | 'visitor';
+
+/**
+ * How an earlier attempt of the release ended, for the note of its retry: "Started again after its rollback at
+ * 16:21:30." None for a first attempt.
+ */
+function againWords(r: Release): string {
+  const before = r.retried.at(-1);
+  if (!before) return '';
+  const how =
+    before.kind === 'rolled-back'
+      ? 'its rollback'
+      : before.kind === 'errored'
+        ? 'its analysis error'
+        : before.kind === 'aborted' && before.by === 'stop'
+          ? 'the line stopped it'
+          : 'Martin aborted it';
+  return `Started again after ${how} at ${clockSeconds(before.at)}. `;
+}
+
 /** What happens next, or what happened, in the release's own times. */
-function note(r: Release): string {
+function note(r: Release, switched: Switched): string {
   const { end } = r;
-  const step = r.steps[r.step];
   if (r.dryRun)
     return 'The dry run answers for this release: its merges were never made, so nothing shipped and nothing was measured. It records each step as the line would see it, so a soak goes round.';
-  if (!end) {
-    if (r.paused)
-      return `Martin paused the canary at ${clockSeconds(r.paused.at)}. It keeps ${r.weight}% of the traffic until he resumes it, promotes it or aborts it.`;
-    if (!r.planned) return 'This release recorded no steps, so the steps measured so far stand in for them.';
-    if (r.weight === 100) return 'Every step has passed: the canary takes all the traffic next.';
-    if (!step || r.until === undefined)
-      return `The canary holds at ${r.weight}% until someone promotes it; if a measure fails, it rolls back on its own.`;
-    // The step's own words and the time left are over the bar above: this says what happens when it ends.
-    const next = r.steps[r.step + 1]?.weight ?? 100;
-    const moves = `${next === 100 ? 'takes all the traffic' : `moves to ${next}%`} at ${clockSeconds(r.until)}`;
-    return step.analysis
-      ? `If every measure passes, the canary ${moves}; if one fails, it rolls back on its own.`
-      : `The canary ${moves}; if a measure fails first, it rolls back on its own.`;
-  }
+  if (!end) return againWords(r) + flying(r, switched);
   const took = duration(end.at - r.startedAt);
   if (end.kind === 'promoted')
     return `Promoted at ${clockSeconds(end.at)}, ${took} after it started.${r.items.length ? ' Verify now asks the sense that saw each ticket whether it has cleared.' : ''}`;
@@ -766,7 +786,49 @@ function note(r: Release): string {
     return `Martin aborted the canary at ${end.weight}%, at ${clockSeconds(end.at)}. ${shortVersion(r.previous)}, the version before, takes all the traffic. The release stays aborted until he retries it or a new deploy starts another.`;
   if (end.kind === 'errored')
     return `The analysis could not judge the canary at ${end.weight}%, and Argo Rollouts stopped it at ${clockSeconds(end.at)}. ${shortVersion(r.previous)}, the version before, takes all the traffic. Nothing failed, so it is no signal; the release stays stopped until Martin retries it or a new deploy starts another.`;
-  return `Rolled back at ${clockSeconds(end.at)}, ${took} in. ${100 - end.weight}% of the traffic never saw it: it stayed on ${shortVersion(r.previous)}.`;
+  const never = `${100 - end.weight}% of the traffic never saw it: it stayed on ${shortVersion(r.previous)}.`;
+  if (end.by === 'martin')
+    return `Martin aborted it at ${clockSeconds(end.at)}, after the analysis judged it bad: that counts as a rollback, and triage has the analysis’s verdict. ${never}`;
+  return `Rolled back at ${clockSeconds(end.at)}, ${took} in. ${never}`;
+}
+
+/**
+ * What a failing measure does, in the note: rolls the canary back, or, with auto-rollback off, pauses it for Martin,
+ * though a failed journeys check, which the switch does not cover, still rolls it back.
+ */
+const failing = (switched: Switched) =>
+  switched.autoRollback
+    ? 'it rolls back on its own'
+    : `it pauses for ${switched.viewer === 'martin' ? 'you' : 'Martin'} (a failed journeys check still rolls it back)`;
+
+/** Who reads the panel, and whether auto-rollback is on, as Controls has it in force. */
+interface Switched {
+  viewer: Viewer;
+  autoRollback: boolean;
+}
+
+/** What happens next to a release in flight. */
+function flying(r: Release, switched: Switched): string {
+  const { viewer } = switched;
+  const step = r.steps[r.step];
+  const { judgedBad } = r;
+  if (judgedBad) {
+    const [you, yours] = viewer === 'martin' ? ['you', 'you promote or abort'] : ['Martin', 'he promotes or aborts'];
+    const bad = judgedWords(judgedBad);
+    return `The analysis judged the canary bad at ${clockSeconds(judgedBad.at)}${bad ? `: ${bad}` : ''}. Auto-rollback was off, so that is inconclusive rather than failed, and Argo Rollouts has paused it for ${you}. It keeps ${r.weight}% of the traffic until ${yours} it. Stop the line still aborts it.`;
+  }
+  if (r.paused)
+    return `Martin paused the canary at ${clockSeconds(r.paused.at)}. It keeps ${r.weight}% of the traffic until he resumes it, promotes it or aborts it.`;
+  if (!r.planned) return 'This release recorded no steps, so the steps measured so far stand in for them.';
+  if (r.weight === 100) return 'Every step has passed: the canary takes all the traffic next.';
+  if (!step || r.until === undefined)
+    return `The canary holds at ${r.weight}% until someone promotes it; if a measure fails, ${failing(switched)}.`;
+  // The step's own words and the time left are over the bar above: this says what happens when it ends.
+  const next = r.steps[r.step + 1]?.weight ?? 100;
+  const moves = `${next === 100 ? 'takes all the traffic' : `moves to ${next}%`} at ${clockSeconds(r.until)}`;
+  return step.analysis
+    ? `If every measure passes, the canary ${moves}; if one fails, ${failing(switched)}.`
+    : `The canary ${moves}; if a measure fails first, ${failing(switched)}.`;
 }
 
 /** How the last release ended, in the idle line's words: "promoted", "rolled back at 25%". */
@@ -791,11 +853,13 @@ const ASKED: Partial<Record<ReleaseControl, (r: Release, c: Control) => Asked>> 
     title: 'Promote the canary',
     what: (
       <>
-        <b>{shortVersion(r.version)} takes all the traffic now.</b> Verify then asks each ticket’s sense whether it
-        cleared.
+        <b>
+          {shortVersion(r.version)} takes all the traffic now{r.judgedBad && ', past the analysis’s verdict'}.
+        </b>{' '}
+        Verify then asks each ticket’s sense whether it cleared.
       </>
     ),
-    why: 'Promoting ships to everyone',
+    why: r.judgedBad ? 'Promoting past the analysis’s verdict ships to everyone' : 'Promoting ships to everyone',
   }),
   retry: (r) => ({
     title: 'Retry the release',
@@ -805,6 +869,89 @@ const ASKED: Partial<Record<ReleaseControl, (r: Release, c: Control) => Asked>> 
 };
 
 /**
+ * Martin's acts on a release: each control, its passkey asked for where the access table asks, and Abort behind a
+ * dialog that says what it does; what the admin service refused, or warned of, kept to say. The Canary panel's controls
+ * and the Needs-you card of a canary paused for him act through it, so the two are the same controls.
+ */
+function useActs(r: Release, admin: Admin, controls: readonly Control[]) {
+  const stepUp = useStepUp();
+  const [busy, setBusy] = useState(false);
+  const [refusal, setRefusal] = useState<string | undefined>(undefined);
+  const [aborting, setAborting] = useState(false);
+  const act = async (c: Control) => {
+    if (admin.kind !== 'martin') return;
+    setBusy(true);
+    setRefusal(undefined);
+    const asked = ASKED[c.action]?.(r, c);
+    const route = c.action === 'promote-fully' ? 'promote' : c.action;
+    const body = { release: r.id, ...(c.action === 'promote-fully' && { fully: true }) };
+    let cancelled = false;
+    const ask =
+      asked &&
+      (async () => {
+        cancelled = !(await stepUp.ask(asked));
+        return !cancelled;
+      });
+    const got = await write(`/admin/release/${route}`, body, admin.session.token, ask);
+    setBusy(false);
+    // Cancelled at the passkey: nothing was asked of the canary, and nothing to say.
+    if (cancelled) return;
+    if (got.status !== 200) setRefusal(said(got));
+    // Made, with something left undone that Martin must know of: his pause, still set after the control.
+    else if (typeof got.body?.warning === 'string') setRefusal(got.body.warning);
+  };
+  /** Presses a control: Abort asks first, in its dialog; the rest act at once, or after the passkey. */
+  const press = (c: Control) => {
+    if (busy) return;
+    if (c.action === 'abort') setAborting(true);
+    else void act(c);
+  };
+  const abort = controls.find((c) => c.action === 'abort');
+  const dialog = aborting && abort && (
+    <Dialog
+      title="Abort the canary"
+      onClose={() => setAborting(false)}
+      actions={
+        <>
+          <button type="button" className="btn" onClick={() => setAborting(false)}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn attn"
+            onClick={() => {
+              setAborting(false);
+              void act(abort);
+            }}
+          >
+            Abort
+          </button>
+        </>
+      }
+    >
+      <p>{abortWords(r)}</p>
+    </Dialog>
+  );
+  return { busy, refusal, press, dialog, fresh: stepUp.fresh };
+}
+
+/** What Abort does, as its dialog says it: a rollback of a canary judged bad, otherwise a manual abort. */
+function abortWords(r: Release): string {
+  const before = `${shortVersion(r.previous)}, the version before, takes all the traffic at once.`;
+  if (r.judgedBad)
+    return `${before} It counts as a rollback, since the analysis judged it bad: triage gets its verdict, as from any rollback${r.items.length ? `, and ${failsRelease(r)}` : ''}.`;
+  return `${before} Nothing failed, so it opens no ticket${r.items.length ? `, and ${r.items.map((i) => `#${i.number}`).join(' and ')} waits for your retry or the next deploy` : ''}.`;
+}
+
+/** A refusal of one of Martin's acts, where he pressed. */
+const Refusal = ({ text }: { text: string | undefined }) =>
+  text ? (
+    <p className="canary-refusal" role="alert">
+      {text}
+    </p>
+  ) : null;
+
+/**
  * Martin's controls, under the steps and the note: his buttons, each with the key while the passkey is not fresh
  * where it asks for it, and Abort behind a dialog; or for anyone else, the same controls as labels beside what each
  * does. Each names the release the panel shows, so the admin service acts on that one or none. What it did shows in
@@ -812,10 +959,7 @@ const ASKED: Partial<Record<ReleaseControl, (r: Release, c: Control) => Asked>> 
  */
 function CanaryControls({ r, admin, lineStopped }: { r: Release; admin: Admin; lineStopped: boolean }) {
   const controls = controlsOf(r, lineStopped);
-  const stepUp = useStepUp();
-  const [busy, setBusy] = useState(false);
-  const [refusal, setRefusal] = useState<string | undefined>(undefined);
-  const [aborting, setAborting] = useState(false);
+  const acts = useActs(r, admin, controls);
   if (!controls.length) return null;
   if (admin.kind !== 'martin') {
     return (
@@ -834,28 +978,6 @@ function CanaryControls({ r, admin, lineStopped }: { r: Release; admin: Admin; l
       </div>
     );
   }
-  const { token } = admin.session;
-  const act = async (c: Control) => {
-    setBusy(true);
-    setRefusal(undefined);
-    const asked = ASKED[c.action]?.(r, c);
-    const route = c.action === 'promote-fully' ? 'promote' : c.action;
-    const body = { release: r.id, ...(c.action === 'promote-fully' && { fully: true }) };
-    let cancelled = false;
-    const ask =
-      asked &&
-      (async () => {
-        cancelled = !(await stepUp.ask(asked));
-        return !cancelled;
-      });
-    const got = await write(`/admin/release/${route}`, body, token, ask);
-    setBusy(false);
-    // Cancelled at the passkey: nothing was asked of the canary, and nothing to say.
-    if (cancelled) return;
-    if (got.status !== 200) setRefusal(said(got));
-    // Made, with something left undone that Martin must know of: his pause, still set after the control.
-    else if (typeof got.body?.warning === 'string') setRefusal(got.body.warning);
-  };
   const off = controls.find((c) => c.off)?.off;
   return (
     <div className="canary-controls">
@@ -869,58 +991,54 @@ function CanaryControls({ r, admin, lineStopped }: { r: Release; admin: Admin; l
             title={c.what}
             disabled={c.off !== undefined}
             // Busy, it stays focusable, so focus comes back to it when a dialog it opened closes.
-            aria-disabled={busy || undefined}
-            onClick={() => {
-              if (busy) return;
-              if (c.action === 'abort') setAborting(true);
-              else void act(c);
-            }}
+            aria-disabled={acts.busy || undefined}
+            onClick={() => acts.press(c)}
           >
             {c.label}
-            {c.stepUp && !stepUp.fresh && <Key />}
+            {c.stepUp && !acts.fresh && <Key />}
           </button>
         ))}
         {off && <span className="help">{off}</span>}
       </div>
-      {refusal && (
-        <p className="canary-refusal" role="alert">
-          {refusal}
-        </p>
-      )}
-      {aborting && (
-        <Dialog
-          title="Abort the canary"
-          onClose={() => setAborting(false)}
-          actions={
-            <>
-              <button type="button" className="btn" onClick={() => setAborting(false)}>
-                Cancel
-              </button>
+      <Refusal text={acts.refusal} />
+      {acts.dialog}
+    </div>
+  );
+}
+
+/**
+ * The answers of a canary paused for Martin, as its Needs-you card lists them: the Canary panel's own controls, Promote
+ * fully with the key and Abort in the alarm colour's outline, each beside what it does; for anyone else, labels.
+ */
+export function CanaryAnswers({ r, admin }: { r: Release; admin: Admin }) {
+  const controls = controlsOf(r, false);
+  const acts = useActs(r, admin, controls);
+  const martin = admin.kind === 'martin';
+  return (
+    <>
+      <div className="answers">
+        {controls.map((c) => (
+          <div className="answer" key={c.action}>
+            {martin ? (
               <button
                 type="button"
-                className="btn attn"
-                onClick={() => {
-                  setAborting(false);
-                  const abort = controls.find((c) => c.action === 'abort');
-                  if (abort) void act(abort);
-                }}
+                className={`btn${c.action === 'abort' ? ' attn-line' : ''}`}
+                aria-disabled={acts.busy || undefined}
+                onClick={() => acts.press(c)}
               >
-                Abort
+                {c.label}
+                {c.stepUp && !acts.fresh && <Key />}
               </button>
-            </>
-          }
-        >
-          <p>
-            {shortVersion(r.previous)}, the version before, takes all the traffic at once. Nothing failed, so it opens
-            no ticket
-            {r.items.length
-              ? `, and ${r.items.map((i) => `#${i.number}`).join(' and ')} waits for your retry or the next deploy`
-              : ''}
-            .
-          </p>
-        </Dialog>
-      )}
-    </div>
+            ) : (
+              <span className="ro">{c.label}</span>
+            )}
+            <p>{c.what}</p>
+          </div>
+        ))}
+      </div>
+      <Refusal text={acts.refusal} />
+      {acts.dialog}
+    </>
   );
 }
 
@@ -935,6 +1053,8 @@ interface CanaryProps {
   /** Whether the console's clock moves on by itself, for the step's time left and the next look. */
   ticking: boolean;
   motion: boolean;
+  /** Whether auto-rollback is on, as Controls has it in force: off, a canary judged bad pauses for Martin. */
+  autoRollback: boolean;
 }
 
 /**
@@ -943,7 +1063,7 @@ interface CanaryProps {
  */
 export const rollouts = (r: Release) => !r.dryRun && r.image?.admitted === true;
 
-export function Canary({ view, t, onOpen, admin, lineStopped, ticking, motion }: CanaryProps) {
+export function Canary({ view, t, onOpen, admin, lineStopped, ticking, motion, autoRollback }: CanaryProps) {
   if (view.state !== 'shown') {
     const r = view.state === 'idle' ? view.release : undefined;
     const [word, tone, when] = r ? ended(r, t) : [];
@@ -985,9 +1105,17 @@ export function Canary({ view, t, onOpen, admin, lineStopped, ticking, motion }:
       <Rollback r={r} onOpen={onOpen} />
     ) : r.end?.kind === 'errored' ? (
       <ErrorEnd r={r} />
+    ) : r.judgedBad ? (
+      <>
+        <Measures r={r} m={m} clock={clock} />
+        {judgedSaid(r.judgedBad).length > 0 && <p className="words">{judgedSaid(r.judgedBad).join('\n')}</p>}
+      </>
     ) : (
       (measuring(r) || m || first !== undefined) && <Measures r={r} m={m} until={first} clock={clock} />
     );
+  const switched: Switched = { viewer: admin.kind === 'martin' ? 'martin' : 'visitor', autoRollback };
+  // With auto-rollback off, or a canary paused for Martin, a failing measure needs him: the last line says so.
+  const pauses = !autoRollback || r.judgedBad !== undefined;
   // The measures' table with its trend column, which takes the width it needs, after a rollback or an error too; not
   // the table of their own a rollback or an error has otherwise.
   const trended = r.looks.length > 0 && showsMeasures(r);
@@ -1033,7 +1161,7 @@ export function Canary({ view, t, onOpen, admin, lineStopped, ticking, motion }:
         <div className="canary-steps">
           <Steps r={r} tone={tone} />
           <StepTime r={r} clock={clock} />
-          <p className="canary-note">{note(r)}</p>
+          <p className="canary-note">{note(r, switched)}</p>
         </div>
         {right && <div className="canary-measures">{right}</div>}
         {/* A release of its own: what was pressed for another, and refused, is not said under this one. */}
@@ -1042,8 +1170,10 @@ export function Canary({ view, t, onOpen, admin, lineStopped, ticking, motion }:
       <p className="help tooled">
         {rollouts(r) && <ToolMark name="argo" />}
         <span>
-          {rollouts(r) ? 'Argo Rollouts’ canary' : 'The canary'} moves on by itself while every measure passes, and
-          rolls back by itself the moment one fails. Nobody needs to press anything.
+          {rollouts(r) ? 'Argo Rollouts’ canary' : 'The canary'} moves on by itself while every measure passes
+          {pauses
+            ? '. With auto-rollback off, the moment errors or latency fail it pauses for Martin, who promotes or aborts it; a failed journeys check still rolls it back.'
+            : ', and rolls back by itself the moment one fails. Nobody needs to press anything.'}
         </span>
       </p>
     </section>

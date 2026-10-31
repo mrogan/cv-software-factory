@@ -266,6 +266,7 @@ function Console({ from, admin: signedIn, theme, onTheme: setTheme, motion, onMo
               lineStopped={view.header.stopped !== undefined}
               ticking={ticks(from.kind === 'live')}
               motion={motion}
+              autoRollback={view.controls.autoRollback}
             />
           )}
           {/* An empty store waits for the server to say what kind it is, so it is described once, rightly. */}

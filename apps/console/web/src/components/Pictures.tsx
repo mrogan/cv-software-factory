@@ -1137,7 +1137,7 @@ function DeployPicture({
     ? `${capital(stopped)} · ${stopWait(by)}`
     : waitsForMartin
       ? ended
-        ? 'Rolled back · waiting for Martin’s next deploy'
+        ? 'Rolled back · waiting for Martin’s retry or next deploy'
         : 'Merged · waiting for Martin’s deploy'
       : `${ended ? 'Rolled back' : 'Merged'} · ${words.short}`;
   return (
@@ -1165,7 +1165,7 @@ function DeployPicture({
             <Tick ok={words.ok}>{words.tick}</Tick>
           ) : (
             <Tick ok={undefined}>
-              {stopped
+              {ended
                 ? 'Martin’s retry carries it on, or the next deploy pull request, with its ticket and issue'
                 : words.tick}
             </Tick>

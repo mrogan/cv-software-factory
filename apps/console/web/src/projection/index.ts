@@ -25,7 +25,7 @@ import {
 } from './line.ts';
 import { type NeedsView, needsView } from './needs.ts';
 import { type Card, card, type Timeline, timeline } from './reel.ts';
-import { type CanaryView, canaryView, releases } from './release.ts';
+import { type CanaryView, canaryView, inFlight, releases } from './release.ts';
 import { type Sheet, sheet } from './sheet.ts';
 
 export type { ControlsView } from './controls.ts';
@@ -59,7 +59,7 @@ export type {
   Status,
 } from './line.ts';
 export { whileSending } from './line.ts';
-export type { Answered, AnswerRow, Evidence, Need, NeedsView } from './needs.ts';
+export type { Answered, AnswerRow, CanaryNeed, Evidence, Need, NeedsView } from './needs.ts';
 export { stageName } from './needs.ts';
 export type { Card, Picture, Segment, Source, Tag, Timeline, Versions } from './reel.ts';
 export { QUARANTINE_AT, segmentsLabel } from './reel.ts';
@@ -153,7 +153,7 @@ export function project(events: readonly PublicEvent[], t: number): View {
     canary: canaryView(shipped, t),
     cards,
     timeline: timeline(cards, shipped),
-    needs: needsView(items, t),
+    needs: needsView(items, t, inFlight(shipped)),
     controls,
     flags: flagsView(seen, items, shipped, t),
     improve: improveView(items),
@@ -169,9 +169,15 @@ export function projectSheet(events: readonly PublicEvent[], item: string, t: nu
   const items = state.kind === 'improvement' ? foldItems(seen) : [];
   const flags = state.kind === 'improvement' ? flagsView(seen, items, releases(seen, items, t), t) : undefined;
   const flag = flags && [...flags.flags, ...flags.closed].find((row) => row.workItem === item);
-  // What waits on Martin for it, drawn as Needs you draws it: its hold, and its flag waiting to be widened.
+  // A canary paused for Martin that carries it, drawn from every release's events, as Needs you draws it.
+  const released = state.events.some((event) => event.type === 'release.started');
+  const flight = released ? inFlight(releases(seen, flags ? items : foldItems(seen), t)) : undefined;
+  const canary = flight?.items.some((i) => i.number === item) ? flight : undefined;
+  // What waits on Martin for it, drawn as Needs you draws it: its hold, its canary, and its flag waiting to be widened.
+  const waits = needsView([state], t, canary);
   const needs = {
-    hold: needsView([state], t).holds[0],
+    hold: waits.holds[0],
+    canary: waits.canary,
     flag: flags?.needs.find((need) => need.workItem === item),
   };
   return { ...sheet(state, seen, t, flag), needs };

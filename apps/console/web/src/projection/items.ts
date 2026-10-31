@@ -153,7 +153,10 @@ export interface ItemState {
    * hold, and when. None before the App opens one.
    */
   deploy: (PayloadOf<'deploy.changed'> & { at: number }) | undefined;
-  /** The release that carried its latest merge was stopped, aborted or by an error, and none has started since. */
+  /**
+   * The release that carried its latest merge rolled back, or was stopped, by Martin, the line or an error, and none has
+   * started since: Martin may retry it.
+   */
   releaseStopped: boolean;
 }
 
@@ -551,6 +554,8 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
       case 'release.rolled-back':
         state.canary = undefined;
         state.versions.rolledBack = true;
+        // Martin may retry a rollback too, as he may a stop: the fix waits for him.
+        state.releaseStopped = merged;
         break;
       case 'release.errored':
         state.canary = undefined;

@@ -70,7 +70,8 @@ describe('Needs you', () => {
   });
 
   it('offers only the answers that do something, and says what each does for every cause', () => {
-    for (const cause of HOLD_CAUSES) {
+    // A canary's hold is the release's card, drawn from its events (below), not one of the holds'.
+    for (const cause of HOLD_CAUSES.filter((c) => c !== 'canary')) {
       const item = work('2010', START).open().add(1, 'hold.started', 'factory', hold(cause));
       const [need] = needsView(foldItems(item.events), START + 3_600_000).holds;
       expect(

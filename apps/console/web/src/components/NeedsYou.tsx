@@ -9,6 +9,10 @@
  * the service decides, from the stored hold. An answered card moves to Answered today as its event arrives: there is
  * no toast. A visitor sees the same cards, titled Waiting on Martin, each answer a label beside what it does.
  *
+ * A canary paused for Martin (auto-rollback off, judged bad) has a card among them (`CanaryCard`), one for the release,
+ * whatever work items it carries: the analysis's words, what it judged bad, and the Canary panel's own controls,
+ * Promote fully with the key and Abort, which counts as a rollback.
+ *
  * A flag waiting for Martin to widen it has a card among them (`FlagCard`): Widen to the next stage, dashed with its
  * reason when it can't be taken now, and Turn off, each opening the slider's confirmation (`Flags.tsx`).
  *
@@ -18,9 +22,10 @@
 import { Fragment, type ReactNode, Suspense, useEffect, useId, useRef, useState } from 'react';
 import { FLAG_STEP_UP } from '../access.ts';
 import { type Admin, said, write } from '../admin.ts';
-import { clock, inWords } from '../format.ts';
+import { clock, inWords, shortVersion } from '../format.ts';
 import { previewHref } from '../profile.ts';
 import {
+  type CanaryNeed,
   type FlagNeed,
   type FlagRow,
   type FlagStage,
@@ -31,6 +36,7 @@ import {
   STAGE_NAME,
   stageName,
 } from '../projection/index.ts';
+import { CanaryAnswers } from './Canary.tsx';
 import { FlagDialog, stageWords } from './Flags.tsx';
 import { Shot } from './Pictures.tsx';
 import { Key, useStepUp } from './StepUp.tsx';
@@ -136,11 +142,11 @@ interface Placed {
  * A card's foot: "Open the work item", in Needs you only, since the sheet is the work item; and, for a visitor, who
  * answers. Nothing, when it has neither.
  */
-function Foot({ workItem, onOpen, martin }: { workItem: string; martin: boolean } & Placed) {
-  if (!onOpen && martin) return null;
+function Foot({ workItem, onOpen, martin }: { workItem: string | undefined; martin: boolean } & Placed) {
+  if ((!onOpen || !workItem) && martin) return null;
   return (
     <div className="need-foot">
-      {onOpen && (
+      {onOpen && workItem && (
         <button type="button" className="linkish" onClick={() => onOpen(workItem)}>
           Open the work item
         </button>
@@ -310,6 +316,36 @@ function MartinsCard({ need, token, onOpen }: { need: Need; token: string } & Pl
   );
 }
 
+/**
+ * A canary paused for Martin: what the analysis judged bad and by how much, in its own words on the station face, and
+ * the Canary panel's own controls, Promote fully past its verdict and Abort, which counts as a rollback. One card for
+ * the release, named by the first work item it carries, or by its version when it carries none.
+ */
+function CanaryCard({ need, admin, onOpen }: { need: CanaryNeed; admin: Admin } & Placed) {
+  const id = useId();
+  const martin = admin.kind === 'martin';
+  const { release } = need;
+  return (
+    <article className="need" {...named(id, need.kicker, onOpen)}>
+      <div className="kick">
+        <b>{need.kicker}</b>
+        <span>
+          {need.label} · Release · {release.weight}% · {need.waited}
+        </span>
+      </div>
+      {onOpen && <h3 id={id}>{need.title}</h3>}
+      {need.said.length > 0 && <p className="words">{need.said.join('\n')}</p>}
+      <p className="ev">
+        The analysis judged {shortVersion(release.version)} bad{need.bad && `: ${need.bad}`}. Auto-rollback was off when
+        it was judged, so it waits for {martin ? 'you' : 'Martin'} instead of rolling back. Stop the line still aborts
+        it.
+      </p>
+      <CanaryAnswers r={release} admin={admin} />
+      <Foot workItem={need.workItem} onOpen={onOpen} martin={martin} />
+    </article>
+  );
+}
+
 /** An answer to a flag's card: a button, dashed when it can't be taken now, or a visitor's label, beside what it does. */
 function FlagAnswer({
   label,
@@ -453,13 +489,15 @@ export interface NeedsYouProps {
 
 export function NeedsYou({ needs, flags, admin, app, onOpen, onMoved }: NeedsYouProps) {
   const martin = admin.kind === 'martin';
-  const { holds, answered } = needs;
+  const { holds, canary, answered } = needs;
   // A deploy that is not his to merge yet keeps its card, but does not wait on him.
-  const waiting = holds.filter((need) => need.forMartin).length + flags.needs.length;
-  // Holds and flags together, oldest first.
+  const waiting = holds.filter((need) => need.forMartin).length + flags.needs.length + (canary ? 1 : 0);
+  // Holds, the canary and flags together, oldest first.
+  const none = { hold: undefined, flag: undefined, canary: undefined };
   const cards = [
-    ...holds.map((need) => ({ since: need.since, key: need.hold, hold: need, flag: undefined })),
-    ...flags.needs.map((need) => ({ since: need.since, key: `flag-${need.flag}`, hold: undefined, flag: need })),
+    ...holds.map((need) => ({ ...none, since: need.since, key: need.hold, hold: need })),
+    ...(canary ? [{ ...none, since: canary.since, key: `canary-${canary.release.id}`, canary }] : []),
+    ...flags.needs.map((need) => ({ ...none, since: need.since, key: `flag-${need.flag}`, flag: need })),
   ].sort((a, b) => a.since - b.since);
   return (
     <article className="panel needs" aria-labelledby="needs-title">
@@ -469,8 +507,10 @@ export function NeedsYou({ needs, flags, admin, app, onOpen, onMoved }: NeedsYou
       </div>
       {cards.length ? (
         <div className="needs-list">
-          {cards.map(({ key, hold, flag }) =>
-            flag ? (
+          {cards.map(({ key, hold, flag, canary }) =>
+            canary ? (
+              <CanaryCard key={key} need={canary} admin={admin} onOpen={onOpen} />
+            ) : flag ? (
               <FlagCard
                 key={key}
                 need={flag}
@@ -530,6 +570,7 @@ export function NeedsYou({ needs, flags, admin, app, onOpen, onMoved }: NeedsYou
  */
 export function WaitsOnMartin({
   hold,
+  canary,
   flag,
   row,
   admin,
@@ -537,13 +578,14 @@ export function WaitsOnMartin({
   onMoved,
 }: {
   hold: Need | undefined;
+  canary: CanaryNeed | undefined;
   flag: FlagNeed | undefined;
   row: FlagRow | undefined;
   admin: Admin;
   app: string | undefined;
   onMoved: () => void;
 }) {
-  if (!hold && !flag) return null;
+  if (!hold && !canary && !flag) return null;
   return (
     <section className="sec sheet-needs" aria-labelledby="sheet-needs-title">
       <h3 id="sheet-needs-title">{admin.kind === 'martin' ? 'Needs you' : 'Waiting on Martin'}</h3>
@@ -554,6 +596,7 @@ export function WaitsOnMartin({
           ) : (
             <ReadOnlyCard need={hold} />
           ))}
+        {canary && <CanaryCard key={canary.release.id} need={canary} admin={admin} />}
         {flag && <FlagCard need={flag} row={row} admin={admin} app={app} onMoved={onMoved} />}
       </div>
     </section>

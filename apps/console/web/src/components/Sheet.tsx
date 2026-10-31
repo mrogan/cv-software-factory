@@ -190,7 +190,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose, app, admin
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs as what waits on Martin changes
   useEffect(() => {
     if (document.activeElement === document.body) title.current?.focus({ preventScroll: true });
-  }, [sheet.needs.hold?.hold, sheet.needs.flag?.flag, sheet.needs.flag?.stage.stage]);
+  }, [sheet.needs.hold?.hold, sheet.needs.canary?.release.id, sheet.needs.flag?.flag, sheet.needs.flag?.stage.stage]);
 
   const close = () => {
     if (!motion) return onClose();
@@ -295,6 +295,7 @@ export function Sheet({ sheet, index, count, motion, onStep, onClose, app, admin
             <div className="sheet-main">
               <WaitsOnMartin
                 hold={sheet.needs.hold}
+                canary={sheet.needs.canary}
                 flag={sheet.needs.flag}
                 row={sheet.flag?.row}
                 admin={admin}

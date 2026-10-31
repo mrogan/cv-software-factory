@@ -14,6 +14,10 @@ type Measuring = PayloadOf<'canary.measuring'>;
 export type Failed = PayloadOf<'release.rolled-back'>['failed'][number];
 export type Errored = PayloadOf<'release.errored'>['errored'][number];
 type AbortedBy = PayloadOf<'release.aborted'>['by'];
+/** Who rolled a release back: the analysis by itself, or Martin, aborting a canary it judged bad. */
+export type RolledBackBy = PayloadOf<'release.rolled-back'>['by'];
+/** One measure as the analysis reported it, at a step or a look. */
+export type Measure = Stepped['analysis']['measures'][number];
 /**
  * What stopped a release that neither promoted nor rolled back: Stop the line, Martin, or an analysis that could not
  * judge it.
@@ -42,7 +46,16 @@ export interface Look {
 
 export type End =
   | { kind: 'promoted'; at: number; weight: 100 }
-  | { kind: 'rolled-back'; at: number; weight: number; reason: string; failed: Failed[]; ticket: Signalled | undefined }
+  | {
+      kind: 'rolled-back';
+      at: number;
+      weight: number;
+      reason: string;
+      failed: Failed[];
+      ticket: Signalled | undefined;
+      /** The analysis's own rollback, or Martin's abort of a canary it judged bad and paused for him. */
+      by: RolledBackBy;
+    }
   | { kind: 'errored'; at: number; weight: number; reason: string; errored: Errored[] }
   | { kind: 'aborted'; at: number; weight: number; by: AbortedBy };
 
@@ -100,6 +113,22 @@ export interface Release {
   paused: { at: number; weight: number } | undefined;
   /** Each of Martin's promotions of this attempt, oldest first: when, and the weight it went to. */
   promotions: { at: number; to: number }[];
+  /**
+   * With auto-rollback off, the analysis judged this attempt bad and Argo Rollouts paused it for Martin, while it is in
+   * flight (`judgedBadOf`).
+   */
+  judgedBad: JudgedBad | undefined;
+}
+
+/**
+ * A canary the analysis judged bad with auto-rollback off, paused for Martin: when, at what weight, each measure it
+ * judged bad (inconclusive, as Argo Rollouts calls a bad figure then), and each version's figures at that moment.
+ */
+export interface JudgedBad {
+  at: number;
+  weight: number;
+  measures: Measure[];
+  figures: Stepped['figures'];
 }
 
 /**
@@ -167,6 +196,34 @@ export function sawOf(failed: Failed, reason: string): string {
 }
 
 /**
+ * What the analysis judged bad in a canary paused for Martin, and by how much, in the words a rollback's measure has
+ * (`sawOf`): each version's own figure where the step or look that judged it read them, against its limit.
+ */
+export function judgedWords(j: JudgedBad): string {
+  return j.measures
+    .map((m) => {
+      const f = j.figures;
+      const [unit, canary, baseline] =
+        m.name === 'latency'
+          ? ['ms', f?.canary.p99Ms, f?.baseline.p99Ms]
+          : [
+              '%',
+              f && f.canary.errorRate !== null ? f.canary.errorRate * 100 : null,
+              f && f.baseline.errorRate !== null ? f.baseline.errorRate * 100 : null,
+            ];
+      const series =
+        typeof canary === 'number' && typeof baseline === 'number'
+          ? { label: m.name, unit, stepSeconds: 1, canary: [canary, canary], baseline: [baseline, baseline], at: 0 }
+          : undefined;
+      return sawOf({ ...m, ...(series && { series }) }, '');
+    })
+    .join('; ');
+}
+
+/** The analysis's own words about what it judged bad, each once: Argo Rollouts' message on each measure. */
+export const judgedSaid = (j: JudgedBad) => [...new Set(j.measures.flatMap((m) => (m.message ? [m.message] : [])))];
+
+/**
  * Whether the measures are the background analysis's as each look lands, rather than the latest step's: a release in
  * flight that has recorded a look. A dry run measures nothing, and a history from before the looks were recorded has
  * only its steps.
@@ -212,13 +269,15 @@ export interface LookVerdict {
  * wait for their first run, then say whether a check failed here alone.
  */
 export function lookVerdict(r: Release, name: string): LookVerdict {
+  // Judged bad with auto-rollback off: it waits for Martin, ruled as a failure is.
+  if (r.judgedBad?.measures.some((x) => x.name === name)) return { words: '', kind: 'inconclusive', ruled: true };
   const m = r.measured.at(-1);
   const newest = r.looks.at(-1);
   if (m && newest && m.at > newest.at) {
     const { analysis } = m.stepped;
     const phase =
       analysis.measures.find((x) => x.name === name)?.phase ?? (analysis.measures.length ? 'none' : analysis.phase);
-    return { words: phase === 'successful' ? `passed at ${m.weight}%` : '', kind: phase, ruled: phase === 'failed' };
+    return { words: phase === 'successful' ? `passed at ${m.weight}%` : '', kind: phase, ruled: bad(phase) };
   }
   const look = lookOf(r, name);
   const min = BACKGROUND.minRequests;
@@ -229,9 +288,11 @@ export function lookVerdict(r: Release, name: string): LookVerdict {
   }
   const taken = look?.measures.find((x) => x.name === name);
   if (!taken) return waits(name === 'journeys' ? 'waits for its first run' : `waits for ${min} requests`);
-  if (taken.phase === 'error' || taken.phase === 'inconclusive') return { words: '', kind: taken.phase, ruled: false };
-  const fails = r.looks.filter((l) => l.measures.some((x) => x.name === name && x.phase === 'failed')).length;
-  const failed = taken.phase === 'failed';
+  if (taken.phase === 'error') return { words: '', kind: taken.phase, ruled: false };
+  // With auto-rollback off, a bad look is inconclusive rather than failed, and counts towards the pause as a failed
+  // look counts towards the rollback.
+  const fails = r.looks.filter((l) => l.measures.some((x) => x.name === name && bad(x.phase))).length;
+  const failed = bad(taken.phase);
   let words: string;
   if (name === 'journeys') words = failed ? 'worse here' : 'none worse here';
   else if (taken.value === null || taken.limit === null) {
@@ -241,6 +302,12 @@ export function lookVerdict(r: Release, name: string): LookVerdict {
   if (!fails) return { words, kind: 'running', ruled: false };
   return { words: `${words} · ${fails} of ${BACKGROUND.failures}`, kind: 'warm', ruled: true };
 }
+
+/**
+ * Whether a measure's phase judged the canary bad: failed, or, with auto-rollback off, inconclusive, which is how Argo
+ * Rollouts calls a bad figure then (`apps/factory/src/release/analysis.ts`).
+ */
+export const bad = (phase: Measure['phase'] | 'none') => phase === 'failed' || phase === 'inconclusive';
 
 /** How a figure is written, and counted up: requests, a share of 5xx answers, a p99, or words that do not count. */
 export type Unit = 'requests' | 'share' | 'ms' | 'none';
@@ -282,7 +349,7 @@ export function pointsOf(r: Release, name: 'errors' | 'latency'): Point[] {
     if (canary === null || baseline === null) return [];
     const [c, b] = name === 'latency' ? [canary, baseline] : [canary * 100, baseline * 100];
     const limit = c - (taken.value - taken.limit) * scale;
-    return [{ at: l.at, canary: c, baseline: b, limit, failed: taken.phase === 'failed' }];
+    return [{ at: l.at, canary: c, baseline: b, limit, failed: bad(taken.phase) }];
   });
 }
 
@@ -366,6 +433,8 @@ interface Building extends Release {
   seen: Set<string>;
   /** How far its looks' own times are from the events’ clock (`lookedShift`), from its first look. */
   shift: number | undefined;
+  /** When the line first held a work item this attempt carries for Martin, as a canary paused for him. */
+  heldAt: number | undefined;
 }
 
 /**
@@ -460,6 +529,14 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
       if (newest && !newest.end) newest.stoppedAt ??= at;
       continue;
     }
+    // The line's hold of a work item a canary paused for Martin carries: it says so of the release, as its own events
+    // do, should they not.
+    if (event.type === 'hold.started') {
+      const { cause, release } = event.payload;
+      const r = cause === 'canary' && release ? byId.get(release) : undefined;
+      if (r && !r.end) r.heldAt ??= at;
+      continue;
+    }
     if (event.type === 'work-item.reopened' && event.work_item) {
       reopened.add(event.work_item);
       continue;
@@ -513,10 +590,12 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
         retried,
         paused: undefined,
         promotions: [],
+        judgedBad: undefined,
         held: [],
         stoppedAt: undefined,
         seen: new Set(),
         shift: undefined,
+        heldAt: undefined,
       });
       continue;
     }
@@ -570,8 +649,8 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
     }
     if (event.type === 'release.promoted') r.end = { kind: 'promoted', at, weight: 100 };
     if (event.type === 'release.rolled-back') {
-      const { weight, reason, failed } = event.payload;
-      r.end = { kind: 'rolled-back', at, weight, reason, failed, ticket: undefined };
+      const { weight, reason, failed, by } = event.payload;
+      r.end = { kind: 'rolled-back', at, weight, reason, failed, ticket: undefined, by };
     }
     // Recorded a pass after Argo Rollouts acted on the abort the Error made: it ended then.
     if (event.type === 'release.errored') {
@@ -582,16 +661,26 @@ export function releases(events: readonly PublicEvent[], items: readonly ItemSta
     if (event.type === 'release.aborted') r.end = abortedAt(r, Date.parse(event.payload.abortedAt), event.payload.by);
   }
   return [...byId.values()].map((r): Release => {
-    const { listed: _listed, stoppedAt: _stoppedAt, held: _held, seen: _seen, shift: _shift, ...release } = r;
+    const {
+      listed: _listed,
+      stoppedAt: _stoppedAt,
+      held: _held,
+      seen: _seen,
+      shift: _shift,
+      heldAt: _heldAt,
+      ...release
+    } = r;
     if (!r.planned) release.steps = measuredSteps(r);
     const end = endOf(r);
-    const place = position(r, end?.at ?? t);
+    const judged = end || r.dryRun ? undefined : judgedBadOf(r);
+    // Paused for Martin, it waits where it is: no step's pause runs out, and no look is due.
+    const place = { ...position(r, end?.at ?? t), ...(judged && { until: undefined, since: undefined }) };
     const ticket = tickets.get(r.id);
     if (end?.kind === 'rolled-back' && ticket) end.ticket = { ...carried(ticket.number), how: ticket.how };
     release.looks = [...r.looks].sort((a, b) => a.at - b.at);
-    const judged = release.looks.findLast((l) => l.measures.some((m) => m.name !== 'journeys'));
-    if (!end && !r.dryRun && judged) release.nextLook = judged.at + BACKGROUND.intervalMs;
-    return { ...release, ...place, weight: end ? end.weight : place.weight, end };
+    const looked = release.looks.findLast((l) => l.measures.some((m) => m.name !== 'journeys'));
+    if (!end && !r.dryRun && !judged && looked) release.nextLook = looked.at + BACKGROUND.intervalMs;
+    return { ...release, ...place, weight: end ? end.weight : place.weight, end, judgedBad: judged };
   });
 }
 
@@ -610,6 +699,41 @@ const RECORDED_WITHIN_MS = 35 * 60_000;
  */
 const lookedShift = (taken: number, recorded: number) =>
   taken <= recorded && recorded - taken <= RECORDED_WITHIN_MS ? 0 : recorded - taken;
+
+/**
+ * Whether the analysis judged an attempt in flight bad, with auto-rollback off, as the line's watch reads it from the
+ * Rollout (`apps/factory/src/release/watch.ts`'s `judgedBadOf`): a step's analysis that ended inconclusive on a measure,
+ * which pauses the canary at once; or a measure of the background analysis inconclusive on as many of the attempt's
+ * looks as fail a release (`BACKGROUND.failures`), since its `inconclusiveLimit` matches its `failureLimit`, and Argo
+ * Rollouts counts both across the run. A single inconclusive look pauses nothing: it is warm, as a failed look is.
+ * Whichever came first is when it was judged.
+ */
+function judgedBadOf(r: Building): JudgedBad | undefined {
+  const step = r.measured.findLast((m) => m.stepped.analysis.measures.some((x) => x.phase === 'inconclusive'));
+  const stepped: JudgedBad | undefined = step && {
+    at: step.at,
+    weight: step.weight,
+    measures: step.stepped.analysis.measures.filter((x) => x.phase === 'inconclusive'),
+    figures: step.stepped.figures,
+  };
+  let looked: JudgedBad | undefined;
+  const counts = new Map<string, number>();
+  for (const look of [...r.looks].sort((a, b) => a.at - b.at)) {
+    for (const m of look.measures) if (m.phase === 'inconclusive') counts.set(m.name, (counts.get(m.name) ?? 0) + 1);
+    const judged = look.measures.filter(
+      (m) => m.phase === 'inconclusive' && (counts.get(m.name) ?? 0) >= BACKGROUND.failures,
+    );
+    if (judged.length) {
+      looked = { at: look.at, weight: look.weight, measures: judged, figures: look.figures };
+      break;
+    }
+  }
+  if (stepped && looked) return stepped.at <= looked.at ? stepped : looked;
+  const judged = stepped ?? looked;
+  if (judged || r.heldAt === undefined) return judged;
+  // Held by the line, with nothing recorded that says what was judged bad: when it held it, where it was then.
+  return { at: r.heldAt, weight: position(r, r.heldAt).weight, measures: [], figures: undefined };
+}
 
 /** A release that recorded no steps: the steps measured stand in, then all of the traffic. */
 const measuredSteps = (r: Building) =>
@@ -633,7 +757,8 @@ const abortedAt = (r: Building, at: number, by: AbortedBy): End => ({
 export function canaryView(all: readonly Release[], t: number): CanaryView {
   const release = all.at(-1);
   if (!release) return { state: 'none' };
-  const waits = !release.dryRun && (release.end?.kind === 'aborted' || release.end?.kind === 'errored');
+  // One that was stopped or rolled back waits for Martin's retry, or the next deploy.
+  const waits = !release.dryRun && release.end !== undefined && release.end.kind !== 'promoted';
   return { state: !release.end || waits || t - release.end.at <= SHOWN_MS ? 'shown' : 'idle', release };
 }
 
@@ -655,9 +780,11 @@ export interface Control {
 
 /**
  * Martin's controls of a release, as it stands: in flight, promote it to the next step's weight (when there is a step
- * before all of the traffic) or fully, pause or resume it, and abort it; stopped (by him, with the line, or by an
- * analysis error), retry it, but not while the line is stopped, which starts no canary. Promoted, rolled back or a dry
- * run's: none. There is never a rollback: that is the analysis's alone.
+ * before all of the traffic) or fully, pause or resume it, and abort it; paused for him as judged bad (auto-rollback
+ * off), only promote it fully, past the analysis's verdict, or abort it, which counts as a rollback, since the admin
+ * service refuses the rest; stopped (by him, with the line, or by an analysis error) or rolled back, retry it, but not
+ * while the line is stopped, which starts no canary. Promoted, or a dry run's: none. There is never a rollback of his
+ * own: that is the analysis's, or his abort of a canary it judged bad.
  */
 export function controlsOf(r: Release, lineStopped: boolean): Control[] {
   if (r.dryRun) return [];
@@ -670,9 +797,17 @@ export function controlsOf(r: Release, lineStopped: boolean): Control[] {
     ...(off && { off }),
   });
   if (r.end) {
-    if (r.end.kind !== 'aborted' && r.end.kind !== 'errored') return [];
+    if (r.end.kind === 'promoted') return [];
     const off = lineStopped ? 'Start the line first: a stopped line starts no canary.' : undefined;
     return [control('retry', 'Retry', `Starts ${version}’s canary again from its first step.`, off)];
+  }
+  const back = `Sends all the traffic back to ${shortVersion(r.previous)}.`;
+  if (r.judgedBad) {
+    const fails = r.items.length ? `${failsRelease(r)}, and ` : '';
+    return [
+      control('promote-fully', 'Promote fully', `Gives ${version} all the traffic now, past the analysis’s verdict.`),
+      control('abort', 'Abort', `${back} It counts as a rollback: ${fails}triage gets the analysis’s verdict.`),
+    ];
   }
   const next = r.steps.slice(r.step + 1).find((s) => s.weight > r.weight && s.weight < 100)?.weight;
   return [
@@ -696,13 +831,13 @@ export function controlsOf(r: Release, lineStopped: boolean): Control[] {
     r.paused
       ? control('resume', 'Resume', 'Gives the canary back to its analysis, to move on by itself again.')
       : control('pause', 'Pause', `Holds the canary at ${r.weight}% until Martin resumes it.`),
-    control(
-      'abort',
-      'Abort',
-      `Sends all the traffic back to ${shortVersion(r.previous)}. Nothing failed, so it opens no ticket.`,
-    ),
+    control('abort', 'Abort', `${back} Nothing failed, so it opens no ticket.`),
   ];
 }
+
+/** The work items a rollback fails at Release: "#1302 fails Release", "#1302 and #1304 fail Release". */
+export const failsRelease = (r: Release) =>
+  `${r.items.map((i) => `#${i.number}`).join(' and ')} ${r.items.length > 1 ? 'fail' : 'fails'} Release`;
 
 /** The release in flight: the newest, while it has not ended. */
 export const inFlight = (all: readonly Release[]) => {
