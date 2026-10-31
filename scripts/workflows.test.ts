@@ -19,10 +19,14 @@ const WITH_A_SECRET: Record<string, string[]> = {
   'review.yml': ['workflow_run', 'workflow_call'],
 };
 
-/** The files each of those checks out: the toolchain's pins and its one script. */
+/**
+ * The files each of those checks out, and copilot-held-runs.yml, whose token may delete runs: the toolchain's pins and
+ * its one script.
+ */
 const CHECKED_OUT: Record<string, string[]> = {
   'drift-check.yml': ['mise.toml', 'mise.lock', 'scripts/github-settings.ts'],
   'review.yml': ['mise.toml', 'mise.lock', 'scripts/review-gate.ts'],
+  'copilot-held-runs.yml': ['mise.toml', 'mise.lock', 'scripts/copilot-held-runs.ts'],
 };
 
 interface Step {
@@ -33,6 +37,8 @@ interface Step {
 }
 interface Job {
   'runs-on'?: unknown;
+  if?: string;
+  permissions?: unknown;
   env?: Record<string, unknown>;
   name?: string;
   uses?: string;
@@ -42,6 +48,7 @@ interface Job {
 }
 interface Workflow {
   on: string | string[] | Record<string, unknown>;
+  permissions?: unknown;
   env?: Record<string, unknown>;
   jobs: Record<string, Job>;
 }
@@ -146,8 +153,8 @@ describe('every workflow', () => {
     }
   });
 
-  it('checks out nothing but main’s own files where a secret is: its sparse copy at the workflow’s commit', () => {
-    for (const file of Object.keys(WITH_A_SECRET)) {
+  it('checks out nothing but main’s own files where a secret or a write to Actions is: a sparse copy at its commit', () => {
+    for (const file of Object.keys(CHECKED_OUT)) {
       const steps = Object.values(read(file).jobs).flatMap((job) => job.steps ?? []);
       const checkouts = steps.filter((s) => s.uses?.startsWith('actions/checkout@'));
       expect(checkouts, file).toHaveLength(1);
@@ -173,12 +180,36 @@ describe('every workflow', () => {
   });
 
   it('gives the token no more than a read of the contents in the drift check, whose reads are the App’s', () => {
-    const workflow = read('drift-check.yml') as Workflow & { permissions?: unknown };
+    const workflow = read('drift-check.yml');
     expect(workflow.permissions).toEqual({});
     expect(Object.keys(workflow.jobs)).toEqual(['drift-check']);
-    expect(Object.values(workflow.jobs).map((job) => (job as { permissions?: unknown }).permissions)).toEqual([
-      { contents: 'read' },
-    ]);
+    expect(Object.values(workflow.jobs).map((job) => job.permissions)).toEqual([{ contents: 'read' }]);
+  });
+
+  it('lets only copilot-held-runs.yml write Actions, which can delete any run', () => {
+    const writes = (permissions: unknown) =>
+      permissions === 'write-all' ||
+      (typeof permissions === 'object' && permissions !== null && 'actions' in permissions
+        ? (permissions as { actions: unknown }).actions === 'write'
+        : false);
+    const writing = workflows.filter(
+      ({ workflow }) => writes(workflow.permissions) || Object.values(workflow.jobs).some((j) => writes(j.permissions)),
+    );
+    expect(writing.map(({ file }) => file)).toEqual(['copilot-held-runs.yml']);
+  });
+
+  it('runs copilot-held-runs.yml on main alone, from nothing a pull request starts, its token able to do no more', () => {
+    const workflow = read('copilot-held-runs.yml');
+    expect(triggers(workflow).sort()).toEqual(['schedule', 'workflow_dispatch']);
+    expect(workflow.permissions).toEqual({});
+    expect(workflow.env).toBeUndefined();
+    const jobs = Object.values(workflow.jobs);
+    expect(jobs).toHaveLength(1);
+    // Deleting a run needs Actions write; the checkout, a read of this public repository's contents.
+    expect(jobs[0]?.permissions).toEqual({ actions: 'write', contents: 'read' });
+    expect(jobs[0]?.if).toBe("github.ref == 'refs/heads/main'");
+    const runs = (jobs[0]?.steps ?? []).filter((step) => step.run !== undefined).map((step) => step.run);
+    expect(runs).toEqual(['node scripts/copilot-held-runs.ts']);
   });
 });
 

@@ -36,11 +36,11 @@
 # When the check is missing, the pull request waits, as it does for a failing one: the queue takes it only once every
 # required check has passed. That is how each of these ends:
 #
-# - A review by Copilot, which GitHub treats as an outside contributor: its run of review-requested.yml is held for a
-#   maintainer's approval, and when its pull request closes, the run that one starts here. GitHub holds them before it
-#   reads any job, so no condition here can stop them. Only Martin's reviews count, so neither has anything to judge:
-#   approved, the first only asks the gate to look again, and the second finds the pull request closed. Both are safe
-#   to leave, and nothing waits on them.
+# - A review by Copilot that leaves comments, which GitHub treats as an outside contributor's: its run of
+#   review-requested.yml is held for a maintainer's approval, and when its pull request closes, the run that one starts
+#   here. GitHub holds them before it reads any job, so no condition here can stop them. Only Martin's reviews count,
+#   so neither has anything to judge, and nothing waits on them; a re-run keeps Copilot as the actor, so its run here is
+#   held in turn. copilot-held-runs.yml deletes both every half hour, so neither leaves a red cross for long.
 # - A pull request from a first-time contributor's fork: its runs of review-requested.yml are held for approval, and
 #   the run each starts here may be held too, as Copilot's is. It has no `review` check until Martin approves them, and
 #   his approval of the pull request reaches the gate once he approves that review's runs too, or re-runs this

@@ -32,7 +32,9 @@ The rulesets, environments' branch policies and the names of their secrets need 
 
 ## The workflows
 
-`scripts/workflows.test.ts` reads every workflow and fails if one runs on `pull_request_target` or on a runner that is not GitHub-hosted, or if any but `review.yml` and `drift-check.yml` holds a secret. Those two take theirs from an environment only `main` may use, only that environment's key, and check out nothing but a sparse copy of `main`'s own files at the workflow's commit.
+`scripts/workflows.test.ts` reads every workflow and fails if one runs on `pull_request_target` or on a runner that is not GitHub-hosted, or if any but `review.yml` and `drift-check.yml` holds a secret. Those two take theirs from an environment only `main` may use, only that environment's key, and check out nothing but a sparse copy of `main`'s own files at the workflow's commit. It fails too if any but `copilot-held-runs.yml` may write Actions, which can delete any run.
+
+`copilot-held-runs.yml` deletes, every half hour and by hand, the runs of `review-requested.yml` and `review.yml` that GitHub held for Copilot's reviews (ADR 0014), each of which would leave a red cross on a pull request's commit or on `main`. `scripts/copilot-held-runs.ts` deletes a run only of those two workflows, by their files, that Copilot's account, by its id, login and type, started and triggered, held or failed, with no job; a fork's held run waits for Martin's approval as before. It runs on `main` alone, with the workflow's own token, which may write Actions and read the contents, and no secret. It looks back as far as the runs go, so its first run deletes every held run left before it.
 
 ## Also
 
