@@ -1074,7 +1074,7 @@ describe('the release controls', () => {
   });
 
   it('takes only Promote fully and Abort of a canary the analysis judged bad and paused for Martin', async () => {
-    const held = { current: CANARY, stable: STABLE, stepIndex: 5, weight: 50, pausedFor: 'InconclusiveAnalysis' };
+    const held = { current: CANARY, stable: STABLE, stepIndex: 5, weight: 50, pausedFor: 'InconclusiveAnalysisRun' };
     const kube = await withRollout(held);
     const { browser, passkey } = await signedIn();
     expect((await stepUp(browser, passkey)).status).toBe(200);
@@ -2266,6 +2266,53 @@ describe('Needs you', () => {
       (await browser.post(`/admin/holds/${other.workItem}/answer`, { hold: other.hold, words: 'x'.repeat(301) }))
         .status,
     ).toBe(400);
+  });
+
+  it('takes no answer of a canary’s hold, and finds it ended with its release, as the line does', async () => {
+    const { browser } = await signedIn();
+    for (const end of ['release.promoted', 'release.rolled-back'] as const) {
+      const { workItem } = await held('failures');
+      const release = { release: '68ff668868-4', version: 'v0.9.5', previous: 'v0.9.4', watched: true, dryRun: false };
+      const hold = event(workItem, 'hold.started', 'rollouts', {
+        stage: 'release',
+        kind: 'held',
+        cause: 'canary',
+        reason: 'The analysis judged the canary bad',
+        release: release.release,
+      });
+      await append(db.as.line, [
+        event(workItem, 'pull-request.merged', 'martin', { number: 8, commit: 'c'.repeat(40), by: 'martin' }),
+        event(workItem, 'release.started', 'rollouts', {
+          ...release,
+          image: { digest: `sha256:${'a'.repeat(64)}`, signed: true, admitted: true },
+          steps: null,
+        }),
+        hold,
+      ]);
+      expect(await browser.post(`/admin/holds/${workItem}/reject`, { hold: hold.id }), end).toMatchObject({
+        status: 422,
+        body: { refused: 'answer' },
+      });
+      await append(db.as.line, [
+        end === 'release.promoted'
+          ? event(workItem, end, 'rollouts', release)
+          : event(workItem, end, 'martin', {
+              release: release.release,
+              version: release.version,
+              restored: release.previous,
+              weight: 50,
+              reason: 'Judged bad',
+              failed: [],
+              dryRun: false,
+              by: 'martin',
+            }),
+      ]);
+      expect(await browser.post(`/admin/holds/${workItem}/reject`, { hold: hold.id }), end).toMatchObject({
+        status: 409,
+        body: { refused: 'hold', message: expect.stringContaining('has no hold waiting now') },
+      });
+      expect(await answers(workItem)).toEqual([]);
+    }
   });
 
   it('asks for the passkey again to approve a guardrail’s hold, decided by the stored cause, and for nothing else', async () => {

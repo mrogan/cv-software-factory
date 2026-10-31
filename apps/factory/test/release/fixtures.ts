@@ -45,7 +45,7 @@ export interface RolloutState {
   weight?: number;
   conditions?: { type: string; status: string; reason?: string; message?: string }[];
   /**
-   * Why the controller paused the canary, as Argo Rollouts writes it: `InconclusiveAnalysis` when a run of it ended
+   * Why the controller paused the canary, as Argo Rollouts writes it: `InconclusiveAnalysisRun` when a run of it ended
    * Inconclusive, with `controllerPause` set beside it.
    */
   pausedFor?: string;

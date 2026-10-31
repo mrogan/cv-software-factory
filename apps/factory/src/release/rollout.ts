@@ -69,7 +69,7 @@ export const rolloutSchema = z.object({
         .optional(),
       conditions: z.array(condition).default([]),
       /**
-       * Why the controller paused the canary, each with when: `InconclusiveAnalysis` when an analysis run of it ended
+       * Why the controller paused the canary, each with when: `InconclusiveAnalysisRun` when an analysis run of it ended
        * Inconclusive, which with auto-rollback off is a canary the analysis judged bad, paused for Martin. A promotion
        * clears it, and an abort drops it.
        */
@@ -160,7 +160,7 @@ export interface Observed {
   plan: CanaryStep[] | null;
   stepIndex: number;
   /**
-   * Whether the controller paused the canary on an analysis run that ended Inconclusive (`InconclusiveAnalysis`): with
+   * Whether the controller paused the canary on an analysis run that ended Inconclusive (`InconclusiveAnalysisRun`): with
    * auto-rollback off, judged bad, and paused for Martin to promote fully or abort.
    */
   inconclusivePause: boolean;
@@ -169,7 +169,7 @@ export interface Observed {
 }
 
 /** The reason the controller gives a pause for an analysis run that ended Inconclusive. */
-export const INCONCLUSIVE_PAUSE = 'InconclusiveAnalysis';
+export const INCONCLUSIVE_PAUSE = 'InconclusiveAnalysisRun';
 
 const DIGEST = /@(sha256:[0-9a-f]{64})$/;
 

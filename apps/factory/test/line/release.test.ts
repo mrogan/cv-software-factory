@@ -774,7 +774,7 @@ describe('a rollback, as signals to triage', () => {
       stable: STABLE,
       stepIndex: 2,
       weight: 25,
-      pausedFor: 'InconclusiveAnalysis',
+      pausedFor: 'InconclusiveAnalysisRun',
     });
     await it.tick();
     await it.tick();
@@ -788,7 +788,15 @@ describe('a rollback, as signals to triage', () => {
     const abortedAt = new Date(now + 4 * 60_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
     now += 4 * 60_000 + 20_000;
     kube.rollout = rollout({ current: CANARY, stable: STABLE, stepIndex: 0, abort: true, abortedAt });
-    kube.runs = [...terminated(), judged];
+    // The abort terminates the background run, made when the release started, before the verdict.
+    kube.runs = [
+      ...background.map((r) => ({
+        ...r,
+        spec: { ...r.spec, terminate: true },
+        status: { ...r.status, phase: 'Successful', message: 'Run Terminated' },
+      })),
+      judged,
+    ];
     await it.tick();
     expect(await typesOf(carried)).toEqual([
       'release.started by rollouts',
