@@ -150,18 +150,23 @@ jobs:
       packages: write
     strategy:
       matrix:
-        image: [factory, factory-browser, factory-runner]
+        # A short base key, so GitHub names each build "factory (browser, arm64)", whole in a run's graph; include gives
+        # each part its image's full name.
+        part: [factory, browser, runner]
         arch: [amd64, arm64]
         include:
-          - image: factory
+          - part: factory
+            image: factory
             file: apps/factory/Dockerfile
             bases: factory
             title: Software Factory workers
-          - image: factory-browser
+          - part: browser
+            image: factory-browser
             file: apps/factory/Dockerfile.browser
             bases: browser
             title: Software Factory browser workers
-          - image: factory-runner
+          - part: runner
+            image: factory-runner
             file: apps/runner/Dockerfile
             bases: runner
             title: Software Factory runner
