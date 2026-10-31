@@ -680,7 +680,8 @@ function forTarget(
 
 /**
  * The hold of a work item a canary paused for Martin carries: what the analysis judged bad, by how much, in its words.
- * His controls are the Canary panel's, promoting it fully or aborting it, and an abort is a rollback.
+ * His controls are the Canary panel's, promoting it fully or aborting it, and an abort is a rollback. Its run has ended,
+ * so switching auto-rollback on again judges nothing anew: the canary stays paused for him, and the reason says so.
  */
 function canaryHold(
   o: Observed,
@@ -695,7 +696,7 @@ function canaryHold(
     .map((m) => (m.value !== null && m.limit !== null ? `${m.name} ${m.value} against at most ${m.limit}` : m.name));
   const said = words(judged.last.status.message, 120);
   const reason = cutTo(
-    `With auto-rollback off, the analysis judged the canary of ${short(started.version)} bad at ${weight}% (${bad.join(', ')})${said ? `: ${said}` : ''}. It keeps its share of the traffic until Martin promotes it fully or aborts it, which rolls it back`,
+    `With auto-rollback off, the analysis judged the canary of ${short(started.version)} bad at ${weight}% (${bad.join(', ')}). It keeps its share of the traffic until Martin promotes it fully or aborts it, which rolls it back; switching auto-rollback on again leaves it paused${said ? `. The analysis said: ${said}` : ''}`,
     300,
   );
   return {

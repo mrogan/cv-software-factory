@@ -341,7 +341,7 @@ export const HOLD_WORDS: Record<HoldCause, { summary: string; description: strin
   canary: {
     summary: 'waits for you: a canary paused',
     description:
-      'With auto-rollback off, the analysis judged its canary bad, and it keeps its share of the traffic until you promote it fully or abort it.',
+      'With auto-rollback off, the analysis judged its canary bad, and it keeps its share of the traffic until you promote it fully or abort it: switching auto-rollback on again leaves it paused.',
   },
   verify: {
     summary: 'waits for you: Verify asks',

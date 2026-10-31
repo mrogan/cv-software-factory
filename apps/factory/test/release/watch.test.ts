@@ -818,7 +818,7 @@ describe('a canary the analysis judged bad, with auto-rollback off', () => {
         kind: 'held',
         cause: 'canary',
         release: releaseOf(CANARY),
-        reason: `With auto-rollback off, the analysis judged the canary of ${commitOf(CANARY).slice(0, 7)} bad at 50% (errors 0.0213 against at most 0.01): ${STEP_MESSAGE}. It keeps its share of the traffic until Martin promotes it fully or aborts it, which rolls it back`,
+        reason: `With auto-rollback off, the analysis judged the canary of ${commitOf(CANARY).slice(0, 7)} bad at 50% (errors 0.0213 against at most 0.01). It keeps its share of the traffic until Martin promotes it fully or aborts it, which rolls it back; switching auto-rollback on again leaves it paused. The analysis said: ${STEP_MESSAGE}`,
       },
     ]);
     // Read again, or with Martin's own pause beside it: held already.
