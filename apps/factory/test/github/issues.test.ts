@@ -17,6 +17,7 @@ import {
   openedBy,
   outsideIssuesWatch,
 } from '../../src/github/issues.ts';
+import { RefusalRecorder } from '../../src/github/refusals.ts';
 import { createWorkerServer } from '../../src/github/server.ts';
 import { GitHubWorker } from '../../src/github/worker-client.ts';
 import { closeIssue } from '../../src/line/issues.ts';
@@ -141,12 +142,15 @@ describe('the issue guard', () => {
     expect(comments.get(140)).toEqual([{ body: OUTSIDE_REPLY }]);
   });
 
-  it('keeps each refusal as a valid action.refused in the artifact store, and logs its hash', async () => {
+  it('keeps each refusal as a valid action.refused by its guard in the artifact store, and logs its hash', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'refusals-'));
     const logged: Record<string, unknown>[] = [];
     const log = pino({ level: 'warn' }, { write: (line: string) => void logged.push(JSON.parse(line)) });
     const { github: gh } = github();
-    const guard = new IssueGuard({ openedBy: openedBy(gh), artifacts: new DiskArtifacts(dir), log, now: AT });
+    const guard = new IssueGuard({
+      openedBy: openedBy(gh),
+      recorder: new RefusalRecorder({ artifacts: new DiskArtifacts(dir), log, now: AT }),
+    });
     const refused = await new LiveActions(gh, { guard })
       .closeIssue(REPO, 120, 'not_planned')
       .catch((error: unknown) => error);
@@ -158,19 +162,21 @@ describe('the issue guard', () => {
       number: 120,
       at: '2026-10-29T12:00:00.000Z',
       payload: {
-        mechanism: 'scope-fence',
+        mechanism: 'github-guard',
         action: `Close issue #120 in ${REPO}`,
         output: `${REPO}#120 was opened by user ${MARTIN}, not the factory's App: the factory acts only on the issues and pull requests it opened (guardrail 10).`,
         guardrails: [10],
       },
     });
     expect(PAYLOADS['action.refused'].safeParse(record.payload).success).toBe(true);
-    expect((refused as IssueRefused).artifact).toMatch(/^[0-9a-f]{64}$/);
-    expect(logged.find((l) => l.msg === 'refused an issue the App did not open')).toMatchObject({
-      action: 'closeIssue',
-      issue: 120,
-      openedBy: MARTIN,
-      artifact: (refused as IssueRefused).artifact,
+    const kept = (refused as IssueRefused).refusal;
+    expect(kept?.record).toMatch(/^[0-9a-f]{64}$/);
+    expect(await readdir(dir)).toEqual([kept?.record]);
+    expect(logged.find((l) => l.msg === 'refused: recorded as action.refused')).toMatchObject({
+      mechanism: 'github-guard',
+      cause: 'issue',
+      number: 120,
+      record: kept?.record,
     });
   });
 });
@@ -179,7 +185,10 @@ describe('the guard on pull requests', () => {
   it('updates a pull request the App opened, and refuses, and records, one anyone else opened', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'refusals-'));
     const { github: gh, sent } = github();
-    const guard = new IssueGuard({ openedBy: openedBy(gh), artifacts: new DiskArtifacts(dir), log: quiet, now: AT });
+    const guard = new IssueGuard({
+      openedBy: openedBy(gh),
+      recorder: new RefusalRecorder({ artifacts: new DiskArtifacts(dir), log: quiet, now: AT }),
+    });
     const actions = new LiveActions(gh, { guard });
     await actions.updatePullRequest(REPO, 17, { title: 'fix(search): escape the quote', body: 'Described.' });
     await expect(actions.updatePullRequest(REPO, 121, { body: 'Rewritten.' })).rejects.toBeInstanceOf(IssueRefused);
@@ -223,7 +232,10 @@ describe('the guard on pull requests', () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
     const { github: gh, sent } = github();
     const artifacts = new DiskArtifacts(dir);
-    const guard = new IssueGuard({ openedBy: openedBy(gh), artifacts, log: quiet, now: AT });
+    const guard = new IssueGuard({
+      openedBy: openedBy(gh),
+      recorder: new RefusalRecorder({ artifacts, log: quiet, now: AT }),
+    });
     const actions = new DryRunActions(artifacts, quiet, AT, undefined, guard);
     const pr = await actions.openPullRequest(REPO, { head: 'factory/1001-cart', base: 'main', title: 't', body: 'b' });
     await actions.updatePullRequest(REPO, pr.number, { body: 'Described.' });
@@ -246,7 +258,10 @@ describe('the issue guard in a dry run', () => {
     const dir = await mkdtemp(join(tmpdir(), 'dry-run-'));
     const { github: gh, sent } = github();
     const artifacts = new DiskArtifacts(dir);
-    const guard = new IssueGuard({ openedBy: openedBy(gh), artifacts, log: quiet, now: AT });
+    const guard = new IssueGuard({
+      openedBy: openedBy(gh),
+      recorder: new RefusalRecorder({ artifacts, log: quiet, now: AT }),
+    });
     const actions = new DryRunActions(artifacts, quiet, AT, undefined, guard);
     return { dir, sent, actions, guard, artifacts };
   }
@@ -311,7 +326,7 @@ describe('the issue guard over HTTP, as the line asks', () => {
       quiet,
       AT,
       undefined,
-      new IssueGuard({ openedBy: openedBy(gh), artifacts, log: quiet, now: AT }),
+      new IssueGuard({ openedBy: openedBy(gh), recorder: new RefusalRecorder({ artifacts, log: quiet, now: AT }) }),
     );
     const server = createWorkerServer({
       actions: made,
@@ -329,9 +344,9 @@ describe('the issue guard over HTTP, as the line asks', () => {
       body: JSON.stringify({ repo: REPO, number: 120, reason: 'not_planned' }),
     });
     expect(answer.status).toBe(403);
-    const body = (await answer.json()) as { error: string; message: string; artifact: string };
+    const body = (await answer.json()) as { error: string; message: string; refusal: { record: string } };
     expect(body).toMatchObject({ error: 'issue-refused', message: expect.stringContaining('guardrail 10') });
-    expect(JSON.parse(await readFile(join(dir, body.artifact), 'utf-8'))).toMatchObject({
+    expect(JSON.parse(await readFile(join(dir, body.refusal.record), 'utf-8'))).toMatchObject({
       type: 'action.refused',
       number: 120,
     });
@@ -461,7 +476,10 @@ describe('the watch of new issues', () => {
     const list = listed([{ number: 130, by: SOMEONE }]);
     const { github: gh, sent } = github([list.route]);
     const artifacts = new DiskArtifacts(dir);
-    const guard = new IssueGuard({ openedBy: openedBy(gh), artifacts, log: quiet, now: AT });
+    const guard = new IssueGuard({
+      openedBy: openedBy(gh),
+      recorder: new RefusalRecorder({ artifacts, log: quiet, now: AT }),
+    });
     const watch = outsideIssuesWatch(gh, REPO, new DryRunActions(artifacts, quiet, AT, undefined, guard), quiet);
     await watch();
     await watch();

@@ -177,7 +177,12 @@ export class GitHub {
               ? 'rate-limited'
               : // Most others are a request that does not fit the state it found: a stale expected head, for one.
                 'conflict';
-      throw new GitHubError(kind, String(first.message ?? first.type ?? 'GraphQL error'));
+      // GraphQL answers its FORBIDDEN, REST's 403, with a 200: it carries 403, so it reads as GitHub refusing the token.
+      throw new GitHubError(
+        kind,
+        String(first.message ?? first.type ?? 'GraphQL error'),
+        kind === 'refused' ? 403 : undefined,
+      );
     }
     return parse(schema, answer?.data, 'GraphQL');
   }

@@ -1,7 +1,8 @@
 /**
  * The traffic generator's signing key, as `make share-key` makes it: an Ed25519 key pair, whose private half goes to
  * the generator's Secret and whose public half goes to the app's ConfigMap `share-key`. Each passes through a pipe,
- * never a file or a command line.
+ * never a file or a command line. `make refusal-key` makes the GitHub worker's key for signing its refusals with it the
+ * same way (the Secret `refusal-signing-key`, and the ConfigMap `refusal-key` the line reads).
  *
  *     node scripts/share-key.ts new | kubectl -n factory create secret generic share-signing-key …
  *     kubectl … get secret share-signing-key … | node scripts/share-key.ts public | kubectl -n website create configmap …

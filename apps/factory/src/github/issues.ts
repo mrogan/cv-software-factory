@@ -5,10 +5,10 @@
  *
  * - **The guard.** Any action on an issue or pull request the App did not open (commenting, labelling, closing,
  *   reopening; updating, describing, readying or drafting, reviewing, resolving threads) is refused before GitHub is
- *   asked to change anything, whoever asks: the line through the worker's step API, or a watch. Each refusal is kept as an
- *   `action.refused` record in the artifact store, logged with its hash, and the action fails with `IssueRefused`,
- *   which the worker answers 403, as GitHub answers an issue the App may not change. A pull request is an issue to
- *   GitHub, so one the App opened passes, as its issues do.
+ *   asked to change anything, whoever asks: the line through the worker's step API, or a watch. Each refusal is kept,
+ *   logged and signed as `github-guard` (`refusals.ts`), and the action fails with `IssueRefused`, carrying it, which
+ *   the worker answers 403, as GitHub answers an issue the App may not change. A pull request is an issue to GitHub,
+ *   so one the App opened passes, as its issues do.
  * - **The reply.** An issue opened by anyone but Martin or the App gets one comment, `OUTSIDE_REPLY`, the one
  *   exception the guard makes, and only with those words: it echoes nothing of the issue, so nothing anyone writes
  *   in one is repeated by the App. Nothing else is done to it.
@@ -20,14 +20,13 @@
  * People are known by their numeric ids, which an account keeps when it is renamed, never by their logins.
  */
 
-import type { PayloadOf } from '@software-factory/events';
-import { PAYLOADS } from '@software-factory/events/schemas';
-import type { ArtifactStore } from '@software-factory/store';
 import type { Logger } from 'pino';
 import { z } from 'zod';
+import type { SignedRefusal } from '../signed-refusals.ts';
 import type { Actions } from './actions.ts';
 import { type GitHub, GitHubError } from './client.ts';
 import type { Watch } from './poller.ts';
+import type { RefusalRecorder } from './refusals.ts';
 
 /** Martin's GitHub account (`mrogan`), as `scripts/review-gate.ts` knows him. */
 export const MARTIN = 6206459;
@@ -83,24 +82,13 @@ export const outside = (by: number | null) => by !== MARTIN && by !== APP_USER;
 
 export class IssueRefused extends Error {
   override name = 'IssueRefused';
-  readonly refusal: PayloadOf<'action.refused'>;
-  /** The record's hash in the artifact store, when there is one. */
-  readonly artifact: string | undefined;
+  /** The refusal as the recorder kept and signed it, when there is a recorder with somewhere to keep it. */
+  readonly refusal: SignedRefusal | undefined;
 
-  constructor(refusal: PayloadOf<'action.refused'>, artifact: string | undefined) {
-    super(refusal.output);
+  constructor(message: string, refusal: SignedRefusal | undefined) {
+    super(message);
     this.refusal = refusal;
-    this.artifact = artifact;
   }
-}
-
-/** A refusal as the artifact store keeps it: an `action.refused` payload, and where and when. */
-export interface RefusalRecord {
-  type: 'action.refused';
-  repo: string;
-  number: number;
-  at: string;
-  payload: PayloadOf<'action.refused'>;
 }
 
 const DOING: Record<IssueAction, string> = {
@@ -119,25 +107,19 @@ const DOING: Record<IssueAction, string> = {
 
 export interface IssueGuardOptions {
   openedBy: OpenedBy;
-  /** Where each refusal is kept, and where it is logged; without either, it is only thrown. */
-  artifacts?: ArtifactStore | undefined;
-  log?: Logger | undefined;
-  now?: () => Date;
+  /** What keeps, logs and signs each refusal (`refusals.ts`); without it, a refusal is only thrown. */
+  recorder?: RefusalRecorder | undefined;
 }
 
 export class IssueGuard {
   readonly #openedBy: OpenedBy;
-  readonly #artifacts: ArtifactStore | undefined;
-  readonly #log: Logger | undefined;
-  readonly #now: () => Date;
+  readonly #recorder: RefusalRecorder | undefined;
   /** Who opened each issue it has asked about, which never changes: asked of GitHub once. */
   readonly #opened = new Map<string, Promise<Opened>>();
 
-  constructor({ openedBy, artifacts, log, now = () => new Date() }: IssueGuardOptions) {
+  constructor({ openedBy, recorder }: IssueGuardOptions) {
     this.#openedBy = openedBy;
-    this.#artifacts = artifacts;
-    this.#log = log;
-    this.#now = now;
+    this.#recorder = recorder;
   }
 
   /**
@@ -149,21 +131,18 @@ export class IssueGuard {
     if (opened.by === APP_USER) return;
     if (action === 'comment' && body === OUTSIDE_REPLY && !opened.pullRequest && outside(opened.by)) return;
     const what = opened.pullRequest ? 'pull request' : 'issue';
-    const payload = PAYLOADS['action.refused'].parse({
-      mechanism: 'scope-fence',
+    const output =
+      `${repo}#${number} was opened by ${opened.by === null ? 'a deleted account' : `user ${opened.by}`}, ` +
+      `not the factory's App: the factory acts only on the issues and pull requests it opened (guardrail 10).`;
+    const refusal = await this.#recorder?.record({
+      mechanism: 'github-guard',
+      cause: 'issue',
+      repo,
+      number,
       action: `${DOING[action]} ${what} #${number} in ${repo}`,
-      output:
-        `${repo}#${number} was opened by ${opened.by === null ? 'a deleted account' : `user ${opened.by}`}, ` +
-        `not the factory's App: the factory acts only on the issues and pull requests it opened (guardrail 10).`,
-      guardrails: [10],
+      output,
     });
-    const record: RefusalRecord = { type: 'action.refused', repo, number, at: this.#now().toISOString(), payload };
-    const artifact = await this.#artifacts?.put(new TextEncoder().encode(`${JSON.stringify(record, null, 2)}\n`));
-    this.#log?.warn(
-      { action, repo, issue: number, openedBy: opened.by, artifact },
-      'refused an issue the App did not open',
-    );
-    throw new IssueRefused(payload, artifact);
+    throw new IssueRefused(output, refusal);
   }
 
   /** Asked once, even by actions asked at once: the read in flight is shared, and forgotten if it fails. */

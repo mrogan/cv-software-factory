@@ -15,12 +15,17 @@
  * A GitHub failure keeps its meaning: refused 403, not found 404, conflict 409, rate limited 429, GitHub or the
  * network failing 502, and a write with no key 503. A patch that will not apply, a branch the factory does not
  * own, or a deploy pull request or image that is not one, is 422. GHCR failing is 502. An issue the App did not
- * open is 403 (`issue-refused`), as GitHub answers one the App may not change, with the hash of its `action.refused`
- * record in the artifact store.
+ * open is 403 (`issue-refused`), as GitHub answers one the App may not change.
+ *
+ * An action refused by the worker's guard (a patch to a protected path, a branch, a deploy, an issue or pull request
+ * not the App's) or by GitHub with a 403 is kept, logged and signed (`refusals.ts`), and the answer carries it as
+ * `refusal`, for the worker that asked to record as `action.refused` (`../signed-refusals.ts`). Its status is as it
+ * would be without it.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { Logger } from 'pino';
 import { z } from 'zod';
+import type { SignedRefusal } from '../signed-refusals.ts';
 import type { Actions } from './actions.ts';
 import { BranchRefused } from './branches.ts';
 import { GitHubError } from './client.ts';
@@ -29,6 +34,7 @@ import { IssueRefused } from './issues.ts';
 import { PatchRefused } from './patches.ts';
 import { plainPath } from './paths.ts';
 import type { Reads } from './reads.ts';
+import type { GitHubRefusal, RefusalRecorder } from './refusals.ts';
 import { DIGEST, RegistryError } from './registry.ts';
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
@@ -295,7 +301,43 @@ export interface WorkerServerOptions {
   repositories: readonly string[];
   /** What the worker says about itself at `/health`. */
   health: () => Record<string, unknown>;
+  /** What keeps, logs and signs each refusal, for the answer to carry; without it, a refusal is answered as it is. */
+  recorder?: RefusalRecorder | undefined;
   log: Logger;
+}
+
+/** In a few words, what an action asked, for its refusal: the action, and the branch or number it named. */
+function asked(name: Name, repo: string, args: Record<string, unknown>): string {
+  const number = numberOf(args);
+  const branch = [args.branch, args.head].find((b) => typeof b === 'string');
+  const on = [number !== null ? `#${number}` : undefined, branch && `branch ${branch}`].filter(Boolean);
+  return `${name}${on.length ? ` ${on.join(' ')}` : ''} in ${repo}`;
+}
+
+/** The issue or pull request an action named, if any. */
+function numberOf(args: Record<string, unknown>): number | null {
+  const pullRequest = args.pullRequest as { number?: unknown } | undefined;
+  const number = typeof args.number === 'number' ? args.number : pullRequest?.number;
+  return typeof number === 'number' ? number : null;
+}
+
+/**
+ * A refusal to keep, from what an action threw: its guard's (a protected path, a branch, a deploy) or GitHub's 403. An
+ * issue the guard refused was kept by the guard. Anything else is a failure, not a refusal.
+ */
+function refusalOf(error: unknown, name: Name, repo: string, args: Record<string, unknown>): GitHubRefusal | undefined {
+  const about = { repo, number: numberOf(args), action: asked(name, repo, args) };
+  if (error instanceof PatchRefused && error.kind === 'protected') {
+    return { ...about, mechanism: 'github-guard', cause: 'protected', output: error.message };
+  }
+  if (error instanceof BranchRefused)
+    return { ...about, mechanism: 'github-guard', cause: 'branch', output: error.message };
+  if (error instanceof DeployRefused)
+    return { ...about, mechanism: 'github-guard', cause: 'deploy', output: error.message };
+  if (error instanceof GitHubError && error.kind === 'refused' && error.status === 403) {
+    return { ...about, mechanism: 'token-permission', cause: 'forbidden', output: error.message };
+  }
+  return undefined;
 }
 
 export function createWorkerServer({
@@ -305,11 +347,26 @@ export function createWorkerServer({
   dryRunReads,
   repositories,
   health,
+  recorder,
   log,
 }: WorkerServerOptions): Server {
+  /** Each refusal kept for an action's failure, for its answer. */
+  const refusals = new WeakMap<object, SignedRefusal>();
+
   const send = (res: ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end(JSON.stringify(body));
+  };
+
+  /** Kept and signed; a refusal that cannot be kept is logged, and the action's own failure answered all the same. */
+  const refusalWith = async (refusal: GitHubRefusal | undefined): Promise<SignedRefusal | undefined> => {
+    if (!refusal || !recorder) return undefined;
+    try {
+      return await recorder.record(refusal);
+    } catch (error) {
+      log.error({ err: error, mechanism: refusal.mechanism, repo: refusal.repo }, 'could not keep a refusal');
+      return undefined;
+    }
   };
 
   const handle = async (req: IncomingMessage, res: ServerResponse, on: ActingFor) => {
@@ -349,11 +406,21 @@ export function createWorkerServer({
       const read = READ_CALLS[name as ReadName] as (r: Reads, repo: string, args: unknown) => Promise<unknown>;
       return send(res, 200, { result: await read(reads, repo, parsed.data) });
     }
-    const result = await (CALLS[name as Name] as (x: Actions, r: string, a: unknown) => Promise<unknown>)(
-      actions,
-      repo,
-      parsed.data,
-    );
+    let result: unknown;
+    try {
+      result = await (CALLS[name as Name] as (x: Actions, r: string, a: unknown) => Promise<unknown>)(
+        actions,
+        repo,
+        parsed.data,
+      );
+    } catch (error) {
+      const refused =
+        error instanceof IssueRefused
+          ? error.refusal
+          : await refusalWith(refusalOf(error, name as Name, repo, parsed.data as Record<string, unknown>));
+      if (refused && error !== null && typeof error === 'object') refusals.set(error, refused);
+      throw error;
+    }
     log.info({ action: name, repo, ...on, dryRun: actions.dryRun }, `github ${name}`);
     send(res, 200, { result: result ?? null, dryRun: actions.dryRun });
   };
@@ -366,25 +433,23 @@ export function createWorkerServer({
     const about = { ...(name ? { [kind === 'reads' ? 'read' : 'action']: name } : {}), ...on };
     handle(req, res, on).catch((error: unknown) => {
       if (res.headersSent) return void res.destroy();
+      const kept = error !== null && typeof error === 'object' ? refusals.get(error) : undefined;
+      const refusal = kept ? { refusal: kept } : {};
       if (error instanceof PatchRefused) {
         log.warn({ ...about, message: error.message }, 'a patch was refused');
-        return send(res, 422, { error: 'patch-refused', message: error.message });
+        return send(res, 422, { error: 'patch-refused', message: error.message, ...refusal });
       }
       if (error instanceof BranchRefused) {
         log.warn({ ...about, message: error.message }, 'a branch was refused');
-        return send(res, 422, { error: 'branch-refused', message: error.message });
+        return send(res, 422, { error: 'branch-refused', message: error.message, ...refusal });
       }
       if (error instanceof IssueRefused) {
-        log.warn({ ...about, message: error.message, artifact: error.artifact }, 'an issue action was refused');
-        return send(res, 403, {
-          error: 'issue-refused',
-          message: error.message,
-          ...(error.artifact ? { artifact: error.artifact } : {}),
-        });
+        log.warn({ ...about, message: error.message, record: error.refusal?.record }, 'an issue action was refused');
+        return send(res, 403, { error: 'issue-refused', message: error.message, ...refusal });
       }
       if (error instanceof DeployRefused) {
         log.warn({ ...about, message: error.message }, 'a deploy was refused');
-        return send(res, 422, { error: 'deploy-refused', message: error.message });
+        return send(res, 422, { error: 'deploy-refused', message: error.message, ...refusal });
       }
       if (error instanceof RegistryError) {
         log.warn({ ...about, status: error.status, message: error.message }, 'ghcr.io failed a read');
@@ -395,7 +460,7 @@ export function createWorkerServer({
           { ...about, kind: error.kind, status: error.status, message: error.message },
           'github refused an action',
         );
-        return send(res, STATUS[error.kind], { error: error.kind, message: error.message });
+        return send(res, STATUS[error.kind], { error: error.kind, message: error.message, ...refusal });
       }
       log.error({ ...about, err: error }, 'action failed');
       send(res, 500, { error: 'internal', message: 'The action failed; the worker logged why.' });

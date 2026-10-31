@@ -49,7 +49,7 @@ secret = $(call namespace,$(1)) && \
 	{ $(KUBECTL) -n $(1) get secret $(2) >/dev/null 2>&1 || $(KUBECTL) -n $(1) create secret generic $(2) $(3); }
 
 .DEFAULT_GOAL := help
-.PHONY: help up down gateway-key github-key pushover-key scoreboard-secrets worker-secrets share-key check check-static check-tests status e2e zap egress admission-ready eval samples real-store stop-the-line start-the-line enrol
+.PHONY: help up down gateway-key github-key pushover-key scoreboard-secrets worker-secrets share-key refusal-key check check-static check-tests status e2e zap egress admission-ready eval samples real-store stop-the-line start-the-line enrol
 
 help: ## List the targets
 	@awk 'BEGIN { FS = ":.*## " } /^[a-z0-9-]+:.*## / { printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -76,6 +76,7 @@ up: ## Create the local cluster; Argo CD then deploys everything from main (or R
 	@$(MAKE) --no-print-directory pushover-key
 	@$(MAKE) --no-print-directory scoreboard-secrets
 	@$(MAKE) --no-print-directory share-key
+	@$(MAKE) --no-print-directory refusal-key
 	@$(call secret,telemetry,grafana-admin,--from-literal=admin-user=admin --from-literal=admin-password="$$(openssl rand -hex 24)")
 	@$(MAKE) --no-print-directory local-tls
 	sed 's|targetRevision: main|targetRevision: $(REVISION)|' deploy/argocd/root.yaml | $(KUBECTL) apply -f -
@@ -192,6 +193,33 @@ share-key: ## Give the traffic generator its signing key, made once, and the app
 			node scripts/share-key.ts public)" && printf '%s\n' "$$public" | \
 		$(KUBECTL) -n website create configmap share-key --from-file=public-key=/dev/stdin --dry-run=client -o yaml | \
 		$(KUBECTL) apply -f - >/dev/null && echo "  The app has the generator's public key, in share-key."
+
+# The GitHub worker's key for signing its refusals (apps/factory/src/github/refusals.ts): an Ed25519 key pair, made once,
+# as share-key's is. The private key is the Secret refusal-signing-key in `factory`, which only the GitHub worker reads;
+# once made, that Secret is the source, and the ConfigMap refusal-key in `factory`, its public key and nothing else, is
+# written again from it each time, for the line to verify each refusal it records. Each goes through stdin, never a file
+# or a command line. Admission lets only this user, the local kubeconfig's, write refusal-key
+# (deploy/base/admission/factory/refusal-key.yaml). Each pod reads its key when it starts: a new Secret restarts the
+# worker and the line, and a public key that was missing or not the Secret's restarts the line.
+refusal-key: ## Give the GitHub worker its key for signing refusals, made once, and the line its public half (refusal-key)
+	@$(call namespace,factory)
+	@# Made only when the cluster says there is none: any other failure to read it stops here, and keeps the key.
+	@made="$$($(KUBECTL) -n factory get secret refusal-signing-key -o name --ignore-not-found)" || exit 1; \
+	if [ -z "$$made" ]; then \
+		key="$$(node scripts/share-key.ts new)" && printf '%s\n' "$$key" | \
+			$(KUBECTL) -n factory create secret generic refusal-signing-key --from-file=private-key=/dev/stdin >/dev/null || exit 1; \
+	fi; \
+	was="$$($(KUBECTL) -n factory get configmap refusal-key -o jsonpath='{.data.public-key}' --ignore-not-found)" || exit 1; \
+	public="$$($(KUBECTL) -n factory get secret refusal-signing-key -o jsonpath='{.data.private-key}' | base64 -d | \
+			node scripts/share-key.ts public)" && printf '%s\n' "$$public" | \
+		$(KUBECTL) -n factory create configmap refusal-key --from-file=public-key=/dev/stdin --dry-run=client -o yaml | \
+		$(KUBECTL) apply -f - >/dev/null && echo "  The line has the GitHub worker's public key, in refusal-key." || exit 1; \
+	if [ -z "$$made" ]; then \
+		$(KUBECTL) -n factory delete pod -l 'app.kubernetes.io/name in (github,line)' --ignore-not-found >/dev/null && \
+		echo "  The GitHub worker has a new key, so it signs each refusal it answers."; \
+	elif [ "$$was" != "$$public" ]; then \
+		$(KUBECTL) -n factory delete pod -l app.kubernetes.io/name=line --ignore-not-found >/dev/null && \
+		echo "  refusal-key was missing or not the GitHub worker's, so the line starts again with the right one."; fi
 
 # A password for each worker's own role in the store, in a Secret of its own, made once: the migrate Job sets each role's
 # password from it as Argo CD syncs. Each goes through stdin, never on a command line. On a cluster made before the

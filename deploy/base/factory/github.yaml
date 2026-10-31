@@ -1,6 +1,8 @@
 # The GitHub worker: the factory's identity in GitHub, and the only pod that holds the App's key. It commits, opens pull
 # requests, reviews, reports check runs and opens issues as the App, for the other workers, and polls GitHub and GHCR.
-# Without the key (`make up` creates the Secret from the Keychain) it reads and writes nothing.
+# Without the key (`make up` creates the Secret from the Keychain) it reads and writes nothing. It signs each refusal it
+# answers (its guard's, and GitHub's 403s) with the Secret refusal-signing-key, which `make refusal-key` makes once and no
+# other pod reads, so the line can record it and not make one up (apps/factory/src/github/refusals.ts).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -64,6 +66,14 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: github-app
+                  key: private-key
+                  optional: true
+            # Optional: a cluster made before the key has none, and the worker answers refusals unsigned, which no
+            # worker records.
+            - name: REFUSAL_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: refusal-signing-key
                   key: private-key
                   optional: true
             # true for the unattended passes: each action goes to the artifact store, and nothing to GitHub.

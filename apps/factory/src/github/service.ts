@@ -13,6 +13,7 @@ import { DryRunReads } from './dry-run-reads.ts';
 import { IssueGuard, openedBy, outsideIssuesWatch } from './issues.ts';
 import { Poller } from './poller.ts';
 import { LiveReads } from './reads.ts';
+import { RefusalRecorder } from './refusals.ts';
 import { Registry } from './registry.ts';
 import { quietReleasePlease, releaseWatch } from './releases.ts';
 import { createWorkerServer } from './server.ts';
@@ -24,13 +25,17 @@ export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
   const signatures = new Signatures({ registry, cachePath: config.tufCacheDir });
   // configFromEnv refuses a dry run with nowhere to record it; this holds even if it is called some other way.
   if (config.dryRun && !config.artifactsDir) throw new Error('A dry run needs ARTIFACTS_DIR to record to.');
-  // A worker that can write keeps each refusal of its issue guard (guardrail 10), so it needs somewhere to keep it.
+  // A worker that can write keeps each refusal, its guard's and GitHub's, so it needs somewhere to keep it.
   if (github.writable && !config.artifactsDir) {
     throw new Error('A worker with the App key keeps its refusals in the artifact store: set ARTIFACTS_DIR.');
   }
   const artifacts = config.artifactsDir ? new DiskArtifacts(config.artifactsDir) : undefined;
+  // Each refusal, its guard's or GitHub's, is kept, logged and signed, for the worker that asked to record.
+  const recorder = new RefusalRecorder({ artifacts, key: config.refusalKey, log });
+  if (!config.refusalKey)
+    log.warn('No REFUSAL_SIGNING_KEY: refusals are answered unsigned, and no worker records them.');
   // One guard for both: an issue the App did not open is refused, live or in a dry run, and each refusal is kept.
-  const guard = new IssueGuard({ openedBy: openedBy(github), artifacts, log });
+  const guard = new IssueGuard({ openedBy: openedBy(github), recorder });
   // One dry run, remembered for as long as the worker runs, for a worker in dry-run mode and for any request that asks.
   const dryRun = artifacts ? new DryRunActions(artifacts, log, undefined, contentsReader(github), guard) : undefined;
   const actions: Actions = config.dryRun && dryRun ? dryRun : new LiveActions(github, { guard });
@@ -65,7 +70,8 @@ export async function startGitHubWorker(config: GitHubConfig, log: Logger) {
     dryRun,
     dryRunReads,
     repositories: config.repositories,
-    health: () => ({ mode, watching: poller.watching }),
+    health: () => ({ mode, watching: poller.watching, signsRefusals: recorder.signs }),
+    recorder,
     log,
   });
   // Nothing runs before it listens, so a port it cannot have leaves nothing to close.

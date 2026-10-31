@@ -24,7 +24,7 @@ It checks the signature, not the SBOM: the deploy pull requests' checks verify t
 
 ## Behaviour
 
-- **A refusal** names the policy, the check and the images.
+- **A refusal** names the policy, the check and the images. The line records each of Kyverno's as `action.refused` (`admission-control`), from the Events it leaves: Kyverno's own in `default` for a request it blocked, or a controller's `FailedCreate` for a pod it could not make ([the line](ORCHESTRATOR.md#refusals-it-records-for-others)). The ValidatingAdmissionPolicies below leave no Event, and are not recorded.
 - **It fails closed.**
 - **Outside it:** Kyverno's namespace, Argo CD's and the system's. Telemetry's, the pod log collector's and Argo Rollouts' are not guarded, since they run only upstream charts.
 - **Every copy enforces.**
@@ -81,6 +81,10 @@ Traefik itself refuses a reference to an object in another namespace, so a route
 ## `share-key`
 
 `share-key` in `website` holds the traffic generator's public key, with which the app checks the ids of a [feature flag](FEATURE-FLAGS.md#the-shares-signed-ids)'s share. The app's repository, which agents write, may make ConfigMaps in `website`, and one of its own named `share-key` would let the app's code sign ids for itself. So `website-share-key` (`deploy/base/admission/website/share-key.yaml`) refuses anyone but `make share-key`'s user, `system:admin`, the cluster's administrator that the local kubeconfig names, to make, change or delete it: not Argo CD, for either repository, not another member of `system:masters`, and no service account. It lets through the deletion of the namespace's contents as the namespace itself is deleted, and holds no other ConfigMap. It is a ValidatingAdmissionPolicy, which holds whether or not Kyverno is up; it denies, and fails closed.
+
+## `refusal-key`
+
+`refusal-key` in `factory` holds the GitHub worker's public key, with which the line checks each refusal the worker signs before it records it ([the GitHub worker's refusals](GITHUB-WORKER.md#its-refusals-signed)). A key of anyone else's choosing would let whoever holds its private half put refusals the worker never made on the record, signed and verified. So `factory-refusal-key` (`deploy/base/admission/factory/refusal-key.yaml`) holds it as `website-share-key` holds `share-key`: only `make refusal-key`'s user, `system:admin`, may make, change or delete it, and the namespace's own deletion may take it. It holds no other ConfigMap, and is in no manifest, so Argo CD never writes it. `refusal-fences.test.ts` fails if it grows.
 
 ## Checks
 

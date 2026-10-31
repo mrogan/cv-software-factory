@@ -7,7 +7,8 @@
 # work item's number, unset here, has it act on that work item alone, leaving every other as it is.
 # It starts each step's Jobs in `runners` (apps/factory/src/runners), with its own service account, which may do that
 # (deploy/base/runners/line-access.yaml) and read the app's Rollout and its AnalysisRuns, and list its pods, in
-# `website` (deploy/base/analysis/line-reads-release.yaml), and nothing else, and takes the agent pods' handbacks on
+# `website` (deploy/base/analysis/line-reads-release.yaml), and list the Events admission's denials are in
+# (deploy/base/line-reads-admission), and nothing else, and takes the agent pods' handbacks on
 # :8081. Its step API on :8080 is reached only through a person's port-forward. Before it deletes a step's Jobs, it
 # keeps each pod's log in the artifact store, which it mounts with the other workers that write there. The step API
 # serves a work item's logs, read from the line's own process (a second Node process in this pod would pass its memory
@@ -43,7 +44,8 @@ spec:
       labels: *labels
     spec:
       serviceAccountName: line
-      # The one worker that talks to the Kubernetes API, to start runners, read the app's release, and read the flags.
+      # The one worker that talks to the Kubernetes API, to start runners, read the app's release, read the flags, and
+      # read admission's denials.
       automountServiceAccountToken: true
       securityContext:
         runAsNonRoot: true
@@ -140,6 +142,15 @@ spec:
             # with his controls and the sessions with his sign-ins: a change no event names pages him.
             - name: FEATURE_FLAGS
               value: flagd/flags
+            # The GitHub worker's public key, which `make refusal-key` writes from its signing key: the line verifies
+            # each refusal the worker answers it with before it records it (apps/factory/src/line/refusals.ts).
+            # Optional: without it, nothing the worker refuses is recorded.
+            - name: REFUSAL_PUBLIC_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: refusal-key
+                  key: public-key
+                  optional: true
             # Where each runner pod's log is kept, as the step ends.
             - name: ARTIFACTS_DIR
               value: /var/lib/factory/artifacts

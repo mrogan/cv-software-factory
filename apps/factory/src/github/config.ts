@@ -6,8 +6,10 @@
  *                                     and says so
  *     GITHUB_DRY_RUN                  true: write nothing to GitHub, and record each action in the artifact store
  *                                     instead
- *     ARTIFACTS_DIR                   the artifact store, for a dry run's records and the issue guard's refusals;
+ *     ARTIFACTS_DIR                   the artifact store, for a dry run's records and the refusals it keeps;
  *                                     a worker with the key will not start without it
+ *     REFUSAL_SIGNING_KEY             the Ed25519 private key, as PEM, it signs each refusal with (`refusals.ts`);
+ *                                     without it, it answers each unsigned, and no worker records one
  *     GITHUB_DRY_RUN_CHECKS_SECONDS   how long after a dry run's commit its checks pass (default 120)
  *     GITHUB_DRY_RUN_MERGE_SECONDS    how long after a dry run's pull request is readied it is merged (default 1200)
  *     GITHUB_REPOSITORIES             the repositories it acts on, separated by commas (default: both public ones)
@@ -19,6 +21,8 @@
  *     HOST                            the address to listen on (default 127.0.0.1; the cluster's Deployment says
  *                                     0.0.0.0)
  */
+import type { KeyObject } from 'node:crypto';
+import { signingKey } from '../signed-refusals.ts';
 import type { AppCredentials } from './app.ts';
 import { API } from './client.ts';
 import type { DryRunTimes } from './dry-run-reads.ts';
@@ -31,6 +35,8 @@ export interface GitHubConfig {
   credentials: AppCredentials | undefined;
   dryRun: boolean;
   artifactsDir: string | undefined;
+  /** What it signs each refusal with, or undefined. */
+  refusalKey: KeyObject | undefined;
   /** When the dry run's checks pass, and its pull requests merge, so a line in dry-run goes round. */
   dryRunTimes: DryRunTimes;
   repositories: string[];
@@ -56,6 +62,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv): GitHubConfig {
     credentials: clientId && privateKey ? { clientId, privateKey } : undefined,
     dryRun,
     artifactsDir: env.ARTIFACTS_DIR || undefined,
+    // A key that is set and not an Ed25519 private key stops it starting, rather than it answering unsigned.
+    refusalKey: env.REFUSAL_SIGNING_KEY?.trim() ? signingKey(env.REFUSAL_SIGNING_KEY) : undefined,
     dryRunTimes: {
       checksAfterMs: seconds(env, 'GITHUB_DRY_RUN_CHECKS_SECONDS', 120) * 1000,
       mergeAfterMs: seconds(env, 'GITHUB_DRY_RUN_MERGE_SECONDS', 1200) * 1000,

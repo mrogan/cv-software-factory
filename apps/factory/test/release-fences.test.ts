@@ -198,7 +198,9 @@ describe('the line’s watch of a release', () => {
     // Nothing cluster-wide: each right is a Role's, in one namespace.
     expect(line.filter(({ manifest }) => manifest.kind !== 'RoleBinding')).toEqual([]);
     const inWebsite = line.filter(({ manifest }) => manifest.metadata?.namespace === 'website');
+    // And its list of the namespace's Events, for admission's denials (refusal-fences.test.ts).
     expect(inWebsite.map(({ manifest }) => manifest.roleRef)).toEqual([
+      { apiGroup: 'rbac.authorization.k8s.io', kind: 'Role', name: 'line-reads-admission' },
       { apiGroup: 'rbac.authorization.k8s.io', kind: 'Role', name: 'line-reads-release' },
     ]);
     const role = all.find(

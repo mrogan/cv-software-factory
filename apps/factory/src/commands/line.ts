@@ -44,14 +44,19 @@
  * ARTIFACTS_DIR (`runners/logs.ts`); unset, it keeps none. Its step API serves a work item's, step by step, at
  * `GET /v1/work-items/<id>/logs`, through a person's port-forward (`runners/serve.ts`).
  *
- * Whatever LINE_MODE is, `serve` counts Martin's security events and the holds started, from the store, for the alerts
+ * Whatever LINE_MODE is, `serve` records what admission control refuses in the guarded namespaces, read from the
+ * cluster's Events, and relays what the GitHub worker refuses its requests, signed, verified with REFUSAL_PUBLIC_KEY
+ * (the worker's public key, as PEM), as `action.refused` (`line/refusals.ts`). Without the key, nothing the worker
+ * refuses is recorded.
+ *
+ * Whatever LINE_MODE is, `serve` also counts Martin's security events and the holds started, from the store, for the alerts
  * that reach his phone (`line/security.ts`), and compares what the admin service changes with the events that name it
  * (`line/admin-actions.ts`): the sessions in the store, the app's Rollout at RELEASE_ROLLOUT, and the FeatureFlag at
  * FEATURE_FLAGS (`<namespace>/<name>`, `flagd/flags`), each only read, and neither when its setting is unset.
  *
  * Settings: RUNNER_IMAGE, the `factory-runner` image; GITHUB_WORKER_URL (default http://github:8080);
  * RUNNER_GATEWAY_URL and RUNNER_HANDBACK_URL, how an agent pod reaches the gateway and the handback; PORT (8080) and
- * HANDBACK_PORT (8081); ARTIFACTS_DIR; KUBE_API_URL on a host (what `kubectl proxy` serves); LINE_MODE; LINE_ONLY; LINE_TAKE;
+ * HANDBACK_PORT (8081); ARTIFACTS_DIR; REFUSAL_PUBLIC_KEY; KUBE_API_URL on a host (what `kubectl proxy` serves); LINE_MODE; LINE_ONLY; LINE_TAKE;
  * RELEASE_ROLLOUT, PROMETHEUS_URL and LINE_DRY_RUN_RELEASE_SECONDS; PROBES_URL, LOKI_URL and TEMPO_URL; FEATURE_FLAGS;
  * FACTORY_PROFILE (default local) and ALL_LOCAL, as the gateway's, with Martin's settings within the profile's policy,
  * read at each pass (`settings.ts`): the cap on a work item's spend, which the line holds at, and where each agent's
@@ -236,8 +241,23 @@ async function serve(): Promise<number> {
     log,
     ...(stepLogs ? { logs: stepLogs } : {}),
   });
+  // What the GitHub worker refuses the line, relayed, and what admission control refuses in the guarded namespaces,
+  // recorded as action.refused (line/refusals.ts). The worker's public key, from the ConfigMap refusal-key: without it,
+  // nothing the worker refuses is relayed.
+  const { LineRefusals, AdmissionReader } = await import('../line/refusals.ts');
+  const { verifyingKey } = await import('../signed-refusals.ts');
+  const refusalKey = env.REFUSAL_PUBLIC_KEY?.trim() ? verifyingKey(env.REFUSAL_PUBLIC_KEY) : undefined;
+  if (!refusalKey) log.warn('No REFUSAL_PUBLIC_KEY: what the GitHub worker refuses is not recorded');
+  // The line's only artifacts are the pictures the probes worker took, which its index vouches for.
+  const { IndexedArtifacts, PictureIndex } = await import('../pictures/index.ts');
+  const events = new EventWriter(sql, { kind: 'real', artifacts: new IndexedArtifacts(sql) });
+  const refusals = new LineRefusals({ events, log, key: refusalKey });
+  refusals.start();
   // The smoke run asks for a dry run; the steps Part B runs will say what they want.
-  const github = new GitHubWorker(env.GITHUB_WORKER_URL ?? 'http://github:8080', { dryRun: true });
+  const github = new GitHubWorker(env.GITHUB_WORKER_URL ?? 'http://github:8080', {
+    dryRun: true,
+    onRefusal: refusals.relay,
+  });
   const { api, handback } = lineServers({ runners, github, log, ...(stepLogs ? { logs: stepLogs } : {}) });
   const port = Number(env.PORT ?? 8080);
   const handbackPort = Number(env.HANDBACK_PORT ?? 8081);
@@ -252,9 +272,6 @@ async function serve(): Promise<number> {
   // Off, the line takes no work, but still stops what the step API started when the line stops.
   const { Line } = await import('../line/worker.ts');
   const { ProbesClient } = await import('../line/verify.ts');
-  const { IndexedArtifacts, PictureIndex } = await import('../pictures/index.ts');
-  // The line's only artifacts are the pictures the probes worker took, which its index vouches for.
-  const events = new EventWriter(sql, { kind: 'real', artifacts: new IndexedArtifacts(sql) });
   // A spend hold is appended by the same writer, under the lock a save of the settings takes too.
   const settings = lineSettings(new SettingsReader(sql, profile, { freshMs: 0 }), allLocal, { sql, events });
   // Verify's probes: a ticket's check run again, and each improvement's flag checked at its stage.
@@ -264,7 +281,10 @@ async function serve(): Promise<number> {
     events,
     pictures: new PictureIndex(sql),
     steps: runners,
-    github: new GitHubWorker(env.GITHUB_WORKER_URL ?? 'http://github:8080', { dryRun: mode !== 'live' }),
+    github: new GitHubWorker(env.GITHUB_WORKER_URL ?? 'http://github:8080', {
+      dryRun: mode !== 'live',
+      onRefusal: refusals.relay,
+    }),
     log,
     takesWork: mode !== 'off',
     workItemLimitUsd: defaults.caps.workItemUsd,
@@ -309,17 +329,21 @@ async function serve(): Promise<number> {
   const unobserveAutoRollback = observeAutoRollback(sql, log);
   const abort = new AbortController();
   const working = line.run(abort.signal);
+  // Admission control's denials, from the cluster's Events, whatever LINE_MODE is (line/refusals.ts).
+  const admission = new AdmissionReader({ kube, sql, refusals, log }).run(abort.signal);
   await new Promise<void>((resolve) => {
     for (const signal of ['SIGTERM', 'SIGINT'] as const) process.once(signal, () => resolve());
   });
   abort.abort();
-  await working;
+  await Promise.all([working, admission]);
   unobserveSecurity();
   unobserveAdminActions();
   unobserveLeases();
   unobservePhone();
   unobserveAutoRollback();
   await Promise.all([new Promise((r) => api.close(r)), new Promise((r) => handback.close(r))]);
+  // Once nothing more can be relayed: what is still folded is appended now.
+  await refusals.stop();
   await Promise.all([sql.end(), shutdownTelemetry()]);
   return 0;
 }

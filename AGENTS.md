@@ -17,6 +17,7 @@ make zap                       # ZAP's baseline scan of the console signed in as
 make up / make samples / make status / make down
 make enrol                     # a one-time code to enrol a passkey on the console
 make share-key                 # the traffic generator's signing key, made once, and its public half for the app
+make refusal-key               # the GitHub worker's key for signing its refusals, made once, and its public half for the line
 ```
 
 The cluster's console is at `https://console.localhost:8443`, and plain HTTP on its host redirects there: Safari drops a `Secure` cookie over HTTP, even on `localhost`, and passkeys need a secure context. The app's hosts (`website.localhost:8080` and the canary), Grafana and Argo CD stay on plain HTTP at :8080. `make up` makes a local certificate authority once, in `~/.config/software-factory/local-ca` (`scripts/local-ca.ts`), whose name constraints let it sign for `localhost` names only, has macOS trust it for TLS servers (it asks once), and gives Traefik the console's certificate, renewed in its last 30 days by any `make up`. Decline the prompt and the console still shows past a browser warning, but secure cookies and passkeys, which the admin sign-in needs, will not work there; the next `make up` asks again. `make untrust-ca` takes it out of the Keychain and deletes it; `make down` leaves it. A new cluster gets the :8443 port from `deploy/k3d/cluster.yaml`; to a cluster without it, `make up` adds it in place (`k3d cluster edit`, which makes only the load balancer again, so the store keeps its work items), and says so.
@@ -67,6 +68,8 @@ kubectl --context k3d-software-factory -n factory port-forward svc/postgres 5432
   GITHUB_APP_CLIENT_ID=Iv23liE1Dj3iYkwWX59z GITHUB_APP_PRIVATE_KEY="$(security find-generic-password -s factory-github-app-key -w | base64 -d)" \
     GITHUB_DRY_RUN=true ARTIFACTS_DIR=/tmp/artifacts PORT=8091 node apps/factory/src/cli.ts github run
   ```
+
+  The GitHub worker signs each refusal it answers (its guard's, and GitHub's 403s) so the line can record it: `make refusal-key` (and so `make up`) makes its Ed25519 key once, through stdin, the Secret `refusal-signing-key` in `factory`, which only the worker reads, and its public half, the ConfigMap `refusal-key`, which the line reads. On the host, `REFUSAL_SIGNING_KEY` and `REFUSAL_PUBLIC_KEY` take them as PEM; without them the worker answers unsigned and the line records none. On a cluster made before it, run it once.
 
   Runners need the cluster: their agent pods reach the cluster's gateway and the line's handback, and nothing else. The smoke run asks the line, through a port-forward to its step API, to have a coder fix an off-by-one seeded in a scratch copy of the app; the GitHub worker records the commit it would have made, and nothing reaches GitHub. The coder works on Claude, through the cluster's gateway, and the run costs money; with `ALL_LOCAL=true` on that gateway and LM Studio running, it works on Qwen, for nothing:
 

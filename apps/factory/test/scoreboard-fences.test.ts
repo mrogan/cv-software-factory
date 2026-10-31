@@ -62,14 +62,20 @@ describe('the scoreboard’s Secrets', () => {
     expect(secrets.map(({ file }) => file)).toEqual([]);
   });
 
-  it('are bound to no one: no role is granted in the scoreboard’s namespace, or to its service accounts', async () => {
+  it('are bound to no one: no role is granted in the scoreboard’s namespace but the line’s list of its Events', async () => {
     const bindings = (await manifests()).filter(({ manifest }) => manifest.kind?.endsWith('RoleBinding'));
     expect(bindings.filter(({ manifest }) => manifest.kind === 'ClusterRoleBinding')).toEqual([]);
-    expect(bindings.filter(({ namespace }) => namespace === 'scoreboard')).toEqual([]);
+    // The line lists the namespace's Events, for admission's denials (refusal-fences.test.ts): nothing else here.
+    expect(
+      bindings.filter(({ namespace }) => namespace === 'scoreboard').map(({ manifest }) => manifest.metadata?.name),
+    ).toEqual(['line-reads-admission']);
     const subjects = bindings.flatMap(({ manifest }) => manifest.subjects ?? []);
     expect(subjects.filter((s) => s.namespace === 'scoreboard')).toEqual([]);
-    // Nor any role there: a right to start a pod in the namespace would be a right to mount its Secrets.
-    expect((await inScoreboard()).filter(({ manifest }) => manifest.kind === 'Role')).toEqual([]);
+    // Nor any other role there: a right to start a pod in the namespace would be a right to mount its Secrets.
+    const roles = (await inScoreboard()).filter(({ manifest }) => manifest.kind === 'Role');
+    expect(roles.map(({ manifest }) => [manifest.metadata?.name, manifest.rules])).toEqual([
+      ['line-reads-admission', [{ apiGroups: [''], resources: ['events'], verbs: ['list'] }]],
+    ]);
   });
 
   it('are out of reach of every chart: only the factory’s own root deploys into the namespace', async () => {

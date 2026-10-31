@@ -1,0 +1,55 @@
+# `refusal-key` in `factory` holds the GitHub worker's public key, which the line checks each refusal the worker signs
+# with before it records it (docs/COMPONENTS/GITHUB-WORKER.md). It is made by `make refusal-key`, from the worker's
+# Secret, and by nothing in Git. A key of anyone else's choosing would let whoever holds its private half put refusals
+# the worker never made on the record, signed and verified. So no one may make, change or delete it but the user
+# `make refusal-key` runs as, the local kubeconfig's: `system:admin`, the cluster's own administrator, whose credential
+# k3s makes and k3d writes to the Mac. Not Argo CD, not another member of `system:masters`, and no service account.
+# The one deletion it lets through is of the namespace's contents as the namespace itself is deleted.
+#
+# A ValidatingAdmissionPolicy, as `share-key` is held (../website/share-key.yaml): the API server evaluates it in
+# process, so it holds whether or not Kyverno is up.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: refusal-key
+  annotations:
+    # With the other admission policies, before anything they guard.
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values: [factory]
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [configmaps]
+  # `refusal-key` alone: the factory's other ConfigMaps are Argo CD's. A deletion has no object, only the old one.
+  matchConditions:
+    - name: refusal-key
+      expression: "(request.operation == 'DELETE' ? oldObject : object).metadata.name == 'refusal-key'"
+  variables:
+    # The user `make refusal-key` runs as on this profile.
+    - name: writer
+      expression: "'system:admin'"
+  validations:
+    - expression: >-
+        request.userInfo.username == variables.writer ||
+        (request.operation == 'DELETE' && has(namespaceObject.metadata.deletionTimestamp))
+      message: >-
+        refusal-key holds the GitHub worker's public key, and only make refusal-key writes it, as the cluster's
+        administrator (system:admin)
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: refusal-key
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  policyName: refusal-key
+  validationActions: [Deny]
