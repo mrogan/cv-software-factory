@@ -72,7 +72,7 @@ Martin's switch in Controls (`newWork`, on by default). Off, the line takes no n
 
 ### Autonomy and auto-merge
 
-Martin's autonomy level (Supervised, Guarded, Lights-out) and auto-merge of low-risk changes are recorded with his controls, and shown, and nothing routes by them yet: every merge waits for him on GitHub until approval routing comes (Part C, [approval routing](APPROVAL-ROUTING.md)). Auto-rollback, on by default, reaches the canary's analysis as two series, the admin service's read of it and the line's own (`line/auto-rollback.ts`): with both off, a canary the analysis judges bad pauses for Martin rather than rolling back ([progressive delivery](PROGRESSIVE-DELIVERY.md#auto-rollback)).
+Martin's autonomy level (Supervised, Guarded, Lights-out) and auto-merge of low-risk changes are recorded with his controls, and shown, and nothing routes by them yet: every merge waits for him on GitHub until approval routing comes (Part C, [approval routing](APPROVAL-ROUTING.md)). Auto-rollback, on by default, reaches the canary's analysis as two series, the admin service's read of it and the line's own (`line/auto-rollback.ts`): with both off, a canary whose errors or latency the analysis judges bad pauses for Martin rather than rolling back ([progressive delivery](PROGRESSIVE-DELIVERY.md#auto-rollback)).
 
 ### A spec that overlaps
 
@@ -181,7 +181,7 @@ Each hold names its cause, and Martin's answer does what `ANSWERS` says for that
 | `beyond-ticket` | The reviewer escalates a spec that goes beyond its ticket | Stands in for the reviewer's approval: the review's open threads are answered and resolved as his acceptance | Sends the spec back to the planner |
 | `merge` | The fix has passed its gates and review | Waits for his merge | Sends the work back to the coder |
 | `deploy` | The merged fix waits for a release ([Release](RELEASE-AND-VERIFY.md#release)) | Waits: he settles it by merging the deploy pull request, his once its checks have passed | Waits |
-| `canary` | With auto-rollback off, the analysis judged the canary bad and Argo Rollouts paused it ([progressive delivery](PROGRESSIVE-DELIVERY.md#auto-rollback)) | Takes no answer here: he promotes it fully or aborts it from the Canary panel, and the release's end ends the hold | Takes no answer here |
+| `canary` | With auto-rollback off, the analysis judged the canary's errors or latency bad and Argo Rollouts paused it ([progressive delivery](PROGRESSIVE-DELIVERY.md#auto-rollback)) | Takes no answer here: he promotes it fully or aborts it from the Canary panel, and the release's end ends the hold | Takes no answer here |
 | `verify` | The signal persisted a second time, Verify could not tell for 24 hours, or nothing can judge the fix ([Verify](RELEASE-AND-VERIFY.md#verify)) | Closes the work item as verified, with his words | Sends it back to Plan |
 | `spend` | The work item has spent its cap on models | Carries on, and holds again until the cap is raised; raising it answers the hold | Carries on |
 

@@ -182,7 +182,7 @@ serverFiles:
               kind: "auto-rollback-off"
             annotations:
               summary: "Auto-rollback was turned off"
-              description: "Auto-rollback was turned off in the console: a canary the analysis judges bad now pauses for you to promote or abort, rather than rolling back by itself. Stop the line still aborts one."
+              description: "Auto-rollback was turned off in the console: a canary whose errors or latency the analysis judges bad now pauses for you to promote or abort, rather than rolling back by itself. A failed journeys check still rolls it back, and Stop the line still aborts one."
           - alert: SecurityEvent
             expr: "max(increase(line_security_events_total{kind=\"auto-rollback-on\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
             for: 0s
@@ -191,7 +191,7 @@ serverFiles:
               kind: "auto-rollback-on"
             annotations:
               summary: "Auto-rollback was turned on"
-              description: "Auto-rollback was turned on in the console: a canary the analysis judges bad rolls back by itself."
+              description: "Auto-rollback was turned on in the console: a canary the analysis judges bad rolls back by itself. One already paused for you stays paused until you promote or abort it."
           - alert: SecurityEvent
             expr: "max(increase(line_security_events_total{kind=\"flag-widened\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
             for: 0s

@@ -190,7 +190,7 @@ export function changeSummary(change: ControlChange): string {
     case 'auto-rollback':
       return change.after
         ? 'Martin turned on auto-rollback: a canary judged bad rolls back by itself'
-        : 'Martin turned off auto-rollback: a canary judged bad pauses for him';
+        : 'Martin turned off auto-rollback: a canary whose errors or latency are judged bad pauses for him';
   }
 }
 
