@@ -258,11 +258,16 @@ const compared = meter.createObservableGauge('line.admin_actions.compared', {
 
 /**
  * Compares each time the SDK collects, until the function it gives back is called: the flags and the Rollout only when
- * the line is given them, the sessions always. A comparison that fails, or takes longer than `timeoutMs`, reports 0 for
- * `compared`, and nothing new for `uncounted`, and is logged once until it is made again. One still running when the
- * next collection comes is waited on again, never started twice, and its answer is that collection's if it comes in time.
+ * the line is given them, the sessions always. A comparison that fails, or has not answered when the signal `deadline`
+ * gives it for a collection aborts, reports 0 for `compared`, and nothing new for `uncounted`, and is logged once until
+ * it is made again. One still running when the next collection comes is waited on again, never started twice, and its
+ * answer is that collection's if it comes in time.
  */
-export function observeAdminActions(where: Compared, log: Logger, timeoutMs = COMPARE_TIMEOUT_MS): () => void {
+export function observeAdminActions(
+  where: Compared,
+  log: Logger,
+  deadline: (action: AdminAction) => AbortSignal = () => AbortSignal.timeout(COMPARE_TIMEOUT_MS),
+): () => void {
   // One comparison of each at a time: one that has not answered is not started again, so a hung read cannot take
   // another connection every collection.
   const pending = new Map<AdminAction, Promise<boolean>>();
@@ -278,9 +283,10 @@ export function observeAdminActions(where: Compared, log: Logger, timeoutMs = CO
       [...comparisons].map(async ([action, compare]) => {
         let named: boolean;
         try {
-          let timer: NodeJS.Timeout | undefined;
+          const signal = deadline(action);
           const late = new Promise<never>((_, reject) => {
-            timer = setTimeout(() => reject(new Error(`no answer within ${timeoutMs} ms`)), timeoutMs);
+            if (signal.aborted) reject(signal.reason);
+            else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
           });
           let running = pending.get(action);
           if (!running) {
@@ -289,7 +295,7 @@ export function observeAdminActions(where: Compared, log: Logger, timeoutMs = CO
             running.catch(() => {});
             pending.set(action, running);
           }
-          named = await Promise.race([running, late]).finally(() => clearTimeout(timer));
+          named = await Promise.race([running, late]);
         } catch (error) {
           if (!failing.has(action))
             log.warn({ err: error, action }, 'could not compare what the admin service changed');
