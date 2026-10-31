@@ -764,12 +764,17 @@ function judgedBadOf(r: Building): JudgedBad | undefined {
       break;
     }
   }
-  if (stepped && looked) return stepped.at <= looked.at ? stepped : looked;
-  const judged = stepped ?? looked;
-  if (judged || r.heldAt === undefined) return judged;
-  // Held by the line, with nothing recorded that says what was judged bad: when it held it, where it was then.
-  return { at: r.heldAt, weight: position(r, r.heldAt).weight, measures: [], figures: undefined };
+  const judged = stepped && looked ? (stepped.at <= looked.at ? stepped : looked) : (stepped ?? looked ?? heldOf(r));
+  // A step measured after the verdict means the canary went on past it (promoted by hand), as the line reads a run made
+  // after it: nothing waits for Martin then.
+  return judged && !r.measured.some((m) => m.at > judged.at) ? judged : undefined;
 }
+
+/** Held by the line, with nothing recorded that says what was judged bad: when it held it, where it was then. */
+const heldOf = (r: Building): JudgedBad | undefined =>
+  r.heldAt === undefined
+    ? undefined
+    : { at: r.heldAt, weight: position(r, r.heldAt).weight, measures: [], figures: undefined };
 
 /** A release that recorded no steps: the steps measured stand in, then all of the traffic. */
 const measuredSteps = (r: Building) =>

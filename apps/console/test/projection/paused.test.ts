@@ -157,6 +157,25 @@ describe('a canary paused for Martin', () => {
     expect(r && lookVerdict(r, 'errors')).toEqual({ words: '', kind: 'inconclusive', ruled: true });
   });
 
+  it('waits for nobody once a step is measured after the verdict: the canary went on past it', () => {
+    const one = work('1')
+      .open()
+      .add(1, 'release.started', 'rollouts', started)
+      .add(4, 'canary.stepped', 'rollouts', stepped(25, [judged]))
+      .add(6, 'hold.started', 'rollouts', {
+        stage: 'release',
+        kind: 'held',
+        cause: 'canary',
+        reason: 'Paused for Martin',
+        release: 'r1',
+      })
+      // Promoted past it by hand, and the next step passes.
+      .add(9, 'canary.stepped', 'rollouts', stepped(50, [passed('errors')]));
+    const [r] = releases(one.events, [], one.at(10));
+    expect(r?.judgedBad).toBeUndefined();
+    expect(project(one.events, one.at(10)).needs.canary).toBeUndefined();
+  });
+
   it('takes the line’s hold for the judgement when the release’s events do not say it', () => {
     const one = work('1').open().add(1, 'release.started', 'rollouts', started).add(6, 'hold.started', 'rollouts', {
       stage: 'release',

@@ -18,7 +18,7 @@
  * the month's, and the dearest work item today against a work item's cap, with when the day resets, in UTC. A meter at
  * its cap turns `attn`.
  */
-import { type Autonomy, AUTONOMY as LEVELS, type TakeKind } from '@software-factory/events';
+import { type Autonomy, AUTONOMY as LEVELS, TAKES as LOOSEST_FIRST, type TakeKind } from '@software-factory/events';
 import { type ReactNode, useId, useState } from 'react';
 import { type ControlChange, controlAction, TAKE, type Take } from '../../../../../policy/line.ts';
 import { phoneInForce } from '../../../../../policy/phone.ts';
@@ -107,8 +107,11 @@ const TAKE_LABEL: Record<TakeKind, string> = {
   'just-one': 'Just one',
 };
 
-/** What the line takes, tightest first, as Autonomy's levels are: the key sits on each choice looser than the one in force. */
-const TAKES: readonly TakeKind[] = ['just-one', 'next-few', 'every'];
+/**
+ * What the line takes, tightest first, as Autonomy's levels are: the key sits on each choice looser than the one in
+ * force. The vocabulary lists them loosest first.
+ */
+const TAKES: readonly TakeKind[] = [...LOOSEST_FIRST].reverse();
 
 /** What the line will do with a take, in a sentence. */
 function takeWords(take: Take | null, nextFew: ControlsView['nextFew'], viewer: Viewer): string {
