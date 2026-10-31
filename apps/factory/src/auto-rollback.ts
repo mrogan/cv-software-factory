@@ -8,7 +8,9 @@
  *
  * Read each time the SDK collects. A read that fails reports on, and says so once in the log until one succeeds again:
  * the SDK would otherwise go on sending the last figure it had, so a worker that read off once, then lost the store,
- * would keep a bad canary from rolling back on a word nobody can confirm. Off is believed only while it is read.
+ * would keep a bad canary from rolling back on a word nobody can confirm. Off is believed only while it is read. The
+ * phone's gauge (`phone.ts`) keeps its last read instead, as Martin chose: there on is noise at night, here on is the
+ * safe side, a bad canary rolled back.
  */
 import { type BatchObservableResult, metrics } from '@opentelemetry/api';
 import { latestControls } from '@software-factory/store';

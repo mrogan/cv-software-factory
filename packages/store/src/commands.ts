@@ -58,16 +58,22 @@ export async function lineStopped(sql: Sql | TransactionSql): Promise<boolean> {
 }
 
 /**
- * The payload of the latest `controls.changed` one of Martin's roles appended, that this code can read, or undefined:
- * the line's controls as he chose them, read as the current version (one from before auto-rollback had a switch has it
- * on), and otherwise unchecked. `policy/line.ts`'s `controlsInForce` says what is in force.
+ * The payload of the latest `controls.changed` one of Martin's roles appended, or undefined: the line's controls as he
+ * chose them, read as the current version (one from before auto-rollback had a switch has it on), and otherwise
+ * unchecked. `policy/line.ts`'s `controlsInForce` says what is in force, control by control.
+ *
+ * One of a version newer than this code knows, appended by a newer image while an upgrade is under way, is still his
+ * latest, and is read as it stands: `controlsInForce` keeps each control whose value it can read and takes policy's
+ * default for the rest. Passing over it to the last one this code knows would put back a setting he has since
+ * changed, such as auto-rollback off after he switched it on again.
  */
 export async function latestControls(sql: Sql | TransactionSql): Promise<unknown> {
   const [row] = await sql<{ version: number; payload: unknown }[]>`
     select e.version, e.payload from events e
-    where e.type = 'controls.changed' and e.version <= ${VERSIONS['controls.changed']} and ${fromMartin(sql, 'e')}
+    where e.type = 'controls.changed' and ${fromMartin(sql, 'e')}
     order by e.seq desc limit 1`;
   if (!row) return undefined;
+  if (row.version > VERSIONS['controls.changed']) return row.payload;
   const read = upcast({ type: 'controls.changed', version: row.version, payload: row.payload });
   return read.ok ? read.event.payload : row.payload;
 }

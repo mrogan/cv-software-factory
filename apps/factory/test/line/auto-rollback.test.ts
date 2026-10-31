@@ -76,4 +76,14 @@ describe('the line’s series of whether auto-rollback is on', () => {
     expect(await autoRollback(database.as.line)).toBe(0);
     expect(await autoRollback(unreachable)).toBe(1);
   });
+
+  it('reads Martin’s latest switch of a version newer than it knows as it stands, not the one before it', async () => {
+    await stored(false);
+    await database.operator`
+      insert into events (id, ts, work_item, type, version, actor, summary, payload, artifacts, public, sample)
+      values (${crypto.randomUUID()}, now(), null, 'controls.changed', ${VERSIONS['controls.changed'] + 1}, 'martin',
+              'controls.changed', ${database.operator.json({ autoRollback: true, newer: { anything: 1 } })}, '[]', '{}',
+              false)`;
+    expect(await autoRollback(database.as.line)).toBe(1);
+  });
 });
