@@ -29,6 +29,7 @@
  *
  * The windows, counts and runs are `policy/release.ts`'s `verify`.
  */
+import { setTimeout as wait } from 'node:timers/promises';
 import { context, ROOT_CONTEXT } from '@opentelemetry/api';
 import type { Evidence, PayloadOf, Sense, SignalSource, SymptomClass } from '@software-factory/events';
 import { COLOR_SCHEMES, clearedOnWords, cutAt, SENSES, sameVersion } from '@software-factory/events';
@@ -654,12 +655,9 @@ export class ProbesClient implements ProbesPort, FlagChecksPort {
       if (response.status !== 202) throw new Error(`The probes answered a verification with ${response.status}`);
       await response.body?.cancel();
       if (Date.now() + this.#pollMs > deadline) throw new Error('The probes did not finish the check in time');
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(resolve, this.#pollMs);
-        signal?.addEventListener('abort', () => {
-          clearTimeout(timer);
-          reject(signal.reason);
-        });
+      // Leaves no listener behind on the signal, which is the line's and outlives every verification.
+      await wait(this.#pollMs, undefined, { signal }).catch((error: unknown) => {
+        throw signal?.aborted ? signal.reason : error;
       });
     }
   }

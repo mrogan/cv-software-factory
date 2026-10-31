@@ -2,6 +2,7 @@
  * A ticket's check run again for Verify: as often as it takes to pass or fail twice in a row, and served to the line
  * beside the page reader. The senses are stood in for: what they see is the test's.
  */
+import { getEventListeners } from 'node:events';
 import type { Evidence } from '@software-factory/events';
 import { listenLocal } from '@software-factory/testing';
 import { describe, expect, it } from 'vitest';
@@ -180,6 +181,31 @@ describe('the probes worker’s verification endpoint, and the line’s client',
     } finally {
       await close();
     }
+  });
+
+  it('leaves no listener on the line’s signal however often it asks, and stops asking at once when halted', async () => {
+    let asks = 0;
+    const fetcher = (async () => {
+      asks += 1;
+      return asks > 20 ? Response.json(answer) : new Response(null, { status: 202 });
+    }) as typeof fetch;
+    const halt = new AbortController();
+    expect(await new ProbesClient('http://probes', { fetcher, pollMs: 1 }).verify(request, halt.signal)).toEqual(
+      answer,
+    );
+    expect(getEventListeners(halt.signal, 'abort')).toHaveLength(0);
+
+    const halting = new ProbesClient('http://probes', {
+      fetcher: (async () => new Response(null, { status: 202 })) as typeof fetch,
+      pollMs: 3_600_000,
+      deadlineMs: 7_200_000,
+    });
+    const started = Date.now();
+    const asking = halting.verify(request, halt.signal);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    halt.abort(new Error('the line halts'));
+    await expect(asking).rejects.toThrow('the line halts');
+    expect(Date.now() - started).toBeLessThan(1_000);
   });
 
   it('refuses a body that is not a verification, and says when the check could not run', async () => {
