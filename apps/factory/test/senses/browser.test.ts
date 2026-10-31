@@ -78,7 +78,10 @@ describe('the browser a sense uses', () => {
   });
 });
 
-/** A page that answers what a finding's proof asks of it, and whose screenshot fails as many times as it is told. */
+/**
+ * A page that answers what a finding's proof asks of it, and whose screenshot fails as many times as it is told, with
+ * an error that is not tried again (capture.test.ts has the one that is).
+ */
 function pageWith(failures: number) {
   const page = {
     screenshots: 0,
@@ -91,7 +94,7 @@ function pageWith(failures: number) {
     // An element the check boxed that is not on the page.
     locator: () => ({ first: () => ({ scrollIntoViewIfNeeded: async () => {}, boundingBox: async () => null }) }),
     screenshot: async () => {
-      if (page.screenshots++ < failures) throw new Error('Unable to capture screenshot');
+      if (page.screenshots++ < failures) throw new Error('page.screenshot: Target crashed');
       return new Uint8Array([1]);
     },
   };
