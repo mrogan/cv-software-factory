@@ -78,13 +78,18 @@ describe('the Canary panel, from the samples', () => {
     });
   });
 
-  it('keeps a promoted release in full for a quarter of an hour, then folds it to one line', () => {
+  it('keeps a promoted release in full until the next starts, while its station reads passed for a quarter of an hour', () => {
     expect(shown(at('2026-10-06T07:10:00Z')).canary).toMatchObject({
       state: 'shown',
       release: { end: { kind: 'promoted' } },
     });
     expect(shown(at('2026-10-06T07:10:00Z')).station?.status).toBe('passing');
-    expect(shown(at('2026-10-06T08:00:00Z')).canary).toMatchObject({ state: 'idle', release: { version: 'v0.9.12' } });
+    // Long after: the station is idle again, and the panel still draws the release in full.
+    expect(shown(at('2026-10-06T08:00:00Z')).station?.status).not.toBe('passing');
+    expect(shown(at('2026-10-06T08:00:00Z')).canary).toMatchObject({
+      state: 'shown',
+      release: { version: 'v0.9.12', end: { kind: 'promoted' } },
+    });
   });
 
   it('links a rollback before any step was measured to the ticket its signal opened', () => {
@@ -341,7 +346,7 @@ describe('a release’s steps', () => {
     { weight: 50, pauseSeconds: 180, analysis: true },
   ];
 
-  it('lists a merge waiting for a deploy as Martin’s once its checks pass, and after a rollback as waiting for his next', () => {
+  it('lists a merge waiting for a deploy as Martin’s once its checks pass, and after a rollback as waiting for his retry or next', () => {
     const deploy = { stage: 'release', kind: 'approval', cause: 'deploy', reason: 'Waits for a deploy' } as const;
     const changed = (state: 'checking' | 'passed') => ({ pullRequest: 40, commit: 'd'.repeat(40), state });
     const one = work('1')
@@ -358,12 +363,12 @@ describe('a release’s steps', () => {
       .add(6, 'hold.started', 'factory', deploy);
     // The release that carries it ends the wait.
     expect(note(one.at(4))).not.toMatch(/^Needs you/);
-    // Held again, it waits for a deploy pull request of its own.
-    expect(note(one.at(6))).toBe('Rolled back · waiting for its deploy pull request');
+    // Held again, it waits for Martin: his retry of the release carries it on, as another deploy would.
+    expect(note(one.at(6))).toBe('Needs you · rolled back, waiting for Martin’s retry or next deploy');
     one.add(7, 'deploy.changed', 'factory', changed('checking'));
-    expect(note(one.at(7))).toBe('Rolled back · deploy #40’s checks running');
+    expect(note(one.at(7))).toBe('Needs you · rolled back, waiting for Martin’s retry or next deploy');
     one.add(7, 'deploy.changed', 'factory', changed('passed'));
-    expect(note(one.at(7))).toBe('Needs you · rolled back, waiting for Martin’s next deploy');
+    expect(note(one.at(7))).toBe('Needs you · rolled back, waiting for Martin’s retry or next deploy');
     // The card and the sheet say so too, with the release that rolled back.
     const picture = (t: number) => project(one.events, t).cards.find((c) => c.number === '1')?.picture;
     expect(picture(one.at(2))).toMatchObject({ type: 'deploy', ended: undefined });
@@ -932,6 +937,7 @@ describe('how many looks of a failed measure failed', () => {
     reason: 'Failed',
     failed,
     ticket: undefined,
+    by: 'analysis',
   });
 
   it('says the count the rollback kept for the one run that failed the measure', () => {
@@ -1045,12 +1051,12 @@ describe('Martin’s controls of the canary', () => {
     };
     expect(controlsOf(errored, false).map((c) => c.action)).toEqual(['retry']);
     expect(controlsOf({ ...inFlight, end: { kind: 'promoted', at: 0, weight: 100 } }, false)).toEqual([]);
-    expect(
-      controlsOf(
-        { ...inFlight, end: { kind: 'rolled-back', at: 0, weight: 25, reason: 'r', failed: [], ticket: undefined } },
-        false,
-      ),
-    ).toEqual([]);
+    // A rollback is retried too, judged by its analysis afresh.
+    const rolled: Release = {
+      ...inFlight,
+      end: { kind: 'rolled-back', at: 0, weight: 25, reason: 'r', failed: [], ticket: undefined, by: 'analysis' },
+    };
+    expect(controlsOf(rolled, false)).toMatchObject([{ action: 'retry', stepUp: true }]);
     expect(controlsOf({ ...inFlight, dryRun: true }, false)).toEqual([]);
   });
 
@@ -1063,7 +1069,7 @@ describe('Martin’s controls of the canary', () => {
       by: 'martin',
     });
     const all = releases(aborted.events, [], aborted.at(300));
-    expect(canaryView(all, aborted.at(300)).state).toBe('shown');
+    expect(canaryView(all).state).toBe('shown');
   });
 
   it('asks for the passkey where the access table does, and counts it fresh as long', () => {

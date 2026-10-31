@@ -23,7 +23,7 @@
     ?flag=preview (default) | shipped (released, still off) | checks | share (Verify comparing) | compared | everyone | off
           | busy (another flag holds Share)   where delivery-dates (#1316) stands   ?sync=behind (the app's flags lag)
   The states shipping brings (README, "Shipping"):
-    ?canary=flight (default) | line (no work item) | promoted | rolledback | early (rolled back before a step) | stopped | dry | idle | none
+    ?canary=flight (default) | line (no work item) | promoted | rolledback | early (rolled back before a step) | stopped | dry | none
             | paused (by Martin) | aborted (by Martin) | held (auto-rollback off: judged bad, paused for Martin)
     ?score=on (default) | first (nothing verified yet) | off (no answer key) | sample | none (no score.updated at all)
   Guardrails (README, "Guardrails"), a checklist under the bottom row, for everyone; each attack sits in its guardrail's row:
@@ -586,9 +586,9 @@ table.measures { width: 100%; border-collapse: collapse; font-size: 13px; }
 .measures .base-inline { display: none; font-size: 11.5px; color: var(--text-muted); }
 .measures tr.failed td:first-child { box-shadow: inset 2px 0 0 var(--attn); padding-left: 10px; }
 /* Idle: the last release in one line. */
-.canary-panel.idle { flex-direction: row; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 20px; padding: 16px 24px; }
-.canary-panel.idle p { margin: 0; font-size: 13.5px; color: var(--text-2); }
-.canary-panel.idle h2 { font-size: 22px; }
+.canary-panel.none { flex-direction: row; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 20px; padding: 16px 24px; }
+.canary-panel.none p { margin: 0; font-size: 13.5px; color: var(--text-2); }
+.canary-panel.none h2 { font-size: 22px; }
 
 /* The scoreboard's states beside the name. */
 .score .none { color: var(--text-muted); }
@@ -969,7 +969,7 @@ footer.foot .seg button { font: 11px/1 var(--font-mono); letter-spacing: .6px; }
   .measures.figs th:nth-child(3), .measures.figs td:nth-child(3) { display: none; }
   .measures td .base-inline { display: block; }
   .measures td small { display: none; }
-  .canary-panel.idle { padding: 14px 18px; }
+  .canary-panel.none { padding: 14px 18px; }
   .score-off, .score-wrap { align-items: flex-start; text-align: left; }
   .steps .opt { display: none; }
   .rel { padding: 14px; }
@@ -2026,18 +2026,15 @@ function canaryScenario(k) {
       bad: 'errors 3.92% against 1.39%: 2.53 points above, at most 1.00 points allowed' },
     aborted: { ...live, end: { kind: 'aborted', at: '16:45:12', weight: 50 } },
     dry: { ...live, dry: true, digest: null },
-    idle: { idle: true, last: { ...live, measured: [m25, m50], end: { kind: 'promoted', at: '16:47:30' } } },
     none: { none: true },
   }[k] ?? live;
 }
 
 function renderCanary() {
   const el = $('canary'), r = canaryScenario(S.canary);
-  if (r.none || r.idle) {
-    el.className = 'panel canary-panel idle';
-    el.innerHTML = r.none
-      ? `<h2 id="canary-title">Canary</h2><p>No release yet. Each deploy Martin merges goes out here as a canary, beside the version it would replace.</p>`
-      : `<h2 id="canary-title">Canary</h2><p><span class="word tone-faint"><span class="dot tone-faint"></span>No release in flight</span> &nbsp;The last, <b>${r.last.version}</b>, was <span class="word tone-ok" style="text-transform: none; letter-spacing: 0">promoted</span> at ${r.last.end.at.slice(0, 5)} carrying <button type="button" class="linkish" data-open="${r.last.carries[0]}">#${r.last.carries[0]}</button> · release ${r.last.id}</p>`;
+  if (r.none) {
+    el.className = 'panel canary-panel none';
+    el.innerHTML = `<h2 id="canary-title">Canary</h2><p>No release yet. Each deploy Martin merges goes out here as a canary, beside the version it would replace.</p>`;
     return;
   }
   el.className = 'panel canary-panel';
@@ -2048,7 +2045,7 @@ function renderCanary() {
   let note, right = measuresTable(r);
   if (r.dry) note = 'The dry run answers for this release: its merges were never made, so nothing shipped and nothing was measured. It records each step as the line would see it, so a soak goes round.';
   else if (!r.end && r.held) {
-    note = `The analysis judged the canary bad at ${r.held}: ${r.bad}. Auto-rollback was off when it was judged, so that is inconclusive rather than failed, and Argo Rollouts has paused it for ${S.visitor ? 'Martin' : 'you'}. It keeps ${r.now}% of the traffic until ${S.visitor ? 'he promotes or aborts' : 'you promote or abort'} it. Stop the line still aborts it.`;
+    note = `The analysis judged the canary bad at ${r.held}: ${r.bad}. Auto-rollback was off when it was judged, so that is inconclusive rather than failed, and Argo Rollouts has paused it for ${S.visitor ? 'Martin' : 'you'}. It keeps ${r.now}% of the traffic until ${S.visitor ? 'he promotes or aborts' : 'you promote or abort'} it, even with auto-rollback switched on again. Stop the line still aborts it.`;
     right += `<p class="words" style="margin-top: 12px">${esc(r.words)}</p>`;
   }
   else if (!r.end && r.paused) note = `Martin paused the canary at ${r.paused}. It keeps ${r.now}% of the traffic until he resumes it, promotes it or aborts it.`;
@@ -2070,7 +2067,7 @@ function renderCanary() {
     <div class="rel-id">Release ${r.id}<br><b>${r.previous} → ${r.version}</b> · ${r.commit}<br>${image}</div></div>
     <div class="canary-body"><div class="canary-steps">${stepsTrack(r)}<p class="canary-note">${note}</p></div><div class="canary-measures">${right}</div>${canaryControls(r)}</div>
     <p class="help">${S.switches.rollback && !r.held ? 'The canary moves on by itself while every measure passes, and rolls back by itself the moment one fails. Nobody needs to press anything.'
-      : 'The canary moves on by itself while every measure passes. With auto-rollback off, the moment one fails it pauses for Martin, who promotes or aborts it.'}</p>`;
+      : 'The canary moves on by itself while every measure passes. With auto-rollback off, the moment errors or latency fail it pauses for Martin, who promotes or aborts it; a failed journeys check still rolls it back.'}</p>`;
 }
 
 // The scoreboard, by ?score=. With no score.updated at all (an old store, the replay site) it draws nothing.
@@ -2821,7 +2818,7 @@ function canaryHolds() {
   const v = S.visitor;
   const rows = heldControls(r).map(([k, label, what, key]) => `${v ? `<span class="ro">${label}</span>` : `<button type="button" class="btn ${k === 'abort' ? 'attn-line' : ''}" data-canary="${k}">${label}${keyIf(key && !S.fresh)}</button>`}<p>${what}</p>`).join('');
   return [{ id: r.carries[0], kicker: 'A canary paused for you', stage: `Release · ${r.now}%`, age: '3min', title: ITEMS[indexOf(r.carries[0])].title,
-    ev: `<p class="words">${esc(r.words)}</p><p class="ev">The analysis judged ${r.version} bad: ${r.bad}. Auto-rollback was off when it was judged, so it waits for {whoS2} instead of rolling back. Stop the line still aborts it.</p>`.replace('{whoS2}', v ? 'Martin' : 'you'),
+    ev: `<p class="words">${esc(r.words)}</p><p class="ev">The analysis judged ${r.version} bad: ${r.bad}. Auto-rollback was off when it was judged, so it waits for {whoS2} instead of rolling back, even with auto-rollback switched on again. Stop the line still aborts it.</p>`.replace('{whoS2}', v ? 'Martin' : 'you'),
     rows }];
 }
 // The head of a work item's sheet: its cards from Needs you, while any waits on Martin. Answered, a card leaves the
@@ -2859,7 +2856,7 @@ function flagWhyNot(name, to) {
   if (!flagReady(name)) return 'Verify is still comparing the two sides: each needs 300 requests, and they have 236 and 229. Everyone can be taken once it has judged.';
   if (to === 'share') {
     const r = canaryScenario(S.canary);
-    if (!r.end && !r.idle && !r.none && !r.dry) return `A canary is in flight: ${r.version} is at ${r.now}%, and its two versions would mix the two sides. Share can be taken once it ends.`;
+    if (!r.end && !r.none && !r.dry) return `A canary is in flight: ${r.version} is at ${r.now}%, and its two versions would mix the two sides. Share can be taken once it ends.`;
     const other = Object.entries(FLAGSET).find(([n, g]) => n !== name && g.stage === 'share');
     if (other) return `${other[0]} is at Share: one flag at a time, so each comparison varies one thing.`;
   }
@@ -2925,8 +2922,8 @@ const lightsOutNote = (v) => `<b>Lights-out takes two settings.</b> This one, an
 const SWITCHES = [
   ['agents', 'Agents take new work', () => 'Off: each agent finishes its step, and nothing new is started.', () => false],
   ['automerge', 'Auto-merge low-risk changes', () => 'The line adds a change to the merge queue once the review check passes it by a rule the autonomy level allows. Under Supervised it waits for you anyway.', (on) => !on],
-  ['rollback', 'Auto-rollback', (on) => on ? 'On: a canary the analysis judges bad rolls back by itself. Off, it would pause for you instead.'
-    : 'Off: a canary the analysis judges bad pauses for you, in Needs you, instead of rolling back. Stop the line still aborts one.', (on) => on],
+  ['rollback', 'Auto-rollback', (on) => on ? 'On: a canary the analysis judges bad rolls back by itself. Off, errors or latency judged bad would pause it for you instead.'
+    : 'Off: a canary whose errors or latency the analysis judges bad pauses for you, in Needs you, instead of rolling back. A failed journeys check still rolls it back, and Stop the line still aborts one.', (on) => on],
 ];
 
 function renderControls() {
@@ -3077,7 +3074,7 @@ const STEPUP = {
   retry: ['Retry the release', (r) => `${r.version}’s canary starts again from its first step.`, 'Retrying ships again'],
   autonomy: ['Loosen autonomy', null, 'Loosening autonomy lets more ship without you', true],
   switch: ['Change a switch', null, 'This loosens a control'],
-  rollback: ['Turn off auto-rollback', '<b>Auto-rollback: off.</b> A canary the analysis judges bad pauses for you, in Needs you, instead of rolling back, until you promote or abort it. Stop the line still aborts one.', 'Turning auto-rollback off overrides a guardrail', true],
+  rollback: ['Turn off auto-rollback', '<b>Auto-rollback: off.</b> A canary whose errors or latency the analysis judges bad pauses for you, in Needs you, instead of rolling back, until you promote or abort it. A failed journeys check still rolls it back, and Stop the line still aborts one.', 'Turning auto-rollback off overrides a guardrail', true],
   take: ['Take more work', null, 'Taking more work raises spend'],
   answer: ['Approve past a guardrail', null, 'A gate held this, and approving overrides it'],
   save: ['Save the settings', '<b>The coder’s effort goes from medium to high</b>, from its next step.', 'This raises spend'],
@@ -3218,7 +3215,7 @@ function confirmDialog() {
     if (d.to === 'share') f.compared = false;
     setStage(d.flag, d.to);
   }
-  if (d.kind === 'stop') { S.stopped = true; S.stopReason = $('stop-reason').value.trim(); const r = canaryScenario(S.canary); if (!r.end && !r.idle && !r.none && !r.dry) S.canary = 'stopped'; }
+  if (d.kind === 'stop') { S.stopped = true; S.stopReason = $('stop-reason').value.trim(); const r = canaryScenario(S.canary); if (!r.end && !r.none && !r.dry) S.canary = 'stopped'; }
   else if (d.kind === 'start') { giveKey(); S.stopped = false; }
   // Aborting a canary paused for Martin as judged bad counts as a rollback; any other abort is his manual abort.
   else if (d.kind === 'abort') S.canary = canaryScenario(S.canary).held ? 'heldabort' : 'aborted';

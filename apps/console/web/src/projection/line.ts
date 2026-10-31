@@ -388,12 +388,12 @@ function holdNote(item: ItemState, stage: Stage, behind: boolean): string {
   }
   if (item.queued) return item.stage === 'release' ? 'Merged · waiting for release' : 'Waiting for the planner';
   if (item.hold?.cause === 'merge') return 'Needs you · waiting for Martin’s merge';
-  // A merged fix waits for a deploy pull request, again when the release that carried it rolled back; after an
-  // abort or an analysis error, for Martin's retry too.
+  // A merged fix waits for a deploy pull request, again when the release that carried it rolled back, was aborted or
+  // stopped by an analysis error, or for Martin's retry of that release.
   if (item.hold?.cause === 'deploy') {
     const ended = endedSinceMerge(item);
     if (!ended) return 'Needs you · waiting for Martin’s deploy';
-    if (!ended.stopped) return 'Needs you · rolled back, waiting for Martin’s next deploy';
+    if (!ended.stopped) return 'Needs you · rolled back, waiting for Martin’s retry or next deploy';
     return `Needs you · ${stopWords(ended.stopped)}, ${stopWait(ended.stopped)}`;
   }
   // Only Martin asks for improvements, so a visitor's suggestion waits for Martin, as does whatever the planner

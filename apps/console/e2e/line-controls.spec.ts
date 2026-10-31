@@ -9,7 +9,8 @@
  * tightens autonomy at once, loosens it with the passkey again, turns agents' new work off and on, widens and narrows
  * what the line takes, and a take the service refuses says why under it. Nothing under Autonomy moves as the level
  * changes, on a phone or a desktop, in Controls or in the settings, which draw the same controls: a change made in
- * one shows in the other. He sends alerts to his phone, and stops them with his passkey again. Snapshots are `visual.spec.ts`'s, and axe's look is `quality.spec.ts`'s. Needs Postgres:
+ * one shows in the other. He sends alerts to his phone, and stops them with his passkey again, and turns auto-rollback
+ * off with his passkey again, which the Canary panel's last line then says, and on at once. Snapshots are `visual.spec.ts`'s, and axe's look is `quality.spec.ts`'s. Needs Postgres:
  * TEST_DATABASE_URL, or Docker.
  */
 import { randomUUID } from 'node:crypto';
@@ -109,6 +110,15 @@ test('a visitor sees every control read-only, and no Stop or Start', async ({ pa
   await expect(panel.getByRole('switch', { name: /Agents take new work/ })).toBeChecked();
   await expect(panel.getByRole('switch', { name: /Auto-merge/ })).not.toBeChecked();
   await expect(panel.getByRole('switch', { name: /Auto-rollback/ })).toBeChecked();
+  await expect(panel.getByRole('switch', { name: /Auto-rollback/ })).toContainText(
+    'On: a canary the analysis judges bad rolls back by itself. Off, errors or latency judged bad would pause it for Martin instead.',
+  );
+  // What the line takes, tightest first, as Autonomy is.
+  await expect(panel.getByRole('group', { name: 'What the line takes' }).getByRole('button')).toHaveText([
+    'Just one',
+    'The next few',
+    'Every ticket',
+  ]);
   // Off by default on the laptop's profile, the harness's.
   await expect(panel.getByRole('switch', { name: /Alerts to Martin’s phone/ })).not.toBeChecked();
   const take = panel.getByRole('group', { name: 'What the line takes' });
@@ -226,7 +236,8 @@ test('Martin tightens and loosens autonomy, turns a switch, and widens and narro
     await panel.getByLabel('How many').fill('2');
     await expect(panel.getByRole('button', { name: 'Set (asks for your passkey)' })).toBeVisible();
     await panel.getByRole('button', { name: 'Cancel' }).click();
-    await expect(panel.getByRole('switch', { name: /Auto-rollback/ })).toBeDisabled();
+    // Auto-rollback is on: turning it off overrides a guardrail.
+    await expect(panel.getByRole('switch', { name: /Auto-rollback \(asks for your passkey\)/ })).toBeChecked();
   });
 
   await test.step('tightening autonomy acts at once', async () => {
@@ -346,5 +357,44 @@ test('Martin sends alerts to his phone, and stops them with his passkey again', 
     await expect(dialog).toBeHidden();
     await expect(phone).not.toBeChecked();
     expect(await switched()).toEqual([true, false]);
+  });
+});
+
+test('Martin turns auto-rollback off with his passkey again, and on at once', async ({ page }) => {
+  // Two passkeys at most: the tests before enrolled theirs.
+  await harness.database.owner`update passkeys set revoked_at = now() where revoked_at is null`;
+  await virtualPasskey(page);
+  await enrolThroughTheDoor(page, await harness.code());
+  await page.goto('/?motion=off');
+  const rollback = controls(page).getByRole('switch', { name: /Auto-rollback/ });
+  await expect(rollback).toBeChecked();
+
+  await test.step('off asks for the passkey again, and says what still rolls a canary back', async () => {
+    await rollback.click();
+    const dialog = page.getByRole('dialog', { name: 'Turn off auto-rollback' });
+    await expect(dialog).toContainText(
+      'A failed journeys check still rolls it back, and Stop the line still aborts one.',
+    );
+    await expect(dialog).toContainText('Turning auto-rollback off overrides a guardrail');
+    await dialog.getByRole('button', { name: 'Use your passkey' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(rollback).not.toBeChecked();
+    await expect(rollback).toContainText(
+      'Off: a canary whose errors or latency the analysis judges bad pauses for you, in Needs you, instead of rolling back.',
+    );
+    expect((await changes()).at(-1)).toEqual({ control: 'auto-rollback', before: true, after: false });
+    // The Canary panel's last line says a failing measure now pauses the canary for Martin.
+    await expect(page.locator('section.canary .tooled')).toContainText(
+      'With auto-rollback off, the moment errors or latency fail it pauses for Martin',
+    );
+  });
+
+  await test.step('on asks for nothing', async () => {
+    // The passkey is fresh from turning it off, so this shows only that nothing more is asked here; that on never asks
+    // is the access table's (`test/access.test.ts`).
+    await rollback.click();
+    await expect(rollback).toBeChecked();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    expect((await changes()).at(-1)).toEqual({ control: 'auto-rollback', before: false, after: true });
   });
 });

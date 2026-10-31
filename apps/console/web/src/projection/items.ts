@@ -153,7 +153,10 @@ export interface ItemState {
    * hold, and when. None before the App opens one.
    */
   deploy: (PayloadOf<'deploy.changed'> & { at: number }) | undefined;
-  /** The release that carried its latest merge was stopped, aborted or by an error, and none has started since. */
+  /**
+   * The release that carried its latest merge rolled back, or was stopped, by Martin, the line or an error, and none has
+   * started since: Martin may retry it.
+   */
   releaseStopped: boolean;
 }
 
@@ -503,6 +506,9 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         ) {
           break;
         }
+        // A canary's hold is of the release in flight that carries the item, as the line reads it: one of any other,
+        // or one that has ended, holds nothing.
+        if (event.payload.cause === 'canary' && (event.payload.release !== release || !state.canary)) break;
         state.sentBack = undefined;
         state.cleared = undefined;
         // A hold that starts again waits for a deploy pull request of its own.
@@ -524,14 +530,18 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         state.deploy = { ...event.payload, at: time };
         break;
       case 'hold.answered':
+        // A canary's hold is answered on the Canary panel and ends with its release, as the line reads it: an answer
+        // of the holds' settles nothing.
+        if (state.hold?.cause === 'canary') break;
         // Words settle nothing for a hold of triage's, as the line reads them: it still waits for Martin.
         if (event.payload.decision === 'answered' && state.hold && WORDS_LEAVE_HELD.includes(state.hold.cause)) break;
         state.hold = undefined;
         state.cleared = undefined;
         break;
       case 'release.started':
-        // A release that carries the fix is the answer to its wait for a deploy, as the line reads it.
-        if (state.hold?.cause === 'deploy') state.hold = undefined;
+        // A release that carries the fix is the answer to its wait for a deploy, as the line reads it, and a new one ends
+        // a canary's hold of the last.
+        if (state.hold?.cause === 'deploy' || state.hold?.cause === 'canary') state.hold = undefined;
         state.deploy = undefined;
         state.releaseStopped = false;
         release = event.payload.release;
@@ -546,19 +556,25 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
         break;
       case 'release.promoted':
         state.canary = undefined;
+        endCanaryHold(state);
         state.versions.live = true;
         break;
       case 'release.rolled-back':
         state.canary = undefined;
+        endCanaryHold(state);
         state.versions.rolledBack = true;
+        // Martin may retry a rollback too, as he may a stop: the fix waits for him.
+        state.releaseStopped = merged;
         break;
       case 'release.errored':
         state.canary = undefined;
+        endCanaryHold(state);
         state.versions.stopped = 'error';
         state.releaseStopped = merged;
         break;
       case 'release.aborted':
         state.canary = undefined;
+        endCanaryHold(state);
         state.versions.stopped = event.payload.by;
         state.releaseStopped = merged;
         break;
@@ -678,6 +694,11 @@ export function clearanceWords(item: ItemState): string | undefined {
 export function deployWaitsForMartin(item: Pick<ItemState, 'hold' | 'deploy' | 'releaseStopped'>): boolean {
   if (item.hold?.cause !== 'deploy') return false;
   return item.deploy?.state === 'passed' || item.releaseStopped;
+}
+
+/** Ends a hold of a canary paused for Martin: its release has ended, however it ended, as the line's fold reads it. */
+function endCanaryHold(state: ItemState): void {
+  if (state.hold?.cause === 'canary') state.hold = undefined;
 }
 
 /** The words for a hold at Release or Verify that its summary may lack, by cause. */

@@ -37,7 +37,7 @@ import {
   STAGE_NAME,
 } from './flags.ts';
 import { type Capture, clearanceWords, type Hold, type ItemState, summaryOf } from './items.ts';
-import type { Need } from './needs.ts';
+import type { CanaryNeed, Need } from './needs.ts';
 import { bySense, type Card, card, type Picture, picture, pictureOfSignal } from './reel.ts';
 import { endedWords, type Release, releases, type StoppedBy, stoppedBy } from './release.ts';
 import { reportText } from './report.ts';
@@ -229,7 +229,7 @@ export interface Sheet {
    * What waits on Martin for it, as Needs you draws it, at the head of the sheet: its open hold, and its flag waiting
    * for him to widen it.
    */
-  needs: { hold: Need | undefined; flag: FlagNeed | undefined };
+  needs: { hold: Need | undefined; canary: CanaryNeed | undefined; flag: FlagNeed | undefined };
   /** While a merged fix is held for a deploy: the pull request it waits with, and the deploy pull request's state. */
   deploy: Extract<Picture, { type: 'deploy' }> | undefined;
   /** Who wrote the paragraph at the top: the describer, once it has. */

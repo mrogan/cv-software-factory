@@ -6,6 +6,12 @@
  * What each answer does is the line's own table, `ANSWERS` in the events package, so the two cannot drift; only the
  * words are the console's. An answer that would do nothing is left off (`answersTo`): a fix waiting for Martin's
  * deploy takes only his rejection.
+ *
+ * A canary paused for Martin (auto-rollback off, judged bad) has one card of its own, drawn from the release's events
+ * (`release.ts`'s `judgedBad`), whether or not it carries a work item: Martin's drill releases a change that carries
+ * none, which the line holds nothing for. Where it carries some, the line's `canary` hold on each is the same card, not
+ * another. Its answers are the Canary panel's own controls, through `/admin/release/*`: no answer of the holds' does
+ * anything to it.
  */
 import {
   ANSWERS,
@@ -19,10 +25,11 @@ import {
   WORDS_LEAVE_HELD,
 } from '@software-factory/events';
 import { GUARDRAIL_HOLDS, IMPROVEMENT_STEP_UP } from '../access.ts';
-import { APP_REPO, clock, duration, money } from '../format.ts';
+import { APP_REPO, clock, duration, money, shortVersion } from '../format.ts';
 import { deployWords } from './fixing.ts';
 import { deployWaitsForMartin, type ItemState } from './items.ts';
 import { startOfDay } from './line.ts';
+import { judgedSaid, judgedWords, type Release } from './release.ts';
 
 /** The one piece of evidence that explains a hold: a check's or the fence's own output, a question, or words. */
 export type Evidence =
@@ -76,8 +83,30 @@ export interface Answered {
   did: string | undefined;
 }
 
+/**
+ * A canary paused for Martin: the release, judged bad by its analysis with auto-rollback off, and what its card says.
+ * Its answers are the release's own controls (`release.ts`'s `controlsOf`).
+ */
+export interface CanaryNeed {
+  release: Release;
+  kicker: string;
+  /** What the card names on the right: the first work item it carries, or its version when it carries none. */
+  label: string;
+  /** The work item it opens, if it carries one. */
+  workItem: string | undefined;
+  title: string;
+  waited: string;
+  since: number;
+  /** The analysis's own words, on the station face. */
+  said: string[];
+  /** What the analysis judged bad, and by how much. */
+  bad: string;
+}
+
 export interface NeedsView {
   holds: Need[];
+  /** The canary paused for Martin, if one is. */
+  canary: CanaryNeed | undefined;
   /** Today's answers, the viewer's own day, newest first. */
   answered: Answered[];
 }
@@ -310,12 +339,35 @@ function linkOf(item: ItemState, cause: HoldCause): Need['link'] {
 /** How long something has waited, to its largest unit: "1d", "50min". */
 export const waited = (ms: number) => duration(Math.max(1000, ms)).split(/\s/)[0] ?? '';
 
-/** Needs you at t: every open hold, oldest first, and Martin's answers since the viewer's day began. */
-export function needsView(items: readonly ItemState[], t: number): NeedsView {
+/** The card of a canary paused for Martin: the release in flight, when its analysis judged it bad. */
+export function canaryNeed(flight: Release | undefined, t: number): CanaryNeed | undefined {
+  const judged = flight?.judgedBad;
+  if (!flight || !judged) return undefined;
+  const first = flight.items[0];
+  const more = flight.items.length > 1 ? ` and ${flight.items.length - 1} more` : '';
+  return {
+    release: flight,
+    kicker: 'A canary paused for you',
+    label: first ? `#${first.number}` : shortVersion(flight.version),
+    workItem: first?.number,
+    title: first ? `${first.title}${more}` : `${shortVersion(flight.version)}, which carries no work item`,
+    waited: waited(t - judged.at),
+    since: judged.at,
+    said: judgedSaid(judged),
+    bad: judgedWords(judged),
+  };
+}
+
+/**
+ * Needs you at t: every open hold, oldest first, the canary paused for Martin among them, and his answers since the
+ * viewer's day began. `flight` is the release in flight, if one is.
+ */
+export function needsView(items: readonly ItemState[], t: number, flight?: Release): NeedsView {
   const holds = items
     .flatMap((item): Need[] => {
       const hold = item.hold;
-      if (!hold || item.closedAt !== undefined) return [];
+      // A canary's hold is the release's card, drawn from its events once, not one per work item it carries.
+      if (!hold || item.closedAt !== undefined || hold.cause === 'canary') return [];
       const opener = item.events.find((event) => event.type === 'signal.received')?.payload as
         | PayloadOf<'signal.received'>
         | undefined;
@@ -380,7 +432,7 @@ export function needsView(items: readonly ItemState[], t: number): NeedsView {
     }
   }
   answered.sort((a, b) => b.at - a.at);
-  return { holds, answered };
+  return { holds, canary: canaryNeed(flight, t), answered };
 }
 
 export const stageName = (stage: Stage) => STAGE_NAME[stage];

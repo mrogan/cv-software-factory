@@ -83,6 +83,11 @@
   font-size: 13px;
   justify-content: flex-start;
 }
+/* Abort of a canary paused for Martin: outlined in the alarm colour, never filled, as no answer is suggested. */
+.answers .btn.attn-line {
+  border-color: var(--attn-line);
+  color: var(--attn);
+}
 .answers .btn[aria-disabled="true"] {
   opacity: 0.5;
   cursor: default;

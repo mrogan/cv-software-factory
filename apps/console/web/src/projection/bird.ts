@@ -62,7 +62,8 @@ export function hear(watch: Watch, event: PublicEvent): Reaction | undefined {
     const heard = event.payload.measures.filter((m) => !watch.measured.has(measurementOf(m)));
     if (!heard.length) return undefined;
     for (const m of heard) watch.measured.add(measurementOf(m));
-    return heard.some((m) => m.phase === 'failed') ? { kind: 'sour' } : { kind: 'hop' };
+    // A look over its limit is sour, whether it failed or, with auto-rollback off, was inconclusive.
+    return heard.some((m) => m.phase === 'failed' || m.phase === 'inconclusive') ? { kind: 'sour' } : { kind: 'hop' };
   }
   if (event.type === 'canary.stepped') {
     const { weight, analysis } = event.payload;

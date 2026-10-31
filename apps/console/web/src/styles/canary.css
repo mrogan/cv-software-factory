@@ -479,6 +479,15 @@ p.words {
   .measures .base-inline {
     display: block;
   }
+  /* A long verdict ("inconclusive · waits for Martin") wraps under its glyph rather than past the panel's edge. */
+  .measures .v {
+    white-space: normal;
+    align-items: flex-start;
+  }
+  .measures .v .glyph {
+    flex: none;
+    margin-top: 3px;
+  }
   .canary.idle {
     padding: 14px 18px;
   }

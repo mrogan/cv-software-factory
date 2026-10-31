@@ -18,7 +18,7 @@
  * the month's, and the dearest work item today against a work item's cap, with when the day resets, in UTC. A meter at
  * its cap turns `attn`.
  */
-import { type Autonomy, AUTONOMY as LEVELS, TAKES, type TakeKind } from '@software-factory/events';
+import { type Autonomy, AUTONOMY as LEVELS, TAKES as LOOSEST_FIRST, type TakeKind } from '@software-factory/events';
 import { type ReactNode, useId, useState } from 'react';
 import { type ControlChange, controlAction, TAKE, type Take } from '../../../../../policy/line.ts';
 import { phoneInForce } from '../../../../../policy/phone.ts';
@@ -107,6 +107,12 @@ const TAKE_LABEL: Record<TakeKind, string> = {
   'just-one': 'Just one',
 };
 
+/**
+ * What the line takes, tightest first, as Autonomy's levels are: the key sits on each choice looser than the one in
+ * force. The vocabulary lists them loosest first.
+ */
+const TAKES: readonly TakeKind[] = [...LOOSEST_FIRST].reverse();
+
 /** What the line will do with a take, in a sentence. */
 function takeWords(take: Take | null, nextFew: ControlsView['nextFew'], viewer: Viewer): string {
   if (!take) {
@@ -131,7 +137,13 @@ function takeWords(take: Take | null, nextFew: ControlsView['nextFew'], viewer: 
 type TakeBody = { kind: 'every' } | { kind: 'next-few'; count: number } | { kind: 'just-one'; workItem: string };
 
 /** What Martin may send: one change, as `POST /admin/line/controls` takes it, or a switch of alerts to his phone. */
-type Change = { autonomy: Autonomy } | { newWork: boolean } | { autoMerge: boolean } | { take: TakeBody } | Phone;
+type Change =
+  | { autonomy: Autonomy }
+  | { newWork: boolean }
+  | { autoMerge: boolean }
+  | { autoRollback: boolean }
+  | { take: TakeBody }
+  | Phone;
 type Phone = { phone: boolean };
 
 /** A wider take, as the passkey's dialog says it. */
@@ -250,6 +262,7 @@ function AutonomyGroup({ controls, viewer, changer }: { controls: ControlsView; 
 function Switch({
   label,
   note,
+  off = false,
   on,
   live,
   keyed,
@@ -258,6 +271,8 @@ function Switch({
 }: {
   label: string;
   note: ReactNode;
+  /** Its words say what is off that guards something: drawn darker than a note. */
+  off?: boolean;
   on: boolean;
   /** Martin may press it; otherwise it is drawn read-only. */
   live: boolean;
@@ -283,17 +298,38 @@ function Switch({
           {label}
           {keyed && <Key />}
         </span>
-        <small>{note}</small>
+        <small className={off ? 'off' : undefined}>{note}</small>
       </span>
       <span className="track" aria-hidden="true" />
     </button>
   );
 }
 
+/**
+ * What auto-rollback does, on and off, to Martin and to anyone else. The switch covers what the analysis judges of the
+ * canary against its baseline, errors and latency; the journeys are a Job, which Argo Rollouts ends only passed or
+ * failed, so a failed journeys check rolls a canary back whatever the switch says (`apps/factory/src/release/analysis.ts`).
+ */
+const ROLLBACK: Record<'on' | 'off', Record<Viewer, string>> = {
+  on: {
+    martin:
+      'On: a canary the analysis judges bad rolls back by itself. Off, errors or latency judged bad would pause it for you instead.',
+    visitor:
+      'On: a canary the analysis judges bad rolls back by itself. Off, errors or latency judged bad would pause it for Martin instead.',
+  },
+  off: {
+    martin:
+      'Off: a canary whose errors or latency the analysis judges bad pauses for you, in Needs you, instead of rolling back. A failed journeys check still rolls it back, and Stop the line still aborts one.',
+    visitor:
+      'Off: a canary whose errors or latency the analysis judges bad pauses for Martin, in Needs you, instead of rolling back. A failed journeys check still rolls it back, and Stop the line still aborts one.',
+  },
+};
+
 function SwitchesGroup({ controls, viewer, changer }: { controls: ControlsView; viewer: Viewer; changer: Changer }) {
   const martin = viewer === 'martin';
-  const { newWork, autoMerge } = controls;
+  const { newWork, autoMerge, autoRollback } = controls;
   const autoMergeOn: ControlChange = { control: 'auto-merge', before: autoMerge, after: !autoMerge };
+  const autoRollbackOff: ControlChange = { control: 'auto-rollback', before: autoRollback, after: !autoRollback };
   return (
     <div className="ctl-group">
       <span className="label">
@@ -353,15 +389,43 @@ function SwitchesGroup({ controls, viewer, changer }: { controls: ControlsView; 
             )
           }
         />
-        {/* Approval routing gives it a switch (Part C). Until then it is always on, for everyone. */}
+        {/* Off overrides a guardrail, so it asks for the passkey again; on asks for nothing. */}
         <Switch
           label="Auto-rollback"
-          note="A failing canary is always rolled back: this gets its switch with approval routing."
-          on
-          live={false}
-          keyed={false}
-          busy={false}
-          onToggle={() => {}}
+          note={ROLLBACK[autoRollback ? 'on' : 'off'][viewer]}
+          off={!autoRollback}
+          on={autoRollback}
+          live={martin}
+          keyed={martin && !changer.fresh && asks(autoRollbackOff)}
+          busy={changer.busy}
+          onToggle={() =>
+            void changer.change(
+              'switches',
+              { autoRollback: !autoRollback },
+              autoRollback
+                ? {
+                    title: 'Turn off auto-rollback',
+                    what: (
+                      <>
+                        <b>Auto-rollback: off.</b> A canary whose errors or latency the analysis judges bad pauses for
+                        you, in Needs you, instead of rolling back, until you promote or abort it. A failed journeys
+                        check still rolls it back, and Stop the line still aborts one.
+                      </>
+                    ),
+                    why: 'Turning auto-rollback off overrides a guardrail',
+                  }
+                : {
+                    title: 'Turn on auto-rollback',
+                    what: (
+                      <>
+                        <b>Auto-rollback: on. A canary the analysis judges bad rolls back by itself.</b> One already
+                        paused for you stays paused until you promote or abort it.
+                      </>
+                    ),
+                    why: 'The admin service asks for it',
+                  },
+            )
+          }
         />
       </div>
       <Refusal changer={changer} where="switches" />
@@ -503,6 +567,7 @@ function TakeGroup({ controls, viewer, changer }: { controls: ControlsView; view
           </button>
         ))}
       </div>
+      <p className="help">{takeWords(take, nextFew, viewer)}</p>
       {martin && shown && (
         <form
           className="take-field"
@@ -555,7 +620,6 @@ function TakeGroup({ controls, viewer, changer }: { controls: ControlsView; view
           )}
         </form>
       )}
-      <p className="help">{takeWords(take, nextFew, viewer)}</p>
       <Refusal changer={changer} where="take" />
     </div>
   );
