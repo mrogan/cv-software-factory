@@ -111,7 +111,7 @@ His choice is a `settings.changed` event, which the [admin service](ADMIN-SERVIC
 
 Each refusal of a guardrail is recorded as `action.refused`, mechanism `gateway`, in the gateway's own words as its answer gives them, appended as the gateway's own role (`policy/refusals.ts` holds the mechanism to it), so the console counts it under the guardrail it shows:
 
-- **A spend cap** (guardrail 7): a day's, a month's or a work item's, or a provider the gateway holds [capped](#caps-the-factory-does-not-own) for its credit or its workspace's limit. One held because it is unreachable is an outage, which no guardrail refused, and is not recorded.
+- **A spend cap** (guardrail 7): a day's, a month's or a work item's, or a provider's, for its credit or its workspace's limit: the refusal that [caps](#caps-the-factory-does-not-own) it, and each call the gateway holds while it is capped. One held because it is unreachable is an outage, which no guardrail refused, and is not recorded.
 - **Its policy on agents and models** (guardrail 6): an agent that calls no model through the Messages API, or a judgement asking for a model that is not pinned or has no price.
 - **The line stopped** (guardrail 9): any agent's call while it is.
 

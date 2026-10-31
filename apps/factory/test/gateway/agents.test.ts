@@ -360,7 +360,10 @@ describe('agents through the gateway', () => {
 
   it('treats spent credit as a cap: it says so once, waits, and clears when the provider answers', async () => {
     provider.requests.length = 0;
-    const { sql, token } = await start();
+    const { sql, token, refusals } = await start();
+    await new EventWriter(database.as.triage, { kind: 'real', artifacts: new DiskArtifacts(cassettesDir) }).append(
+      opened(),
+    );
     provider.script({
       status: 400,
       body: {
@@ -395,6 +398,22 @@ describe('agents through the gateway', () => {
         },
       },
       { type: 'spend.cleared', version: 2, payload: { cap: 'provider', provider: 'anthropic' } },
+    ]);
+    // The provider's own refusal and the one the gateway held after it are the same cap's, in the provider's words.
+    await refusals.stop();
+    const capped = {
+      mechanism: 'gateway',
+      action: 'A model call by the coder agent, while anthropic is at its credit cap',
+      output: 'anthropic refuses calls for now (credit): Your credit balance is too low to access the Anthropic API.',
+      guardrails: [7],
+    };
+    expect(await refusalsIn(database.owner)).toEqual([
+      { work_item: '1001', appended_by: 'factory_gateway', payload: capped },
+      {
+        work_item: '1001',
+        appended_by: 'factory_gateway',
+        payload: { ...capped, count: 1, lastAt: expect.any(String) },
+      },
     ]);
   });
 

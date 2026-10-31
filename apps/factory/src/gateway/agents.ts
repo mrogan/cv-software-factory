@@ -21,7 +21,7 @@
  *    stream that breaks off is audited at what it had cost by then: the provider bills what it generated. The same
  *    figures go on the call's `model call` span, a child of the step's span the job token keeps (`spans.ts`).
  * 6. Records each refusal of a guardrail on the job's work item (`refusals.ts`): an agent that calls no model, the
- *    line stopped, a provider the gateway holds capped, a spend cap reached.
+ *    line stopped, a provider capped for its credit or its workspace's limit, a spend cap reached.
  *
  * Prompt caching passes through untouched: the runner's `cache_control` markers reach the provider as sent.
  *
@@ -372,14 +372,10 @@ export class AgentCalls {
       await audit('failed', undefined, `${provider} answered ${response.status}`);
       if (refusal) {
         await caps.cap(provider, refusal);
-        return apiError(
-          429,
-          'rate_limit_error',
-          `${provider} refuses calls for now (${refusal.reason}): ${refusal.message}`,
-          {
-            'retry-after': '300',
-          },
-        );
+        // The first refusal is the cap's as much as those held after it.
+        const message = `${provider} refuses calls for now (${refusal.reason}): ${refusal.message}`;
+        this.#refused(call.workItem, call.agent, 'cap', message, `while ${provider} is at its ${refusal.reason} cap`);
+        return apiError(429, 'rate_limit_error', message, { 'retry-after': '300' });
       }
       // Anything else is the provider's to say: a rate limit, an overload, a request it will not take.
       const retryAfter = response.headers.get('retry-after');
