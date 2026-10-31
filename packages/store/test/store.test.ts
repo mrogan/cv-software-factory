@@ -113,6 +113,7 @@ describe('migrations', () => {
       { version: 39, name: 'release-events-the-lines' },
       { version: 40, name: 'refusals-by-mechanism' },
       { version: 41, name: 'refusals-as-they-read' },
+      { version: 42, name: 'refusals-before-guardrails' },
     ]);
   });
 });

@@ -216,7 +216,7 @@ export function stageOf(event: PublicEvent): Stage | null {
     case 'hold.started':
       return event.payload.stage;
     // Where each mechanism stands on the line. The gateway refuses a call from whichever stage its work item is at, so
-    // its refusal leaves the item there.
+    // its refusal leaves the item there (`foldItem` fails it at that stage).
     case 'action.refused':
       return REFUSED_AT[event.payload.mechanism];
     case 'model.called':
@@ -413,7 +413,13 @@ export function foldItem(events: readonly PublicEvent[]): ItemState | undefined 
       passedBefore &&
       (!failed || rebuilding) &&
       (event.type === 'gates.started' || event.type === 'gate.finished' || event.type === 'gates.finished');
-    const stage = joining || rerun ? null : stageOf(event);
+    // The gateway refuses a call from whichever stage its work item is at: its refusal fails the item there, where
+    // every other refusal fails it at its mechanism's stage.
+    const stage =
+      joining || rerun
+        ? null
+        : (stageOf(event) ??
+          (event.type === 'action.refused' && event.payload.mechanism === 'gateway' ? state.stage : null));
     if (stage) {
       if (stage !== state.stage) state.sentBack = undefined;
       enter(stage, time);

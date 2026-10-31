@@ -224,22 +224,25 @@ describe('the events triage writes', () => {
     };
     const decision = await judgeReport(REPORT, [], fakeJev(triage('functional', 0.97)).judge, read);
     const events = () => findingEvents(finding, '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b', '1002', decision, NOW);
-    for (const event of events()) expect(validate(event)).toEqual({ ok: true });
-    expect(events().find((e) => e.type === 'action.refused')?.payload).toMatchObject({
+    const first = events();
+    for (const event of first) expect(validate(event)).toEqual({ ok: true });
+    expect(first.find((e) => e.type === 'action.refused')?.payload).toMatchObject({
       mechanism: 'typed-judgement',
       action: 'Act on the planner’s finding on /about, while planning ticket #1001',
       guardrails: [8],
     });
-    expect(events().map((e) => e.id)).toEqual(events().map((e) => e.id));
-    expect(new Set(events().map((e) => e.id)).size).toBe(events().length);
+    // A retry builds the events again, with the ids the first try gave them.
+    expect(events().map((e) => e.id)).toEqual(first.map((e) => e.id));
+    expect(new Set(first.map((e) => e.id)).size).toBe(first.length);
   });
 
   it('give the same ids for the same signal, so a retried append stores nothing twice', async () => {
     const decision = await judgeReport(REPORT, [], fakeJev(triage('functional')).judge, read);
     const id = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b';
     const ids = () => reportEvents(signal, id, '1000', decision, NOW).map((e) => e.id);
-    expect(ids()).toEqual(ids());
-    expect(new Set(ids()).size).toBe(ids().length);
+    const first = ids();
+    expect(ids()).toEqual(first);
+    expect(new Set(first).size).toBe(first.length);
   });
 
   it('open a ticket from a sense’s signal with its category and severity from the policy', () => {

@@ -3,8 +3,9 @@
  * mechanism with a role of its own in the event store appends its own refusals; one with none (the GitHub worker,
  * admission control, GitHub itself) is relayed by the worker that asked it, which holds a role. Row security holds
  * every refusal to the roles named here (`packages/store/migrations/0040_refusals-by-mechanism.sql`), and to the
- * guardrails named here (`0041_refusals-as-they-read.sql`); `packages/store/test/grants.test.ts` fails unless the
- * store's tables equal these, and inserts each mechanism as every role.
+ * guardrails named here (`0041_refusals-as-they-read.sql`, rewritten by `0042_refusals-before-guardrails.sql`);
+ * `packages/store/test/grants.test.ts` fails unless the store's tables equal these, and inserts each mechanism as every
+ * role.
  *
  * The red-team harness's role (`factory_redteam`, which will relay what the GitHub worker refused an attack and record
  * the egress attack's own attempts) is not here yet: the task that makes the role adds it.
@@ -95,8 +96,9 @@ export const REFUSAL_ROWS =
 
 /**
  * The restrictive insert policy beside it that holds a refusal to what the console reads of it
- * (`0041_refusals-as-they-read.sql`): its public view names its mechanism and guardrails, and it names only guardrails
- * its mechanism shows here, each once, or, from before version 3, none and a mechanism version 2 knew.
+ * (`0041_refusals-as-they-read.sql`, as `0042_refusals-before-guardrails.sql` rewrote it): its public view names its
+ * mechanism and guardrails, and it names only guardrails its mechanism shows here, each once, or, from before version
+ * 3, none and a mechanism version 2 knew.
  */
 export const REFUSAL_READS =
   "(type <> 'action.refused') OR ((((public -> 'payload') -> 'mechanism') = (payload -> 'mechanism')) AND " +
@@ -106,5 +108,5 @@ export const REFUSAL_READS =
   "((payload -> 'guardrails') <@ refusal_guardrails((payload ->> 'mechanism'))) AND " +
   "(jsonb_array_length((payload -> 'guardrails')) = ( SELECT count(DISTINCT guardrail.value) AS count " +
   "FROM jsonb_array_elements((events.payload -> 'guardrails')) guardrail(value)))) " +
-  "ELSE ((payload ->> 'mechanism') = ANY (ARRAY['token-permission', 'ruleset', 'egress-policy', " +
-  "'admission-control', 'scope-fence'])) END)";
+  "ELSE (((payload ->> 'mechanism') = ANY (ARRAY['token-permission', 'ruleset', 'egress-policy', " +
+  "'admission-control', 'scope-fence'])) AND ((payload -> 'guardrails') IS NULL)) END)";
