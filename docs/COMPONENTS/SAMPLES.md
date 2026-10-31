@@ -18,7 +18,7 @@ Their screenshots are real: the app, with each sample's change made in a scratch
 
 ## How they are kept
 
-- Exported as an event log that `make check` keeps current.
+- Exported as an event log that `make check` keeps current, each event with the store's role that would append it (`packages/samples/src/roles.ts`), so the console reads who recorded a refusal from the samples as it does from the store.
 - Checked against the answer key in the private repository.
 
 The cluster's store holds real events (`make real-store`).

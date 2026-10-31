@@ -48,6 +48,7 @@ export default new Item('1315', '2026-10-06T09:12:00+01:00')
       { path: 'test/product.test.ts', added: 21, removed: 0, allowed: true },
       { path: 'src/catalogue.ts', added: 12, removed: 4, allowed: false },
     ],
+    guardrails: [11],
   })
   .calls('coder', '8:50', '13:10', { calls: 9, input: 190_000, output: 3_800, cached: 0.9 })
   .at('13:20', 'action.refused', 'factory', 'The scope fence refused the coder’s patch: src/catalogue.ts', {
@@ -64,6 +65,7 @@ export default new Item('1315', '2026-10-06T09:12:00+01:00')
       { path: 'test/product.test.ts', added: 21, removed: 0, allowed: true },
       { path: 'src/catalogue.ts', added: 9, removed: 3, allowed: false },
     ],
+    guardrails: [11],
   })
   .at('13:21', 'hold.started', 'factory', 'Held for Martin at build', {
     stage: 'build',

@@ -1586,6 +1586,7 @@ describe('the line', () => {
     await pass(); // the coder strays, and the fence refuses its patch
     expect((await payloads(workItem, 'action.refused'))[0]).toEqual({
       mechanism: 'scope-fence',
+      guardrails: [11],
       action: 'Push the coder’s round 1 to a new pull request',
       output: ['scope: src/search.ts, test/', 'refused src/server.ts +1 −1', 'allowed test/search.test.ts +2 −0'].join(
         '\n',

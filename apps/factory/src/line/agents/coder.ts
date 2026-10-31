@@ -50,6 +50,7 @@ import {
   type Stage,
 } from '@software-factory/events';
 import { z } from 'zod';
+import { guardrailsFor } from '../../../../../policy/refusals.ts';
 import { filesIn, PatchRefused } from '../../github/patches.ts';
 import { plainPath, protectedWords } from '../../github/paths.ts';
 import { GitHubWorkerError } from '../../github/worker-client.ts';
@@ -521,6 +522,7 @@ export const coder = defineAgent<CoderInput, CoderResult>({
             mechanism: 'scope-fence',
             action: `Push the coder’s round ${round} to ${to}`,
             output: fenced.output,
+            guardrails: guardrailsFor('scope-fence', 'outside'),
             files: fenced.files.slice(0, 200),
           },
         },

@@ -253,6 +253,53 @@ describe('a fix whose gates fail on a branch brought up to date while it waited 
   });
 });
 
+describe('a refusal, by its mechanism', () => {
+  const refused = (mechanism: 'gateway' | 'review-gate', guardrails: number[]) =>
+    ({
+      mechanism,
+      guardrails,
+      action: 'The coder’s call',
+      output: 'refused',
+    }) satisfies PayloadOf<'action.refused'>;
+  const built = () =>
+    work('1')
+      .open()
+      .add(2, 'pull-request.pushed', 'coder', {
+        number: 7,
+        title: 'fix(products): load them all',
+        branch: 'factory/1-products',
+        attempt: 1,
+        testsFirst: true,
+        files: [{ path: 'src/products.ts', added: 1, removed: 1 }],
+        whole: [{ path: 'src/products.ts', added: 1, removed: 1 }],
+      });
+
+  it('fails the work item at the stage it was at, for the gateway, and leaves it there', () => {
+    const item = foldItem(built().add(3, 'action.refused', 'factory', refused('gateway', [7])).events);
+    expect(item?.stage).toBe('build');
+    expect(item?.failure?.stage).toBe('build');
+  });
+
+  it('fails it at the stage it was at, for admission control refusing a runner’s step, and leaves it there', () => {
+    const runner = {
+      mechanism: 'admission-control',
+      guardrails: [3],
+      action: 'Create a pod for Job runners/coder-1-1-1-agent',
+      output: 'admission webhook "ivpol.kyverno.svc-fail" denied the request',
+      subject: { namespace: 'runners', kind: 'Job', name: 'coder-1-1-1-agent' },
+    } satisfies PayloadOf<'action.refused'>;
+    const item = foldItem(built().add(3, 'action.refused', 'factory', runner).events);
+    expect(item?.stage).toBe('build');
+    expect(item?.failure?.stage).toBe('build');
+  });
+
+  it('moves it to its mechanism’s stage, and fails it there, for every other mechanism', () => {
+    const item = foldItem(built().add(3, 'action.refused', 'factory', refused('review-gate', [2])).events);
+    expect(item?.stage).toBe('gates');
+    expect(item?.failure?.stage).toBe('gates');
+  });
+});
+
 describe('a fix held for a human', () => {
   it('by the scope fence: its own output, and the refusal before it', () => {
     expect(card('1315')?.picture).toMatchObject({
@@ -680,6 +727,7 @@ describe('a hold’s picture, by its cause', () => {
   const refused = (path: string) =>
     ({
       mechanism: 'scope-fence',
+      guardrails: [11],
       action: 'Push the coder’s round 1',
       output: `scope: src/search.ts, test/\nrefused ${path} +1 −1`,
       files: [{ path, added: 1, removed: 1, allowed: false }],

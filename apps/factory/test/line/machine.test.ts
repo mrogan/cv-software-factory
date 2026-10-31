@@ -242,7 +242,12 @@ describe('what the line does next', () => {
   it('sends a patch the scope fence refuses back to the coder once, with its output, and holds at the second', () => {
     const refused = (output = 'scope: src/search.ts, test/\nrefused src/server.ts +1 −1'): LineEvent => ({
       type: 'action.refused',
-      payload: { mechanism: 'scope-fence', action: 'Push the coder’s round 1 to a new pull request', output },
+      payload: {
+        mechanism: 'scope-fence',
+        guardrails: [11],
+        action: 'Push the coder’s round 1 to a new pull request',
+        output,
+      },
     });
     const once = [ticket, spec, refused()];
     expect(decide(once, facts)).toEqual({ stage: 'build', next: { do: 'step', agent: 'coder', round: 1 } });
@@ -277,7 +282,7 @@ describe('what the line does next', () => {
     // The platform's refusals are not the fence's.
     const ruleset: LineEvent = {
       type: 'action.refused',
-      payload: { mechanism: 'ruleset', action: 'Push to main', output: 'Protected branch' },
+      payload: { mechanism: 'ruleset', guardrails: [1], action: 'Push to main', output: 'Protected branch' },
     };
     expect(fold([ticket, spec, ruleset, ruleset]).fenceRefusals).toBe(0);
   });
@@ -316,7 +321,12 @@ describe('what the line does next', () => {
     // The fence refused a patch earlier in the round; what the coder said is what Martin approved.
     const refused: LineEvent = {
       type: 'action.refused',
-      payload: { mechanism: 'scope-fence', action: 'Push', output: 'scope: test/\nrefused src/server.ts +1 −1' },
+      payload: {
+        mechanism: 'scope-fence',
+        guardrails: [11],
+        action: 'Push',
+        output: 'scope: test/\nrefused src/server.ts +1 −1',
+      },
     };
     const approved = fold([ticket, spec, refused, { type: 'hold.started', payload: hold }, answer('approved')]);
     expect(approved.spec).toBeUndefined();
@@ -1257,7 +1267,12 @@ describe('Martin’s answer to a hold', () => {
     // The fence's output, for a hold the fence made.
     const fence: LineEvent = {
       type: 'action.refused',
-      payload: { mechanism: 'scope-fence', action: 'Push', output: 'scope: test/\nrefused src/server.ts +1 −1' },
+      payload: {
+        mechanism: 'scope-fence',
+        guardrails: [11],
+        action: 'Push',
+        output: 'scope: test/\nrefused src/server.ts +1 −1',
+      },
     };
     expect(fold([ticket, spec, fence, fence, held('scope', 'build'), answer('approved')]).replan).toMatchObject({
       cause: 'scope',
@@ -1289,7 +1304,12 @@ describe('Martin’s answer to a hold', () => {
     const fenced = 'scope: src/search.ts, test/\nallowed src/search.ts +1 −1\nrefused src/cards.ts +2 −0';
     const refused: LineEvent = {
       type: 'action.refused',
-      payload: { mechanism: 'scope-fence', action: 'Push the coder’s round 1 to a new pull request', output: fenced },
+      payload: {
+        mechanism: 'scope-fence',
+        guardrails: [11],
+        action: 'Push the coder’s round 1 to a new pull request',
+        output: fenced,
+      },
     };
     const strayed = [ticket, spec, refused, refused, held('scope', 'build')];
     const asked =

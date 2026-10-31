@@ -28,6 +28,7 @@ export default new Item('1293', '2026-10-02T16:40:00+01:00')
     mechanism: 'admission-control',
     action: 'Run an image built in the agent’s sandbox in the website namespace',
     output: REFUSAL,
+    guardrails: [3],
   })
   .at('2:01', 'work-item.closed', 'factory', 'Closed: stopped by admission control', {
     outcome: 'no-change',

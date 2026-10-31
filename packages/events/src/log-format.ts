@@ -13,8 +13,23 @@ import type { RawEvent } from './upcast.ts';
 export const EVENTS_FILE = 'events.ndjson';
 export const ARTIFACTS_DIR = 'artifacts';
 
-/** The envelope's fields in the order a log writes them, so a log is stable from one export to the next. */
-const ORDER = ['id', 'seq', 'ts', 'work_item', 'type', 'version', 'actor', 'summary', 'payload', 'artifacts'] as const;
+/**
+ * The envelope's fields in the order a log writes them, so a log is stable from one export to the next. The role that
+ * appended an event is left out where none is known.
+ */
+const ORDER = [
+  'id',
+  'seq',
+  'ts',
+  'work_item',
+  'type',
+  'version',
+  'actor',
+  'summary',
+  'payload',
+  'artifacts',
+  'appended_by',
+] as const;
 
 export function formatLog(events: readonly PublicEvent[]): string {
   const lines = events.map((event) => JSON.stringify(Object.fromEntries(ORDER.map((key) => [key, event[key]]))));

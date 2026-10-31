@@ -155,6 +155,7 @@ export class IssueGuard {
       output:
         `${repo}#${number} was opened by ${opened.by === null ? 'a deleted account' : `user ${opened.by}`}, ` +
         `not the factory's App: the factory acts only on the issues and pull requests it opened (guardrail 10).`,
+      guardrails: [10],
     });
     const record: RefusalRecord = { type: 'action.refused', repo, number, at: this.#now().toISOString(), payload };
     const artifact = await this.#artifacts?.put(new TextEncoder().encode(`${JSON.stringify(record, null, 2)}\n`));

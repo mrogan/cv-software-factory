@@ -161,6 +161,7 @@ describe('the issue guard', () => {
         mechanism: 'scope-fence',
         action: `Close issue #120 in ${REPO}`,
         output: `${REPO}#120 was opened by user ${MARTIN}, not the factory's App: the factory acts only on the issues and pull requests it opened (guardrail 10).`,
+        guardrails: [10],
       },
     });
     expect(PAYLOADS['action.refused'].safeParse(record.payload).success).toBe(true);

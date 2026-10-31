@@ -295,6 +295,8 @@ interface PublicRow {
   actor: string;
   public: { summary: string; payload: unknown; artifacts: unknown[] };
   appended_at: Date;
+  /** The role that appended it, which the store sets; none for an event from before it did. */
+  appended_by: string | null;
 }
 
 /** A public event as read, upcast to its current version if this factory knows its type and version. */
@@ -316,7 +318,7 @@ export async function readPublic(
   { limit = 1000, catalogue = CATALOGUE }: { limit?: number; catalogue?: Catalogue } = {},
 ): Promise<ReadEvent[]> {
   const rows = await sql<PublicRow[]>`
-    select seq, id, ts, work_item, type, version, actor, public, appended_at
+    select seq, id, ts, work_item, type, version, actor, public, appended_at, appended_by
     from events where seq > ${after} order by seq limit ${limit}`;
   return rows.map((row) => {
     const raw = {
@@ -330,6 +332,7 @@ export async function readPublic(
       summary: row.public.summary,
       payload: row.public.payload,
       artifacts: row.public.artifacts,
+      ...(row.appended_by !== null && { appended_by: row.appended_by }),
     };
     const result = upcast(raw, catalogue);
     return {
@@ -356,7 +359,8 @@ export async function readFull(
   { limit = 1000, catalogue = CATALOGUE }: { limit?: number; catalogue?: Catalogue } = {},
 ): Promise<ReadEvent[]> {
   const rows = await sql<FullRow[]>`
-    select e.seq, e.id, e.ts, e.work_item, e.type, e.version, e.actor, e.summary, e.payload, e.artifacts, e.appended_at
+    select e.seq, e.id, e.ts, e.work_item, e.type, e.version, e.actor, e.summary, e.payload, e.artifacts, e.appended_at,
+           e.appended_by
     from events e where e.seq > ${after} and ${fromMartin(sql, 'e')} order by e.seq limit ${limit}`;
   return rows.map((row) => {
     const raw = {
@@ -370,6 +374,7 @@ export async function readFull(
       summary: row.summary,
       payload: row.payload,
       artifacts: row.artifacts,
+      ...(row.appended_by !== null && { appended_by: row.appended_by }),
     };
     const result = upcast(raw, catalogue);
     return {

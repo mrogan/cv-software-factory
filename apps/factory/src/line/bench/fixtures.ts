@@ -611,6 +611,7 @@ const CARDS_REFUSED: LineEvent = {
     mechanism: 'scope-fence',
     action: 'Push the coder’s round 1 to a new pull request',
     output: fence(CARDS_STRAYED, CARDS_SPEC.scope, APP_PROTECTED).output,
+    guardrails: [11],
   },
 };
 

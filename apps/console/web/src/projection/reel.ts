@@ -283,6 +283,10 @@ const MECHANISMS: Record<PayloadOf<'action.refused'>['mechanism'], string> = {
   'egress-policy': 'The egress policy',
   'admission-control': 'Admission control',
   'scope-fence': 'The scope fence',
+  'github-guard': 'The GitHub worker’s guard',
+  'review-gate': 'The review gate',
+  gateway: 'The gateway',
+  'typed-judgement': 'Typed judgement',
 };
 
 /** The pages verification found unchanged, for the strip under a picture of something with nothing to see. */

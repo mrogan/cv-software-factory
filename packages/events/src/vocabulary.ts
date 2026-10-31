@@ -116,6 +116,28 @@ export const ACTORS = [
 ] as const;
 export type Actor = (typeof ACTORS)[number];
 
+/**
+ * What may refuse an action (`action.refused`): GitHub refusing the App's token, its ruleset, the runners' egress
+ * policy, admission control in a guarded namespace, the coder's scope fence, the GitHub worker's own guard, the review
+ * check, the gateway, and triage's typed judgement quarantining a report. `policy/refusals.ts` says which roles may
+ * append each, and which of spec 6's guardrails each shows.
+ */
+export const REFUSAL_MECHANISMS = [
+  'token-permission',
+  'ruleset',
+  'egress-policy',
+  'admission-control',
+  'scope-fence',
+  'github-guard',
+  'review-gate',
+  'gateway',
+  'typed-judgement',
+] as const;
+export type RefusalMechanism = (typeof REFUSAL_MECHANISMS)[number];
+
+/** Spec 6's guardrails, by number: a refusal names the ones it shows. */
+export const GUARDRAIL_COUNT = 11;
+
 /** Who answers a model call: Anthropic's API, Amazon Bedrock, or a model running on Martin's Mac (LM Studio). */
 export const MODEL_PROVIDERS = ['anthropic', 'bedrock', 'local'] as const;
 export type ModelProvider = (typeof MODEL_PROVIDERS)[number];

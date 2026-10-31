@@ -13,11 +13,14 @@ import {
   type InboxSignal,
   LINE_ONLY_TYPES,
   type NewEvent,
+  REFUSAL_MECHANISMS,
+  type RefusalMechanism,
   VERSIONS,
 } from '@software-factory/events';
-import type { Sql } from 'postgres';
+import type { JSONValue, Sql } from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ENROLMENT_CODE, PASSKEYS, SESSION } from '../../../policy/access.ts';
+import { mayAppend, REFUSAL_READS, REFUSAL_ROWS, REFUSALS } from '../../../policy/refusals.ts';
 import { MARTINS_ROLES, STORE_GRANTS } from '../../../policy/store-grants.ts';
 import { DiskArtifacts } from '../src/artifacts.ts';
 import { EventWriter } from '../src/events.ts';
@@ -97,7 +100,7 @@ describe('the grants', () => {
       { table: string; command: string; roles: string[]; using: string; check: string }[]
     >`
       select tablename as table, lower(cmd) as command, roles::text[] as roles, qual as using, with_check as check
-      from pg_policies where schemaname = 'public'`;
+      from pg_policies where schemaname = 'public' and permissive = 'PERMISSIVE'`;
     // As Postgres prints a condition, and as the table writes it: no casts to text, `in` for `= any (array[...])` and
     // `not in` for `<> all (array[...])`.
     const condition = (printed: string | null) =>
@@ -486,8 +489,10 @@ describe("Martin's commands", () => {
     await expect(insert(db.owner, 'factory_admin')).rejects.toThrow('records the role that appends an event');
     // Nor may a worker take one of Martin's roles.
     await expect(db.as.line`set role factory_admin`).rejects.toThrow('permission denied');
-    // The console's server does not see who appended an event.
-    await expect(db.reader`select appended_by from events`).rejects.toThrow('permission denied');
+    // The console's server sees who appended an event, a role's name, so it can count a refusal by who recorded it.
+    const read = await db.reader<{ appended_by: string }[]>`
+      select appended_by from events where seq in ${db.reader([mine?.seq ?? 0, answer?.seq ?? 0])} order by seq`;
+    expect(read.map((row) => row.appended_by)).toEqual(['factory_line', 'factory_admin']);
   });
 });
 
@@ -536,6 +541,193 @@ describe("the line's record of a release", () => {
     await insert(db.operator, 'release.rolled-back', true);
     await insert(db.as.line, 'release.rolled-back', true);
     await expect(insert(db.as.triage, 'release.rolled-back', true)).rejects.toThrow('row-level security');
+  });
+});
+
+describe('a refusal', () => {
+  /** The guardrails a mechanism shows, or the repository's for one that is no mechanism. */
+  const shown = (mechanism: string): number[] =>
+    mechanism in REFUSALS
+      ? [...new Set(Object.values(REFUSALS[mechanism as RefusalMechanism].guardrails).flat())]
+      : [1];
+
+  /**
+   * A refusal by a mechanism, inserted as it stands, real or a sample, as any client could try: with the guardrails
+   * its mechanism shows (none, for `null`), and a public view that names them, unless it says otherwise.
+   */
+  const refuse = (
+    sql: Sql,
+    mechanism: string,
+    sample: boolean,
+    {
+      version = 3,
+      guardrails = shown(mechanism) as unknown,
+      seen = {} as Record<string, unknown>,
+    }: { version?: number; guardrails?: unknown; seen?: Record<string, unknown> } = {},
+  ) => {
+    const payload = {
+      mechanism,
+      action: 'An action',
+      output: 'Refused.',
+      ...(guardrails !== null && { guardrails }),
+    };
+    const view = { summary: 'Refused', payload: { ...payload, ...seen }, artifacts: [] };
+    return sql`
+      insert into events (id, ts, work_item, type, version, actor, summary, payload, artifacts, public, sample)
+      values (${crypto.randomUUID()}, now(), '3300', 'action.refused', ${version}, 'factory', 'Refused',
+              ${sql.json(payload as JSONValue)}, '[]', ${sql.json(view as JSONValue)}, ${sample})`;
+  };
+
+  it('is held to its mechanism’s roles by the table in policy/refusals.ts, mechanism by mechanism', async () => {
+    const mechanisms = [...REFUSAL_MECHANISMS, 'not-a-mechanism'];
+    const rows = await db.owner<{ mechanism: string; roles: string[] }[]>`
+      select mechanism, refusal_appenders(mechanism) as roles from unnest(${mechanisms}::text[]) as mechanism`;
+    expect(Object.fromEntries(rows.map((row) => [row.mechanism, [...row.roles].sort()]))).toEqual({
+      ...Object.fromEntries(
+        Object.entries(REFUSALS).map(([mechanism, rule]) => [mechanism, [...rule.appendedBy].sort()]),
+      ),
+      'not-a-mechanism': [],
+    });
+  });
+
+  it('shows only the guardrails policy/refusals.ts gives its mechanism, mechanism by mechanism', async () => {
+    const mechanisms = [...REFUSAL_MECHANISMS, 'not-a-mechanism'];
+    const rows = await db.owner<{ mechanism: string; guardrails: number[] }[]>`
+      select mechanism, refusal_guardrails(mechanism) as guardrails from unnest(${mechanisms}::text[]) as mechanism`;
+    expect(Object.fromEntries(rows.map((row) => [row.mechanism, [...row.guardrails].sort((a, b) => a - b)]))).toEqual({
+      ...Object.fromEntries(REFUSAL_MECHANISMS.map((m) => [m, shown(m).sort((a, b) => a - b)])),
+      'not-a-mechanism': [],
+    });
+  });
+
+  it('is held by the restrictive policies on the store, for every role', async () => {
+    const restrictive = await db.owner<
+      { name: string; table: string; command: string; roles: string[]; check: string }[]
+    >`
+      select policyname as name, tablename as table, lower(cmd) as command, roles::text[] as roles,
+             with_check as check
+      from pg_policies where schemaname = 'public' and permissive = 'RESTRICTIVE' order by policyname`;
+    // As the table writes it: no casts to text, on one line, and no parentheses round the whole.
+    const check = (printed: string) =>
+      printed
+        .replaceAll('::text', '')
+        .replace(/\s+/g, ' ')
+        .replace(/^\((.*)\)$/, '$1');
+    expect(restrictive.map((policy) => ({ ...policy, check: check(policy.check) }))).toEqual([
+      {
+        name: 'events_refused_as_it_reads',
+        table: 'events',
+        command: 'insert',
+        roles: ['public'],
+        check: REFUSAL_READS,
+      },
+      {
+        name: 'events_refused_by_its_mechanism',
+        table: 'events',
+        command: 'insert',
+        roles: ['public'],
+        check: REFUSAL_ROWS,
+      },
+    ]);
+  });
+
+  it('reads in the console as it was appended, under its own mechanism’s guardrails', async () => {
+    const real = await freshDatabase('refusals_read');
+    try {
+      const line = real.as.line;
+      // The public view names another mechanism, or other guardrails, than the refusal.
+      await expect(refuse(line, 'scope-fence', false, { seen: { mechanism: 'admission-control' } })).rejects.toThrow(
+        'row-level security',
+      );
+      await expect(refuse(line, 'scope-fence', false, { seen: { guardrails: [3] } })).rejects.toThrow(
+        'row-level security',
+      );
+      await expect(refuse(line, 'scope-fence', false, { seen: { mechanism: undefined } })).rejects.toThrow(
+        'row-level security',
+      );
+      // Guardrails its mechanism does not show, none, or not a list of them.
+      for (const guardrails of [[3], [11, 1], [11, 11], [], 11, ['11'], null]) {
+        await expect(refuse(line, 'scope-fence', false, { guardrails }), JSON.stringify(guardrails)).rejects.toThrow(
+          'row-level security',
+        );
+      }
+      await expect(refuse(real.as.gateway, 'gateway', false, { guardrails: [6, 1] })).rejects.toThrow(
+        'row-level security',
+      );
+      // Before version 3 a refusal named no guardrails, and only version 2's mechanisms.
+      await expect(refuse(real.as.gateway, 'gateway', false, { version: 2, guardrails: null })).rejects.toThrow(
+        'row-level security',
+      );
+      // Nor any guardrails, in its payload and its public view alike.
+      for (const guardrails of [[11], [1], 'any']) {
+        await expect(
+          refuse(line, 'scope-fence', false, { version: 2, guardrails }),
+          `version 2 ${JSON.stringify(guardrails)}`,
+        ).rejects.toThrow('row-level security');
+      }
+      await refuse(line, 'scope-fence', false, { version: 2, guardrails: null });
+      await refuse(line, 'admission-control', false, { guardrails: [4] });
+      await refuse(real.as.gateway, 'gateway', false, { guardrails: [9] });
+      const stored = await real.owner<{ mechanism: string }[]>`
+        select payload->>'mechanism' as mechanism from events order by seq`;
+      expect(stored.map((row) => row.mechanism)).toEqual(['scope-fence', 'admission-control', 'gateway']);
+    } finally {
+      await real.end();
+    }
+  });
+
+  it('is appended by its mechanism’s roles alone, Martin’s and the console’s refused, in a real store', async () => {
+    const real = await freshDatabase('refusals');
+    try {
+      const roles: [string, Sql][] = [
+        ...Object.entries(real.as).map(([name, sql]): [string, Sql] => [`factory_${name}`, sql]),
+        ['factory_admin', real.admin],
+        ['factory_operator', real.operator],
+        ['factory_enrol', real.enrol],
+        ['scoreboard_writer', real.scoreboard],
+        ['console_reader', real.reader],
+      ];
+      const appended: string[] = [];
+      for (const mechanism of [...REFUSAL_MECHANISMS, 'not-a-mechanism']) {
+        for (const [role, sql] of roles) {
+          const allowed = REFUSAL_MECHANISMS.some((m) => m === mechanism && mayAppend(m, role));
+          if (allowed) {
+            await refuse(sql, mechanism, false);
+            appended.push(`${mechanism} ${role}`);
+          } else {
+            await expect(refuse(sql, mechanism, false), `${mechanism} from ${role}`).rejects.toThrow(
+              /row-level security|permission denied|the scoreboard appends its own figures/,
+            );
+          }
+        }
+      }
+      const stored = await real.owner<{ mechanism: string; appended_by: string }[]>`
+        select payload->>'mechanism' as mechanism, appended_by from events order by seq`;
+      expect(stored.map((row) => `${row.mechanism} ${row.appended_by}`)).toEqual(appended);
+      expect(appended).toEqual([
+        'token-permission factory_line',
+        'admission-control factory_line',
+        'scope-fence factory_line',
+        'github-guard factory_line',
+        'review-gate factory_line',
+        'gateway factory_gateway',
+        'typed-judgement factory_triage',
+      ]);
+      // Any other event is as it was: a worker appends it whatever its payload names.
+      await real.as.probes`
+        insert into events (id, ts, work_item, type, version, actor, summary, payload, artifacts, public, sample)
+        values (${crypto.randomUUID()}, now(), '3300', 'work-item.summarised', 1, 'planner', 'A summary',
+                ${real.as.probes.json({ mechanism: 'gateway' })}, '[]', '{}', false)`;
+    } finally {
+      await real.end();
+    }
+  });
+
+  it("is appended as a sample by Martin's command line too, for `make samples`, and by no other role for another", async () => {
+    await refuse(db.operator, 'admission-control', true);
+    await refuse(db.as.line, 'scope-fence', true);
+    await expect(refuse(db.as.triage, 'scope-fence', true)).rejects.toThrow('row-level security');
+    await expect(refuse(db.admin, 'scope-fence', true)).rejects.toThrow('row-level security');
   });
 });
 

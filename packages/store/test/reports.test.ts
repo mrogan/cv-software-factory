@@ -181,7 +181,7 @@ describe('forgetting reports', () => {
     const full = await readFull(db.owner, 0);
     expect(full.every((read) => read.understood)).toBe(true);
     for (const { event } of full) {
-      const { seq: _seq, ...appended } = event;
+      const { seq: _seq, appended_by: _appendedBy, ...appended } = event as typeof event & { appended_by?: string };
       expect(validate(appended), `${event.seq} ${event.type}`).toEqual({ ok: true });
     }
     expect((await readPublic(db.reader, 0)).length).toBe(full.length);
