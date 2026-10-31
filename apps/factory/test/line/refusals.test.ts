@@ -16,6 +16,7 @@ import {
   type KubeEvent,
   LineRefusals,
   lastAdmissionRefusal,
+  MOST_AT_ONCE,
 } from '../../src/line/refusals.ts';
 import type { Kube } from '../../src/runners/kube.ts';
 import { recordBytes, recordHash, signRecord } from '../../src/signed-refusals.ts';
@@ -210,8 +211,11 @@ describe('the denials an Event records', () => {
 });
 
 describe('the admission reader', () => {
-  /** The cluster's Events, by namespace, as the line lists them; and a store whose last admission refusal is `last`. */
-  function cluster(last: Date | null = null) {
+  /**
+   * The cluster's Events, by namespace, as the line lists them; and a store whose last admission refusals were at
+   * `last`, with these actions.
+   */
+  function cluster(last: Date | null = null, actions = ['Admit Pod factory/another, refused by factory-images']) {
     const lists = new Map<string, KubeEvent[]>();
     const asked: string[] = [];
     const kube: Pick<Kube, 'get'> = {
@@ -222,7 +226,7 @@ describe('the admission reader', () => {
         return { items: lists.get(namespace) ?? [] } as T;
       },
     };
-    const sql = (async () => [{ at: last }]) as unknown as Sql;
+    const sql = (async () => (last ? actions.map((action) => ({ at: last, action })) : [])) as unknown as Sql;
     const denied: Denial[] = [];
     const reader = new AdmissionReader({
       kube,
@@ -278,6 +282,36 @@ describe('the admission reader', () => {
     expect(denied.map((d) => d.at.toISOString())).toEqual(['2026-10-31T12:00:40.000Z', '2026-10-31T12:00:30.000Z']);
   });
 
+  it('takes an Event in the second it stopped at as new, unless it recorded that one then', async () => {
+    const at = new Date(T);
+    const recorded = 'Admit Pod factory/unsigned, refused by factory-images';
+    const { lists, denied, reader } = cluster(at, [recorded]);
+    lists.set('default', [
+      blocked(),
+      blocked({
+        metadata: { uid: 'same-second', namespace: 'default' },
+        related: { kind: 'Pod', namespace: 'factory', name: 'also-unsigned' },
+      }),
+    ]);
+    await reader.look();
+    expect(denied.map((d) => [d.action, d.at.toISOString()])).toEqual([
+      ['Admit Pod factory/also-unsigned, refused by factory-images', '2026-10-31T12:00:00.000Z'],
+    ]);
+  });
+
+  it('records a flood of one Event’s tries a bounded number at a look, and the rest at the looks after', async () => {
+    const { lists, denied, reader } = cluster();
+    lists.set('runners', [failedCreate({ count: MOST_AT_ONCE * 2 + 5 })]);
+    await reader.look();
+    expect(denied).toHaveLength(MOST_AT_ONCE);
+    await reader.look();
+    expect(denied).toHaveLength(MOST_AT_ONCE * 2);
+    await reader.look();
+    expect(denied).toHaveLength(MOST_AT_ONCE * 2 + 5);
+    await reader.look();
+    expect(denied).toHaveLength(MOST_AT_ONCE * 2 + 5);
+  });
+
   it('keeps what it saw in a namespace it could not list, so its Events are not taken as new when it can', async () => {
     const { lists, denied, reader } = cluster();
     lists.set('runners', [failedCreate()]);
@@ -301,7 +335,7 @@ describe('the line’s refusals in the store', () => {
       artifacts: new DiskArtifacts(mkdtempSync(join(tmpdir(), 'artifacts-'))),
     });
     const refusals = new LineRefusals({ events, log: pino({ level: 'silent' }), key: publicKey });
-    expect(await lastAdmissionRefusal(database.as.line)).toEqual(new Date(0));
+    expect(await lastAdmissionRefusal(database.as.line)).toEqual({ at: new Date(0), actions: new Set() });
     // On no work item: the store takes a refusal on one only once it has been opened.
     refusals.relay(answered({ number: 12 }), {});
     const denial = denialOf(blocked());
@@ -319,6 +353,9 @@ describe('the line’s refusals in the store', () => {
       { mechanism: 'admission-control', count: 2, appended_by: 'factory_line' },
     ]);
     // The folded repeats' last, so the reader starting again takes nothing it recorded.
-    expect(await lastAdmissionRefusal(database.as.line)).toEqual(new Date('2026-10-31T12:00:07Z'));
+    expect(await lastAdmissionRefusal(database.as.line)).toEqual({
+      at: new Date('2026-10-31T12:00:07Z'),
+      actions: new Set([denial.action]),
+    });
   });
 });

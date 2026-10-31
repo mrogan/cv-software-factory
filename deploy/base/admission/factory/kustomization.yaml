@@ -1,11 +1,13 @@
 # `factory-images`: the factory's namespaces. `factory` runs the workers, the console, Postgres and the migrations;
 # `runners` the agents' steps, which the line starts from the runner image it is pinned to. The `try-the-line` skill
 # switches this copy, and only this one, to Audit for a run on images built on the Mac, and Argo CD puts it back.
+# `factory-refusal-key` holds the GitHub worker's public key to `make refusal-key`, and nothing switches it.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namePrefix: factory-
 resources:
   - ../images
+  - refusal-key.yaml
 patches:
   - target:
       kind: ImageValidatingPolicy

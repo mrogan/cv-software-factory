@@ -24,7 +24,8 @@
  *   key) record no Event at all: their refusals reach only whoever asked, and are not recorded here.
  *
  * Events are kept for an hour. The line lists them every few seconds, and remembers each one's count, so each try is
- * recorded once while it runs; when it starts, it takes only what came after the last admission refusal it recorded.
+ * recorded once while it runs; when it starts, it takes only what came after the last admission refusal it recorded,
+ * and what came in that same second that it had not recorded: an Event's time is to the second, so two can share one.
  */
 import type { KeyObject } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -272,8 +273,11 @@ export function denialOf(event: KubeEvent): Omit<Denial, 'at'> | undefined {
   return undefined;
 }
 
-/** The most tries of one Event recorded at one look: a controller's backs off, so more is a count gone wrong. */
-const MOST_AT_ONCE = 100;
+/**
+ * The most tries of one Event recorded at one look: a controller's backs off, so more is a count gone wrong, or one
+ * written to flood the line. The rest wait for the looks after it, so none is lost, and each look's work is bounded.
+ */
+export const MOST_AT_ONCE = 100;
 
 export interface AdmissionReaderOptions {
   kube: Pick<Kube, 'get'>;
@@ -289,10 +293,10 @@ export interface AdmissionReaderOptions {
  */
 export class AdmissionReader {
   readonly #o: AdmissionReaderOptions;
-  /** Each Event seen, by its uid, with how many times it had happened when last seen. */
+  /** Each Event seen, by its uid, with how many of the times it had happened are recorded. */
   #seen = new Map<string, number>();
   /** Only what happened after this is new when it starts: the last admission refusal it recorded. */
-  #since: Date | undefined;
+  #since: Watermark | undefined;
   #failing = false;
 
   constructor(options: AdmissionReaderOptions) {
@@ -302,6 +306,7 @@ export class AdmissionReader {
   /** Looks once: lists the Events, and records what is new. A namespace it cannot list is logged, once until it can. */
   async look(): Promise<void> {
     this.#since ??= await lastAdmissionRefusal(this.#o.sql);
+    const since = this.#since;
     const lists = [
       ...GUARDED_NAMESPACES.map((namespace) => ({ namespace, reason: 'FailedCreate' })),
       { namespace: KYVERNO_EVENTS, reason: 'PolicyViolation' },
@@ -327,25 +332,26 @@ export class AdmissionReader {
     const seen = new Map<string, number>();
     for (const event of listed) {
       const times = timesOf(event);
-      seen.set(event.metadata.uid, times);
       const before = this.#seen.get(event.metadata.uid);
       const denial = denialOf(event);
-      if (!denial) continue;
-      const fresh =
-        before !== undefined
-          ? times - before
-          : lastOf(event) <= this.#since
-            ? 0
-            : firstOf(event) > this.#since
-              ? times
-              : 1;
+      if (!denial) {
+        seen.set(event.metadata.uid, times);
+        continue;
+      }
       const at = lastOf(event);
-      if (fresh > MOST_AT_ONCE)
+      // Recorded before it started: before the last it recorded, or in that second and recorded then.
+      const recorded =
+        at < since.at || (at.getTime() === since.at.getTime() && since.actions.has(cutTo(denial.action, 200)));
+      const fresh = before !== undefined ? times - before : recorded ? 0 : firstOf(event) > since.at ? times : 1;
+      const now = Math.min(fresh, MOST_AT_ONCE);
+      // What it leaves for the next look is not yet counted as seen, so that look records it.
+      seen.set(event.metadata.uid, times - (fresh - now));
+      if (fresh > now)
         this.#o.log.warn(
-          { uid: event.metadata.uid, tries: fresh, recorded: MOST_AT_ONCE },
-          'recorded only some of a denial’s tries',
+          { uid: event.metadata.uid, tries: fresh, recorded: now },
+          'recording a denial’s tries over the looks to come',
         );
-      for (let i = 0; i < Math.min(fresh, MOST_AT_ONCE); i++) this.#o.refusals.denied({ ...denial, at });
+      for (let i = 0; i < now; i++) this.#o.refusals.denied({ ...denial, at });
     }
     // An Event no longer listed has gone, and one whose namespace failed to list is kept until it lists again.
     if (!failed) this.#seen = seen;
@@ -366,10 +372,22 @@ export class AdmissionReader {
   }
 }
 
-/** When the last admission refusal the line recorded happened, its last repeat's time if folded, or the start of time. */
-export async function lastAdmissionRefusal(sql: Sql): Promise<Date> {
-  const [row] = await sql<{ at: Date | null }[]>`
-    select max(greatest(ts, coalesce((payload ->> 'lastAt')::timestamptz, ts))) as at from events
-    where type = 'action.refused' and payload ->> 'mechanism' = 'admission-control' and appended_by = current_user`;
-  return row?.at ?? new Date(0);
+/** Where the line's record of admission refusals ends: when the last happened, and what it recorded then. */
+export interface Watermark {
+  /** When the last admission refusal it recorded happened, its last repeat's time if folded, or the start of time. */
+  at: Date;
+  /** The actions of those it recorded at that time: an Event of another, in the same second, is still to record. */
+  actions: Set<string>;
+}
+
+/** Where the line's record of admission refusals ends. */
+export async function lastAdmissionRefusal(sql: Sql): Promise<Watermark> {
+  const rows = await sql<{ at: Date; action: string }[]>`
+    with mine as (
+      select greatest(ts, coalesce((payload ->> 'lastAt')::timestamptz, ts)) as at, payload ->> 'action' as action
+      from events
+      where type = 'action.refused' and payload ->> 'mechanism' = 'admission-control' and appended_by = current_user
+    )
+    select at, action from mine where at = (select max(at) from mine)`;
+  return { at: rows[0]?.at ?? new Date(0), actions: new Set(rows.map((row) => row.action)) };
 }

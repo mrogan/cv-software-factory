@@ -256,17 +256,18 @@ describe('admission control', () => {
     expect((await policy()).spec.validationActions).toEqual(['Deny']);
     // Only each policy sets its own mode: the images policy, the app's routes' (admin-fences.test.ts), the mark's
     // (mark-fences.test.ts), the admin service's hold on the app's Rollout (release-fences.test.ts), the holds on
-    // `flags` and on the admin service's stages (flag-fences.test.ts) and on `share-key` (share-fences.test.ts), which
-    // deny too. The `try-the-line` skill switches `factory-images` to Audit on the cluster for a run, and Argo CD puts it
-    // back; no manifest here does.
+    // `flags` and on the admin service's stages (flag-fences.test.ts), on `share-key` (share-fences.test.ts) and on
+    // `refusal-key` (refusal-fences.test.ts), which deny too. The `try-the-line` skill switches `factory-images` to
+    // Audit on the cluster for a run, and Argo CD puts it back; no manifest here does.
     // Nothing switches `website-images`, `scoreboard-images`, `flagd-images`, `website-routes`, `website-mark`,
-    // `website-rollout-controls`, `website-share-key`, `flagd-flags` or `flagd-flag-stages`.
+    // `website-rollout-controls`, `website-share-key`, `factory-refusal-key`, `flagd-flags` or `flagd-flag-stages`.
     const policies = [
       join('base', 'admission', 'images', 'policy.yaml'),
       join('base', 'admission', 'website', 'routes.yaml'),
       join('base', 'admission', 'website', 'mark.yaml'),
       join('base', 'admission', 'website', 'rollout-controls.yaml'),
       join('base', 'admission', 'website', 'share-key.yaml'),
+      join('base', 'admission', 'factory', 'refusal-key.yaml'),
       join('base', 'admission', 'flagd', 'flags.yaml'),
       join('base', 'admission', 'flagd', 'flag-stages.yaml'),
     ];

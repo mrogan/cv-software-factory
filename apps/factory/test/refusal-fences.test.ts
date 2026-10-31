@@ -1,14 +1,15 @@
+import { execFileSync } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parse } from 'yaml';
+import { parse, parseAllDocuments } from 'yaml';
 import { GUARDED_NAMESPACES, KYVERNO_EVENTS } from '../src/line/refusals.ts';
 import { DEPLOY, manifests as deployManifests } from './deploy.ts';
 
 /**
  * The fences around the refusals the line records for mechanisms with no role in the store (deviation 5, 7), as
- * deploy/ declares them: the GitHub worker's signing key, read by its pod alone; its public half, read by the line; and
- * the line's read of admission control's denials, which is a list of Events in the guarded namespaces and Kyverno's,
+ * deploy/ declares them: the GitHub worker's signing key, read by its pod alone; its public half, read by the line and
+ * written by `make refusal-key`'s user alone; and the line's read of admission control's denials, which is a list of Events in the guarded namespaces and Kyverno's,
  * and nothing more.
  */
 interface Container {
@@ -23,6 +24,14 @@ interface Manifest {
   roleRef?: { apiGroup?: string; kind?: string; name?: string };
   subjects?: unknown[];
   spec?: {
+    // An admission policy's, and its binding's
+    failurePolicy?: string;
+    matchConstraints?: unknown;
+    matchConditions?: { name: string; expression: string }[];
+    variables?: { name: string; expression: string }[];
+    validations?: { expression: string }[];
+    policyName?: string;
+    validationActions?: string[];
     template?: {
       spec: { automountServiceAccountToken?: boolean; containers: Container[]; initContainers?: Container[] };
     };
@@ -69,10 +78,55 @@ describe('the GitHub worker’s signing key', () => {
       name: 'REFUSAL_PUBLIC_KEY',
       valueFrom: { configMapKeyRef: { name: CONFIG_MAP, key: 'public-key', optional: true } },
     });
-    const reading = (await manifests()).filter(({ manifest }) =>
+    // Only the line names it, but for the admission policy that holds it, below.
+    const naming = (await manifests()).filter(({ manifest }) =>
       JSON.stringify(manifest).includes(`"name":"${CONFIG_MAP}"`),
     );
-    expect(reading.map(({ file }) => file)).toEqual(['base/factory/line.yaml']);
+    expect(naming.map(({ file, manifest }) => `${file} ${manifest.kind}`).sort()).toEqual([
+      'base/admission/factory/refusal-key.yaml ValidatingAdmissionPolicy',
+      'base/admission/factory/refusal-key.yaml ValidatingAdmissionPolicyBinding',
+      'base/factory/line.yaml Deployment',
+    ]);
+  });
+
+  it('may be made, changed or deleted by make refusal-key’s user alone, by a policy that holds everyone else', async () => {
+    const policy = (await manifests()).find(
+      ({ manifest }) => manifest.kind === 'ValidatingAdmissionPolicy' && manifest.metadata?.name === CONFIG_MAP,
+    );
+    expect(policy?.file).toBe('base/admission/factory/refusal-key.yaml');
+    const spec = policy?.manifest.spec;
+    expect(spec?.failurePolicy).toBe('Fail');
+    expect(spec?.matchConstraints).toEqual({
+      namespaceSelector: {
+        matchExpressions: [{ key: 'kubernetes.io/metadata.name', operator: 'In', values: ['factory'] }],
+      },
+      resourceRules: [
+        { apiGroups: [''], apiVersions: ['*'], operations: ['CREATE', 'UPDATE', 'DELETE'], resources: ['configmaps'] },
+      ],
+    });
+    // It names the ConfigMap, and no requester: Argo CD's and an administrator's requests are held too.
+    expect(spec?.matchConditions).toEqual([
+      {
+        name: CONFIG_MAP,
+        expression: `(request.operation == 'DELETE' ? oldObject : object).metadata.name == '${CONFIG_MAP}'`,
+      },
+    ]);
+    // The user the local kubeconfig names, whose client certificate k3s issues as `CN=system:admin`.
+    expect(spec?.variables).toEqual([{ name: 'writer', expression: "'system:admin'" }]);
+    expect(spec?.validations?.map((v) => v.expression)).toEqual([
+      "request.userInfo.username == variables.writer || (request.operation == 'DELETE' && has(namespaceObject.metadata.deletionTimestamp))",
+    ]);
+    // Rendered as Argo CD deploys it: with the factory's admission copy, and bound to deny.
+    const rendered = parseAllDocuments(
+      execFileSync('kustomize', ['build', join(DEPLOY, 'base/admission/factory')], { encoding: 'utf-8' }),
+    ).map((doc) => doc.toJS() as Manifest);
+    const binding = rendered.find(
+      (r) => r.kind === 'ValidatingAdmissionPolicyBinding' && r.metadata?.name === 'factory-refusal-key',
+    );
+    expect(binding?.spec).toEqual({ policyName: 'factory-refusal-key', validationActions: ['Deny'] });
+    expect(
+      rendered.some((r) => r.kind === 'ValidatingAdmissionPolicy' && r.metadata?.name === 'factory-refusal-key'),
+    ).toBe(true);
   });
   it('is in no manifest: make refusal-key makes both, through stdin, and make up runs it', async () => {
     const made = (await manifests()).filter(
