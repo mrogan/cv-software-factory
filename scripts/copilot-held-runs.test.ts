@@ -193,9 +193,24 @@ describe('a pass', () => {
     const lines: string[] = [];
     await sweep(fake, true, (line) => lines.push(line));
     expect(removed).toEqual([]);
-    expect(lines).toContain(
-      `::warning::More than ${PAGES * 100} runs of review.yml are action_required: the rest wait.`,
-    );
+    expect(lines).toContain(`::warning::review.yml has ${PAGES * 100} runs action_required or more: any more wait.`);
+  });
+
+  it('deletes what it found when a listing fails, and reports the listing', async () => {
+    const { fake, removed } = github([{ ...HELD_GATE, jobs: 0 }]);
+    const failing: GitHub = {
+      ...fake,
+      runs: async (file, conclusion, page) => {
+        if (file === 'review-requested.yml') throw new Error('GET runs: 502 Bad Gateway');
+        return fake.runs(file, conclusion, page);
+      },
+    };
+    const outcome = await sweep(failing, false, () => {});
+    expect(removed).toEqual([HELD_GATE.id]);
+    expect(outcome.failed).toEqual([
+      { list: 'review-requested.yml action_required', error: 'GET runs: 502 Bad Gateway' },
+      { list: 'review-requested.yml failure', error: 'GET runs: 502 Bad Gateway' },
+    ]);
   });
 
   it('goes on past a run it could not delete, and one gone already, and reports both', async () => {

@@ -154,6 +154,8 @@ describe('every workflow', () => {
   });
 
   it('checks out nothing but main’s own files where a secret or a write to Actions is: a sparse copy at its commit', () => {
+    // Every workflow that holds a secret is here, so a new one with no list of its own fails.
+    for (const file of Object.keys(WITH_A_SECRET)) expect(Object.keys(CHECKED_OUT), file).toContain(file);
     for (const file of Object.keys(CHECKED_OUT)) {
       const steps = Object.values(read(file).jobs).flatMap((job) => job.steps ?? []);
       const checkouts = steps.filter((s) => s.uses?.startsWith('actions/checkout@'));
@@ -210,6 +212,13 @@ describe('every workflow', () => {
     expect(jobs[0]?.if).toBe("github.ref == 'refs/heads/main'");
     const runs = (jobs[0]?.steps ?? []).filter((step) => step.run !== undefined).map((step) => step.run);
     expect(runs).toEqual(['node scripts/copilot-held-runs.ts']);
+    // The token, which may delete any run, goes to the script and to GitHub's own checkout, which needs it to fetch:
+    // no third-party action is handed it, mise's included.
+    const steps = jobs[0]?.steps ?? [];
+    const handed = steps.filter((step) => JSON.stringify(step).includes('github.token'));
+    expect(handed.map((step) => step.run)).toEqual(['node scripts/copilot-held-runs.ts']);
+    const mise = steps.find((step) => step.uses?.startsWith('jdx/mise-action@'));
+    expect(mise?.with?.github_token).toBe('');
   });
 });
 

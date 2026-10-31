@@ -39,7 +39,8 @@ export const CONCLUSIONS = ['action_required', 'failure'] as const;
 /**
  * How many pages of a hundred runs each listing reads at most, so a run of this ends whatever GitHub answers. There is
  * no window in time: the first run deletes every held run left since the gate began, about a hundred, and each run
- * after only those held since the last.
+ * after only those held since the last. Beyond a thousand of a workflow's runs with one conclusion, the rest, the
+ * oldest, wait for a later pass, which finds them once those ahead are gone.
  */
 export const PAGES = 10;
 
@@ -97,7 +98,8 @@ export interface Outcome {
   deleted: number[];
   gone: number[];
   kept: number[];
-  failed: { id: number; error: string }[];
+  /** A run that could not be deleted, by id, or a listing that could not be read, by workflow and conclusion. */
+  failed: ({ id: number; error: string } | { list: string; error: string })[];
 }
 
 /**
@@ -109,12 +111,18 @@ export async function sweep(github: GitHub, dryRun: boolean, log: (line: string)
   const found = new Map<number, Run>();
   for (const file of WORKFLOWS) {
     for (const conclusion of CONCLUSIONS) {
-      for (let page = 1; page <= PAGES; page++) {
-        const runs = await github.runs(file, conclusion, page);
-        for (const run of runs) if (heldForCopilot(run)) found.set(run.id, run);
-        if (runs.length < 100) break;
-        if (page === PAGES)
-          log(`::warning::More than ${PAGES * 100} runs of ${file} are ${conclusion}: the rest wait.`);
+      try {
+        for (let page = 1; page <= PAGES; page++) {
+          const runs = await github.runs(file, conclusion, page);
+          for (const run of runs) if (heldForCopilot(run)) found.set(run.id, run);
+          if (runs.length < 100) break;
+          if (page === PAGES) log(`::warning::${file} has ${PAGES * 100} runs ${conclusion} or more: any more wait.`);
+        }
+      } catch (error) {
+        // What was found is still deleted; the rest of this listing waits for the next pass.
+        const said = error instanceof Error ? error.message : String(error);
+        outcome.failed.push({ list: `${file} ${conclusion}`, error: said });
+        log(`::warning::Could not list the runs of ${file} that are ${conclusion}: ${said}`);
       }
     }
   }
@@ -149,7 +157,7 @@ export async function sweep(github: GitHub, dryRun: boolean, log: (line: string)
 /** GitHub's REST API, with the workflow's token. */
 export function rest(repo: string, token: string, base = 'https://api.github.com'): GitHub {
   const call = async (method: string, path: string) => {
-    const response = await fetch(`${base}/repos/${repo}${path}`, {
+    return fetch(`${base}/repos/${repo}${path}`, {
       method,
       headers: {
         accept: 'application/vnd.github+json',
@@ -157,7 +165,6 @@ export function rest(repo: string, token: string, base = 'https://api.github.com
         'x-github-api-version': '2022-11-28',
       },
     });
-    return response;
   };
   const read = async <T>(path: string): Promise<T> => {
     const response = await call('GET', path);
