@@ -1124,9 +1124,10 @@ export const PAYLOADS = {
   /**
    * Martin controlled the canary from the console, and the admin service made the change to the app's Rollout: promoted
    * it to the next step's weight or fully, paused it, gave it back to its analysis, aborted it, or retried a release
-   * that was stopped; or he stopped the line from the console, and the admin service aborted the canary in flight with
+   * that was stopped or rolled back; or he stopped the line from the console, and the admin service aborted the canary in flight with
    * it (`stop`). Appended once the change is made, never for one that failed. The line goes on recording what the
-   * Rollout then does: after his abort, `release.aborted` with `by: martin`, and after Stop the line's, `by: stop`.
+   * Rollout then does: after his abort, `release.aborted` with `by: martin`, or `release.rolled-back` with `by: martin`
+   * of a canary the analysis judged bad, and after Stop the line's, `release.aborted` with `by: stop`.
    */
   'release.controlled': z
     .strictObject({
