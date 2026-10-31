@@ -1,0 +1,25 @@
+# A throwaway probe for #706, never merged: can a workflow's own token, with `actions: write` and nothing else, delete
+# a run of Copilot's that GitHub holds for approval? It deletes two such runs, one on a pull request's commit and one on
+# main's, and prints what GitHub answers.
+name: held run probe
+
+on:
+  pull_request:
+
+permissions:
+  actions: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Delete the held runs
+        run: |
+          for run in 41186894051 41151503048; do
+            echo "run $run before: $(gh api "repos/$GH_REPO/actions/runs/$run" -q '"\(.name) \(.triggering_actor.login) \(.conclusion)"' 2>&1)"
+            echo "delete $run: $(gh api -X DELETE "repos/$GH_REPO/actions/runs/$run" -i 2>&1 | head -1)"
+          done
