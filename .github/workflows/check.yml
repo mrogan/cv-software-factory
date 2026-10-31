@@ -91,7 +91,7 @@ jobs:
       # mise itself at one named release in every workflow (scripts/toolchain.test.ts). With mise.lock beside mise.toml,
       # the action installs with `--locked`: the versions and checksums the lock holds, and it fails when the lock has
       # none for a request, rather than resolve that day's release.
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           version: 2026.10.17
           install_args: node pnpm kustomize
@@ -116,7 +116,7 @@ jobs:
       # The store's tests start their own Postgres, the image the cluster runs, from CI's copy of it
       # (scripts/ci-images.sh).
       - run: echo "TEST_POSTGRES_IMAGE=$(scripts/ci-images.sh postgres)" >> "$GITHUB_ENV"
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           version: 2026.10.17
           # kustomize, step and promtool for the tests that render the manifests, make a local certificate authority
@@ -286,7 +286,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           version: 2026.10.17
           install_args: node pnpm
