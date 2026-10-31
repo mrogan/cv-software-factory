@@ -6,6 +6,7 @@
 /deploy/                     @mrogan
 /scripts/github-settings.ts  @mrogan
 /scripts/review-gate.ts      @mrogan
+/scripts/copilot-held-runs.ts @mrogan
 /AGENTS.md                   @mrogan
 
 # What ships, and what may be installed

@@ -1,0 +1,63 @@
+# Deletes the runs of the review gate's workflows that GitHub held for Copilot (scripts/copilot-held-runs.ts), every
+# half hour and by hand, so none leaves a red cross on a pull request's commit or on main.
+#
+# GitHub treats Copilot as an outside contributor, so a review of Copilot's that leaves comments starts a run of
+# `review requested` that is held for approval before any job starts, and fails when its pull request closes; that run
+# starts `review` on main's head as Copilot, held too. Neither has anything to judge, as only Martin's reviews count,
+# and no condition in a workflow can stop them. The script deletes a run only of those two workflows, by their files,
+# started and triggered by Copilot's account, held or failed, with no job: a fork's held run waits for Martin's approval
+# as before. It reads the runs' ids, workflow files, actors and conclusions through the API, and nothing of a run
+# reaches a shell.
+#
+# The token may write Actions, which deleting a run needs, and read this public repository's contents, for the
+# checkout; nothing else, and no secret or App. Of the steps, only GitHub's checkout and the script hold it. It checks
+# out main's copy of the script and the toolchain's pins, and nothing else. Only `schedule` and `workflow_dispatch`
+# start it, so it never runs for a pull request. The schedule runs main's copy; a dispatch elsewhere would run that
+# branch's, which only someone who may push a workflow can make, so the job refuses any ref but main's to keep the
+# two alike.
+#
+# Not named for the review gate: review.yml's `workflow_run` matches the workflow it follows by name.
+name: copilot held runs
+
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: copilot-held-runs
+  cancel-in-progress: false
+
+jobs:
+  delete:
+    name: delete held runs
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      # This workflow's own commit, main's: the script and the toolchain's pins, nothing else.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ job.workflow_sha }}
+          sparse-checkout: |
+            mise.toml
+            mise.lock
+            scripts/copilot-held-runs.ts
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      # Without the workflow's token, which may delete any run. Node comes from nodejs.org and mise from its release,
+      # neither of which needs it.
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          version: 2026.10.17
+          install_args: node
+          github_token: ''
+      - name: Delete Copilot's held runs of the review gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/copilot-held-runs.ts
