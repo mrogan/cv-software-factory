@@ -126,6 +126,7 @@ describe('the canary bird', () => {
         reason: 'Metric "latency" assessed Failed',
         failed: [],
         dryRun: false,
+        by: 'analysis',
       });
     expect(reactions(rolled.events).slice(1)).toEqual([{ kind: 'sour' }, { kind: 'keel' }]);
     const aborted = work('1')

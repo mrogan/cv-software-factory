@@ -100,6 +100,7 @@ Martin is alerted to each of his security events, at its kind's level, counted f
 | `new-work-on`, `new-work-off` | `controls.changed` that lets agents take new work, or stops them | Notify, Inform |
 | `auto-merge-on`, `auto-merge-off` | `controls.changed` that turns auto-merge of low-risk changes on or off | Notify, Inform |
 | `take-widened`, `take-narrowed` | `controls.changed` that widens or narrows what the line takes | Notify, Inform |
+| `auto-rollback-off`, `auto-rollback-on` | `controls.changed` that turns auto-rollback off, so a canary judged bad pauses for him, or on | Page, Inform |
 | `phone-on`, `phone-off` | `alerts.switched` that sends every alert to his phone, or none | Inform, Page |
 | `flag-widened`, `flag-narrowed`, `flag-off` | `flag.staged` that widens a feature flag (to Checks too, and turning one back on for everyone), narrows it, or turns it off | Notify, Inform, Inform |
 | `improvement-requested` | every `improvement.requested`, from the console's "+" | Notify |
@@ -107,7 +108,7 @@ Martin is alerted to each of his security events, at its kind's level, counted f
 
 Giving the passkey again (`admin.stepped-up`) alerts no one, though the audit log keeps it: every action that needs it alerts as its own kind, and the sign-in before it informs him.
 
-Every change of the line's controls alerts him, each told from the stored change's before and after alone (`policy/line.ts`), as every change of the settings does, and every move of a feature flag, from its stages before and after alone (`policy/flag-moves.ts`). Auto-rollback off, which the access table marks too, has no event until Part C gives it a switch, and a test fails until it is counted.
+Every change of the line's controls alerts him, each told from the stored change's before and after alone (`policy/line.ts`), as every change of the settings does, and every move of a feature flag, from its stages before and after alone (`policy/flag-moves.ts`).
 
 - **Each kind has its level** (`SECURITY_LEVELS` in `apps/factory/src/alerts/rules.ts`, typed so a new kind cannot go without one). What loosens a guardrail, changes who can sign in, or keeps alerts from his phone, pages him; what widens what the line does (asking for an improvement, or approving its spec, sets it building something new), or acts on a release, notifies him; what tightens, or only records his own use, informs him, but for tightening autonomy, which notifies him. Every kind still reaches his phone: only how loudly differs.
 - **One rule for each kind** alerts when its count rises: the first of a kind too, as each count starts at 0. Several of a kind within five minutes are one message.
@@ -141,6 +142,7 @@ The admin service is the one service of ours that changes the flags, the app's R
 - **Not being able to compare pages too,** after ten minutes, for each of the three in words of its own, with the line as its worker (`line_admin_actions_compared` at 0): meanwhile a change none records would reach no one. A comparison that takes over ten seconds counts as not made, so the SDK never drops the collection and sends the last figures as if compared. The line's log says why.
 - **Each reads only the line's own series,** as the security events' alerts do, and only what it sent in the last minute: its series come over OTLP, with no staleness marker, so a line replaced since would otherwise be read for five minutes more.
 - **`PhoneOff` mutes it,** as it mutes every alert with a level, and only while the admin service and the line both report the phone off ([alerts to the phone](#alerts-to-the-phone)). So a compromised admin service cannot quiet it alone: muting it takes both pods, or an `alerts.switched` in the store that switches the phone off, which pages Martin (`phone-off`) whatever the switch says.
+- **Auto-rollback** is compared in Prometheus, where both of its series are: the admin service's word on it (`admin_auto_rollback`, from its pod) against the line's read of Martin's latest switch in the store (`line_auto_rollback`, from its), each from a sample in the last minute. Differing either way for two minutes pages him (`AdminActionUncounted`, `action="auto-rollback"`): the admin service reports what he did not record, or cannot read the store. Each reads the store again at every export, so they differ only for a moment after a switch. With either missing there is nothing to compare, and a bad canary rolls back ([progressive delivery](PROGRESSIVE-DELIVERY.md#auto-rollback)).
 - **Proved** by `apps/factory/test/line/admin-actions.test.ts`, against a store and a fake Kubernetes, and by `promtool` in `apps/factory/test/factory-alerts.test.ts`.
 
 ## Holds

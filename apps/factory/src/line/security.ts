@@ -20,7 +20,8 @@
  * - `line-stopped`: every `line.stopped`, which tightens and so needs no passkey again, but which Martin is still told of;
  * - every change of the line's controls (`controls.changed`), as the access table's action it is, told from the
  *   stored change's before and after alone (`policy/line.ts`): `autonomy-loosened` and `autonomy-tightened`,
- *   `new-work-on` and `new-work-off`, `auto-merge-on` and `auto-merge-off`, `take-widened` and `take-narrowed`;
+ *   `new-work-on` and `new-work-off`, `auto-merge-on` and `auto-merge-off`, `take-widened` and `take-narrowed`,
+ *   `auto-rollback-off` (which overrides a guardrail, and pages) and `auto-rollback-on`;
  * - every move of a feature flag's stage (`flag.staged`), as the access table's action it is, told from the stored
  *   stages before and after alone (`policy/flag-moves.ts`): `flag-widened` for every widening (Off to Checks, past it,
  *   a larger share, and turning a flag back on for everyone), `flag-narrowed`, and `flag-off`;
@@ -67,6 +68,8 @@ export const SECURITY_KINDS = [
   'auto-merge-off',
   'take-widened',
   'take-narrowed',
+  'auto-rollback-off',
+  'auto-rollback-on',
   'flag-widened',
   'flag-narrowed',
   'flag-off',
@@ -147,6 +150,8 @@ const CONTROL_KINDS: Record<ControlAction, SecurityKind> = {
   'auto-merge.off': 'auto-merge-off',
   'take.widen': 'take-widened',
   'take.narrow': 'take-narrowed',
+  'auto-rollback.off': 'auto-rollback-off',
+  'auto-rollback.on': 'auto-rollback-on',
 };
 
 /** A stored change, if it is one as the event's schema has it, so a malformed row is counted as nothing. */

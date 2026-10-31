@@ -940,6 +940,7 @@ describe('the release controls', () => {
             reason: 'Metric "errors" assessed Failed',
             failed: [],
             dryRun: false,
+            by: 'analysis',
           },
   });
 
@@ -1690,6 +1691,7 @@ describe('the line’s controls', () => {
         newWork: true,
         autoMerge: false,
         take: null,
+        autoRollback: true,
         change: { control: 'new-work', before: false, after: true },
         ...controls,
       }),
@@ -1731,7 +1733,7 @@ describe('the line’s controls', () => {
     expect(await browser.post('/admin/line/controls', { autonomy: 'guarded' })).toEqual({
       status: 200,
       body: {
-        controls: { autonomy: 'guarded', newWork: true, autoMerge: false, take: null },
+        controls: { autonomy: 'guarded', newWork: true, autoMerge: false, take: null, autoRollback: true },
         change: { control: 'autonomy', before: 'supervised', after: 'guarded' },
       },
     });
@@ -1786,6 +1788,45 @@ describe('the line’s controls', () => {
     expect((await changes()).at(-1)?.summary).toBe('Martin turned on auto-merge of low-risk changes');
     const other = (await signedIn()).browser;
     expect(await other.post('/admin/line/controls', { autoMerge: false })).toMatchObject({ status: 200 });
+  });
+
+  it('turns auto-rollback off only with the passkey again, and on without, as one public event each', async () => {
+    await stored({});
+    const { browser, passkey } = await signedIn();
+    const before = (await changes()).length;
+    expect(await browser.post('/admin/line/controls', { autoRollback: false })).toMatchObject({
+      status: 403,
+      body: { refused: 'step-up' },
+    });
+    expect(await changes()).toHaveLength(before);
+    expect((await stepUp(browser, passkey)).status).toBe(200);
+    expect(await browser.post('/admin/line/controls', { autoRollback: false })).toMatchObject({
+      status: 200,
+      body: { controls: { autoRollback: false }, change: { control: 'auto-rollback', before: true, after: false } },
+    });
+    const off = (await changes()).at(-1);
+    expect(off).toMatchObject({
+      appended_by: 'factory_admin',
+      summary: 'Martin turned off auto-rollback: a canary judged bad pauses for him',
+      payload: { autoRollback: false, change: { control: 'auto-rollback', before: true, after: false } },
+    });
+    // Off again records nothing.
+    expect(await browser.post('/admin/line/controls', { autoRollback: false })).toMatchObject({
+      status: 200,
+      body: { change: null },
+    });
+    expect(await changes()).toHaveLength(before + 1);
+    // On tightens, and asks for nothing: another session, never stepped up, turns it on.
+    const other = (await signedIn()).browser;
+    expect(await other.post('/admin/line/controls', { autoRollback: true })).toMatchObject({ status: 200 });
+    expect((await changes()).at(-1)?.summary).toBe(
+      'Martin turned on auto-rollback: a canary judged bad rolls back by itself',
+    );
+    // Every other control keeps it as it stands.
+    expect(await other.post('/admin/line/controls', { newWork: false })).toMatchObject({
+      status: 200,
+      body: { controls: { autoRollback: true } },
+    });
   });
 
   it('asks for the passkey again to widen what the line takes, and not to narrow it, counting the next few from each time he chooses them', async () => {
@@ -1906,7 +1947,7 @@ describe('the line’s controls', () => {
         body: { refused: 'policy' },
       });
     }
-    for (const body of [{}, { newWork: true, autoMerge: true }, { autoRollback: false }, { autonomy: 'yolo' }]) {
+    for (const body of [{}, { newWork: true, autoMerge: true }, { autoRollback: 'off' }, { autonomy: 'yolo' }]) {
       expect(await browser.post('/admin/line/controls', body), JSON.stringify(body)).toMatchObject({
         status: 400,
         body: { refused: 'body' },

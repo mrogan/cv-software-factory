@@ -175,6 +175,24 @@ serverFiles:
               summary: "The line takes less"
               description: "What the line takes was narrowed in the console."
           - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"auto-rollback-off\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "page"
+              kind: "auto-rollback-off"
+            annotations:
+              summary: "Auto-rollback was turned off"
+              description: "Auto-rollback was turned off in the console: a canary the analysis judges bad now pauses for you to promote or abort, rather than rolling back by itself. Stop the line still aborts one."
+          - alert: SecurityEvent
+            expr: "max(increase(line_security_events_total{kind=\"auto-rollback-on\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
+            for: 0s
+            labels:
+              level: "inform"
+              kind: "auto-rollback-on"
+            annotations:
+              summary: "Auto-rollback was turned on"
+              description: "Auto-rollback was turned on in the console: a canary the analysis judges bad rolls back by itself."
+          - alert: SecurityEvent
             expr: "max(increase(line_security_events_total{kind=\"flag-widened\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[5m])) > 0"
             for: 0s
             labels:
@@ -297,6 +315,15 @@ serverFiles:
             annotations:
               summary: "The line is not comparing the sessions"
               description: "For ten minutes the line has not been able to compare the sessions with the events that record them, so a change none records would not reach you. The line’s log says why."
+          - alert: AdminActionUncounted
+            expr: "max(last_over_time(admin_auto_rollback{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"admin\"}[1m])) != on () max(last_over_time(line_auto_rollback{k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}[1m]))"
+            for: 2m
+            labels:
+              level: "page"
+              action: "auto-rollback"
+            annotations:
+              summary: "Auto-rollback differs from your switch"
+              description: "The admin service says auto-rollback is one way and your latest switch in the store says the other: it reports what you did not record, or cannot read the store. A canary is paused for you only while both say off. Controls shows the switch as recorded: switch it there, which records it, and look in the admin service's log."
           - alert: AlertmanagerSilenced
             expr: "max(alertmanager_silences{state=~\"active|pending\"}) > 0"
             for: 0s
@@ -432,6 +459,14 @@ serverFiles:
             annotations:
               summary: "#{{ $labels.work_item }} waits for your deploy"
               description: "{{ if $labels.pull_request }}Its fix is merged, and the deploy pull request that carries it has passed its checks.{{ else }}Its release was aborted or erred, and waits for your retry.{{ end }}"
+          - alert: HoldWaits
+            expr: "((max by (work_item, cause, pull_request) (label_replace(line_hold_age_seconds{cause=\"canary\", work_item=~\"[1-9][0-9]*\", pull_request=~\"|[1-9][0-9]*\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}, \"pull_request\", \"\", \"pull_request\", \"[1-9][0-9]{9,}\")) > 0 < 1800) unless (max by (work_item, cause, pull_request) (label_replace(line_hold_age_seconds{cause=\"canary\", work_item=~\"[1-9][0-9]*\", pull_request=~\"|[1-9][0-9]*\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"} offset 30m, \"pull_request\", \"\", \"pull_request\", \"[1-9][0-9]{9,}\")) == max by (work_item, cause, pull_request) (label_replace(line_hold_age_seconds{cause=\"canary\", work_item=~\"[1-9][0-9]*\", pull_request=~\"|[1-9][0-9]*\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}, \"pull_request\", \"\", \"pull_request\", \"[1-9][0-9]{9,}\")))) or (max by (work_item, cause, pull_request) (label_replace(line_hold_age_seconds{cause=\"canary\", work_item=~\"[1-9][0-9]*\", pull_request=~\"|[1-9][0-9]*\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}, \"pull_request\", \"\", \"pull_request\", \"[1-9][0-9]{9,}\")) > 0 unless max by (work_item, cause, pull_request) (label_replace(line_hold_age_seconds{cause=\"canary\", work_item=~\"[1-9][0-9]*\", pull_request=~\"|[1-9][0-9]*\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"} offset 30m, \"pull_request\", \"\", \"pull_request\", \"[1-9][0-9]{9,}\")) > 0)"
+            for: 0s
+            labels:
+              level: "notify"
+            annotations:
+              summary: "#{{ $labels.work_item }} waits for you: a canary paused"
+              description: "With auto-rollback off, the analysis judged its canary bad, and it keeps its share of the traffic until you promote it fully or abort it."
           - alert: HoldWaits
             expr: "((max by (work_item, cause, pull_request) (label_replace(line_hold_age_seconds{cause=\"verify\", work_item=~\"[1-9][0-9]*\", pull_request=~\"|[1-9][0-9]*\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}, \"pull_request\", \"\", \"pull_request\", \"[1-9][0-9]{9,}\")) > 0 < 1800) unless (max by (work_item, cause, pull_request) (label_replace(line_hold_age_seconds{cause=\"verify\", work_item=~\"[1-9][0-9]*\", pull_request=~\"|[1-9][0-9]*\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"} offset 30m, \"pull_request\", \"\", \"pull_request\", \"[1-9][0-9]{9,}\")) == max by (work_item, cause, pull_request) (label_replace(line_hold_age_seconds{cause=\"verify\", work_item=~\"[1-9][0-9]*\", pull_request=~\"|[1-9][0-9]*\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}, \"pull_request\", \"\", \"pull_request\", \"[1-9][0-9]{9,}\")))) or (max by (work_item, cause, pull_request) (label_replace(line_hold_age_seconds{cause=\"verify\", work_item=~\"[1-9][0-9]*\", pull_request=~\"|[1-9][0-9]*\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"}, \"pull_request\", \"\", \"pull_request\", \"[1-9][0-9]{9,}\")) > 0 unless max by (work_item, cause, pull_request) (label_replace(line_hold_age_seconds{cause=\"verify\", work_item=~\"[1-9][0-9]*\", pull_request=~\"|[1-9][0-9]*\", k8s_namespace_name=\"factory\", k8s_pod_label_app_kubernetes_io_name=\"line\"} offset 30m, \"pull_request\", \"\", \"pull_request\", \"[1-9][0-9]{9,}\")) > 0)"
             for: 0s

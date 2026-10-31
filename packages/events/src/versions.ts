@@ -35,14 +35,14 @@ export const VERSIONS = {
   'canary.stepped': 2,
   'canary.measuring': 1,
   'release.promoted': 2,
-  'release.rolled-back': 3,
+  'release.rolled-back': 4,
   'release.aborted': 1,
   'release.errored': 1,
   'verification.finished': 4,
   'signal.rechecked': 1,
   // Anywhere on the line
   'work.returned': 3,
-  'hold.started': 9,
+  'hold.started': 10,
   'hold.answered': 2,
   'action.refused': 2,
   'model.called': 2,
@@ -63,7 +63,7 @@ export const VERSIONS = {
   // Martin's settings: each agent's model and effort, and the spend caps (the admin service)
   'settings.changed': 1,
   // Martin's controls of the line: the autonomy level, the switches, and what the line takes (the admin service)
-  'controls.changed': 1,
+  'controls.changed': 2,
   // Whether alerts reach Martin's phone (the admin service)
   'alerts.switched': 1,
   // Martin's stage of a feature flag (the admin service), Verify's comparison of its two sides at the share stage, and
@@ -103,6 +103,21 @@ export const LINE_TYPES: readonly EventType[] = [
  */
 export const RELEASE_TYPES: readonly EventType[] = [
   'release.started',
+  'canary.stepped',
+  'canary.measuring',
+  'release.promoted',
+  'release.rolled-back',
+  'release.aborted',
+  'release.errored',
+];
+
+/**
+ * The line's record of what a release did: the types only the line's role may append (row security on `events`,
+ * `0039_release-events-the-lines.sql`), save samples from Martin's command line. The rollback proof, the line's
+ * security count and the console's Canary panel trust them for that, and read only those `factory_line` appended. A
+ * release's start is not among them: the line records it, and nothing trusts it but beside these.
+ */
+export const LINE_ONLY_TYPES: readonly EventType[] = [
   'canary.stepped',
   'canary.measuring',
   'release.promoted',

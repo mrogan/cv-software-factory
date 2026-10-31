@@ -7,6 +7,7 @@ import { listenOn } from '../listen.ts';
 import { log } from '../log.ts';
 import { type KubeWriter, kubeFrom } from '../runners/kube.ts';
 import { createAdminApp } from './app.ts';
+import { observeAutoRollback } from './auto-rollback.ts';
 import type { AdminConfig } from './config.ts';
 import { FlagStages } from './flags.ts';
 import { FlagsHeld, observeHeld } from './flags-held.ts';
@@ -94,6 +95,8 @@ export async function startAdmin(
   held?.start();
   const unobserve = held && observeHeld(held);
   const unobservePhone = observePhone(sql, config.profile, log);
+  // Whether auto-rollback is on: the canary's analysis pauses a bad canary only while this and the line's say off.
+  const unobserveAutoRollback = observeAutoRollback(sql, log);
   const bound = (server.address() as AddressInfo).port;
   log.info(
     {
@@ -111,6 +114,7 @@ export async function startAdmin(
   const stop = async () => {
     unobserve?.();
     unobservePhone();
+    unobserveAutoRollback();
     await held?.stop();
     await events.stop();
     await new Promise<void>((resolve) => {

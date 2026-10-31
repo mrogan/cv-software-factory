@@ -1,4 +1,11 @@
-import { ANSWERS, HOLD_CAUSES, type HoldCause, type PayloadOf, WORDS_LEAVE_HELD } from '@software-factory/events';
+import {
+  ANSWERS,
+  answersTo,
+  HOLD_CAUSES,
+  type HoldCause,
+  type PayloadOf,
+  WORDS_LEAVE_HELD,
+} from '@software-factory/events';
 import { describe, expect, it } from 'vitest';
 import {
   acceptedFindings,
@@ -513,6 +520,7 @@ const rolledBack = (id = RELEASE): LineEvent => ({
     reason: 'Metric "errors" assessed Failed',
     failed: [{ name: 'errors', phase: 'failed', value: 0.04, limit: 0.01 }],
     dryRun: false,
+    by: 'analysis',
   },
 });
 const aborted = (by: 'stop' | 'martin', id = RELEASE): LineEvent => ({
@@ -964,8 +972,11 @@ describe('Martin’s answer to a hold', () => {
     expect(decide(verify, facts).next).toEqual({ do: 'verified', verification: undefined });
   });
 
-  it('closes the work item when he rejects it, whatever the cause', () => {
-    for (const cause of HOLD_CAUSES) {
+  it('closes the work item when he rejects it, whatever the cause, but a canary paused for him', () => {
+    // A canary paused for Martin is answered from the Canary panel, never by a hold's answer: the admin service takes
+    // none (`answersTo`), and the line would wait after one.
+    expect(answersTo('canary')).toEqual([]);
+    for (const cause of HOLD_CAUSES.filter((c) => c !== 'canary')) {
       expect(decide([ticket, spec, held(cause, 'build'), answer('rejected', 'Not worth it')], facts)).toEqual({
         stage: 'held',
         next: { do: 'close', reason: 'Martin rejected it: Not worth it', merged: false },

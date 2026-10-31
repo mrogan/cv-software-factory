@@ -57,7 +57,8 @@ export const LINE_STEP_UP = { 'line.start': true, 'line.stop': false } as const;
 
 /**
  * Which changes of the line's controls ask for the passkey again: a looser autonomy level (`autonomy.loosen`),
- * auto-merge turned on (`auto-merge.on`) and a wider take (`take.widen`). Which action a change is, is
+ * auto-merge turned on (`auto-merge.on`), a wider take (`take.widen`) and auto-rollback turned off
+ * (`auto-rollback.off`). Which action a change is, is
  * `controlAction`'s in `policy/line.ts`, which the admin service decides by too.
  */
 export const CONTROL_STEP_UP: Record<ControlAction, boolean> = {
@@ -69,6 +70,8 @@ export const CONTROL_STEP_UP: Record<ControlAction, boolean> = {
   'auto-merge.off': false,
   'take.widen': true,
   'take.narrow': false,
+  'auto-rollback.off': true,
+  'auto-rollback.on': false,
 };
 
 /** Switching alerts to the phone off asks for the passkey again (`phone.off`); switching them on never does. */

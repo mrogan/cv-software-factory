@@ -89,6 +89,7 @@ export default new Item('1276', '2026-10-02T08:10:00+01:00')
       },
     ],
     dryRun: false,
+    by: 'analysis',
   })
   .at('15:55', 'work-item.closed', 'factory', 'Closed: rolled back', {
     outcome: 'rolled-back',

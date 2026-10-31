@@ -100,6 +100,9 @@ describe('the count of Martin’s security events', () => {
     });
     await append(admin, 'controls.changed', { change: { control: 'take', before: null, after: { kind: 'every' } } });
     await append(admin, 'controls.changed', { change: { control: 'new-work', before: true, after: false } });
+    await append(admin, 'controls.changed', { change: { control: 'auto-rollback', before: true, after: false } });
+    await append(admin, 'controls.changed', { change: { control: 'auto-rollback', before: false, after: true } });
+    await append(admin, 'controls.changed', { change: { control: 'auto-rollback', before: true, after: false } });
     await append(admin, 'flag.staged', { from: { stage: 'off' }, to: { stage: 'checks' } });
     await append(admin, 'flag.staged', { from: { stage: 'checks' }, to: { stage: 'share', share: 50 } });
     await append(admin, 'flag.staged', { from: { stage: 'share', share: 50 }, to: { stage: 'preview' } });
@@ -129,6 +132,8 @@ describe('the count of Martin’s security events', () => {
       'auto-merge-off': 0,
       'take-widened': 1,
       'take-narrowed': 0,
+      'auto-rollback-off': 2,
+      'auto-rollback-on': 1,
       'flag-widened': 2,
       'flag-narrowed': 1,
       'flag-off': 1,
@@ -266,8 +271,7 @@ describe('what counts as a security event', () => {
   });
 
   it('counts every action that needs the passkey again, or names the event it waits for', () => {
-    // Each action the access table marks, by the kind its event is counted as. Auto-rollback has no switch, and so no
-    // event, until Part C gives it one: it joins the count then, and this test fails until it does.
+    // Each action the access table marks, by the kind its event is counted as.
     const counted: Record<string, string> = {
       'passkey.revoke': 'passkey-revoked',
       'hold.approve-guardrail': 'guardrail-approved',
@@ -278,7 +282,7 @@ describe('what counts as a security event', () => {
       'caps.raise': 'setting-changed',
       'autonomy.loosen': 'autonomy-loosened',
       'auto-merge.on': 'auto-merge-on',
-      'auto-rollback.off': 'no event yet',
+      'auto-rollback.off': 'auto-rollback-off',
       'take.widen': 'take-widened',
       'flag.widen': 'flag-widened',
       'flag.back-on': 'flag-widened',
@@ -292,7 +296,7 @@ describe('what counts as a security event', () => {
     expect(Object.keys(counted).sort()).toEqual(marked.sort());
     // Giving the passkey again is not counted itself: each action it allows is.
     expect(countAs({ type: 'admin.stepped-up' })).toBeNull();
-    for (const kind of Object.values(counted).filter((kind) => kind !== 'no event yet')) {
+    for (const kind of Object.values(counted)) {
       expect(SECURITY_KINDS).toContain(kind);
     }
   });
@@ -337,7 +341,8 @@ describe('what counts as a security event', () => {
     expect(changed({ control: 'take', before: one, after: { kind: 'every' } })).toEqual({ kind: 'take-widened' });
     expect(changed({ control: 'take', before: { kind: 'every' }, after: one })).toEqual({ kind: 'take-narrowed' });
     expect(changed({ control: 'take', before: null, after: one })).toEqual({ kind: 'take-widened' });
-    expect(changed({ control: 'auto-rollback', before: true, after: false })).toBeNull();
+    expect(changed({ control: 'auto-rollback', before: true, after: false })).toEqual({ kind: 'auto-rollback-off' });
+    expect(changed({ control: 'auto-rollback', before: false, after: true })).toEqual({ kind: 'auto-rollback-on' });
     expect(countAs({ type: 'controls.changed' })).toBeNull();
     // A malformed change is counted as nothing, and stops no count.
     expect(changed({ control: 'take', before: one, after: null })).toBeNull();

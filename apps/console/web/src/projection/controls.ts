@@ -95,6 +95,7 @@ export function changeAction(change: unknown): ControlAction | undefined {
       return isAutonomy(before) && isAutonomy(after) ? controlAction({ control, before, after }) : undefined;
     case 'new-work':
     case 'auto-merge':
+    case 'auto-rollback':
       return typeof before === 'boolean' && typeof after === 'boolean'
         ? controlAction({ control, before, after })
         : undefined;

@@ -132,6 +132,8 @@ describe('the line’s controls', () => {
   it('tell which action a recorded change is, and none for one that is not a change', () => {
     expect(changeAction({ control: 'autonomy', before: 'supervised', after: 'guarded' })).toBe('autonomy.loosen');
     expect(changeAction({ control: 'auto-merge', before: true, after: false })).toBe('auto-merge.off');
+    expect(changeAction({ control: 'auto-rollback', before: true, after: false })).toBe('auto-rollback.off');
+    expect(changeAction({ control: 'auto-rollback', before: false, after: true })).toBe('auto-rollback.on');
     expect(changeAction({ control: 'take', before: null, after: { kind: 'just-one', workItem: '7' } })).toBe(
       'take.widen',
     );
@@ -141,7 +143,8 @@ describe('the line’s controls', () => {
       { control: 'new-work', before: 'yes', after: false },
       { control: 'take', before: { kind: 'every' }, after: null },
       { control: 'take', before: { kind: 'every' }, after: { kind: 'next-few', count: 99, since: '' } },
-      { control: 'auto-rollback', before: true, after: false },
+      { control: 'auto-rollback', before: true, after: 'off' },
+      { control: 'a-new-control', before: true, after: false },
     ]) {
       expect(changeAction(change), JSON.stringify(change)).toBeUndefined();
     }

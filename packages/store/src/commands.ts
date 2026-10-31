@@ -4,7 +4,7 @@
  * `actor: martin` proves nothing by itself: the line, triage and the gateway act on an admin event only when one of
  * his roles appended it, and log any other once.
  */
-import { ADMIN_TYPES, VERSIONS } from '@software-factory/events';
+import { ADMIN_TYPES, upcast, VERSIONS } from '@software-factory/events';
 import type { Sql, TransactionSql } from 'postgres';
 import { MARTINS_ROLES } from '../../../policy/store-grants.ts';
 
@@ -59,14 +59,17 @@ export async function lineStopped(sql: Sql | TransactionSql): Promise<boolean> {
 
 /**
  * The payload of the latest `controls.changed` one of Martin's roles appended, that this code can read, or undefined:
- * the line's controls as he chose them, unchecked. `policy/line.ts`'s `controlsInForce` says what is in force.
+ * the line's controls as he chose them, read as the current version (one from before auto-rollback had a switch has it
+ * on), and otherwise unchecked. `policy/line.ts`'s `controlsInForce` says what is in force.
  */
 export async function latestControls(sql: Sql | TransactionSql): Promise<unknown> {
-  const [row] = await sql<{ payload: unknown }[]>`
-    select e.payload from events e
+  const [row] = await sql<{ version: number; payload: unknown }[]>`
+    select e.version, e.payload from events e
     where e.type = 'controls.changed' and e.version <= ${VERSIONS['controls.changed']} and ${fromMartin(sql, 'e')}
     order by e.seq desc limit 1`;
-  return row?.payload;
+  if (!row) return undefined;
+  const read = upcast({ type: 'controls.changed', version: row.version, payload: row.payload });
+  return read.ok ? read.event.payload : row.payload;
 }
 
 /**

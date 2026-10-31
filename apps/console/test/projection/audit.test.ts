@@ -278,7 +278,7 @@ describe('the detail under a row', () => {
 
   it('says when the passkey was given for a change of the line’s controls that loosens, and not for one that tightens', () => {
     const steppedUp = event(0, 'admin.stepped-up', 'martin', {});
-    const controls = { autonomy: 'guarded', newWork: true, autoMerge: false, take: null } as const;
+    const controls = { autonomy: 'guarded', newWork: true, autoMerge: false, take: null, autoRollback: true } as const;
     const changed = (change: PayloadOf<'controls.changed'>['change']) =>
       event(2, 'controls.changed', 'martin', { ...controls, change }, 'Martin changed a control');
     const marked = (change: PayloadOf<'controls.changed'>['change']) =>
@@ -287,6 +287,8 @@ describe('the detail under a row', () => {
     expect(marked({ control: 'autonomy', before: 'lights-out', after: 'guarded' })).toBe(false);
     expect(marked({ control: 'auto-merge', before: false, after: true })).toBe(true);
     expect(marked({ control: 'auto-merge', before: true, after: false })).toBe(false);
+    expect(marked({ control: 'auto-rollback', before: true, after: false })).toBe(true);
+    expect(marked({ control: 'auto-rollback', before: false, after: true })).toBe(false);
     expect(marked({ control: 'new-work', before: false, after: true })).toBe(false);
     expect(marked({ control: 'take', before: { kind: 'just-one', workItem: '7' }, after: { kind: 'every' } })).toBe(
       true,
@@ -297,9 +299,8 @@ describe('the detail under a row', () => {
   });
 
   it('marks every action the access table asks the passkey for, or names the event it waits for', () => {
-    // Each marked action, and events that record it. Auto-rollback has no switch, and so no event, until Part C gives
-    // it one: this test fails until the audit log marks it then.
-    const controls = { autonomy: 'guarded', newWork: true, autoMerge: false, take: null } as const;
+    // Each marked action, and events that record it.
+    const controls = { autonomy: 'guarded', newWork: true, autoMerge: false, take: null, autoRollback: true } as const;
     const control = (change: PayloadOf<'controls.changed'>['change']) => [
       event(2, 'controls.changed', 'martin', { ...controls, change }),
     ];
@@ -354,7 +355,7 @@ describe('the detail under a row', () => {
       'line.start': [event(2, 'line.started', 'martin', { reason: 'Back' })],
       'autonomy.loosen': control({ control: 'autonomy', before: 'supervised', after: 'guarded' }),
       'auto-merge.on': control({ control: 'auto-merge', before: false, after: true }),
-      'auto-rollback.off': 'no event yet',
+      'auto-rollback.off': control({ control: 'auto-rollback', before: true, after: false }),
       'take.widen': control({ control: 'take', before: null, after: { kind: 'every' } }),
       'release.promote': release('promote-fully'),
       'release.retry': release('retry'),

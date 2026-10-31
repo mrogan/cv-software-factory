@@ -22,11 +22,14 @@ spec:
           query: sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) or vector(0)
     - name: errors
       successCondition: len(result) == 0 || result[0] <= 0.01
+      failureCondition: len(result) != 2 && !(len(result) == 0 || result[0] <= 0.01)
       failureLimit: 0
+      inconclusiveLimit: 0
       provider:
         prometheus:
           address: http://prometheus-server.telemetry
           query: |-
+            (
             (
               (
                 (sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}", http_response_status_code=~"5.."}[3m])) or vector(0))
@@ -40,13 +43,38 @@ spec:
             or on () vector(Inf)
             )
             and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
+            )
+            or
+            (
+              label_replace(
+            (
+              (
+                (sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}", http_response_status_code=~"5.."}[3m])) or vector(0))
+                / sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m]))
+              )
+            -
+              (
+                (sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}", http_response_status_code=~"5.."}[3m])) or vector(0))
+                / sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}"}[3m]))
+              )
+            or on () vector(Inf)
+            )
+            and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
+              , "auto_rollback", "off", "", "")
+              and on ()
+            (count(last_over_time(admin_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="admin"}[1m])) == 1 and on () max(last_over_time(admin_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="admin"}[1m])) == 0)
+            and on () (count(last_over_time(line_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="line"}[1m])) == 1 and on () max(last_over_time(line_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="line"}[1m])) == 0)
+            )
     - name: latency
       successCondition: len(result) == 0 || result[0] <= 0
+      failureCondition: len(result) != 2 && !(len(result) == 0 || result[0] <= 0)
       failureLimit: 0
+      inconclusiveLimit: 0
       provider:
         prometheus:
           address: http://prometheus-server.telemetry
           query: |-
+            (
             (
               histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m])))
             -
@@ -57,6 +85,25 @@ spec:
             or on () vector(Inf)
             )
             and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
+            )
+            or
+            (
+              label_replace(
+            (
+              histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m])))
+            -
+              (
+                histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}"}[3m])))
+                + clamp_min(histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}"}[3m]))) * 0.25, 0.1)
+              )
+            or on () vector(Inf)
+            )
+            and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
+              , "auto_rollback", "off", "", "")
+              and on ()
+            (count(last_over_time(admin_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="admin"}[1m])) == 1 and on () max(last_over_time(admin_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="admin"}[1m])) == 0)
+            and on () (count(last_over_time(line_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="line"}[1m])) == 1 and on () max(last_over_time(line_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="line"}[1m])) == 0)
+            )
     - name: journeys
       failureLimit: 0
       provider:
@@ -138,11 +185,14 @@ spec:
     - name: errors
       interval: 1m
       successCondition: len(result) == 0 || result[0] <= 0.01
+      failureCondition: len(result) != 2 && !(len(result) == 0 || result[0] <= 0.01)
       failureLimit: 1
+      inconclusiveLimit: 1
       provider:
         prometheus:
           address: http://prometheus-server.telemetry
           query: |-
+            (
             (
               (
                 (sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}", http_response_status_code=~"5.."}[3m])) or vector(0))
@@ -156,14 +206,39 @@ spec:
             or on () vector(Inf)
             )
             and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
+            )
+            or
+            (
+              label_replace(
+            (
+              (
+                (sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}", http_response_status_code=~"5.."}[3m])) or vector(0))
+                / sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m]))
+              )
+            -
+              (
+                (sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}", http_response_status_code=~"5.."}[3m])) or vector(0))
+                / sum(rate(http_server_request_duration_seconds_count{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}"}[3m]))
+              )
+            or on () vector(Inf)
+            )
+            and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
+              , "auto_rollback", "off", "", "")
+              and on ()
+            (count(last_over_time(admin_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="admin"}[1m])) == 1 and on () max(last_over_time(admin_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="admin"}[1m])) == 0)
+            and on () (count(last_over_time(line_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="line"}[1m])) == 1 and on () max(last_over_time(line_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="line"}[1m])) == 0)
+            )
     - name: latency
       interval: 1m
       successCondition: len(result) == 0 || result[0] <= 0
+      failureCondition: len(result) != 2 && !(len(result) == 0 || result[0] <= 0)
       failureLimit: 1
+      inconclusiveLimit: 1
       provider:
         prometheus:
           address: http://prometheus-server.telemetry
           query: |-
+            (
             (
               histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m])))
             -
@@ -174,6 +249,25 @@ spec:
             or on () vector(Inf)
             )
             and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
+            )
+            or
+            (
+              label_replace(
+            (
+              histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.canary-hash}}"}[3m])))
+            -
+              (
+                histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}"}[3m])))
+                + clamp_min(histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="worlds-worst-website/website", http_route!="", k8s_pod_label_rollouts_pod_template_hash="{{args.stable-hash}}"}[3m]))) * 0.25, 0.1)
+              )
+            or on () vector(Inf)
+            )
+            and on () sum(increase(traefik_service_requests_total{service="website-website-canary-80@kubernetescrd"}[3m])) >= 100
+              , "auto_rollback", "off", "", "")
+              and on ()
+            (count(last_over_time(admin_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="admin"}[1m])) == 1 and on () max(last_over_time(admin_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="admin"}[1m])) == 0)
+            and on () (count(last_over_time(line_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="line"}[1m])) == 1 and on () max(last_over_time(line_auto_rollback{k8s_namespace_name="factory", k8s_pod_label_app_kubernetes_io_name="line"}[1m])) == 0)
+            )
     - name: journeys
       interval: 3m
       initialDelay: 90s

@@ -20,20 +20,26 @@ const next = (count: number): Take => ({ kind: 'next-few', count, since: SINCE }
 const one = (workItem: string): Take => ({ kind: 'just-one', workItem });
 
 describe('the controls in force', () => {
-  it('are policy’s defaults before Martin sets any: Supervised, new work, no auto-merge, and no take', () => {
+  it('are policy’s defaults before Martin sets any: Supervised, new work, no auto-merge, no take, and auto-rollback', () => {
     expect(controlsInForce()).toEqual({ ...DEFAULT_CONTROLS, outside: [] });
-    expect(DEFAULT_CONTROLS).toEqual({ autonomy: 'supervised', newWork: true, autoMerge: false, take: null });
+    expect(DEFAULT_CONTROLS).toEqual({
+      autonomy: 'supervised',
+      newWork: true,
+      autoMerge: false,
+      take: null,
+      autoRollback: true,
+    });
   });
 
   it('are what the latest event says, within policy', () => {
-    const chosen = { autonomy: 'guarded', newWork: false, autoMerge: true, take: next(3) };
+    const chosen = { autonomy: 'guarded', newWork: false, autoMerge: true, take: next(3), autoRollback: false };
     expect(controlsInForce(chosen)).toEqual({ ...chosen, outside: [] });
     expect(controlsInForce({ ...chosen, take: one('1290') }).take).toEqual(one('1290'));
     expect(controlsInForce({ ...chosen, take: next(TAKE.most) }).take).toEqual(next(TAKE.most));
   });
 
   it('leave out anything outside policy, field by field, for policy’s default', () => {
-    const chosen = { autonomy: 'guarded', newWork: false, autoMerge: true };
+    const chosen = { autonomy: 'guarded', newWork: false, autoMerge: true, autoRollback: false };
     for (const take of [
       next(0),
       next(TAKE.most + 1),
@@ -51,10 +57,15 @@ describe('the controls in force', () => {
         outside: ['take'],
       });
     }
-    expect(controlsInForce({ autonomy: 'yolo', newWork: 'yes', autoMerge: 1, take: null })).toEqual({
+    expect(controlsInForce({ autonomy: 'yolo', newWork: 'yes', autoMerge: 1, take: null, autoRollback: 0 })).toEqual({
       ...DEFAULT_CONTROLS,
-      outside: ['autonomy', 'newWork', 'autoMerge'],
+      outside: ['autonomy', 'newWork', 'autoMerge', 'autoRollback'],
     });
+    // Auto-rollback outside policy, or not said, is on: a bad canary rolls back.
+    expect(controlsInForce({ ...chosen, take: null, autoRollback: 'off' }).autoRollback).toBe(true);
+    expect(controlsInForce({ autonomy: 'guarded', newWork: true, autoMerge: false, take: null }).autoRollback).toBe(
+      true,
+    );
     expect(controlsInForce('guarded')).toEqual({ ...DEFAULT_CONTROLS, outside: [] });
   });
 });
@@ -87,6 +98,11 @@ describe('each change', () => {
     expect(change('new-work', false, true)).toBe('new-work.on');
     expect(change('auto-merge', false, true)).toBe('auto-merge.on');
     expect(change('auto-merge', true, false)).toBe('auto-merge.off');
+    // Auto-rollback off overrides a guardrail, so it loosens, and needs the passkey again; on asks for nothing.
+    expect(change('auto-rollback', true, false)).toBe('auto-rollback.off');
+    expect(change('auto-rollback', false, true)).toBe('auto-rollback.on');
+    expect(ACCESS['auto-rollback.off'].stepUp).toBe(true);
+    expect(ACCESS['auto-rollback.on'].stepUp).toBe(false);
   });
 
   it('widens a take to more kinds of work or a larger number, and narrows it the other way', () => {
