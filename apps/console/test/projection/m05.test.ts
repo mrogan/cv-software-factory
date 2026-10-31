@@ -280,6 +280,19 @@ describe('a refusal, by its mechanism', () => {
     expect(item?.failure?.stage).toBe('build');
   });
 
+  it('fails it at the stage it was at, for admission control refusing a runner’s step, and leaves it there', () => {
+    const runner = {
+      mechanism: 'admission-control',
+      guardrails: [3],
+      action: 'Create a pod for Job runners/coder-1-1-1-agent',
+      output: 'admission webhook "ivpol.kyverno.svc-fail" denied the request',
+      subject: { namespace: 'runners', kind: 'Job', name: 'coder-1-1-1-agent' },
+    } satisfies PayloadOf<'action.refused'>;
+    const item = foldItem(built().add(3, 'action.refused', 'factory', runner).events);
+    expect(item?.stage).toBe('build');
+    expect(item?.failure?.stage).toBe('build');
+  });
+
   it('moves it to its mechanism’s stage, and fails it there, for every other mechanism', () => {
     const item = foldItem(built().add(3, 'action.refused', 'factory', refused('review-gate', [2])).events);
     expect(item?.stage).toBe('gates');
